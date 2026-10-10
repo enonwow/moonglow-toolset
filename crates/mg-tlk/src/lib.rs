@@ -5,6 +5,8 @@
 //! writes the layout the game ships: header, entry table, strings in entry
 //! order.
 
+pub mod diff;
+
 use mg_core::bin::{BinError, Reader, WriteLe, slice};
 use mg_core::{Language, ResRef, StrRef};
 use thiserror::Error;

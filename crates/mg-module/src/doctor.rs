@@ -611,6 +611,33 @@ pub(crate) const STRREF_COLUMNS: [(&str, &str); 10] = [
     ("doortypes", "StringRefGame"),
 ];
 
+/// Columns that name a model, by table: the ones an object's appearance
+/// is checked through.
+const APPEARANCE_MODEL: (&str, &str) = ("appearance", "RACE");
+const PLACEABLE_MODEL: (&str, &str) = ("placeables", "ModelName");
+const GENERIC_DOOR_MODEL: (&str, &str) = ("genericdoors", "ModelName");
+const DOOR_MODEL: (&str, &str) = ("doortypes", "Model");
+const MODEL_COLUMNS: [(&str, &str); 4] =
+    [APPEARANCE_MODEL, PLACEABLE_MODEL, GENERIC_DOOR_MODEL, DOOR_MODEL];
+
+/// What a column of a 2DA holds, where the checks know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColumnKind {
+    /// A talk-table string's number.
+    StrRef,
+    /// A model's name.
+    Model,
+}
+
+/// The columns of the table `name` (without `.2da`) that the checks know
+/// the kind of: the same tables Verify Module reads them from.
+pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
+    let of = |list: &'static [(&'static str, &'static str)], kind: ColumnKind| {
+        list.iter().filter(|(t, _)| t.eq_ignore_ascii_case(name)).map(move |(_, c)| (*c, kind))
+    };
+    of(&STRREF_COLUMNS, ColumnKind::StrRef).chain(of(&MODEL_COLUMNS, ColumnKind::Model)).collect()
+}
+
 /// Rows past which Aurora fails, by table.
 const AURORA_ROW_LIMITS: [(&str, usize, &str); 2] = [
     ("baseitems", 256, "Aurora fails with an access violation"),
@@ -828,7 +855,14 @@ fn walk_objects(
                 && d.cell("appearance", v, "MODELTYPE")
                     .is_some_and(|t| !t.eq_ignore_ascii_case("P"))
             {
-                check(d, "Appearance_Type", "appearance", "RACE", "appearance", true);
+                check(
+                    d,
+                    "Appearance_Type",
+                    APPEARANCE_MODEL.0,
+                    APPEARANCE_MODEL.1,
+                    "appearance",
+                    true,
+                );
             }
             if let Some(Value::List(classes)) = s.get("ClassList") {
                 for (i, c) in classes.iter().enumerate() {
@@ -843,13 +877,22 @@ fn walk_objects(
                 }
             }
         }
-        Some(ResType::UTP) => check(d, "Appearance", "placeables", "ModelName", "appearance", true),
+        Some(ResType::UTP) => {
+            check(d, "Appearance", PLACEABLE_MODEL.0, PLACEABLE_MODEL.1, "appearance", true)
+        }
         Some(ResType::UTI) => check(d, "BaseItem", "baseitems", "label", "base item", false),
         Some(ResType::UTD) => {
             if int("Appearance") == Some(0) {
-                check(d, "GenericType", "genericdoors", "ModelName", "door appearance", true);
+                check(
+                    d,
+                    "GenericType",
+                    GENERIC_DOOR_MODEL.0,
+                    GENERIC_DOOR_MODEL.1,
+                    "door appearance",
+                    true,
+                );
             } else {
-                check(d, "Appearance", "doortypes", "Model", "door appearance", true);
+                check(d, "Appearance", DOOR_MODEL.0, DOOR_MODEL.1, "door appearance", true);
             }
         }
         _ => {}

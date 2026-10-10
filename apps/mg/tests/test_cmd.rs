@@ -1,0 +1,93 @@
+//! `mg test`: a module's test scripts run in the game's server, in a copy
+//! of the module; what they assert comes back as results.
+
+use std::path::Path;
+use std::process::Command;
+
+use serde_json::Value;
+
+const MATH: &str = r#"#include "mg_test"
+void main()
+{
+    Describe("math");
+    AssertEqualInt(1 + 1, 2, "adds");
+    AssertEqualInt(2 * 2, 5, "multiplies");
+    AssertEqualFloat(0.5 + 0.25, 0.75, "halves");
+    Describe("");
+    AssertEqualString(GetStringUpperCase("mg"), "MG", "upper case");
+    AssertValid(GetModule(), "the module");
+    Assert(GetIsObjectValid(GetFirstArea()), "an area", "the module has none");
+}
+"#;
+const OK: &str = "#include \"mg_test\"\nvoid main() { Pass(\"fine\"); }\n";
+const ENDLESS: &str = "void main() { int n = 0; while (TRUE) { n++; } }\n";
+
+fn mg(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
+    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
+        .arg("test")
+        .args(args)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    (out.status.success(), serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}: {text}")))
+}
+
+#[test]
+fn tests_run_in_the_server_and_report() {
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("mg-test");
+    let user = dir.join("user");
+    let tests = dir.join("tests");
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::create_dir_all(&tests).unwrap();
+    std::fs::write(tests.join("test_math.nss"), MATH).unwrap();
+    std::fs::write(tests.join("test_ok.nss"), OK).unwrap();
+    std::fs::write(tests.join("test_endless.nss"), ENDLESS).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let before = std::fs::read(&chess).unwrap();
+    let (c, t) = (chess.to_str().unwrap(), tests.to_str().unwrap());
+    let (served, junit) = (dir.join("served"), dir.join("results.xml"));
+    let common = ["--tests", t, "--dir", served.to_str().unwrap()];
+
+    let all = [&[c, "--junit", junit.to_str().unwrap()][..], &common[..]].concat();
+    let (ok, r) = mg(&root, &user, &all);
+    assert!(!ok && r["ok"] == false && r["done"] == true, "{r}");
+    assert_eq!(
+        (&r["passed"], &r["failed"], &r["errors"]),
+        (&6.into(), &1.into(), &1.into()),
+        "{r}"
+    );
+    let of = |name: &str| {
+        r["tests"].as_array().unwrap().iter().find(|t| t["script"] == name).unwrap().clone()
+    };
+    let math = of("test_math");
+    let failed: Vec<&Value> =
+        math["cases"].as_array().unwrap().iter().filter(|c| c["ok"] == false).collect();
+    assert_eq!(failed[0]["name"], "math: multiplies");
+    assert_eq!(failed[0]["detail"], "got 4, expected 5");
+    assert_eq!(math["cases"][3]["name"], "upper case");
+    let endless = of("test_endless");
+    let why = endless["error"].as_str().unwrap();
+    assert!(why.contains("TOO MANY INSTRUCTIONS"), "{why}");
+    assert_eq!(of("test_ok")["passed"], 1);
+    let xml = std::fs::read_to_string(&junit).unwrap();
+    assert!(xml.contains("<failure message=\"got 4, expected 5\"/>"), "{xml}");
+    // The module is as it was, and the player's folder got nothing.
+    assert!(std::fs::read(&chess).unwrap() == before);
+    assert_eq!(std::fs::read_dir(&user).unwrap().count(), 0);
+
+    // Those asked for alone: all pass.
+    let (ok, r) = mg(&root, &user, &[&[c, "--filter", "test_ok"][..], &common[..]].concat());
+    assert!(ok && r["ok"] == true && r["passed"] == 1 && r["tests"].as_array().unwrap().len() == 1);
+
+    // A test that does not compile: nothing is run.
+    std::fs::write(tests.join("test_broken.nss"), "void main() { nothing here }\n").unwrap();
+    let (ok, r) = mg(&root, &user, &[&[c][..], &common[..]].concat());
+    assert!(!ok && r["compile_errors"].as_array().unwrap().len() == 1, "{r}");
+    assert!(r["tests"].as_array().unwrap().is_empty());
+}

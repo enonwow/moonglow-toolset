@@ -551,7 +551,9 @@ impl Table {
     /// step, adding lines (empty ones between) for those past its end:
     /// all, or none if one is not a line the table can hold. Returns how
     /// many changed and how many were added.
-    fn import(
+    /// Sets the lines given, by row (the table grows to hold them): all
+    /// or nothing, one undo; the lines changed and added are returned.
+    pub fn import(
         &mut self,
         lines: std::collections::BTreeMap<usize, Line>,
     ) -> Result<(usize, usize), String> {

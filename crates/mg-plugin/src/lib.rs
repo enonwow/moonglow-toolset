@@ -18,6 +18,7 @@ mod files;
 mod manifest;
 mod package;
 mod runtime;
+mod tables;
 mod terrain;
 
 use std::collections::BTreeMap;

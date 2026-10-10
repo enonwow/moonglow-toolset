@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:28:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:20:39Z }
 ---
 
 # Scripts
@@ -101,7 +101,9 @@ The buttons:
   alone. It remembers from one session to the next (in Moonglow's own
   data folder, not in the module), and compiles them all again when the
   haks, the content folders, the compiler or its settings change, or
-  where a compiled script is no longer the one it made.
+  where a compiled script is no longer the one it made. `mg compile`
+  remembers in the same place, so each passes over what the other
+  compiled (with the built-in compiler).
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.

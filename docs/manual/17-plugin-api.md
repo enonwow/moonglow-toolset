@@ -3,12 +3,12 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.2. The API is
+Everything a plugin's code can use, for plugin API 0.3. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,10 +29,12 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.2"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.3"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.image(bytes, kind?)` | A picture decoded, as an `image` (below): a PNG, a TGA or a DDS, told apart by how the bytes start, or by `kind` (`"png"`, `"tga"`, `"dds"`). |
+| `mg.twoda` | 2DAs made, read and written: `parse(bytes)`, `new(columns)` and `kinds(name)` (below). |
+| `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
 | `mg.path(struct)` | Where a struct read with `gff` is, as a path for `ctx.edit`: `""` for the root, `"/ClassList[0]"`. Nil for a table that is no such struct. |
 
 An id is registered once; registering one the manifest doesn't declare,
@@ -133,6 +135,36 @@ A `twoda`:
 | `twoda.rows` | How many rows it has. |
 | `twoda.columns` | Its columns' names, a list. |
 | `twoda:get(row, column)` | A cell's text; rows count from 0, as in the file, and columns are named without regard to case. Nil for an empty cell (`****`), and for a row or column the table lacks. |
+
+A `twoda` is the plugin's own: one from `ctx.game:table` can be changed
+and written out, and the game's table stays as it is. `mg.twoda.parse`
+reads one from a file's bytes (`ctx.game:bytes("feat.2da")`, a file from
+a folder the user chose), and `mg.twoda.new({ "Label", "Name" })` makes
+an empty one:
+
+| | |
+| --- | --- |
+| `twoda:set(row, column, value)` | Sets a cell: text, or a number; nil empties it. The row and the column must be there. |
+| `twoda:add_row(cells?)` | Adds a row at the end and returns its number; `cells` are its values by column (`{ Label = "x", Cost = 5 }`), the others empty. |
+| `twoda:add_column(name)` | Adds a column at the end, its cells empty. |
+| `twoda:write()` | The table as a file's bytes, laid out as the game's own tables are, for `ctx.hak:write`. |
+
+`mg.twoda.kinds(name)` says what the columns of one of the game's tables
+hold, where Verify Module checks them: a table by column name, `"strref"`
+(a talk-table string's number: `kinds("feat").FEAT`) or `"model"` (a
+model's name: `kinds("placeables").ModelName`). A table it knows nothing
+of gives an empty one.
+
+A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new()`; lines count from 0
+as in the file (a custom table's line 0 is the game's string 16777216):
+
+| | |
+| --- | --- |
+| `tlk.lines` | How many lines it has. |
+| `tlk:get(line)` | A line as `{ text, sound, sound_length }`; nil for none. |
+| `tlk:set(line, value)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` and `sound_length`; nil empties it. |
+| `tlk:add(value)` | Adds a line at the end and returns its number. |
+| `tlk:write()` | The table as a file's bytes. |
 
 Without a game installation `has` is false, `string` is nil and the rest
 fail. `ctx.game` is only read: a plugin changes the module, never the

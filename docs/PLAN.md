@@ -3,7 +3,7 @@ type: Plan
 title: 'Moonglow Toolset: Plan'
 description: The plan of Moonglow Toolset with its current status - what of Aurora it reproduces, the landscape, principles, crate architecture, key designs, phases, testing strategy, licensing and risks.
 tags: [plan, architecture, testing, parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:00:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:23Z }
 ---
 
 # Moonglow Toolset: Plan
@@ -198,6 +198,7 @@ in this list. ✅ = exists.
 | `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
 | `mg-plugin` | plugins: manifests, and a sandboxed Luau runtime in which a plugin's commands and checks read a module and hand back edits and findings (`docs/plugin-proposal.md`; the API in `docs/manual/17-plugin-api.md`) |
+| `mg-serve` ✅ | the game's headless server run on a module: private unless asked, a user directory of the caller's, its log followed, its console on a pipe (`mg serve`, `mg test`, the engine tests) |
 | `mg-render` (partial) | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles (done); picking, gizmos |
 | `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
 | `mg-area` (partial) | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area |

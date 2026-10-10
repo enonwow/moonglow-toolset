@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:28:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:33:44Z }
 ---
 
 # Build, verify and test
@@ -164,6 +164,10 @@ as nwn.wiki recommends, to avoid the problems it lists for Aurora's F9:
 lagging combat, AI that overflows its time, and modules damaged when the
 game crashes. The module is always saved before
 the game starts, and Test From Here plays a copy.
+
+`mg serve` runs a module in the game's headless server from a terminal,
+and `mg test` runs a module's test scripts there and reports what they
+assert: see [Command-line tools](11-command-line.md).
 
 ## Reloading haks and 2DAs
 

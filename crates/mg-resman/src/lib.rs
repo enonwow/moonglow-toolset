@@ -25,7 +25,7 @@ use thiserror::Error;
 pub use container::{
     Container, DirContainer, ERF_READ_LIMIT, ErfContainer, KeyContainer, MemContainer,
 };
-pub use install::GameInstall;
+pub use install::{GameInstall, default_user_dir};
 
 /// A resource name and type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

@@ -7,10 +7,10 @@ use mg_module::doctor::Severity;
 use mg_module::nasher::{Section, sections};
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.2";
+pub const API: &str = "0.3";
 /// The APIs a plugin may be written for: each later one has all of the
 /// ones before.
-pub const APIS: [&str; 2] = ["0.1", "0.2"];
+pub const APIS: [&str; 3] = ["0.1", "0.2", "0.3"];
 
 /// What a manifest says.
 #[derive(Debug, Clone, PartialEq, Eq)]

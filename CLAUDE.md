@@ -32,7 +32,8 @@ and the sandboxed Luau runtime; the API is documented in
 `crates/mg-plugin/tests/examples.rs` holds those and the examples in
 `docs/plugins/` to the code), `mg-render` (wgpu renderer), `mg-preview`
 (blueprint previews: what a creature, item, placeable or door looks like),
-`mg-ui` (egui app; UI tests with
+`mg-serve` (runs the game's headless server on a module: `mg serve`,
+`mg test`, the engine tests), `mg-ui` (egui app; UI tests with
 `egui_kittest` in `crates/mg-ui/tests`; to look at a window's layout,
 render it with `tests/screens.rs`: `cargo test -p mg-ui --test screens --
 --ignored` writes PNGs to `target/test-output/screens/`), `mg-testkit` (corpus locator, oracle
@@ -82,9 +83,11 @@ The two generated documents get theirs from their generators
   network, D-Bus or audio, and only SCRATCH writable (its user directory is
   SCRATCH/user). It refuses the desktop display :0.
 - **Test servers stay private.** Run `nwserver` only through
-  `mg_testkit::engine::run_server`, which passes `-publicserver 0` and random
-  passwords; without them the server registers on Beamdog's public server
-  list under the user's IP.
+  `mg_serve::Server::start` with its defaults (which
+  `mg_testkit::engine::run_server`, `mg serve` and `mg test` do): it passes
+  `-publicserver 0` and random passwords; without them the server registers
+  on Beamdog's public server list under the user's IP. Only a user's own
+  `mg serve --public` lists one.
 - **Game data is never committed.** Tests read the user's install; fixtures in
   the repo contain only data we author.
 - **Lossless editing.** Readers keep everything (unknown GFF fields, duplicate

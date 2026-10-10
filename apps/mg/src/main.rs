@@ -5,9 +5,14 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod diff;
 mod edits;
 mod lsp;
 mod plugins;
+mod serve;
+mod test;
+mod tlk_alloc;
+mod watch;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -133,6 +138,240 @@ enum Cmd {
         /// Only scripts without a compiled version.
         #[arg(long)]
         uncompiled: bool,
+        /// Every script, also those that are as they were when last
+        /// compiled (by `mg compile` or in the window: both remember, in
+        /// Moonglow's data folder, what they compiled).
+        #[arg(long, conflicts_with = "uncompiled")]
+        all: bool,
+    },
+    /// Run a module in the game's headless server (nwserver): privately
+    /// unless --public, on a scratch user directory unless --dir, its log
+    /// and console printed. What you type goes to the server's console
+    /// (`status`, `exit`…); `/restart` starts it again and `/quit` stops
+    /// it. With --json, each line printed is one JSON event.
+    Serve {
+        /// A .mod, a module folder or a nasher project (packed for the
+        /// server, which loads an archive only).
+        module: PathBuf,
+        /// The server's user directory (its vault, database, logs and
+        /// settings). Default: one of Moonglow's in the temporary folder,
+        /// the same for each run of this module.
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Allow --dir to be your own NWN folder.
+        #[arg(long)]
+        real_user_dir: bool,
+        /// The port (default: a free one).
+        #[arg(long)]
+        port: Option<u16>,
+        /// List the server publicly (default: not listed).
+        #[arg(long)]
+        public: bool,
+        /// The server's name.
+        #[arg(long, default_value = "Moonglow test server")]
+        name: String,
+        /// The player password (default: a random one, printed).
+        #[arg(long)]
+        player_password: Option<String>,
+        /// The DM password (default: a random one, printed).
+        #[arg(long)]
+        dm_password: Option<String>,
+        /// The admin password (default: a random one).
+        #[arg(long)]
+        admin_password: Option<String>,
+        /// A file of NAME=value lines added to the server's environment
+        /// (NWNX's settings, say); may be given more than once.
+        #[arg(long)]
+        env: Vec<PathBuf>,
+        /// A library loaded into the server (LD_PRELOAD; Linux).
+        #[arg(long)]
+        preload: Option<PathBuf>,
+        /// Mark the log lines containing this text (an event of their own
+        /// with --json); may be given more than once.
+        #[arg(long)]
+        marker: Vec<String>,
+        /// Stop the server once a log line contains this text.
+        #[arg(long)]
+        until: Option<String>,
+        /// Stop after this many seconds (a failure if --until was not
+        /// seen).
+        #[arg(long)]
+        timeout: Option<f64>,
+        /// Start the server again when the module's file changes.
+        #[arg(long)]
+        restart_on_change: bool,
+        /// More arguments for nwserver, after `--`.
+        #[arg(last = true)]
+        server_args: Vec<String>,
+    },
+    /// Run a module's NWScript tests in the game's server: its scripts
+    /// named test_*, each with a main(), that include "mg_test" and call
+    /// Assert(), AssertEqualInt()… (`mg test --include` prints it). They
+    /// run in a scratch copy of the module, which gets a driver as its
+    /// OnModuleLoad script; the module itself is not changed. Fails if a
+    /// test fails or does not run to its end.
+    Test {
+        /// A .mod, a module folder or a nasher project.
+        module: Option<PathBuf>,
+        /// Only the tests whose name has this text (`*` for any run of
+        /// characters: `test_rules_*`).
+        #[arg(long)]
+        filter: Option<String>,
+        /// A folder of more test scripts (.nss), added to the copy; may be
+        /// given more than once.
+        #[arg(long)]
+        tests: Vec<PathBuf>,
+        /// `none`: the module runs its tests itself (from NWNX, say) and
+        /// calls TestsDone(); nothing is put into the copy.
+        #[arg(long, default_value = "mg", value_parser = ["mg", "none"])]
+        driver: String,
+        /// Seconds to wait after the last test was started, for what tests
+        /// assert later (DelayCommand).
+        #[arg(long, default_value_t = 0.0)]
+        settle: f32,
+        /// Give up after this many seconds.
+        #[arg(long, default_value_t = 120.0)]
+        timeout: f64,
+        /// Also write the results as a JUnit report (XML).
+        #[arg(long)]
+        junit: Option<PathBuf>,
+        /// Print the server's log as it comes (to standard error).
+        #[arg(long)]
+        log: bool,
+        /// Print the assertion include (mg_test.nss) and do nothing else.
+        #[arg(long)]
+        include: bool,
+        /// The server's user directory (default: a scratch one).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// A file of NAME=value lines for the server's environment.
+        #[arg(long)]
+        env: Vec<PathBuf>,
+        /// A library loaded into the server (LD_PRELOAD; Linux).
+        #[arg(long)]
+        preload: Option<PathBuf>,
+        /// More arguments for nwserver, after `--`.
+        #[arg(last = true)]
+        server_args: Vec<String>,
+    },
+    /// What differs between two 2DA tables, by row number and column
+    /// name. With --base (the table both were made from), the two merged:
+    /// what either changed is taken, and a cell both changed, each to
+    /// something else, is a conflict, which fails unless --prefer.
+    #[command(name = "2da-diff")]
+    TwodaDiff {
+        a: PathBuf,
+        b: PathBuf,
+        /// The table A and B were both made from: merge them.
+        #[arg(long)]
+        base: Option<PathBuf>,
+        /// Write the merged table here.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Write an edit file for `mg apply` that sets the table in a
+        /// module to B (or, with --base, to the merged table).
+        #[arg(long)]
+        edits: Option<PathBuf>,
+        /// Whose value a conflict takes: a or b.
+        #[arg(long)]
+        prefer: Option<String>,
+        /// The table's name in the edit file (default: B's file name).
+        #[arg(long)]
+        resource: Option<String>,
+    },
+    /// What differs between two talk tables (.tlk), by line. With --base
+    /// (the table both were made from), the two merged, as `mg 2da-diff`
+    /// merges.
+    TlkDiff {
+        a: PathBuf,
+        b: PathBuf,
+        /// The table A and B were both made from: merge them.
+        #[arg(long)]
+        base: Option<PathBuf>,
+        /// Write the merged table here.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Write the lines that differ as a file for `mg tlk-import`
+        /// (.json): B's (or, with --base, the merged table's where it
+        /// differs from the base).
+        #[arg(long)]
+        lines: Option<PathBuf>,
+        /// Whose line a conflict takes: a or b.
+        #[arg(long)]
+        prefer: Option<String>,
+    },
+    /// Write a custom talk table from strings kept by name (a .toml or
+    /// .json file: `key = "text"`, in groups if you like), each on a line
+    /// that stays its own: a map kept beside the names file says which. A
+    /// new key gets the next line that was never anyone's; a key taken
+    /// away keeps its line reserved.
+    TlkAlloc {
+        /// The talk table (made if it isn't there).
+        table: PathBuf,
+        /// The strings by name.
+        #[arg(long)]
+        from: PathBuf,
+        /// The map of keys to lines (default: the names file's name with
+        /// `.strrefs.json`). Keep it with the project.
+        #[arg(long)]
+        map: Option<PathBuf>,
+        /// Write the keys as constants with the game's numbers
+        /// (16777216 and up): an NWScript include (.nss) or .json.
+        #[arg(long)]
+        constants: Option<PathBuf>,
+        /// What a constant's name begins with.
+        #[arg(long, default_value = "STRREF_")]
+        prefix: String,
+        /// The first line new keys may take.
+        #[arg(long, default_value_t = 0)]
+        start: u32,
+        /// Write nothing: fail unless the table, the map and the
+        /// constants are as they would be written.
+        #[arg(long)]
+        check: bool,
+        /// An older map (the main branch's, say): fail if a key has
+        /// another line now than there.
+        #[arg(long)]
+        against: Option<PathBuf>,
+    },
+    /// Follow a module kept as files (a nasher project or a module
+    /// folder) while you edit it: a changed script is compiled, with the
+    /// scripts that include it, and put into a development folder with
+    /// changed blueprints and conversations, where a running server
+    /// takes them up at their next use. With --serve the module is also
+    /// run in the server, which is started again, on the module built
+    /// anew, when something changes that it reads only at its start (a
+    /// 2DA, an area, module.ifo).
+    Watch {
+        project: PathBuf,
+        /// The development folder to write into (default with --serve:
+        /// the server's own).
+        #[arg(long)]
+        dev_dir: Option<PathBuf>,
+        /// Also build the module to this file (.mod), at the start and
+        /// after every change.
+        #[arg(long, value_name = "FILE")]
+        r#mod: Option<PathBuf>,
+        /// Run the module in the server too, as `mg serve` does.
+        #[arg(long)]
+        serve: bool,
+        /// With --serve: the server's user directory (default: a scratch
+        /// one).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// With --serve: the port (default: a free one).
+        #[arg(long)]
+        port: Option<u16>,
+        /// With --serve: a file of NAME=value lines for the server's
+        /// environment.
+        #[arg(long)]
+        env: Vec<PathBuf>,
+        /// With --serve: a library loaded into the server (LD_PRELOAD).
+        #[arg(long)]
+        preload: Option<PathBuf>,
+        /// With --serve: more arguments for nwserver, after `--`.
+        #[arg(last = true)]
+        server_args: Vec<String>,
     },
     /// An NWScript language server (the Language Server Protocol on standard
     /// input and output) for VS Code, Neovim and other editors: errors as you
@@ -1005,21 +1244,379 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("exported {} resources", plan.resources.len()));
             out
         }
-        Cmd::Compile { module, uncompiled } => {
+        Cmd::Compile { module, uncompiled, all } => {
             let mut m = Module::open(module)?;
             let mut out = Output::default();
-            let rm = module_resman(&install(cli)?, &m, &mut out)?;
-            let sel = if *uncompiled {
-                mg_module::build::ScriptSelection::Uncompiled
-            } else {
-                mg_module::build::ScriptSelection::All
+            let gi = install(cli)?;
+            let rm = module_resman(&gi, &m, &mut out)?;
+            use mg_module::build;
+            if *uncompiled {
+                let results =
+                    build::compile_scripts(&mut m, &rm, build::ScriptSelection::Uncompiled);
+                out.json = compiled(&mut out, &results);
+                m.save()?;
+                let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
+                out.note(format!("compiled {} scripts, {failed} failed", results.len() - failed));
+                return Ok(out);
+            }
+            // What was compiled last, here or in the window, is passed
+            // over: both keep it in one place.
+            let dir = build::compiled_dir();
+            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
+            let known = match all {
+                true => build::Remembered { made_with, ..Default::default() },
+                false => build::Remembered::kept(dir.as_deref(), Some(module), made_with),
             };
-            let results = mg_module::build::compile_scripts(&mut m, &rm, sel);
-            out.json = compiled(&mut out, &results);
+            let pass = build::compile_changed(&mut m, &rm, None, &known, None);
+            out.json = compiled(&mut out, &pass.results);
             m.save()?;
+            if let Some(dir) = &dir
+                && let Err(e) = pass.now.write(&build::Remembered::file(dir, module))
+            {
+                out.note(format!("warning: what was compiled is not remembered: {e}"));
+            }
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
-            out.note(format!("compiled {} scripts, {failed} failed", results.len() - failed));
+            let unchanged = pass.scripts.saturating_sub(pass.results.len());
+            out.json["unchanged"] = json!(unchanged);
+            let left = match unchanged {
+                0 => String::new(),
+                n => format!("; {n} as they were when last compiled, left alone"),
+            };
+            out.note(format!(
+                "compiled {} scripts, {failed} failed{left}",
+                pass.results.len() - failed
+            ));
             out
+        }
+        Cmd::Serve {
+            module,
+            dir,
+            real_user_dir,
+            port,
+            public,
+            name,
+            player_password,
+            dm_password,
+            admin_password,
+            env,
+            preload,
+            marker,
+            until,
+            timeout,
+            restart_on_change,
+            server_args,
+        } => {
+            use std::io::IsTerminal;
+            let gi = install(cli)?;
+            let config = serve::Config {
+                module: module.clone(),
+                dir: dir.clone(),
+                real_user_dir: *real_user_dir,
+                port: *port,
+                public: *public,
+                name: name.clone(),
+                player_password: player_password.clone(),
+                dm_password: dm_password.clone(),
+                admin_password: admin_password.clone(),
+                env: env.clone(),
+                preload: preload.clone(),
+                restart_on_change: *restart_on_change,
+                stdin: true,
+                args: server_args.clone(),
+            };
+            let started = std::time::Instant::now();
+            let bold = !cli.json && io::stdout().is_terminal();
+            let (mut reached, mut late) = (false, false);
+            let end = serve::serve(&gi, &config, &mut |e| {
+                let line = match e {
+                    serve::Event::Log(line) => Some(line),
+                    _ => None,
+                };
+                let marked = line.and_then(|l| marker.iter().find(|m| l.contains(m.as_str())));
+                let mut out = io::stdout().lock();
+                let _ = match (cli.json, serve::json(e), serve::text(e)) {
+                    (true, Some(mut v), _) => {
+                        if let Some(m) = marked {
+                            v["event"] = json!("marker");
+                            v["marker"] = json!(m);
+                        }
+                        writeln!(out, "{v}")
+                    }
+                    (false, _, Some(t)) if marked.is_some() && bold => {
+                        writeln!(out, "\x1b[1m{t}\x1b[0m")
+                    }
+                    (false, _, Some(t)) => writeln!(out, "{t}"),
+                    _ => Ok(()),
+                };
+                let _ = out.flush();
+                if line.is_some_and(|l| until.as_ref().is_some_and(|u| l.contains(u.as_str()))) {
+                    reached = true;
+                    return serve::Flow::Stop;
+                }
+                if timeout.is_some_and(|t| started.elapsed().as_secs_f64() > t) {
+                    late = true;
+                    return serve::Flow::Stop;
+                }
+                serve::Flow::Continue
+            })?;
+            let failed = match end {
+                serve::End::Stopped => late && until.is_some() && !reached,
+                serve::End::NotLoaded => true,
+                serve::End::Exited(code) => code != Some(0) || until.is_some(),
+            };
+            let said = match end {
+                serve::End::Stopped if late && !reached => "stopped at the timeout".to_string(),
+                serve::End::Stopped => "stopped".to_string(),
+                serve::End::NotLoaded => "the server could not load the module".to_string(),
+                serve::End::Exited(code) => format!("the server ended ({code:?})"),
+            };
+            if cli.json {
+                println!("{}", json!({ "event": "ended", "how": said, "failed": failed }));
+            } else {
+                println!("mg: {said}");
+            }
+            Output { done: true, failed, ..Default::default() }
+        }
+        Cmd::Test {
+            module,
+            filter,
+            tests,
+            driver,
+            settle,
+            timeout,
+            junit,
+            log,
+            include,
+            dir,
+            env,
+            preload,
+            server_args,
+        } => {
+            if *include {
+                print!("{}", mg_module::testing::INCLUDE);
+                return Ok(Output { done: true, ..Default::default() });
+            }
+            let Some(module) = module else { bail!("which module? (mg test MODULE)") };
+            let gi = install(cli)?;
+            let config = test::Config {
+                module: module.clone(),
+                filter: filter.clone(),
+                tests: tests.clone(),
+                own_driver: driver == "none",
+                settle: *settle,
+                timeout: *timeout,
+                serve: serve::Config {
+                    dir: dir.clone(),
+                    name: "Moonglow test run".into(),
+                    env: env.clone(),
+                    preload: preload.clone(),
+                    args: server_args.clone(),
+                    ..Default::default()
+                },
+            };
+            let resman = |m: &Module, notes: &mut Vec<String>| {
+                let mut out = Output::default();
+                let rm = module_resman(&gi, m, &mut out)?;
+                notes.append(&mut out.notes);
+                Ok(rm)
+            };
+            let ran = test::run(&gi, &config, resman, &mut |line| {
+                if *log {
+                    eprintln!("{line}");
+                }
+            })?;
+            let mut out = Output::new(ran.report.to_json());
+            out.json["module"] = json!(ran.name);
+            out.json["seconds"] = json!(ran.seconds);
+            out.json["compile_errors"] = json!(ran.compile_errors);
+            out.json["ended"] = json!(ran.ended);
+            out.notes = ran.notes;
+            for e in &ran.compile_errors {
+                out.line(e.clone());
+            }
+            for t in &ran.report.tests {
+                match (&t.error, t.failed()) {
+                    (None, 0) => out.line(format!("ok    {} ({})", t.script, t.cases.len())),
+                    (None, n) => out.line(format!("FAIL  {} ({n} of {})", t.script, t.cases.len())),
+                    (Some(_), _) => out.line(format!("ERROR {}", t.script)),
+                }
+                for c in t.cases.iter().filter(|c| !c.ok) {
+                    let detail = match c.detail.is_empty() {
+                        true => String::new(),
+                        false => format!(": {}", c.detail),
+                    };
+                    out.line(format!("        {}{detail}", c.name));
+                }
+                for line in t.error.iter().flat_map(|e| e.lines()) {
+                    out.line(format!("        {line}"));
+                }
+            }
+            if let Some(file) = junit {
+                std::fs::write(file, ran.report.junit(&ran.name, ran.seconds))
+                    .with_context(|| path_text(file))?;
+            }
+            let ok = ran.compile_errors.is_empty() && ran.report.ok();
+            out.json["ok"] = json!(ok);
+            out.failed = !ok;
+            let why = match (&ran.ended, ran.compile_errors.len()) {
+                (_, n) if n > 0 => format!("{n} scripts did not compile; nothing was run"),
+                (Some(why), _) => why.clone(),
+                _ => format!("{:.1} s", ran.seconds),
+            };
+            out.note(format!(
+                "{} passed, {} failed, {} errors in {} tests ({why})",
+                ran.report.passed(),
+                ran.report.failed(),
+                ran.report.errors(),
+                ran.report.tests.len()
+            ));
+            out
+        }
+        Cmd::TwodaDiff { a, b, base, output, edits, prefer, resource } => diff::twoda(
+            &diff::Args {
+                a,
+                b,
+                base: base.as_ref(),
+                output: output.as_ref(),
+                changes: edits.as_ref(),
+                prefer: prefer.as_deref(),
+                resource: resource.as_deref(),
+            },
+            Codepage::default(),
+        )?,
+        Cmd::TlkDiff { a, b, base, output, lines, prefer } => diff::tlk(
+            &diff::Args {
+                a,
+                b,
+                base: base.as_ref(),
+                output: output.as_ref(),
+                changes: lines.as_ref(),
+                prefer: prefer.as_deref(),
+                resource: None,
+            },
+            Codepage::default(),
+        )?,
+        Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against } => {
+            tlk_alloc::run(&tlk_alloc::Args {
+                table,
+                from,
+                map: map.as_ref(),
+                constants: constants.as_ref(),
+                prefix,
+                start: *start,
+                check: *check,
+                against: against.as_ref(),
+            })?
+        }
+        Cmd::Watch { project, dev_dir, r#mod, serve, dir, port, env, preload, server_args } => {
+            let gi = install(cli)?;
+            let name = serve::module_name(project);
+            let server_dir = serve.then(|| {
+                let dir = dir.clone().unwrap_or_else(|| serve::scratch_dir(project));
+                std::path::absolute(&dir).unwrap_or(dir)
+            });
+            let dev_dir = match (dev_dir, &server_dir) {
+                (Some(dir), _) => dir.clone(),
+                (None, Some(server)) => server.join("development"),
+                (None, None) => bail!("where to? --dev-dir FOLDER, or --serve"),
+            };
+            std::fs::create_dir_all(&dev_dir).with_context(|| path_text(&dev_dir))?;
+            let served = server_dir.as_ref().map(|d| d.join("modules").join(format!("{name}.mod")));
+            let build_to = served.clone().or(r#mod.clone());
+            let say = |v: serde_json::Value, lines: Vec<String>| {
+                let mut out = io::stdout().lock();
+                let _ = match cli.json {
+                    true => writeln!(out, "{v}"),
+                    false => lines.iter().try_for_each(|l| writeln!(out, "{l}")),
+                };
+                let _ = out.flush();
+            };
+            let resman = |m: &Module| -> Result<ResMan> {
+                let mut notes = Output::default();
+                let rm = module_resman(&gi, m, &mut notes)?;
+                for note in notes.notes {
+                    say(json!({ "event": "note", "note": note }), vec![format!("mg: {note}")]);
+                }
+                Ok(rm)
+            };
+            let also = |w: &watch::Watcher| -> Result<()> {
+                // (The module built for the server, also where it was asked for.)
+                if let (Some(to), Some(served)) = (r#mod, &served) {
+                    std::fs::copy(served, to).with_context(|| path_text(to))?;
+                }
+                let _ = w;
+                Ok(())
+            };
+            let mut rm = resman(&Module::open(project)?)?;
+            let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, &rm)?;
+            also(&w)?;
+            say(
+                json!({
+                    "event": "watching", "project": path_text(project),
+                    "dev_dir": path_text(&dev_dir), "compiled": first.compiled,
+                    "errors": first.errors,
+                }),
+                [first.text(&dev_dir), vec![format!("mg: watching {}", project.display())]]
+                    .concat(),
+            );
+            let Some(server_dir) = server_dir else {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    if let Some(step) = w.look(&rm)? {
+                        if !step.rebuild.is_empty() {
+                            rm = resman(w.module())?;
+                            also(&w)?;
+                        }
+                        say(step.json(), step.text(&dev_dir));
+                    }
+                }
+            };
+            let config = serve::Config {
+                module: served.clone().expect("with --serve"),
+                dir: Some(server_dir),
+                port: *port,
+                name: "Moonglow test server".into(),
+                env: env.clone(),
+                preload: preload.clone(),
+                stdin: true,
+                args: server_args.clone(),
+                ..Default::default()
+            };
+            let mut wrong: Option<anyhow::Error> = None;
+            let end = serve::serve(&gi, &config, &mut |e| {
+                if let (Some(v), Some(t)) = (serve::json(e), serve::text(e)) {
+                    say(v, vec![t]);
+                }
+                if *e != serve::Event::Idle {
+                    return serve::Flow::Continue;
+                }
+                let step = match w.look(&rm) {
+                    Ok(Some(step)) => step,
+                    Ok(None) => return serve::Flow::Continue,
+                    Err(e) => {
+                        wrong = Some(e);
+                        return serve::Flow::Stop;
+                    }
+                };
+                say(step.json(), step.text(&dev_dir));
+                if step.rebuild.is_empty() {
+                    return serve::Flow::Continue;
+                }
+                match resman(w.module()).and_then(|new| also(&w).map(|()| new)) {
+                    Ok(new) => rm = new,
+                    Err(e) => {
+                        wrong = Some(e);
+                        return serve::Flow::Stop;
+                    }
+                }
+                serve::Flow::Restart
+            })?;
+            if let Some(e) = wrong {
+                return Err(e);
+            }
+            let failed = !matches!(end, serve::End::Stopped);
+            say(json!({ "event": "ended", "failed": failed }), vec!["mg: stopped".into()]);
+            Output { done: true, failed, ..Default::default() }
         }
         Cmd::Lsp => {
             if cli.json {

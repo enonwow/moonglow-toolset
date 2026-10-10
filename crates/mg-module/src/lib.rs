@@ -36,8 +36,10 @@ pub mod script_wizard;
 pub mod store_setup;
 pub mod table_layers;
 pub mod talk;
+pub mod testing;
 pub mod text;
 pub mod tileset;
+pub mod tlk_alloc;
 pub mod transfer;
 pub mod verify;
 

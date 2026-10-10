@@ -14,6 +14,8 @@
 //! assert_eq!(t.get(1, "COST"), None);
 //! ```
 
+pub mod diff;
+
 use std::collections::HashMap;
 
 use mg_core::Codepage;

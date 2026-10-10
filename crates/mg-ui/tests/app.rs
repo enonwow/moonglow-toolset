@@ -11775,7 +11775,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
-    h.get_by_label_contains("Plugins are experimental: the plugin API (0.2)");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.3)");
     h.get_by_label("Command: Fix Creature Tags");
     h.get_by_label("Check: Creature tags are upper case");
     // (The last of the four installed: below the list's fold.)
@@ -14691,6 +14691,16 @@ fn compile_all_compiles_only_what_changed() {
     h.state_mut().forget_compiled();
     let next = compile(&mut h);
     assert!(next.starts_with("Compiled 0 scripts") && next.contains("left alone"), "{next}");
+    // `mg compile` reads the same: what it makes its scripts with (its
+    // own view of the game and the module's haks) is the window's.
+    let module = h.state().module_path().unwrap();
+    let install = h.state().install.clone().unwrap();
+    let mut rm = mg_resman::ResMan::for_game(&install).unwrap();
+    let haks = mg_module::Module::open(&module).unwrap().haks().unwrap();
+    rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    let with = mg_module::build::made_with(Some(&module), None, Some(&install.root), &rm);
+    let read = mg_module::build::Remembered::kept(Some(&kept), Some(&module), with);
+    assert_eq!(read.scripts.len(), 3, "mg compile's memory is the window's");
 }
 
 /// In a nasher project the external editor gets the project's own script

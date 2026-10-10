@@ -457,17 +457,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
             lua.create_function(move |lua, (_, name): (This, String)| {
                 let Some(data) = &s.game else { return fail("there is no game data") };
                 let table = data.table(&name).or_else(fail)?;
-                let out = lua.create_table()?;
-                out.set("rows", table.len())?;
-                out.set("columns", table.columns().to_vec())?;
-                let cells = table;
-                out.set(
-                    "get",
-                    lua.create_function(move |_, (_, row, column): (This, usize, String)| {
-                        Ok(cells.get(row, &column).map(str::to_string))
-                    })?,
-                )?;
-                Ok(out)
+                crate::tables::twoda(lua, table.clone())
             })?,
         )?;
         let s = sh.clone();
@@ -814,6 +804,8 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
         )?;
     }
     mg.set("image", lua.create_function(crate::files::image)?)?;
+    mg.set("twoda", crate::tables::twoda_api(lua)?)?;
+    mg.set("tlk", crate::tables::tlk_api(lua)?)?;
     // Where a struct read with `gff` is: its path, for the edits.
     mg.set(
         "path",
@@ -1190,6 +1182,7 @@ pub(crate) fn api_names() -> Vec<String> {
         // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
         out.extend(crate::files::NAMES.map(String::from));
+        out.extend(crate::tables::NAMES.map(String::from));
         out.extend(crate::terrain::NAMES.map(String::from));
         out.sort();
         Ok(out)
