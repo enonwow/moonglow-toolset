@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-10
+* **Update**: [Plugins](manual/15-plugins.md), [writing plugins](manual/16-writing-plugins.md), [the plugin API](manual/17-plugin-api.md), [its changes](plugins/CHANGES.md) and [the deferred list](deferred.md): plugin API 0.3 also lets a plugin write files into a folder the user chose (`folder:write`, with their leave) and act when a module is opened or saved (`[event]`, `mg.on`).
 * **Update**: [The plugin API](manual/17-plugin-api.md), [writing plugins](manual/16-writing-plugins.md), [the API's changes](plugins/CHANGES.md) and [the deferred list](deferred.md): plugin API 0.3 adds `mg.twoda` and `mg.tlk`, tables a plugin makes, changes and writes, with the kinds of columns Verify Module knows.
 * **Update**: [Command-line tools](manual/11-command-line.md) and [the deferred list](deferred.md): `mg watch`, a project followed as it is edited (changed scripts compiled into a development folder with changed blueprints and conversations; other changes build the module again and, with `--serve`, start the server again).
 * **Update**: [Command-line tools](manual/11-command-line.md) and [the deferred list](deferred.md): `mg tlk-alloc`, a custom talk table from strings kept by name, each on a line that stays its own.

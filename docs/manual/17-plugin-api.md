@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
 ---
 
 # Plugin API reference
@@ -32,6 +32,7 @@ nothing, and a check is reported as failed.
 | `mg.api` | The plugin API of the Moonglow running, as text: `"0.3"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
+| `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, with `on = "module-opened"` or `"module-saved"`). `handler(ctx)` is called when it happens, as a command's is; `ctx.event` says what happened: `ctx.event.name`, and for a save `ctx.event.resources`, the names of the resources changed since the last save. It may return what Undo calls its change. |
 | `mg.image(bytes, kind?)` | A picture decoded, as an `image` (below): a PNG, a TGA or a DDS, told apart by how the bytes start, or by `kind` (`"png"`, `"tga"`, `"dds"`). |
 | `mg.twoda` | 2DAs made, read and written: `parse(bytes)`, `new(columns)` and `kinds(name)` (below). |
 | `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
@@ -263,7 +264,7 @@ their tiles have.
 | | |
 | --- | --- |
 | `ctx.ui:open_file(options?)` | Asks the user for a file to read: a `file` (below), or nil if they chose none. `options` is `{ title = "…", extensions = { "png", "tga" } }`: what it is for, and the kinds it reads. |
-| `ctx.ui:open_folder(options?)` | Asks the user for a folder to read the files of: a `folder` (below), or nil. `options` is `{ title = "…" }`. |
+| `ctx.ui:open_folder(options?)` | Asks the user for a folder to read the files of, and to write into with their leave (`folder:write`): a `folder` (below), or nil. `options` is `{ title = "…" }`. |
 | `ctx.log:info(text)` | A line in the log, under the plugin's name. |
 | `ctx.log:warn(text)` | A warning in the log. |
 | `ctx.log:error(text)` | An error in the log (the job goes on; to stop, raise one: `error("…")`). |
@@ -296,6 +297,7 @@ fails. A file of more than 64 MB is not read.
 | `folder:files()` | The names of its files and of those in its folders, sorted. |
 | `folder:bytes(name)` | A file's bytes. |
 | `folder:text(name)` | A file as text: UTF-8 if it is, else from the Windows-1252 codepage. |
+| `folder:write(name, bytes)` | Writes a file into the folder, when the handler has returned: as `name` (a name alone, not a path; not one that begins with a dot), in place of a file of that name there. The first time a job writes into a folder the user is asked whether to allow it, and a refusal ends the job. Undo does not take it back, and a check can't write. |
 | `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. |
 
 An `image`, from `mg.image`:
@@ -333,20 +335,21 @@ The rest is [Luau's library](https://luau.org/library): `string`,
 (`pairs`, `pcall`, `tostring`, `tonumber`, `error`, `assert`, `type`…).
 There is no `io`, no `package`, and nothing else of `os`: files are
 reached only through what the user chooses (`ctx.ui:open_file`,
-`ctx.ui:open_folder`) and allows (`ctx.hak`).
+`ctx.ui:open_folder`) and allows (`ctx.hak`, `folder:write`).
 
 ## Limits
 
 - A job has 256 MB of memory; past that it fails.
 - A job is stopped when the user cancels; no `pcall` catches that.
-- Nothing is kept between jobs, and a plugin can't run by itself: only
-  when its command is chosen, or its check runs with Verify Module.
+- Nothing is kept between jobs. A plugin runs when its command is
+  chosen, when its check runs with Verify Module, and by itself only on
+  the events its manifest declares (`mg.on`).
 - Text must fit the Windows-1252 codepage.
 
 ## What the API doesn't have yet
 
-Plugins can't yet react to events (a module opened, a resource saved),
-add panels or their own editors, draw in the area view, read what is
-selected in an area, write files other than haks, or keep settings. These are planned for later versions of the API; what
+Plugins can't yet react to other events than a module opened or saved
+(a single resource saved, a selection, an area opened), add panels or their own editors, draw in the area view, read what is
+selected in an area, write files other than haks and those of a folder the user chose, or keep settings. These are planned for later versions of the API; what
 you'd use them for is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).

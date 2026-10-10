@@ -56,7 +56,20 @@ pub struct Plugins {
     pub install_note: Option<(Level, String)>,
     /// A plugin chosen to remove: asked before its folder is deleted.
     pub remove: Option<Remove>,
+    /// What happened that enabled plugins act on, each run as a job when
+    /// no other is running: the plugin's id, its event's id, the event.
+    events: VecDeque<(String, String, mg_plugin::Event)>,
+    /// The module as it was last saved or opened, to tell what a save
+    /// changed.
+    saved: Option<mg_module::Module>,
+    /// What each plugin's events were allowed in this session (a folder
+    /// chosen, a yes to writing into it), by plugin id: an event that
+    /// comes again does not ask again.
+    granted: std::collections::HashMap<String, Granted>,
 }
+
+/// Answers remembered, by question.
+type Granted = Arc<Mutex<std::collections::HashMap<String, Answer>>>;
 
 /// An installed plugin waiting for a yes to be removed.
 #[derive(Debug, Clone)]
@@ -148,6 +161,8 @@ struct JobHost {
     log: Logged,
     ask: Option<Arc<Ask>>,
     answers: RefCell<VecDeque<Option<Answer>>>,
+    /// An event's job: what was allowed before is not asked again.
+    granted: Option<Granted>,
 }
 
 impl Host for JobHost {
@@ -167,10 +182,24 @@ impl Host for JobHost {
     }
 
     fn ask(&self, question: &Question) -> Option<Answer> {
-        if let Some(answer) = self.answers.borrow_mut().pop_front() {
-            return answer;
+        // (A folder chosen, a yes: not what a form was filled with.)
+        let lasting = matches!(question, Question::Folder { .. } | Question::Confirm(_));
+        let key = format!("{question:?}");
+        if let Some(granted) = self.granted.as_ref().filter(|_| lasting)
+            && let Some(answer) = granted.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
+        {
+            return Some(answer.clone());
         }
-        self.ask.as_ref()?.ask(question.clone(), &self.progress)
+        let answer = match self.answers.borrow_mut().pop_front() {
+            Some(answer) => answer,
+            None => self.ask.as_ref()?.ask(question.clone(), &self.progress),
+        };
+        if let Some(granted) = self.granted.as_ref().filter(|_| lasting)
+            && let Some(answer @ (Answer::Yes | Answer::Path(_))) = &answer
+        {
+            granted.lock().unwrap_or_else(|e| e.into_inner()).insert(key, answer.clone());
+        }
+        answer
     }
 }
 
@@ -201,6 +230,7 @@ pub(crate) fn check_findings(
                 log: log.clone(),
                 ask: None,
                 answers: RefCell::default(),
+                granted: None,
             });
             let input = Input { module: job.module.clone(), game: job.game.clone() };
             match mg_plugin::run_check(plugin, &check.id, input, host) {
@@ -311,7 +341,61 @@ impl Moonglow {
         let run = move |input: Input, host: Rc<dyn Host>| {
             mg_plugin::run_command(&plugin, &command, input, host)
         };
-        self.run_plugin(name, title, false, run);
+        self.run_plugin(name, title, false, None, run);
+    }
+
+    /// Notes that a module was opened, for the plugins that act on it.
+    pub(crate) fn plugins_module_opened(&mut self) {
+        self.plugins.saved = self.ws.as_ref().map(|ws| ws.module.clone());
+        self.plugins.events.clear();
+        let event =
+            mg_plugin::Event { kind: mg_plugin::EventKind::ModuleOpened, resources: vec![] };
+        self.queue_plugin_event(&event);
+    }
+
+    /// Notes that the module was saved, for the plugins that act on it:
+    /// with the resources that are not as they were at the last save.
+    pub(crate) fn plugins_module_saved(&mut self) {
+        let Some(module) = self.ws.as_ref().map(|ws| ws.module.clone()) else { return };
+        let was = self.plugins.saved.replace(module.clone());
+        let resources: Vec<mg_resman::ResKey> = (module.keys())
+            .filter(|k| match (was.as_ref().and_then(|w| w.shared(k)), module.shared(k)) {
+                (Some(a), Some(b)) => !Arc::ptr_eq(a, b) && a != b,
+                _ => true,
+            })
+            .copied()
+            .collect();
+        let event = mg_plugin::Event { kind: mg_plugin::EventKind::ModuleSaved, resources };
+        self.queue_plugin_event(&event);
+    }
+
+    fn queue_plugin_event(&mut self, event: &mg_plugin::Event) {
+        let wanted: Vec<(String, String)> = (self.enabled_plugins().into_iter())
+            .flat_map(|p| {
+                let of = p.manifest.events.iter().filter(|e| e.on == event.kind);
+                of.map(|e| (p.manifest.id.clone(), e.id.clone())).collect::<Vec<_>>()
+            })
+            .collect();
+        for (plugin, id) in wanted {
+            self.plugins.events.push_back((plugin, id, event.clone()));
+        }
+    }
+
+    /// Runs the next thing a plugin does on an event, if no job is
+    /// running: as a job, like a command.
+    pub(crate) fn next_plugin_event(&mut self) {
+        if self.busy() || self.ws.is_none() {
+            return;
+        }
+        let Some((id, event_id, event)) = self.plugins.events.pop_front() else { return };
+        let found = self.enabled_plugins().into_iter().find(|p| p.manifest.id == id).cloned();
+        let Some(plugin) = found else { return };
+        let (name, title) = (plugin.manifest.name.clone(), event.kind.name().to_string());
+        let granted = self.plugins.granted.entry(id).or_default().clone();
+        let run = move |input: Input, host: Rc<dyn Host>| {
+            mg_plugin::run_event(&plugin, &event_id, &event, input, host)
+        };
+        self.run_plugin(name, title, false, Some(granted), run);
     }
 
     /// Plugins › Install Plugin from File…: asks for a plugin's archive
@@ -407,7 +491,7 @@ impl Moonglow {
         let run =
             move |input: Input, host: Rc<dyn Host>| mg_plugin::run_console(&code, input, host);
         self.plugins.console_output.clear();
-        self.run_plugin("Console".into(), "Console".into(), true, run);
+        self.run_plugin("Console".into(), "Console".into(), true, None, run);
     }
 
     /// A job running a plugin's code (`run`), with the window as its host.
@@ -417,8 +501,11 @@ impl Moonglow {
         name: String,
         title: String,
         console: bool,
+        granted: Option<Granted>,
         run: impl FnOnce(Input, Rc<dyn Host>) -> Result<Outcome, PluginError> + Send + 'static,
     ) {
+        // (An event's job that changes nothing says nothing.)
+        let quiet = granted.is_some();
         // Its questions are answered in the job's window; where there is
         // none (jobs run to their end at once), from the answers given.
         let ask = self.background_jobs.then(|| Arc::new(Ask::default()));
@@ -436,11 +523,12 @@ impl Moonglow {
                     log: job_log,
                     ask: job_ask,
                     answers: RefCell::new(answers),
+                    granted,
                 });
                 let input = Input { module: job.module.clone(), game: job.game.clone() };
                 run(input, host)
             },
-            move |app, result| app.plugin_finished(&job_name, &title, console, result, &log),
+            move |app, result| app.plugin_finished(&job_name, &title, console, quiet, result, &log),
         );
         if !self.busy() {
             self.plugins.ask = None;
@@ -454,6 +542,7 @@ impl Moonglow {
         name: &str,
         title: &str,
         console: bool,
+        quiet: bool,
         result: Result<Outcome, PluginError>,
         log: &Logged,
     ) {
@@ -475,7 +564,7 @@ impl Moonglow {
         let title = title.trim_end_matches('…');
         // Its haks first (the user agreed to each while it ran): the
         // module's edits may name them.
-        let mut wrote = false;
+        let (mut wrote, mut wrote_files) = (false, false);
         let result = result.and_then(|outcome| {
             let dir = self.install.as_ref().and_then(|gi| gi.user_dir.clone());
             for hak in &outcome.haks {
@@ -506,6 +595,29 @@ impl Moonglow {
                     }
                 }
             }
+            // Then the files for folders the user chose.
+            for folder in &outcome.folders {
+                match folder.write() {
+                    Ok((new, replaced)) => {
+                        wrote_files = true;
+                        say(
+                            self,
+                            Level::Info,
+                            format!(
+                                "{name}: {title} wrote {} files into {} ({replaced} replaced; Undo doesn't take them back)",
+                                new + replaced,
+                                folder.dir.display()
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        return Err(PluginError::Package(format!(
+                            "{name}: {title}: nothing was written into {}: {e}",
+                            folder.dir.display()
+                        )));
+                    }
+                }
+            }
             Ok(outcome)
         });
         if wrote {
@@ -514,7 +626,7 @@ impl Moonglow {
         }
         match result {
             Ok(outcome) if outcome.edits.is_empty() => {
-                if !console && !wrote {
+                if !console && !wrote && !wrote_files && !quiet {
                     say(self, Level::Info, format!("{name}: {title} changed nothing"));
                 }
             }
@@ -718,7 +830,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.label(
                 "A plugin adds commands and checks. It reads the open module and the game data \
              and hands back changes that Undo takes back; it cannot reach your files, the \
-             network or other programs. Each is off until you enable it.",
+             network or other programs, but for a file or a folder you choose for it and \
+             what you allow it to write there. Each is off until you enable it.",
             );
             ui.weak(format!(
                 "Plugins are experimental: the plugin API ({}) is new, and a later release may \
@@ -828,6 +941,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 }
                                 for c in &m.checks {
                                     ui.label(format!("Check: {}", c.title));
+                                }
+                                for e in &m.events {
+                                    let when = match e.on {
+                                        mg_plugin::EventKind::ModuleOpened => "a module is opened",
+                                        mg_plugin::EventKind::ModuleSaved => "the module is saved",
+                                    };
+                                    ui.label(format!("By itself, when {when}: {}", e.id));
                                 }
                             });
                         }

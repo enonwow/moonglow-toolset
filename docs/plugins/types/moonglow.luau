@@ -103,6 +103,7 @@ export type Folder = {
     bytes: (self: Folder, name: string) -> string,
     text: (self: Folder, name: string) -> string,
     to_hak: (self: Folder, hak: string, file: string, name: string?) -> (),
+    write: (self: Folder, name: string, bytes: string) -> (),
 }
 
 export type Ui = {
@@ -165,6 +166,8 @@ export type Context = {
     ui: Ui,
     progress: (done: number, total: number, note: string?) -> (),
     plugin: { id: string, name: string, version: string },
+    -- In an event's handler (mg.on): what happened.
+    event: { name: string, resources: { string } }?,
 }
 
 local mg = {}
@@ -176,6 +179,11 @@ mg.api = "0.3"
 function mg.command(id: string, handler: (ctx: Context) -> ...any) end
 -- A check's handler returns its findings (none: an empty list, or nothing).
 function mg.check(id: string, handler: (ctx: Context) -> { Finding }?) end
+
+-- What the plugin does by itself on an event its manifest declares
+-- ([event], on = "module-opened" or "module-saved"): ctx.event says what
+-- happened.
+function mg.on(id: string, handler: (ctx: Context) -> ...any) end
 
 local function typed(type: string, value: any): Value
     return { type = type, value = value }

@@ -11757,6 +11757,46 @@ fn plugin_harness(name: &str, game: bool) -> Option<(Harness<'static, Moonglow>,
     Some((h, key))
 }
 
+/// A plugin that says so acts by itself when the module is saved, with
+/// the resources the save changed; one that is off does nothing.
+#[test]
+fn a_plugin_acts_when_the_module_is_saved() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-events", false) else { return };
+    h.run();
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+        log.filter(|m| m.contains("module-saved")).collect()
+    };
+    let save = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(4);
+    };
+    // Off: a save is only a save.
+    save(&mut h);
+    assert!(said(&h).is_empty(), "{:?}", said(&h));
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label("By itself, when the module is saved: saved");
+    h.state_mut().plugins.window = false;
+    // Nothing changed since the last save: nothing to say.
+    save(&mut h);
+    assert!(said(&h).is_empty(), "{:?}", said(&h));
+    // The guard changes and is saved: the plugin is told which.
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"night_guard".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Another guard",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    h.run_steps(2);
+    save(&mut h);
+    assert_eq!(said(&h), ["Tag conventions: module-saved: guard.utc"]);
+    assert!(!h.state().busy());
+    save(&mut h);
+    assert_eq!(said(&h).len(), 1, "once for a change");
+}
+
 fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
     String::from_utf8(field(h, key).string("Tag").unwrap().to_vec()).unwrap()
 }

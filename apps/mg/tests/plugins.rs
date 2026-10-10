@@ -74,7 +74,7 @@ fn plugins_are_listed_and_checked() {
     let broken = fixtures.join("broken");
     let (ok, checked) = mg(&["plugin", "check", broken.to_str().unwrap()]);
     assert!(!ok);
-    assert_eq!(checked["plugins"][0]["faults"].as_array().unwrap().len(), 3, "{checked}");
+    assert_eq!(checked["plugins"][0]["faults"].as_array().unwrap().len(), 4, "{checked}");
 }
 
 #[test]

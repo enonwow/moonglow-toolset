@@ -313,6 +313,7 @@ fn code_and_manifest_must_agree() {
             "the command \"declared\" is declared, but the code registers none",
             "the code registers the command \"undeclared\", which the manifest lacks",
             "the check \"also-declared\" is declared, but the code registers none",
+            "the event \"never\" is declared, but the code registers none",
         ]
     );
     let e = run(&plugin("broken"), "declared", &host).unwrap_err().to_string();

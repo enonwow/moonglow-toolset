@@ -847,6 +847,7 @@ impl Moonglow {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         self.poll_job(ui.ctx());
+        self.next_plugin_event();
         // (A running job has the window to itself.)
         if !self.busy() {
             self.shortcuts(ui);
@@ -1804,6 +1805,7 @@ impl Moonglow {
             );
         }
         self.ws = Some(Workspace::new(m));
+        self.plugins_module_opened();
         self.outside = Default::default();
         self.area_names = Default::default();
         self.area_contents.clear();
@@ -2581,6 +2583,7 @@ impl Moonglow {
                 self.settings.remember(&path);
                 self.forget_recovery();
                 self.write_mod_beside_folder();
+                self.plugins_module_saved();
             }
             Err(e) => {
                 self.log.error(format!("Save failed: {e}"));

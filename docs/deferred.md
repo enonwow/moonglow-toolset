@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:50:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -283,6 +283,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   lists could live beside the module. (S)
 ## Custom content data (2DAs and talk tables)
 
+- **Plugins writing into a folder, and acting on events** (plugin API
+  0.3): `folder:write` into a folder the user chose, with their leave,
+  and `mg.on` for a module opened or saved. Not done: a file goes into
+  the chosen folder itself, not into a folder inside it (a project's
+  `src/` tree of folders is chosen one folder at a time); no copy of a
+  replaced file is kept; there is one event for a save, with the
+  resources changed since the last, not one for each resource, and none
+  for a script's own Save; what an event was allowed is kept for the
+  session only (asked again after a restart, since plugins keep no
+  settings); `mg` fires no events (`mg plugin run` runs commands only);
+  an event's handler that asks a form asks it at every save; that an
+  event's leave is asked once in a session is not held by a test. (S
+  each; settings M)
 - **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
   and a talk table as values to change and write. Not done:
   `mg.twoda.kinds` says only what Verify Module's tables say (ten

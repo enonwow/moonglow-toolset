@@ -29,6 +29,8 @@ pub struct Manifest {
     pub entry: String,
     pub commands: Vec<CommandDecl>,
     pub checks: Vec<CheckDecl>,
+    /// What it does by itself, when something happens.
+    pub events: Vec<EventDecl>,
 }
 
 /// A command a plugin adds.
@@ -51,6 +53,36 @@ pub struct CheckDecl {
     pub title: String,
     /// How bad its findings are, unless one says otherwise.
     pub severity: Severity,
+}
+
+/// What a plugin can act on by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    /// A module was opened.
+    ModuleOpened,
+    /// The module was saved: with the resources that are not as they
+    /// were when it was last saved, or opened.
+    ModuleSaved,
+}
+
+impl EventKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            EventKind::ModuleOpened => "module-opened",
+            EventKind::ModuleSaved => "module-saved",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<EventKind> {
+        [EventKind::ModuleOpened, EventKind::ModuleSaved].into_iter().find(|k| k.name() == name)
+    }
+}
+
+/// Something a plugin does when an event happens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventDecl {
+    pub id: String,
+    pub on: EventKind,
 }
 
 /// Whether text is an id: lower-case letters, digits, `.`, `-` and `_`,
@@ -101,6 +133,7 @@ impl Manifest {
         let all = sections(text)?;
         let mut plugin: Option<Manifest> = None;
         let (mut commands, mut checks) = (Vec::<CommandDecl>::new(), Vec::<CheckDecl>::new());
+        let mut events = Vec::<EventDecl>::new();
         for s in &all {
             match s.name.as_str() {
                 "plugin" => {
@@ -156,6 +189,7 @@ impl Manifest {
                         entry: entry.to_string(),
                         commands: Vec::new(),
                         checks: Vec::new(),
+                        events: Vec::new(),
                     });
                 }
                 "command" => {
@@ -193,9 +227,24 @@ impl Manifest {
                         severity,
                     });
                 }
+                "event" => {
+                    let get = keys(s, &["id", "on"])?;
+                    let id = id_of(s, get("id"))?;
+                    if events.iter().any(|e: &EventDecl| e.id == id) {
+                        return Err(format!("line {}: a second event {id:?}", s.line));
+                    }
+                    let Some(on) = EventKind::named(required(s, "on", get("on"))?) else {
+                        return Err(format!(
+                            "line {}: on is \"module-opened\" or \"module-saved\", not {:?}",
+                            s.line,
+                            get("on")
+                        ));
+                    };
+                    events.push(EventDecl { id, on });
+                }
                 other => {
                     return Err(format!(
-                        "line {}: no section [{other}] (there are [plugin], [command] and [check])",
+                        "line {}: no section [{other}] (there are [plugin], [command], [check] and [event])",
                         s.line
                     ));
                 }
@@ -204,6 +253,7 @@ impl Manifest {
         let mut plugin = plugin.ok_or("it has no [plugin] section")?;
         plugin.commands = commands;
         plugin.checks = checks;
+        plugin.events = events;
         Ok(plugin)
     }
 }

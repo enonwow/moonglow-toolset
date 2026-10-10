@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
 ---
 
 # Plugins
@@ -39,7 +39,16 @@ A plugin's code runs in a sandbox. It can:
   asks the first time it writes to each hak. Resources are added to a
   hak that is there, and a copy of the hak as it was is kept beside it
   (`name.hak.bak`). Edit › Undo takes back what the plugin did to the
-  module, not the hak.
+  module, not the hak;
+- write files into a folder **you chose** for it, **if you allow it**:
+  it asks the first time it writes into each folder. Files of the same
+  names there are replaced, and no copy of them is kept. It writes into
+  that folder only, never into a folder inside it or above it;
+- act by itself when a module is opened or saved, if it says so (the
+  Plugins window lists what each plugin does by itself). What it does
+  then is a change like a command's, which Undo takes back; where it
+  asks for a folder or for leave to write, it asks once in a session of
+  Moonglow, not at every save.
 
 It cannot open files of its own choosing, write any other file, use the
 network, start other programs, or reach anything of Moonglow's beyond

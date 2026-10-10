@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
 ---
 
 # Plugin API changes
@@ -27,6 +27,12 @@ as it is. A plugin that uses what is new says `api = "0.3"`.
   is the plugin's own copy.
 - `mg.tlk`: `parse` and `new` make a talk table to read, change and
   write (`tlk:get`, `set`, `add`, `write`).
+- `folder:write`: files written into a folder the user chose
+  (`ctx.ui:open_folder`), which they are asked to allow: into that
+  folder only, by name.
+- Events: an `[event]` section in the manifest (`on = "module-opened"`
+  or `"module-saved"`) and `mg.on(id, handler)`; the handler runs as a
+  command does, with what happened as `ctx.event`. In the window only.
 
 ## 0.2
 

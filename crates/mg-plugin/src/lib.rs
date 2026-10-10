@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub use manifest::{API, APIS, CheckDecl, CommandDecl, Manifest};
+pub use manifest::{API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest};
 use mg_edit::Edit;
 use mg_module::Module;
 use mg_module::doctor::Finding;
@@ -208,6 +208,64 @@ pub struct Outcome {
     pub label: String,
     pub edits: Vec<Edit>,
     pub haks: Vec<HakWrite>,
+    /// Files it wants written into folders the user chose (and agreed
+    /// to have written into).
+    pub folders: Vec<FolderWrite>,
+}
+
+/// Files a command wants in a folder the user chose: new ones, or in
+/// place of those of the same name there. Not part of the command's
+/// undoable step: files outside the module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderWrite {
+    pub dir: PathBuf,
+    /// Each file's name (a name, not a path) and bytes.
+    pub files: Vec<(String, Vec<u8>)>,
+}
+
+/// Whether `name` is a file's name a plugin may write in a folder: a name
+/// alone, nothing that leads elsewhere or hides.
+pub fn is_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.starts_with('.')
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
+}
+
+impl FolderWrite {
+    /// Writes the files into the folder: how many were new and how many
+    /// replaced. A name that is a link out of the folder, or a folder, is
+    /// refused, and then nothing is written.
+    pub fn write(&self) -> Result<(usize, usize), String> {
+        let root = self.dir.canonicalize().map_err(|e| format!("{}: {e}", self.dir.display()))?;
+        let mut replaced = 0;
+        for (name, _) in &self.files {
+            if !is_file_name(name) {
+                return Err(format!("{name:?} is not a file's name"));
+            }
+            let path = root.join(name);
+            if path.symlink_metadata().is_ok() {
+                let real = path.canonicalize().map_err(|e| format!("{name}: {e}"))?;
+                if real.parent() != Some(&root) || !real.is_file() {
+                    return Err(format!("{name} is not a file of the folder"));
+                }
+                replaced += 1;
+            }
+        }
+        for (name, bytes) in &self.files {
+            std::fs::write(root.join(name), bytes).map_err(|e| format!("{name}: {e}"))?;
+        }
+        Ok((self.files.len() - replaced, replaced))
+    }
+}
+
+/// What happened, for a plugin's event handler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Event {
+    pub kind: EventKind,
+    /// For a module saved: the resources that changed.
+    pub resources: Vec<ResKey>,
 }
 
 /// Resources a command wants in a hak of the user's hak folder: added to
@@ -256,6 +314,25 @@ pub fn run_command(
         }
     })?;
     runtime::run_command(plugin, decl, input, host)
+}
+
+/// Runs what a plugin does on an event (`event`: the id its manifest
+/// declares it under): as a command, its edits to apply as one.
+pub fn run_event(
+    plugin: &Plugin,
+    event: &str,
+    happened: &Event,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Outcome, PluginError> {
+    let decl = plugin.manifest.events.iter().find(|e| e.id == event).ok_or_else(|| {
+        PluginError::Unknown {
+            plugin: plugin.manifest.id.clone(),
+            kind: "event",
+            id: event.to_string(),
+        }
+    })?;
+    runtime::run_event(plugin, decl, happened, input, host)
 }
 
 /// Runs a check of a plugin on a module: its findings, each carrying the

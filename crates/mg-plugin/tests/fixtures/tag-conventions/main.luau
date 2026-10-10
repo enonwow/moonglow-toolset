@@ -54,3 +54,16 @@ mg.check("tag-case", function(ctx)
     end
     return findings
 end)
+
+-- By itself, when the module is saved: says which creatures were.
+mg.on("saved", function(ctx)
+    local creatures = {}
+    for _, name in ctx.event.resources do
+        if name:sub(-4) == ".utc" then
+            table.insert(creatures, name)
+        end
+    end
+    if #creatures > 0 then
+        ctx.log:info(`{ctx.event.name}: {table.concat(creatures, " ")}`)
+    end
+end)

@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
 ---
 
 # Writing plugins
@@ -125,9 +125,34 @@ has no other way to change anything.
 are no files of its own choosing, no network, no other programs, and the
 libraries can't be replaced. What it reaches outside the module, the
 user hands it: a file or a folder they choose for it to read, and a hak
-they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory.
+or that folder if they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory.
 **Cancel** stops it between any two steps, even in a loop that never
 ends; `pcall` does not catch that.
+
+**Events.** A plugin may also act when a module is opened or saved: an
+`[event]` in the manifest and a handler registered with `mg.on(id,
+handler)`. The handler is called as a command's is, a job of its own,
+with what happened as `ctx.event`: its `name` (`"module-saved"`) and, for
+a save, `resources`, the names of the resources that are not as they
+were at the last save (or when the module was opened). Its edits go in
+as one undoable step after the save, so the module then has unsaved
+changes again: an event that edits should have little to say. Where it
+asks for a folder (`ctx.ui:open_folder`) or for leave to write (a hak, a
+folder), the user is asked once in a session of Moonglow and the answer
+is kept for that plugin's events; a form is asked every time. Events
+happen in the window only: `mg` fires none.
+
+```lua
+mg.on("emit", function(ctx)
+    local out = ctx.ui:open_folder({ title = "The server's development folder" })
+    if not out then return end
+    for _, name in ctx.event.resources do
+        if name:sub(-4) == ".utc" then
+            out:write(name, ctx.module:bytes(name))
+        end
+    end
+end)
+```
 
 **Checks only read.** A check gets the same `ctx`; if it makes an edit,
 it fails. Nobody is there to answer a check's questions (it runs among
@@ -169,6 +194,13 @@ running the plugin, to list what it adds.
 | `id` | Needed. The id the code registers it under. Findings carry `plugin-id/check-id`. |
 | `title` | Needed. What the check holds to be true (`Creature tags are upper case`). |
 | `severity` | `"warning"` (as when left out) or `"error"`: how bad its findings are, unless a finding says otherwise. |
+
+`[event]`, once for each thing the plugin does by itself:
+
+| Key | |
+| --- | --- |
+| `id` | Needed. The id the code registers it under (`mg.on`). |
+| `on` | Needed. What it waits for: `"module-opened"` or `"module-saved"`. |
 
 A key or a section Moonglow doesn't know is an error (a misspelled one,
 most likely), and so is a command declared but not registered, or
@@ -365,6 +397,19 @@ ctx.hak:write("my_tiles", "tiles.set", text)        -- a resource, from bytes
 folder:to_hak("my_tiles", "textures/grass.tga")     -- a file of the folder, copied
 ctx.hak:attach("my_tiles")                          -- the module lists the hak
 ```
+
+It may also write files into a folder the user chose, once they have
+said it may (asked the first time the job writes into each folder):
+
+```lua
+local out = ctx.ui:open_folder({ title = "Where the generated tables go" })
+out:write("feat.2da", table:write())                -- a file of that folder, by its name
+```
+
+The files are written when the handler returns, in place of those of the
+same names (no copy is kept, and Undo does not take them back). A name
+is a name: not a path into a folder of the folder, nothing above it,
+nothing hidden.
 
 The hak is written when the handler returns. Resources are added to a
 hak that is already there, and a copy of it is kept as `my_tiles.hak.bak`.
