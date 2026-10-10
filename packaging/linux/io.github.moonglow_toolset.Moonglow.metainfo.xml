@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.21.0" date="2026-10-10">
+      <description>
+        <p>The development loop from a terminal: mg serve runs a module
+        in the game's headless server, mg test runs a module's NWScript
+        tests there, and mg watch follows a project as you edit it. Also
+        mg 2da-diff and mg tlk-diff with three-way merges, mg tlk-alloc
+        for talk-table numbers that stay, and plugin API 0.3: tables to
+        make and write, files written into a folder you choose, and
+        plugins that act when a module is opened or saved.</p>
+      </description>
+    </release>
     <release version="1.20.7" date="2026-10-10">
       <description>
         <p>The spikes across the area view with Object Walkmeshes on are
