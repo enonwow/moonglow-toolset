@@ -407,15 +407,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                         ui.close();
                     }
                     ui.separator();
-                    for (suffix, label) in [("_o", "Opener script")] {
-                        if let Some(k) = ResKey::parse(&format!("{name}{suffix}"), ResType::NSS)
-                            && ui
-                                .add_enabled(ws.module.contains(&k), egui::Button::new(label))
-                                .clicked()
-                        {
-                            app.actions.push(Action::OpenTab(Tab::Script(k)));
-                            ui.close();
-                        }
+                    if let Some(k) = ResKey::parse(&format!("{name}_o"), ResType::NSS)
+                        && ui
+                            .add_enabled(ws.module.contains(&k), egui::Button::new("Opener script"))
+                            .clicked()
+                    {
+                        app.actions.push(Action::OpenTab(Tab::Script(k)));
+                        ui.close();
                     }
                 });
                 ui.separator();
