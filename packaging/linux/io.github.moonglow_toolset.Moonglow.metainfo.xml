@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.21.1" date="2026-10-11">
+      <description>
+        <p>The module tree's keys go into an area's placed objects, and
+        its header looks like the palettes'. A talk table's line is
+        chosen by a click anywhere on its row. A creature's body part
+        can be none, the palette shown last is remembered, and the two
+        walkmesh buttons are one.</p>
+      </description>
+    </release>
     <release version="1.21.0" date="2026-10-10">
       <description>
         <p>The development loop from a terminal: mg serve runs a module
