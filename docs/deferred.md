@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1097,9 +1097,47 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   wherever the pointer is, until it is in an area's view; a thin
   outline shows the pane. They were the list's only with the pointer
   over it. A letter typed still goes to the tree only with the pointer
-  over it (letters are commands elsewhere). Not done: Right on an
-  area's row does not open the area out to what is placed in it;
-  Escape in the Filter does not clear it. (S each)
+  over it (letters are commands elsewhere). Right and Left go into
+  an area opened out, to its kinds and its placed objects, and both
+  panes' filter fields have Ctrl+F, Escape (clear, then leave) and
+  Down. Not done: a letter typed does not find a kind or a placed
+  object; F2 and Delete are for resources, not for a placed object the
+  keys are at; the other lists with a filter (the resource browser, the
+  script list) do not have these keys. (S each)
+- **A talk table's lines** (issue 24): the whole row chooses its line
+  and shows the pointer over it; the arrow keys choose from there, and
+  Enter or a double click goes to the text. Seen in a picture of the
+  editor made for this (`tests/screens.rs`, a floating window with no
+  module): a blank stretch above the list's first rows, there before
+  this change too; whether the docked editor has it is not known. (S)
+- **The look of the two side panes** (the owner's notes after 1.21.0):
+  the module tree's header is the palettes' (a search field that says
+  what it looks in, with a clear button; Expand All and Collapse All as
+  icons, with a count); the palettes' type icons are larger (a line's height; twice that
+  was tried and was too large), in rows where the pane is narrow; the palette shown last is remembered between runs (its type,
+  and Standard or Custom); Walkmesh and Object Walkmeshes are one
+  toolbar button. Not done: the module tree's rows are as they were
+  (no pictures, no "more" menu as the palettes' list has); the
+  palette's search text and its open categories are not remembered;
+  holding the walkmesh button is not held by a test (a right click
+  is). (S each)
+- **The area's toolbar in a narrow tab** runs its rows past the tab's
+  edge: a group of controls that is laid out as one (Snap, Fade
+  Geometry) does not go to the next row when it does not fit, and
+  widens the rows after it, so a button at a row's end is cut off and
+  reached only by scrolling the tab sideways. Seen in a picture of a
+  1000-point window while the walkmesh buttons were made one; there
+  before. (S)
+- **Builders' reports after 1.21.0:** a creature's body part can be
+  set to none (0), as in Aurora; a body part whose mesh is a skin mesh
+  is not drawn, which is a builder's report of the game (and follows
+  from a part hung rigid from a node), not something seen in the
+  client here; an item's General page no longer runs its name's
+  talk-table reference under the second column (`two_columns` stacks
+  when a column's content is wider than its half). Not reproduced:
+  "unequipping an armor sets all body parts to 0": nothing in the code
+  writes a body part on unequip, and the preview draws the creature's
+  own parts then; the creature it was seen on would tell. (S)
 - **A pane's own button to fold it away** (issue 10): the module tree
   («) and the log (–) have one; the palettes' pane has its ✕. Not
   done: a folded pane's strip shows an arrow, and its name only for

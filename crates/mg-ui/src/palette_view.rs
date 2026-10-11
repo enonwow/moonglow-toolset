@@ -66,6 +66,9 @@ pub struct PaletteView {
     /// More custom blueprints chosen with Ctrl+click, for bulk edits (with
     /// `selected`).
     pub chosen: Vec<ResKey>,
+    /// The palette shown last was brought back from the settings (once,
+    /// when the palettes are first drawn).
+    restored: bool,
     /// The tileset palette is shown, rather than blueprints.
     pub tiles: bool,
     /// The prefabs are shown (groups of placed objects saved to place
@@ -233,6 +236,8 @@ pub(crate) enum Keys {
     Tree,
     /// A list of a window's own (Module Properties' haks).
     List,
+    /// The talk table editor's lines.
+    Talk,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
@@ -277,6 +282,7 @@ impl Default for PaletteView {
         PaletteView {
             kind: BlueprintKind::Creature,
             custom: false,
+            restored: false,
             filter: String::new(),
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
@@ -459,7 +465,7 @@ enum Pick {
 }
 
 /// Expand All and Collapse All as two small buttons, for a list's toolbar.
-fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
+pub(crate) fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
     let mut fold = None;
     if ui.small_button("⏷").on_hover_text(format!("Expand All: open every {what}")).clicked() {
         fold = Some(true);
@@ -483,6 +489,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.set_max_width(seen);
     }
     let mut view = std::mem::take(&mut app.palette);
+    // The palette shown when Moonglow was last closed, once.
+    if !std::mem::replace(&mut view.restored, true)
+        && let Some(last) = app.settings.palette_type.clone()
+    {
+        let kind = BlueprintKind::ALL
+            .into_iter()
+            .find(|k| k.restype().extension().is_some_and(|e| e == last));
+        (view.tiles, view.prefabs) = (last == "tiles", last == "prefabs");
+        if let Some(kind) = kind {
+            view.kind = kind;
+            view.custom = app.settings.palette_custom && app.ws.is_some();
+        }
+    }
+    let custom_was = view.custom;
     crate::trace::changed("palette", || {
         format!(
             "in {:?}; tiles {}, prefabs {}, kind {:?}, custom {}, area {:?}, find {:?}",
@@ -527,16 +547,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
              again in any area or module",
         ));
         let mut chosen = None;
-        // (Close together: eleven of them, in a pane that is narrow.)
-        let each = 20.0;
-        if ui.available_width() >= each * types.len() as f32 {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 1.0;
-                ui.spacing_mut().button_padding.x = 2.0;
+        // Larger than the text beside them (a line's height, about a
+        // third more than its letters), to be told apart and hit at a
+        // glance; in rows, where the pane is narrower than the eleven of
+        // them.
+        let size = ui.text_style_height(&egui::TextStyle::Body);
+        let each = size + 10.0;
+        if ui.available_width() >= each * 4.0 {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
                 for (t, glyph, name, tip) in &types {
                     let tip =
                         if tip.is_empty() { name.to_string() } else { format!("{name}: {tip}") };
-                    if ui.selectable_label(now == *t, *glyph).on_hover_text(tip).clicked() {
+                    let icon = egui::RichText::new(*glyph).size(size);
+                    if ui.selectable_label(now == *t, icon).on_hover_text(tip).clicked() {
                         chosen = Some(*t);
                     }
                 }
@@ -573,6 +598,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
             None => {}
         }
+        // Remembered for the next start.
+        if chosen.is_some() {
+            app.settings.palette_type = Some(match (view.tiles, view.prefabs) {
+                (true, _) => "tiles".to_string(),
+                (_, true) => "prefabs".to_string(),
+                _ => view.kind.restype().extension().unwrap_or_default().to_string(),
+            });
+        }
         // The type shown, by name; the source beside it (a blueprint
         // type's: the game's, or the module's).
         let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
@@ -589,6 +622,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 });
             }
         });
+    }
+    if view.custom != custom_was {
+        app.settings.palette_custom = view.custom;
     }
     view.fold = None;
     if view.prefabs {
@@ -607,11 +643,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     // The search: the pane's width, with what it looks in said, and a
     // button to clear it.
+    // Its keys, as the module tree's Filter has them (GitHub issue 12):
+    // Ctrl+F while the keys are the palette's goes to it; Escape clears
+    // it; Escape again, or Down, goes back to the list.
+    let search_id = egui::Id::new("palette-search-field");
+    let find = keys_are(ui.ctx(), Keys::Palette)
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    let left = crate::widgets::filter_keys(ui, search_id, &mut view.filter, find);
+    if left.is_some() {
+        give_keys(ui.ctx(), Keys::Palette);
+    }
+    let entered = left == Some(crate::widgets::FilterLeft::Down);
+    if entered {
+        view.cursor = None;
+    }
     ui.horizontal(|ui| {
         let clear = !view.filter.is_empty();
         let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
         ui.add(
             egui::TextEdit::singleline(&mut view.filter)
+                .id(search_id)
                 .hint_text("🔍 Search name, tag, resref")
                 .desired_width(room.max(60.0)),
         );
@@ -756,7 +808,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     .find(|k| plain && i.key_pressed(*k))
             })
         })
-        .flatten();
+        .flatten()
+        // (Down out of the search: to the list's first row.)
+        .or(entered.then_some(egui::Key::ArrowDown));
     let gallery = app.settings.palette_gallery && pictured(kind);
     let mut tree = Tree {
         game,
@@ -831,7 +885,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .as_ref()
             .and_then(|c| listed.find(c))
             .filter(|r| listed.shows(*r))
-            .or_else(|| tree.sel.selected.and_then(|k| listed.blueprint(k)));
+            // (From the search: the first row, not the one after the
+            // blueprint in hand.)
+            .or_else(|| tree.sel.selected.filter(|_| !entered).and_then(|k| listed.blueprint(k)));
         let step = match from {
             // Enter: the blueprint's editor, as a double click's (a
             // standard one is viewed); a category opens or closes.

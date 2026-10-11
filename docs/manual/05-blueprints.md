@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
 ---
 
 # Blueprints
@@ -21,8 +21,10 @@ the top:
 - **The types**: a row of icons (tiles, creatures, doors, encounters,
   items, placeables, sounds, merchants, triggers, waypoints, prefabs),
   one click each; the pointer over an icon names it, and the type shown
-  is named under the row. In a pane too narrow for the row, the types
-  are a dropdown with their names.
+  is named under the row. The icons go to a second and a third row in
+  a pane narrower than the eleven of them, and are a dropdown with their
+  names in a very narrow one. The type shown last is the one the
+  palettes open on the next time Moonglow starts.
 - **Standard** and **Custom**, beside the type's name: whose blueprints.
 - **The search**, the pane's width; **×** clears it.
 - **The list's toolbar**, right over the list: the two arrows open and
@@ -98,7 +100,9 @@ category; on a category it closes it, or goes to the one it is in.
 opens the blueprint's editor (a standard one is viewed), as a double
 click does, and opens or closes a category. While the
 keys are on a category, the blueprint selected stays in hand. The keys
-are the palette's, wherever the pointer is, until the
+are the palette's, wherever the pointer is (Ctrl+F goes to its search;
+there Escape clears what is typed, and Escape again, or Down, goes back
+to the list), until the
 pointer is back in an area's view, where they move the camera again;
 W, A, S and D move it all along.
 
@@ -273,7 +277,10 @@ every change, as Aurora does on OK.
 
 - **Appearance** opens with the creature's model, as it looks now and as
   large as the window has room for; its wings, tail and colors, and its
-  body parts, are to the right, so a change shows as you make it. **Pop
+  body parts, are to the right, so a change shows as you make it (a
+  body part may be **0 (none)**, which draws nothing). A body part's
+  mesh that is a skin mesh is not drawn, as the game does not draw it:
+  body parts are plain meshes. **Pop
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
 - **Feats** shows the feats the creature has beside the list to choose

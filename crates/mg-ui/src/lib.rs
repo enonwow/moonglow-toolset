@@ -500,7 +500,7 @@ pub struct Moonglow {
     /// or close at the next frame.
     pub tree_cursor: Option<tree::TreeAt>,
     pub(crate) tree_cursor_moved: bool,
-    pub(crate) tree_fold: Option<(&'static str, bool)>,
+    pub(crate) tree_fold: Option<(tree::TreeAt, bool)>,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -1811,8 +1811,11 @@ impl Moonglow {
         self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
         self.open_palette = true;
-        // On the area's tiles: what a new module needs first.
-        self.palette.tiles = true;
+        // On the area's tiles, what a new module needs first; or on the
+        // palette shown last, where one was chosen.
+        if self.settings.palette_type.is_none() {
+            self.palette.tiles = true;
+        }
         self.custom_tlk = None;
         self.load_custom_tlk();
         self.load_order_changed();

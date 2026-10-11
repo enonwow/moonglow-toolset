@@ -1,5 +1,9 @@
 # Update log
 
+## 2026-10-11
+* **Update**: [The main window](manual/02-main-window.md), [areas](manual/04-areas.md), [blueprints](manual/05-blueprints.md) and [the deferred list](deferred.md): the module tree's header as the palettes', larger palette icons, the palette shown last remembered, and one Walkmesh… button for both walkmeshes.
+* **Update**: [The main window](manual/02-main-window.md) (Right and Left into an area opened out; the Filter's Escape and Down, in the palette's search too), [modules](manual/03-modules.md) (a talk table's row clicked anywhere, its keys), [blueprints](manual/05-blueprints.md) (a body part of none; skin meshes in body parts not drawn) and [the deferred list](deferred.md): GitHub issues 12 and 24 and three builders' reports after 1.21.0.
+
 ## 2026-10-10
 * **Update**: [Plugins](manual/15-plugins.md), [writing plugins](manual/16-writing-plugins.md), [the plugin API](manual/17-plugin-api.md), [its changes](plugins/CHANGES.md) and [the deferred list](deferred.md): plugin API 0.3 also lets a plugin write files into a folder the user chose (`folder:write`, with their leave) and act when a module is opened or saved (`[event]`, `mg.on`).
 * **Update**: [The plugin API](manual/17-plugin-api.md), [writing plugins](manual/16-writing-plugins.md), [the API's changes](plugins/CHANGES.md) and [the deferred list](deferred.md): plugin API 0.3 adds `mg.twoda` and `mg.tlk`, tables a plugin makes, changes and writes, with the kinds of columns Verify Module knows.

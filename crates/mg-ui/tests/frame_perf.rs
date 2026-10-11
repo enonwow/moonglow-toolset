@@ -559,9 +559,9 @@ fn frames_at_144() {
     view(&mut h, &mut r, "module open, no area", None);
 
     // The tree with every list opened.
-    click(&mut h, "Expand All");
+    click(&mut h, "⏷");
     view(&mut h, &mut r, "module tree, every group open", None);
-    click(&mut h, "Collapse All");
+    click(&mut h, "⏶");
 
     // A menu, opened.
     if click(&mut h, "File") {
@@ -667,9 +667,9 @@ fn frames_at_144_in_a_persistent_world() {
         close(&mut h, t);
     }
     view(&mut h, &mut r, "module open (300 areas in the tree)", None);
-    click(&mut h, "Expand All");
+    click(&mut h, "⏷");
     view(&mut h, &mut r, "module tree, all 25,000 resources listed", None);
-    click(&mut h, "Collapse All");
+    click(&mut h, "⏶");
 
     palette(&mut h, BlueprintKind::Item, true, "");
     tab(&mut h, &mut r, "custom item palette (8,000)", Tab::Palette);

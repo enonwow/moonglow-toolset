@@ -951,22 +951,87 @@ pub(crate) fn drag_number_shown<T: egui::emath::Numeric>(
     (set.then_some(v), v, r)
 }
 
+/// How a pane's filter field was left by the keys, for its list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FilterLeft {
+    /// Down: into the list, at its first row.
+    Down,
+    /// Escape with nothing to clear: back to the list as it was.
+    Escape,
+}
+
+/// The keys of a pane's filter field (GitHub issue 12), to be called
+/// before the field (whose id is `id`) is added: `find` (Ctrl+F in the
+/// pane) goes to it; in it, Escape clears what is typed, and Escape
+/// again or Down leaves it for the pane's list.
+pub(crate) fn filter_keys(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    text: &mut String,
+    find: bool,
+) -> Option<FilterLeft> {
+    if find {
+        ui.memory_mut(|m| m.request_focus(id));
+    }
+    // (egui takes the focus from a field at Escape before anything is
+    // drawn: the field had it if it had it when last drawn.)
+    let has = ui.memory(|m| m.has_focus(id));
+    let had_id = id.with("had-focus");
+    let had = ui.data(|d| d.get_temp::<bool>(had_id)).unwrap_or(false);
+    ui.data_mut(|d| d.insert_temp(had_id, has || find));
+    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none());
+    if had && escape {
+        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        if text.is_empty() {
+            ui.memory_mut(|m| m.surrender_focus(id));
+            ui.data_mut(|d| d.insert_temp(had_id, false));
+            return Some(FilterLeft::Escape);
+        }
+        text.clear();
+        ui.memory_mut(|m| m.request_focus(id));
+        ui.data_mut(|d| d.insert_temp(had_id, true));
+        return None;
+    }
+    if has && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
+        ui.memory_mut(|m| m.surrender_focus(id));
+        ui.data_mut(|d| d.insert_temp(had_id, false));
+        return Some(FilterLeft::Down);
+    }
+    None
+}
+
 /// Two columns side by side where each gets at least `min` points, else one
 /// above the other (in a narrow tab or window, half the width would squeeze
 /// fixed-width fields into the other column): `add(ui, 0)` fills the first,
-/// `add(ui, 1)` the second.
+/// `add(ui, 1)` the second. Nor side by side where what a column holds was
+/// wider than half the width when last drawn (a name's field with its
+/// talk-table reference and its button ran under the second column).
 pub(crate) fn two_columns(ui: &mut egui::Ui, min: f32, mut add: impl FnMut(&mut egui::Ui, usize)) {
-    if ui.available_width() >= 2.0 * min + ui.spacing().item_spacing.x {
+    let gap = ui.spacing().item_spacing.x;
+    let id = ui.id().with("two-columns-widths");
+    let drawn: Option<[f32; 2]> = ui.data(|d| d.get_temp(id));
+    let half = (ui.available_width() - gap) / 2.0;
+    let fits = drawn.is_none_or(|w| w[0].max(w[1]) <= half + 0.5);
+    let mut widths = [0.0_f32; 2];
+    if ui.available_width() >= 2.0 * min + gap && fits {
         ui.columns(2, |cols| {
-            add(&mut cols[0], 0);
-            add(&mut cols[1], 1);
+            for (i, col) in cols.iter_mut().enumerate() {
+                widths[i] = col.scope(|ui| add(ui, i)).response.rect.width();
+            }
         });
     } else {
         ui.vertical(|ui| {
-            add(ui, 0);
+            widths[0] = ui.scope(|ui| add(ui, 0)).response.rect.width();
             ui.add_space(8.0);
-            add(ui, 1);
+            widths[1] = ui.scope(|ui| add(ui, 1)).response.rect.width();
         });
+    }
+    if drawn != Some(widths) {
+        ui.data_mut(|d| d.insert_temp(id, widths));
+        // (What was just drawn may be the layout that does not fit.)
+        if drawn.is_none_or(|w| (w[0].max(w[1]) <= half) != (widths[0].max(widths[1]) <= half)) {
+            ui.ctx().request_repaint();
+        }
     }
 }
 
@@ -1476,6 +1541,47 @@ mod tests {
 mod token_tests {
     use super::with_token;
     use egui::text::{CCursor, CCursorRange};
+
+    /// Two columns are side by side only where what the first holds fits
+    /// in its half; and again once there is room.
+    #[test]
+    fn two_columns_stack_where_the_first_does_not_fit() {
+        let ctx = egui::Context::default();
+        // Where the second column's content begins, in a window so wide.
+        let second_at = |width: f32| -> egui::Pos2 {
+            let mut at = egui::Pos2::ZERO;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 400.0),
+                )),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    super::two_columns(ui, 100.0, |ui, col| {
+                        let size = if col == 0 { [300.0, 20.0] } else { [80.0, 20.0] };
+                        let r = ui.allocate_exact_size(size.into(), egui::Sense::hover()).0;
+                        if col == 1 {
+                            at = r.min;
+                        }
+                    });
+                });
+            });
+            out.textures_delta.clear();
+            at
+        };
+        let top = second_at(900.0).y;
+        // (Drawn twice: the first pass measures.)
+        let wide = second_at(900.0);
+        assert!(wide.x > 300.0 && wide.y == top, "beside: {wide:?}");
+        second_at(500.0);
+        let narrow = second_at(500.0);
+        assert!(narrow.x < 100.0 && narrow.y > top, "beneath, not under the first: {narrow:?}");
+        second_at(900.0);
+        let again = second_at(900.0);
+        assert!(again.x > 300.0 && again.y == top, "beside again: {again:?}");
+    }
 
     #[test]
     fn a_token_goes_where_the_caret_was() {
