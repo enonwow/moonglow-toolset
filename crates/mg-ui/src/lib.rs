@@ -506,7 +506,7 @@ pub struct Moonglow {
     /// or close at the next frame.
     pub tree_cursor: Option<tree::TreeAt>,
     pub(crate) tree_cursor_moved: bool,
-    pub(crate) tree_fold: Option<(&'static str, bool)>,
+    pub(crate) tree_fold: Option<(tree::TreeAt, bool)>,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -855,6 +855,7 @@ impl Moonglow {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         self.poll_job(ui.ctx());
+        self.next_plugin_event();
         // (A running job has the window to itself.)
         if !self.busy() {
             self.shortcuts(ui);
@@ -1812,13 +1813,17 @@ impl Moonglow {
             );
         }
         self.ws = Some(Workspace::new(m));
+        self.plugins_module_opened();
         self.outside = Default::default();
         self.area_names = Default::default();
         self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
         self.open_palette = true;
-        // On the area's tiles: what a new module needs first.
-        self.palette.tiles = true;
+        // On the area's tiles, what a new module needs first; or on the
+        // palette shown last, where one was chosen.
+        if self.settings.palette_type.is_none() {
+            self.palette.tiles = true;
+        }
         self.custom_tlk = None;
         self.load_custom_tlk();
         self.load_order_changed();
@@ -2593,6 +2598,7 @@ impl Moonglow {
                 self.settings.remember(&path);
                 self.forget_recovery();
                 self.write_mod_beside_folder();
+                self.plugins_module_saved();
             }
             Err(e) => {
                 self.log.error(format!("Save failed: {e}"));
@@ -2828,28 +2834,22 @@ impl Moonglow {
         // What the stamps were made with: another module, compiler,
         // setting, or game data (the haks and folders as they were read),
         // and every script is compiled again.
-        let made_with = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            self.module_path().hash(&mut h);
-            (self.settings.debug_info, format!("{external:?}")).hash(&mut h);
-            if let (Some(game), Some(install)) = (self.game.as_deref(), self.install.as_ref()) {
-                install.root.hash(&mut h);
-                for l in game.resman.layers().iter().filter(|l| user_content(l)) {
-                    (&l.label, l.fingerprint).hash(&mut h);
-                }
-            }
-            h.finish()
-        };
-        // (Kept from the last session, if it was made with the same.)
+        let made_with = mg_module::build::made_with(
+            self.module_path().as_deref(),
+            external.as_ref(),
+            self.install.as_ref().map(|i| i.root.as_path()),
+            &self.game.as_deref().expect("checked above").resman,
+        );
+        // (Kept from the last session, or by `mg compile`, if it was made
+        // with the same.)
         let file = (self.compiled_dir.as_ref().zip(self.module_path()))
             .map(|(dir, module)| mg_module::build::Remembered::file(dir, &module));
         if self.script_stamps.made_with != made_with {
-            let kept = file.as_deref().and_then(mg_module::build::Remembered::read);
-            self.script_stamps = match kept {
-                Some(kept) if kept.made_with == made_with => kept,
-                _ => mg_module::build::Remembered { made_with, ..Default::default() },
-            };
+            self.script_stamps = mg_module::build::Remembered::kept(
+                self.compiled_dir.as_deref(),
+                self.module_path().as_deref(),
+                made_with,
+            );
         }
         let known = self.script_stamps.clone();
         let all = only.is_none();
@@ -2859,25 +2859,12 @@ impl Moonglow {
             move |job| {
                 let game = job.game.as_deref()?;
                 let mut staged = job.module.clone();
-                let stamps = mg_module::build::script_stamps(&job.module);
-                let skipped = |k: &ResKey| {
-                    let target = job.module.project.as_ref().map(|p| p.target());
-                    target.is_some_and(|t| t.skips_compiling(&k.to_string()))
-                };
-                let stale = |k: &ResKey| known.stale(&job.module, &stamps, k);
-                let names: Vec<ResKey> = match only {
-                    Some(names) => names,
-                    None => (job.module.keys_of(ResType::NSS))
-                        .filter(|k| !skipped(k) && stale(k))
-                        .copied()
-                        .collect(),
-                };
-                let scripts = job.module.keys_of(ResType::NSS).filter(|k| !skipped(k)).count();
-                let results = mg_module::build::compile_named_scripts(
+                let pass = mg_module::build::compile_changed(
                     &mut staged,
                     &game.resman,
-                    &names,
                     external.as_ref(),
+                    &known,
+                    only,
                 );
                 let edits: Vec<mg_edit::Edit> = staged
                     .keys_of(ResType::NCS)
@@ -2887,15 +2874,7 @@ impl Moonglow {
                         data: staged.get(k).map(<[u8]>::to_vec),
                     })
                     .collect();
-                // Those compiled are remembered as they are now; one that
-                // failed is tried again next time.
-                let mut now = known.clone();
-                for r in &results {
-                    match r.result {
-                        Ok(()) => now.note(&staged, &stamps, r.script),
-                        Err(_) => _ = now.scripts.remove(&r.script),
-                    }
-                }
+                let mg_module::build::Pass { results, now, scripts } = pass;
                 Some((results, edits, now, scripts))
             },
             move |app, made| {
@@ -3529,20 +3508,7 @@ impl Moonglow {
 
 /// The game data to change (its layers, its talk table): only while no job
 /// is reading it, which is whenever the window takes input.
-/// A layer of the user's content, which may change on disk (the
-/// install's own folders don't).
-pub(crate) fn user_content(l: &mg_resman::Layer) -> bool {
-    use mg_resman::priority as p;
-    matches!(
-        l.priority,
-        p::HAK
-            | p::HAK_USER
-            | p::OVERRIDE
-            | p::DEVELOPMENT
-            | p::DEVELOPMENT_USER
-            | p::PORTRAITS_USER
-    )
-}
+pub(crate) use mg_module::build::user_content;
 
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)

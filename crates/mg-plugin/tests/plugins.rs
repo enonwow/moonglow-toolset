@@ -313,6 +313,7 @@ fn code_and_manifest_must_agree() {
             "the command \"declared\" is declared, but the code registers none",
             "the code registers the command \"undeclared\", which the manifest lacks",
             "the check \"also-declared\" is declared, but the code registers none",
+            "the event \"never\" is declared, but the code registers none",
         ]
     );
     let e = run(&plugin("broken"), "declared", &host).unwrap_err().to_string();
@@ -448,4 +449,66 @@ fn the_game_s_data_is_read() {
     let input = Input { module: module(), game: Some(game) };
     let outcome = run_command(&Plugin::load(&dir).unwrap(), "look", input, host).unwrap();
     assert_eq!(outcome.label, "Paladin|true|Paladin|true|false|NW_IT_TORCH001|true");
+}
+
+/// 2DAs and talk tables are made, changed and written as values
+/// (`mg.twoda`, `mg.tlk`), not as text put together by hand.
+#[test]
+fn tables_are_made_and_written() {
+    use mg_plugin::run_console;
+    let host = Rc::new(TestHost::default());
+    let input = || Input { module: module(), game: None };
+    let code = r#"
+        local mg = require("@moonglow")
+        local t = mg.twoda.parse("2DA V2.0\r\n\r\n   Label  Name\r\n0  a      10\r\n1  \"b c\"  ****\r\n")
+        t:set(1, "name", 11)
+        t:add_column("Cost")
+        local row = t:add_row({ Label = "d", Cost = 2.5 })
+        t:set(0, "Cost", nil)
+        local again = mg.twoda.parse(t:write())
+        local new = mg.twoda.new({ "Label" })
+        new:add_row({ Label = "only" })
+        return row, t.rows, #t.columns, again:get(1, "Name"), again:get(1, "Label"),
+            again:get(2, "Cost"), again:get(2, "Name"), new:write(),
+            mg.twoda.kinds("feat").FEAT, mg.twoda.kinds("placeables").ModelName,
+            next(mg.twoda.kinds("nothing"))
+    "#;
+    run_console(code, input(), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        log,
+        [
+            "2",
+            "3",
+            "3",
+            "\"11\"",
+            "\"b c\"",
+            "\"2.5\"",
+            "nil",
+            "\"2DA V2.0\\r\\n\\r\\n   Label\\r\\n0  only\\r\\n\"",
+            "\"strref\"",
+            "\"model\"",
+            "nil"
+        ]
+    );
+    let e = run_console(
+        "local mg = require('@moonglow') mg.twoda.new({'A'}):set(0, 'A', 1)",
+        input(),
+        host.clone(),
+    );
+    assert!(e.unwrap_err().to_string().contains("no row 0"));
+
+    host.log.borrow_mut().clear();
+    let code = r#"
+        local mg = require("@moonglow")
+        local t = mg.tlk.new()
+        local first = t:add("Cleave")
+        t:set(3, { text = "Hide", sound = "vs_hide", sound_length = 1.5 })
+        local again = mg.tlk.parse(t:write())
+        return first, again.lines, again:get(0).text, again:get(1), again:get(3).sound,
+            again:get(3).sound_length
+    "#;
+    run_console(code, input(), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
 }

@@ -51,6 +51,20 @@ export type TwoDa = {
     rows: number,
     columns: { string },
     get: (self: TwoDa, row: number, column: string) -> string?,
+    set: (self: TwoDa, row: number, column: string, value: (string | number)?) -> (),
+    add_row: (self: TwoDa, cells: { [string]: string | number }?) -> number,
+    add_column: (self: TwoDa, name: string) -> (),
+    write: (self: TwoDa) -> string,
+}
+
+export type TlkLine = { text: string, sound: string?, sound_length: number? }
+
+export type Tlk = {
+    lines: number,
+    get: (self: Tlk, line: number) -> TlkLine?,
+    set: (self: Tlk, line: number, value: (string | TlkLine)?) -> (),
+    add: (self: Tlk, value: string | TlkLine) -> number,
+    write: (self: Tlk) -> string,
 }
 
 export type Game = Reader & {
@@ -89,6 +103,7 @@ export type Folder = {
     bytes: (self: Folder, name: string) -> string,
     text: (self: Folder, name: string) -> string,
     to_hak: (self: Folder, hak: string, file: string, name: string?) -> (),
+    write: (self: Folder, name: string, bytes: string) -> (),
 }
 
 export type Ui = {
@@ -151,17 +166,24 @@ export type Context = {
     ui: Ui,
     progress: (done: number, total: number, note: string?) -> (),
     plugin: { id: string, name: string, version: string },
+    -- In an event's handler (mg.on): what happened.
+    event: { name: string, resources: { string } }?,
 }
 
 local mg = {}
 
-mg.api = "0.2"
+mg.api = "0.3"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.
 function mg.command(id: string, handler: (ctx: Context) -> ...any) end
 -- A check's handler returns its findings (none: an empty list, or nothing).
 function mg.check(id: string, handler: (ctx: Context) -> { Finding }?) end
+
+-- What the plugin does by itself on an event its manifest declares
+-- ([event], on = "module-opened" or "module-saved"): ctx.event says what
+-- happened.
+function mg.on(id: string, handler: (ctx: Context) -> ...any) end
 
 local function typed(type: string, value: any): Value
     return { type = type, value = value }
@@ -191,5 +213,19 @@ end
 -- Where a struct read with `gff` is, for the edits: "/ClassList[0]" ("" for
 -- the root).
 function mg.path(struct: Struct): string? return nil end
+
+-- 2DAs made, read (from a file's bytes) and written; `kinds` says which
+-- columns of a table of the game's hold what ("strref", "model").
+mg.twoda = {
+    parse = function(bytes: string): TwoDa return nil :: any end,
+    new = function(columns: { string }): TwoDa return nil :: any end,
+    kinds = function(name: string): { [string]: string } return {} end,
+}
+
+-- Talk tables made, read and written.
+mg.tlk = {
+    parse = function(bytes: string): Tlk return nil :: any end,
+    new = function(): Tlk return nil :: any end,
+}
 
 return mg

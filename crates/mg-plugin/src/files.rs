@@ -20,7 +20,8 @@ use crate::{Answer, HakData, HakWrite, MAX_FILE, Question};
 
 /// The names of what these functions hand out, as the reference writes
 /// them.
-pub(crate) const NAMES: [&str; 10] = [
+pub(crate) const NAMES: [&str; 11] = [
+    "folder:write",
     "file.name",
     "file.bytes",
     "folder.name",
@@ -166,6 +167,15 @@ pub(crate) fn questions(lua: &Lua, sh: &Rc<Shared>, ui: &Table) -> mlua::Result<
                     },
                 )?,
             )?;
+            let (d, sh) = (dir.clone(), s.clone());
+            folder.set(
+                "write",
+                lua.create_function(
+                    move |_, (_, name, bytes): (This, String, mlua::LuaString)| {
+                        write(&sh, &d, &name, bytes.as_bytes().to_vec())
+                    },
+                )?,
+            )?;
             folder.set(
                 "text",
                 lua.create_function(move |lua, (_, name): (This, String)| {
@@ -180,6 +190,51 @@ pub(crate) fn questions(lua: &Lua, sh: &Rc<Shared>, ui: &Table) -> mlua::Result<
             Ok(LuaValue::Table(folder))
         })?,
     )?;
+    Ok(())
+}
+
+/// A file for a folder the user chose, with their leave for the first one
+/// of each folder: written when the handler has returned.
+fn write(s: &Shared, dir: &Path, name: &str, bytes: Vec<u8>) -> mlua::Result<()> {
+    if !crate::is_file_name(name) {
+        return fail(format!(
+            "{name:?} is not a file's name (a name alone: no folders, nothing hidden)"
+        ));
+    }
+    if bytes.len() as u64 > MAX_FILE {
+        return fail(format!("{name} is too large to write"));
+    }
+    // (A link in the folder may lead out of it.)
+    let path = dir.join(name);
+    if path.symlink_metadata().is_ok() {
+        let (Ok(real), Ok(root)) = (path.canonicalize(), dir.canonicalize()) else {
+            return fail(format!("{name} is not a file of the folder"));
+        };
+        if real.parent() != Some(&root) || !real.is_file() {
+            return fail(format!("{name} is not a file of the folder"));
+        }
+    }
+    let known = s.folders.borrow().iter().any(|f| f.dir == dir);
+    if !known {
+        let text = format!(
+            "{} wants to write files into the folder {} (those of the same names are \
+             replaced). Allow it?",
+            s.who,
+            dir.display()
+        );
+        if s.host.ask(&Question::Confirm(text)) != Some(Answer::Yes) {
+            return fail(format!("writing into {} was not allowed", dir.display()));
+        }
+        s.folders
+            .borrow_mut()
+            .push(crate::FolderWrite { dir: dir.to_path_buf(), files: Vec::new() });
+    }
+    let mut folders = s.folders.borrow_mut();
+    let files = &mut folders.iter_mut().find(|f| f.dir == dir).expect("added").files;
+    match files.iter_mut().find(|(n, _)| n == name) {
+        Some(old) => old.1 = bytes,
+        None => files.push((name.to_string(), bytes)),
+    }
     Ok(())
 }
 

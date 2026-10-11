@@ -1597,13 +1597,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
         );
-        ui.toggle_value(&mut view.walkmesh, labelled(icons::WALKMESH, "Walkmesh"))
-            .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
-        let object_walkmeshes = labelled(icons::WALKMESH, "Object Walkmeshes");
-        ui.toggle_value(&mut view.object_walkmesh, object_walkmeshes).on_hover_text(
-            "Where placeables (.pwk) and doors (.dwk) keep creatures out: placeables orange, \
-             doors blue (in their open or closed state)",
-        );
+        walkmesh_button(ui, view);
         if ui
             .toggle_value(&mut view.tile_mode, labelled(icons::SELECT_TILES, "Select Tiles"))
             .on_hover_text(app.keymap.titled(
@@ -2185,6 +2179,49 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     for (p, color) in edges {
         outline(&painter, &p, Stroke::new(1.0, color));
     }
+}
+
+/// The toolbar's one button for the walkmeshes: a click shows or hides
+/// the ground's (or hides whichever are shown); held, or right-clicked,
+/// it opens the two to choose from, the ground's and the objects'.
+fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView) {
+    use crate::icons::{self, labelled};
+    let on = view.walkmesh || view.object_walkmesh;
+    let label = labelled(icons::WALKMESH, "Walkmesh…");
+    let r = ui.add(egui::Button::selectable(on, label)).on_hover_text(
+        "Click: the ground's walkmesh (Render AABB Nodes), walkable faces green. Hold, or \
+         right-click: the ground's and the objects' to choose from",
+    );
+    // Held a moment: the choice opens, and the release is no click.
+    let held_id = r.id.with("held-open");
+    let was_held = ui.data(|d| d.get_temp::<bool>(held_id)).unwrap_or(false);
+    let down = r.is_pointer_button_down_on();
+    let long =
+        down && ui.input(|i| i.pointer.press_start_time().is_some_and(|at| i.time - at > 0.35));
+    if down {
+        ui.ctx().request_repaint();
+    }
+    let open = (long && !was_held) || r.secondary_clicked();
+    if open {
+        ui.data_mut(|d| d.insert_temp(held_id, true));
+    }
+    if r.clicked() && !was_held && !open {
+        (view.walkmesh, view.object_walkmesh) = (!on, false);
+    }
+    if !down && was_held {
+        ui.data_mut(|d| d.insert_temp(held_id, false));
+    }
+    egui::Popup::from_response(&r)
+        .open_memory(open.then_some(egui::SetOpenCommand::Bool(true)))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.checkbox(&mut view.walkmesh, "Ground Walkmesh")
+                .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
+            ui.checkbox(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
+                "Where placeables (.pwk) and doors (.dwk) keep creatures out: placeables \
+                 orange, doors blue (in their open or closed state)",
+            );
+        });
 }
 
 /// A closed outline over the view, each edge a line of its own. (As one

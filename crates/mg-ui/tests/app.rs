@@ -1001,6 +1001,75 @@ fn module_name_in_every_language_and_variables() {
 
 /// The Talk Table editor makes and opens a `.tlk` file on its own, with no
 /// module open.
+/// A line of the talk table is chosen by a click anywhere on its row, the
+/// arrow keys choose from there, and Enter goes to the line's text
+/// (GitHub issue 24).
+#[test]
+fn a_talk_table_s_row_is_clicked_anywhere() {
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("ui-talk-rows");
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(NoDialogs::default())),
+    );
+    let mut table = Table::create("rows", &dir, mg_core::Language::ENGLISH, false);
+    for row in 0..8 {
+        let line = Line {
+            text: format!("Text {row}"),
+            feminine: None,
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        table.add_line(&line).unwrap();
+    }
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(6);
+    assert_eq!(h.state().talk_view.selected, None);
+    // The text of a row, well to the right of its number.
+    let at = h.get_by_label("Text 3").rect().center() + egui::vec2(200.0, 0.0);
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+    };
+    click(&mut h, at);
+    assert_eq!(h.state().talk_view.selected, Some(3));
+    // The keys are the list's now, wherever the pointer is.
+    h.hover_at(egui::pos2(5.0, 5.0));
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().talk_view.selected, Some(5));
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    assert_eq!(h.state().talk_view.selected, Some(7));
+    h.key_press(egui::Key::Home);
+    h.run_steps(2);
+    assert_eq!(h.state().talk_view.selected, Some(0));
+    // Enter: to the line's text, where what is typed goes; the arrow keys
+    // are the text's there.
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    h.event(egui::Event::Text("!".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().talk_view.selected, Some(0));
+    assert!(h.state().talk.as_ref().unwrap().line(0).text.contains('!'));
+}
+
 #[test]
 fn a_talk_table_file_is_made_and_opened_on_its_own() {
     let dir = mg_testkit::scratch_dir("ui-talk-file");
@@ -1389,7 +1458,8 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
     h.run();
     assert_eq!(chosen(&h), [1, 2]);
-    h.get_by_label("⏷").click();
+    // (The last: the first is the module tree's Expand All.)
+    h.get_all_by_label("⏷").last().unwrap().click();
     h.run();
     assert_eq!(haks(&mut h), ["alpha", "gone", "bravo", "charlie"]);
     assert_eq!(chosen(&h), [2, 3]);
@@ -1741,9 +1811,21 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     let area = ResRef::from_str("chess").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     h.run();
-    h.get_by_label("👣 Object Walkmeshes").click();
+    // (One button for the walkmeshes: a right click, or holding it,
+    // opens the two to choose from.)
+    h.get_by_label("👣 Walkmesh…").click_secondary();
+    h.run();
+    h.get_by_label("Object Walkmeshes").click();
     h.run();
     assert!(h.state().area_views[&area].object_walkmesh);
+    assert!(!h.state().area_views[&area].walkmesh);
+    // A click on the button hides what is shown.
+    h.get_by_label("Ground Walkmesh");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.get_by_label("👣 Walkmesh…").click();
+    h.run();
+    assert!(!h.state().area_views[&area].object_walkmesh);
 }
 
 #[test]
@@ -2898,8 +2980,9 @@ fn a_creature_s_statistics_have_arrows_to_step_by_one() {
     let strength = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("Str").unwrap();
     let was = strength(&mut h);
     // (The first pair on the page is Strength's.)
-    let up = h.query_all_by_label("⏶").next().expect("an arrow up").rect().center();
-    let down = h.query_all_by_label("⏷").next().expect("an arrow down").rect().center();
+    // (After the module tree's own two, Collapse All and Expand All.)
+    let up = h.query_all_by_label("⏶").nth(1).expect("an arrow up").rect().center();
+    let down = h.query_all_by_label("⏷").nth(1).expect("an arrow down").rect().center();
     let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {
@@ -3343,7 +3426,10 @@ fn undo_in_a_text_field_is_the_field_s() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
     h.run_steps(2);
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
-    // With no field in hand, Ctrl+Z is the module's.
+    // With no field in hand, Ctrl+Z is the module's. (Escape clears the
+    // Filter; again, it leaves it.)
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(!h.ctx.egui_wants_keyboard_input());
@@ -3429,6 +3515,33 @@ fn the_module_tree_by_the_keyboard() {
     key(&mut h, egui::Key::ArrowDown);
     assert!(!h.ctx.egui_wants_keyboard_input());
     assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    // In the Filter, Escape clears what is typed; again, back to the rows
+    // where the cursor was.
+    key(&mut h, egui::Key::ArrowDown);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.run();
+    h.event(egui::Event::Text("sta".into()));
+    h.run();
+    h.run();
+    key(&mut h, egui::Key::Escape);
+    assert!(h.ctx.egui_wants_keyboard_input(), "cleared, still in the Filter");
+    h.get_by_label("Conversations (0)");
+    key(&mut h, egui::Key::Escape);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)));
+    // Right opens an area out to what is placed in it, and Left closes it
+    // again before it goes to the area's group.
+    key(&mut h, egui::Key::ArrowRight);
+    h.run();
+    // (One is the tree's own Expand All.)
+    assert_eq!(h.query_all_by_label("⏷").count(), 2, "the area is opened out");
+    key(&mut h, egui::Key::ArrowLeft);
+    h.run();
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "closed, the cursor stays");
+    assert_eq!(h.query_all_by_label("⏷").count(), 1);
+    key(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
     // The keys are the tree's with the pointer off it too (over the
     // middle, where no area is open).
     h.hover_at(egui::pos2(700.0, 400.0));
@@ -3463,7 +3576,7 @@ fn panels_fold_away_and_come_back() {
         let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
         leaves.find(|l| l.tabs.contains(&Tab::Palette)).map(|l| l.rect.width())
     };
-    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("Filter").is_some();
+    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("«").is_some();
     let was = palette(&h).expect("the palettes' pane");
     assert!(tree(&h));
 
@@ -6284,7 +6397,7 @@ fn resize_and_rotate_area_from_the_edit_menu() {
 #[test]
 fn walkmesh_overlay_and_area_statistics() {
     let Some((mut h, area)) = area_harness("stats") else { return };
-    h.get_by_label("👣 Walkmesh").click();
+    h.get_by_label("👣 Walkmesh…").click();
     h.run_steps(3);
     assert!(h.state().area_views[&area].walkmesh);
     h.get_by_label("Build").click();
@@ -9026,6 +9139,10 @@ fn the_start_location_shows_on_raised_ground() {
         (r.read(&ifo::MOD_ENTRY_AREA), r.read(&ifo::MOD_ENTRY_Z))
     };
     assert_eq!(stored(&mut h), (area, 0.0));
+    // (A window wide enough for the toolbar: in a narrow one its rows
+    // end past the tab's edge, a button there out of reach.)
+    h.set_size(egui::vec2(1700.0, 900.0));
+    h.run_steps(3);
     h.get_by_label("🏃 Go to Start Location").click();
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
@@ -9232,6 +9349,32 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     hold(&mut h, egui::Key::ArrowUp);
     assert!((target(&h) - moved).length() > 0.1, "the arrow moves the view again");
     assert_eq!(selected(&h), was, "and the palette stays");
+    // The search's keys, as the module tree's Filter has them (GitHub
+    // issue 12): Ctrl+F from the list goes to it, Escape clears it, and
+    // Down goes into the list at its first row.
+    h.get_by_label(&tavern).click();
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(3);
+    assert!(h.ctx.egui_wants_keyboard_input(), "the search has the keyboard");
+    h.event(egui::Event::Text("zzz".into()));
+    h.run_steps(3);
+    assert_eq!(h.state().palette.filter, "zzz");
+    press(&mut h, egui::Key::Escape);
+    assert_eq!(h.state().palette.filter, "", "Escape clears what is typed");
+    assert!(h.ctx.egui_wants_keyboard_input(), "and stays in the search");
+    press(&mut h, egui::Key::ArrowDown);
+    assert!(!h.ctx.egui_wants_keyboard_input(), "Down leaves it for the list");
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(selected(&h), Some(first), "at the list's first row, then on");
+    // Escape in an empty search goes back to the list too.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(3);
+    assert!(h.ctx.egui_wants_keyboard_input());
+    press(&mut h, egui::Key::Escape);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    press(&mut h, egui::Key::ArrowDown);
+    assert!(selected(&h).is_some_and(|s| s != first), "the keys are the list's again");
 }
 
 #[test]
@@ -10174,10 +10317,10 @@ fn the_module_tree_s_groups_open_and_close_together() {
     let listed = |h: &Harness<'_, Moonglow>| h.query_all_by_label(&area.to_string()).count();
     let before = listed(&h);
     assert!(before >= 1, "Areas is open to begin with");
-    h.get_all_by_label("Collapse All").next().unwrap().click();
+    h.get_all_by_label("⏶").next().unwrap().click();
     h.run_steps(4);
     assert_eq!(listed(&h), before - 1, "the area's row is gone from the tree");
-    h.get_all_by_label("Expand All").next().unwrap().click();
+    h.get_all_by_label("⏷").next().unwrap().click();
     h.run_steps(4);
     assert_eq!(listed(&h), before, "and back");
 }
@@ -11757,6 +11900,68 @@ fn plugin_harness(name: &str, game: bool) -> Option<(Harness<'static, Moonglow>,
     Some((h, key))
 }
 
+/// The palette shown last is the one the palettes open on at the next
+/// start: its type is kept in the settings when chosen.
+#[test]
+fn the_palette_shown_last_is_remembered() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, _)) = plugin_harness("ui-palette-remembered", true) else { return };
+    h.state_mut().open_palette = true;
+    h.run_steps(3);
+    assert_eq!(h.state().settings.palette_type, None);
+    palette_type(&mut h, "🚪", "Doors");
+    h.run_steps(2);
+    assert_eq!(h.state().settings.palette_type.as_deref(), Some("utd"));
+    // Another start with those settings: the doors again.
+    let settings = h.state().settings.clone();
+    let Some((mut again, _)) = plugin_harness("ui-palette-remembered-2", true) else { return };
+    again.state_mut().settings = settings;
+    again.state_mut().open_palette = true;
+    again.run_steps(3);
+    assert_eq!(again.state().palette.kind, BlueprintKind::Door);
+    assert!(!again.state().palette.tiles);
+}
+
+/// A plugin that says so acts by itself when the module is saved, with
+/// the resources the save changed; one that is off does nothing.
+#[test]
+fn a_plugin_acts_when_the_module_is_saved() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-events", false) else { return };
+    h.run();
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+        log.filter(|m| m.contains("module-saved")).collect()
+    };
+    let save = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(4);
+    };
+    // Off: a save is only a save.
+    save(&mut h);
+    assert!(said(&h).is_empty(), "{:?}", said(&h));
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label("By itself, when the module is saved: saved");
+    h.state_mut().plugins.window = false;
+    // Nothing changed since the last save: nothing to say.
+    save(&mut h);
+    assert!(said(&h).is_empty(), "{:?}", said(&h));
+    // The guard changes and is saved: the plugin is told which.
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"night_guard".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Another guard",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    h.run_steps(2);
+    save(&mut h);
+    assert_eq!(said(&h), ["Tag conventions: module-saved: guard.utc"]);
+    assert!(!h.state().busy());
+    save(&mut h);
+    assert_eq!(said(&h).len(), 1, "once for a change");
+}
+
 fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
     String::from_utf8(field(h, key).string("Tag").unwrap().to_vec()).unwrap()
 }
@@ -11775,7 +11980,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
-    h.get_by_label_contains("Plugins are experimental: the plugin API (0.2)");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.3)");
     h.get_by_label("Command: Fix Creature Tags");
     h.get_by_label("Check: Creature tags are upper case");
     // (The last of the four installed: below the list's fold.)
@@ -14242,7 +14447,7 @@ fn look_custom_group() {
     h.run_steps(2);
     // (The palette's own Expand All: the one to the right.)
     let expand = h
-        .query_all_by_label("Expand All")
+        .query_all_by_label("⏷")
         .max_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
         .unwrap()
         .rect()
@@ -14390,7 +14595,7 @@ fn delete_on_a_tree_row_asks_first() {
     let Some((mut h, key)) = plugin_harness("ui-tree-delete-key", false) else { return };
     h.run();
     // The guard's row (its type opened out), under the pointer.
-    h.get_by_label("Expand All").click();
+    h.get_all_by_label("⏷").next().unwrap().click();
     h.run_steps(3);
     let found = h.query_all_by_label_contains("guard").count();
     assert!(found > 0, "the guard's row");
@@ -14691,6 +14896,16 @@ fn compile_all_compiles_only_what_changed() {
     h.state_mut().forget_compiled();
     let next = compile(&mut h);
     assert!(next.starts_with("Compiled 0 scripts") && next.contains("left alone"), "{next}");
+    // `mg compile` reads the same: what it makes its scripts with (its
+    // own view of the game and the module's haks) is the window's.
+    let module = h.state().module_path().unwrap();
+    let install = h.state().install.clone().unwrap();
+    let mut rm = mg_resman::ResMan::for_game(&install).unwrap();
+    let haks = mg_module::Module::open(&module).unwrap().haks().unwrap();
+    rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    let with = mg_module::build::made_with(Some(&module), None, Some(&install.root), &rm);
+    let read = mg_module::build::Remembered::kept(Some(&kept), Some(&module), with);
+    assert_eq!(read.scripts.len(), 3, "mg compile's memory is the window's");
 }
 
 /// In a nasher project the external editor gets the project's own script

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -34,8 +34,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   file a module (not beside the module: nothing is written into a
   builder's repository or module folder), and holds only for the same
   compiler, settings, haks and content folders, and while a compiled
-  script is the one that was made. Not done: `mg compile` does not
-  read or write it (`mg` has no data folder of its own); a script
+  script is the one that was made. `mg compile` reads and writes the
+  same file (`build::compile_changed`, `build::made_with`), so each
+  passes over what the other compiled. Not done: with an external
+  compiler chosen in the window the two do not share (`mg compile` is
+  always the built-in one, and what is remembered holds for one
+  compiler); a project named by its `nasher.cfg` to one and by its
+  folder to the other is two modules to them (what is remembered goes by
+  the path as given, made whole); `mg compile --uncompiled` and
+  `mg build` neither read nor write it; a script
   compiled by
   its own Compile or by a save is compiled once more by the next
   Compile All (to the same bytes). (S each)
@@ -66,6 +73,34 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Finding it would mean crashing Aurora on purpose with test tiles. (M)
 
 ## Test loop
+
+- **`mg serve`** (the server from a terminal): a scratch user directory
+  is one for a module, so two servers of the same module at once share
+  it (name one with `--dir`); Ctrl+C ends `mg` at once, and the server
+  with it without its `exit` (its database is not closed in order); a
+  nasher project is packed as it is, its scripts not compiled first
+  (`mg compile` or `mg build` before); `--restart-on-change` looks at a
+  file's size and time twice a second, and at a folder six levels deep.
+  The server looks up Beamdog's master server at its start even when not
+  listed: `mg serve` does not cut its network off. Not tried on Windows
+  (the console on pipes, the links for haks). (S each)
+- **`mg watch`** (a project followed into a development folder): the
+  project is read whole again at each change, and looked at by its
+  files' sizes and times some twice a second (no file-system
+  notifications); a nasher project's default target only; compiled
+  scripts go out without debug files (`.ndb`), which the built-in
+  compiler's batch does not make; nothing is pushed through NWNX's
+  console; with `--serve`, tests are not run again after a change
+  (`mg test` is a run of its own). The `--serve` half is tried by hand,
+  not held by a test. (M, S, S, M, S)
+- **`mg test`**: a result reported while no test is running (a delayed
+  assertion after its test ended, a module's own driver) goes under
+  "(outside a test)", since NWScript does not say which script is
+  running; a test that needs a player in the module has none (no client
+  is started); the module's own scripts are compiled only where they
+  have no compiled script (run `mg compile` first); `--driver none` (a
+  module that runs its tests itself) is not held by a test, nor tried
+  with NWNX. (S, M, S, S)
 
 - **Choose Character:** Test Module, Choose Character uses the game's
   `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
@@ -248,6 +283,42 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   lists could live beside the module. (S)
 ## Custom content data (2DAs and talk tables)
 
+- **Plugins writing into a folder, and acting on events** (plugin API
+  0.3): `folder:write` into a folder the user chose, with their leave,
+  and `mg.on` for a module opened or saved. Not done: a file goes into
+  the chosen folder itself, not into a folder inside it (a project's
+  `src/` tree of folders is chosen one folder at a time); no copy of a
+  replaced file is kept; there is one event for a save, with the
+  resources changed since the last, not one for each resource, and none
+  for a script's own Save; what an event was allowed is kept for the
+  session only (asked again after a restart, since plugins keep no
+  settings); `mg` fires no events (`mg plugin run` runs commands only);
+  an event's handler that asks a form asks it at every save; that an
+  event's leave is asked once in a session is not held by a test. (S
+  each; settings M)
+- **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
+  and a talk table as values to change and write. Not done:
+  `mg.twoda.kinds` says only what Verify Module's tables say (ten
+  columns that hold a talk-table string, four that name a model): which
+  columns name a row of another table is in no table of the checks yet,
+  so it is not told (to be added to the checks first, then it shows
+  here); a written 2DA is laid out as the game's are, not with the
+  widths of the file it was read from; a talk table's language is
+  English and its feminine table is another file. (M, S, S)
+- **`mg tlk-alloc`** (a custom talk table from strings kept by name):
+  new keys take lines in the order of their names, not of the file; a
+  key's feminine text is not set (the feminine table's lines stay as
+  they are); a retired key's line keeps its last text in the table. (S
+  each)
+- **`mg 2da-diff` and `mg tlk-diff`** compare and merge by row number
+  and column name (line number for a talk table). Not done: an edit
+  file takes the table whole (`set_resource`), since edit files have no
+  change for one cell; a row is its number, so a row inserted in the
+  middle reads as every row after it changed, and two rows added under
+  one number are a conflict to be settled by hand (no renumbering, which
+  would need every reference to the row changed too); a talk table's
+  merge takes a line whole (its text, sound and length together); a
+  feminine table is compared as a file of its own. (M, M, S, S)
 - **No 2DA editor or merger:** 2DAs are read-only (the view shows which
   hak each row comes from). Editing rows and merging several haks' copies
   into one is Eos's ground, left for when it's asked for. (L)
@@ -1026,9 +1097,47 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   wherever the pointer is, until it is in an area's view; a thin
   outline shows the pane. They were the list's only with the pointer
   over it. A letter typed still goes to the tree only with the pointer
-  over it (letters are commands elsewhere). Not done: Right on an
-  area's row does not open the area out to what is placed in it;
-  Escape in the Filter does not clear it. (S each)
+  over it (letters are commands elsewhere). Right and Left go into
+  an area opened out, to its kinds and its placed objects, and both
+  panes' filter fields have Ctrl+F, Escape (clear, then leave) and
+  Down. Not done: a letter typed does not find a kind or a placed
+  object; F2 and Delete are for resources, not for a placed object the
+  keys are at; the other lists with a filter (the resource browser, the
+  script list) do not have these keys. (S each)
+- **A talk table's lines** (issue 24): the whole row chooses its line
+  and shows the pointer over it; the arrow keys choose from there, and
+  Enter or a double click goes to the text. Seen in a picture of the
+  editor made for this (`tests/screens.rs`, a floating window with no
+  module): a blank stretch above the list's first rows, there before
+  this change too; whether the docked editor has it is not known. (S)
+- **The look of the two side panes** (the owner's notes after 1.21.0):
+  the module tree's header is the palettes' (a search field that says
+  what it looks in, with a clear button; Expand All and Collapse All as
+  icons, with a count); the palettes' type icons are larger (a line's height; twice that
+  was tried and was too large), in rows where the pane is narrow; the palette shown last is remembered between runs (its type,
+  and Standard or Custom); Walkmesh and Object Walkmeshes are one
+  toolbar button. Not done: the module tree's rows are as they were
+  (no pictures, no "more" menu as the palettes' list has); the
+  palette's search text and its open categories are not remembered;
+  holding the walkmesh button is not held by a test (a right click
+  is). (S each)
+- **The area's toolbar in a narrow tab** runs its rows past the tab's
+  edge: a group of controls that is laid out as one (Snap, Fade
+  Geometry) does not go to the next row when it does not fit, and
+  widens the rows after it, so a button at a row's end is cut off and
+  reached only by scrolling the tab sideways. Seen in a picture of a
+  1000-point window while the walkmesh buttons were made one; there
+  before. (S)
+- **Builders' reports after 1.21.0:** a creature's body part can be
+  set to none (0), as in Aurora; a body part whose mesh is a skin mesh
+  is not drawn, which is a builder's report of the game (and follows
+  from a part hung rigid from a node), not something seen in the
+  client here; an item's General page no longer runs its name's
+  talk-table reference under the second column (`two_columns` stacks
+  when a column's content is wider than its half). Not reproduced:
+  "unequipping an armor sets all body parts to 0": nothing in the code
+  writes a body part on unequip, and the preview draws the creature's
+  own parts then; the creature it was seen on would tell. (S)
 - **A pane's own button to fold it away** (issue 10): the module tree
   («) and the log (–) have one; the palettes' pane has its ✕. Not
   done: a folded pane's strip shows an arrow, and its name only for

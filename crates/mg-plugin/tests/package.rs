@@ -378,7 +378,7 @@ fn an_archive_s_code_is_checked_without_unpacking() {
         .collect();
     let package = Package::read(&zipped(&files)).unwrap();
     let from_folder = inspect(&Plugin::load(&broken).unwrap(), Rc::new(Quiet)).unwrap();
-    assert_eq!(from_folder.len(), 3);
+    assert_eq!(from_folder.len(), 4);
     assert_eq!(package.inspect(Rc::new(Quiet)).unwrap(), from_folder);
 
     // Code that does not load is an error that names the script.

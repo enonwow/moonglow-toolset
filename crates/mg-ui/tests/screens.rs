@@ -140,7 +140,12 @@ fn talk_table_editor() {
         h.state_mut().talk_view.outside = true;
         h.state_mut().talk_view.selected = Some(27);
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
+        // (The list's height settles over a few frames.)
+        h.run_steps(8);
         shoot(&mut h, &dir, &format!("talk-table-{name}"));
+        // The pointer over a line: the whole row shows it.
+        h.hover_at(egui::pos2(520.0, 472.0));
+        shoot(&mut h, &dir, &format!("talk-table-{name}-hover"));
     }
 }
 
@@ -320,6 +325,36 @@ fn blueprint_editors() {
             let page_name = page.to_lowercase().replace(' ', "-");
             shoot(&mut h, &dir, &format!("{name}-{page_name}"));
         }
+    }
+}
+
+/// An item's General page at several widths: its two columns side by
+/// side only where the first one's fields fit beside the second.
+#[test]
+#[ignore]
+fn item_general_widths() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let (name, t) = ("nw_cloth009", ResType::UTI);
+    for width in [820.0, 960.0, 1100.0, 1240.0, 1500.0] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get_named(name, t).unwrap().into_owned();
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), data);
+        let path = dir.join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(width, 420.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        shoot(&mut h, &dir, &format!("item-general-{width}"));
     }
 }
 

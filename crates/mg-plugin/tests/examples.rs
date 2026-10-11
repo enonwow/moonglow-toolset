@@ -259,6 +259,7 @@ fn the_type_file_has_the_whole_api() {
         let has = match name.rsplit_once(['.', ':']) {
             Some(("mg", member)) => mg.contains_key(member).unwrap(),
             Some(("twoda", member)) => type_block(&types, "TwoDa").contains(&format!(" {member}:")),
+            Some(("tlk", member)) => type_block(&types, "Tlk").contains(&format!(" {member}:")),
             Some((ctx, member)) => {
                 // `ctx.module:gff` is `gff` of the type of `ctx.module`.
                 let of = match ctx {

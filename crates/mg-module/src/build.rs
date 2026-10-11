@@ -167,9 +167,24 @@ impl Remembered {
     pub fn file(dir: &std::path::Path, module: &std::path::Path) -> std::path::PathBuf {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        let module = &settled(module);
         module.hash(&mut h);
         let name = module.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         dir.join(format!("{name}-{:016x}.json", h.finish()))
+    }
+
+    /// What is kept in `dir` of the module at `module`, if it was made
+    /// with the same (`made_with`); else nothing, to be made with it.
+    pub fn kept(
+        dir: Option<&std::path::Path>,
+        module: Option<&std::path::Path>,
+        made_with: u64,
+    ) -> Remembered {
+        let kept = dir.zip(module).and_then(|(d, m)| Remembered::read(&Remembered::file(d, m)));
+        match kept {
+            Some(kept) if kept.made_with == made_with => kept,
+            _ => Remembered { made_with, ..Default::default() },
+        }
     }
 
     /// What `path` keeps, if it can be read.
@@ -193,6 +208,119 @@ impl Remembered {
         }
         std::fs::write(path, serde_json::to_vec(&v)?)
     }
+}
+
+/// Moonglow's data folder: `$XDG_DATA_HOME/moonglow` (else
+/// `~/.local/share/moonglow`) on Linux, `~/Library/Application
+/// Support/Moonglow` on macOS, `%APPDATA%\Moonglow` on Windows.
+pub fn data_dir() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if cfg!(windows) {
+        env("APPDATA").map(|d| d.join("Moonglow"))
+    } else if cfg!(target_os = "macos") {
+        env("HOME").map(|h| h.join("Library/Application Support/Moonglow"))
+    } else {
+        env("XDG_DATA_HOME")
+            .or_else(|| env("HOME").map(|h| h.join(".local/share")))
+            .map(|d| d.join("moonglow"))
+    }
+}
+
+/// Where the window and `mg compile` both keep what they remember of the
+/// scripts they compiled ([`Remembered`]): one folder, so each passes over
+/// what the other compiled.
+pub fn compiled_dir() -> Option<std::path::PathBuf> {
+    data_dir().map(|d| d.join("compiled"))
+}
+
+/// A layer of the user's content, which may change on disk (the
+/// install's own folders don't).
+pub fn user_content(l: &mg_resman::Layer) -> bool {
+    use mg_resman::priority as p;
+    matches!(
+        l.priority,
+        p::HAK
+            | p::HAK_USER
+            | p::OVERRIDE
+            | p::DEVELOPMENT
+            | p::DEVELOPMENT_USER
+            | p::PORTRAITS_USER
+    )
+}
+
+/// A module's path as both the window and `mg` know it, however it was
+/// named to them.
+fn settled(module: &std::path::Path) -> std::path::PathBuf {
+    std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf())
+}
+
+/// What a module's compiled scripts are made with, as one number
+/// ([`Remembered::made_with`]): the module's place, the compiler (the
+/// built-in one, or an external one with its settings), the game and the
+/// haks and content folders as they were read. Another, and every script
+/// is compiled again.
+pub fn made_with(
+    module: Option<&std::path::Path>,
+    external: Option<&ExternalCompiler>,
+    game: Option<&std::path::Path>,
+    resman: &ResMan,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    module.map(settled).hash(&mut h);
+    format!("{external:?}").hash(&mut h);
+    game.hash(&mut h);
+    for l in resman.layers().iter().filter(|l| user_content(l)) {
+        (&l.label, l.fingerprint).hash(&mut h);
+    }
+    h.finish()
+}
+
+/// One pass of [`compile_changed`].
+#[derive(Debug, Clone)]
+pub struct Pass {
+    /// The scripts compiled, in the module's order.
+    pub results: Vec<ScriptResult>,
+    /// What is remembered after it: to keep ([`Remembered::write`]).
+    pub now: Remembered,
+    /// How many scripts the module has to compile, those passed over too.
+    pub scripts: usize,
+}
+
+/// Compiles the scripts that are not as `known` remembers them (`only`:
+/// those named instead, whatever is remembered), storing each `.ncs` in
+/// `module`. Those compiled are remembered as they are after; one that
+/// failed is tried again next time.
+pub fn compile_changed(
+    module: &mut Module,
+    resman: &ResMan,
+    external: Option<&ExternalCompiler>,
+    known: &Remembered,
+    only: Option<Vec<ResKey>>,
+) -> Pass {
+    let stamps = script_stamps(module);
+    // A nasher project's target may leave some scripts uncompiled.
+    let skipped = |k: &ResKey| {
+        module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))
+    };
+    let scripts = module.keys_of(ResType::NSS).filter(|k| !skipped(k)).count();
+    let names: Vec<ResKey> = match only {
+        Some(names) => names,
+        None => (module.keys_of(ResType::NSS))
+            .filter(|k| !skipped(k) && known.stale(module, &stamps, k))
+            .copied()
+            .collect(),
+    };
+    let results = compile_named_scripts(module, resman, &names, external);
+    let mut now = known.clone();
+    for r in &results {
+        match r.result {
+            Ok(()) => now.note(module, &stamps, r.script),
+            Err(_) => _ = now.scripts.remove(&r.script),
+        }
+    }
+    Pass { results, now, scripts }
 }
 
 /// [`compile_scripts_with`] for the scripts named.

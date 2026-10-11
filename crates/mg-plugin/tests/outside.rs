@@ -372,3 +372,118 @@ fn a_plugin_s_text_is_read_and_written_by_the_module_s_encoding_table() {
     assert_eq!(h.log.borrow_mut().remove(0), "\"// dað\"");
     assert_eq!(written(&outcome).unwrap(), b"// \xf0");
 }
+
+/// A plugin in a scratch folder, with `sections` after its `[plugin]`.
+fn written(name: &str, sections: &str, code: &str) -> Plugin {
+    let dir = scratch(name);
+    let cfg = format!(
+        "[plugin]\nid = \"test.{name}\"\nname = \"Writer\"\nversion = \"1\"\napi = \"0.3\"\n\
+         license = \"GPL-3.0-or-later\"\n{sections}"
+    );
+    std::fs::write(dir.join("plugin.cfg"), cfg).unwrap();
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    Plugin::load(&dir).unwrap()
+}
+
+/// Files go into a folder the user chose, with their leave, when the
+/// handler has returned; nothing that leads out of the folder.
+#[test]
+fn a_folder_the_user_chose_is_written_into_with_their_leave() {
+    let dir = scratch("folder-write");
+    std::fs::create_dir_all(dir.join("out/sub")).unwrap();
+    std::fs::write(dir.join("out/old.2da"), "old").unwrap();
+    std::fs::write(dir.join("secret.txt"), "secret").unwrap();
+    let out = dir.join("out");
+    let code = r#"
+        local folder = ctx.ui:open_folder({ title = "Generated" })
+        folder:write("old.2da", "new")
+        folder:write("feat.2da", "first")
+        folder:write("feat.2da", "2DA V2.0")
+        return #folder:files()
+    "#;
+    // Refused: the job fails, and nothing is handed back.
+    let h = host([Some(Answer::Path(out.clone())), Some(Answer::No)]);
+    let refused = console(code, &h).unwrap_err().to_string();
+    assert!(refused.contains("was not allowed"), "{refused}");
+    // Allowed (asked once for the folder): written when the host says.
+    let h = host([Some(Answer::Path(out.clone())), Some(Answer::Yes)]);
+    let outcome = console(code, &h).unwrap();
+    assert_eq!(h.asked.borrow().len(), 2);
+    let Question::Confirm(text) = &h.asked.borrow()[1] else { panic!() };
+    assert!(text.contains("write files into the folder") && text.contains("out"), "{text}");
+    assert_eq!(std::fs::read(out.join("old.2da")).unwrap(), b"old", "not while it runs");
+    assert_eq!(outcome.folders.len(), 1);
+    assert_eq!(outcome.folders[0].write().unwrap(), (1, 1));
+    assert_eq!(std::fs::read(out.join("old.2da")).unwrap(), b"new");
+    assert_eq!(std::fs::read(out.join("feat.2da")).unwrap(), b"2DA V2.0");
+
+    // A name is a name: no way out of the folder, into one, or hidden.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(dir.join("secret.txt"), out.join("link.txt")).unwrap();
+    for name in ["../secret.txt", "sub/x.txt", "/tmp/x", ".hidden", "", "sub", "a\\b", "link.txt"] {
+        if name == "link.txt" && cfg!(not(unix)) {
+            continue;
+        }
+        let code = format!("ctx.ui:open_folder():write({name:?}, 'x')");
+        let h = host([Some(Answer::Path(out.clone())), Some(Answer::Yes)]);
+        let e = console(&code, &h).unwrap_err().to_string();
+        assert!(e.contains("not a file"), "{name}: {e}");
+    }
+    assert_eq!(std::fs::read(dir.join("secret.txt")).unwrap(), b"secret");
+    // (Nor past the check when it is written: a link put there meanwhile.)
+    let sneaky =
+        mg_plugin::FolderWrite { dir: out.clone(), files: vec![("link.txt".into(), vec![1])] };
+    if cfg!(unix) {
+        assert!(sneaky.write().is_err());
+        assert_eq!(std::fs::read(dir.join("secret.txt")).unwrap(), b"secret");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What a plugin does on an event is declared, registered with `mg.on`,
+/// and run as a command is, with what happened; a check writes nothing.
+#[test]
+fn an_event_s_handler_gets_what_happened() {
+    use mg_plugin::{Event, EventKind, run_check, run_event};
+    let dir = scratch("event-out");
+    let plugin = written(
+        "events",
+        "[event]\nid = \"emit\"\non = \"module-saved\"\n[check]\nid = \"writes\"\ntitle = \"Writes\"\n",
+        r#"
+        local mg = require("@moonglow")
+        mg.on("emit", function(ctx)
+            ctx.log:info(`{ctx.event.name}: {table.concat(ctx.event.resources, " ")}`)
+            local folder = ctx.ui:open_folder({ title = "Development" })
+            folder:write("saved.txt", table.concat(ctx.event.resources, "\n"))
+            ctx.edit:write("note.nss", "// saved\n")
+            return "Emit"
+        end)
+        mg.check("writes", function(ctx)
+            ctx.ui:open_folder():write("x.txt", "x")
+        end)
+        "#,
+    );
+    assert_eq!(plugin.manifest.events[0].on, EventKind::ModuleSaved);
+    let happened = Event {
+        kind: EventKind::ModuleSaved,
+        resources: vec![ResKey::from_filename("guard.utc").unwrap()],
+    };
+    let input = || Input { module: bare(), game: None };
+    let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
+    let outcome = run_event(&plugin, "emit", &happened, input(), h.clone()).unwrap();
+    assert_eq!(h.log.borrow().as_slice(), ["module-saved: guard.utc"]);
+    assert_eq!((outcome.label.as_str(), outcome.edits.len()), ("Emit", 1));
+    outcome.folders[0].write().unwrap();
+    assert_eq!(std::fs::read(dir.join("saved.txt")).unwrap(), b"guard.utc");
+    assert!(run_event(&plugin, "other", &happened, input(), h).is_err());
+    // A check only reads.
+    let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
+    let e = run_check(&plugin, "writes", input(), h).unwrap_err().to_string();
+    assert!(e.contains("a check only reads"), "{e}");
+    // A manifest names an event that there is.
+    let bad = std::panic::catch_unwind(|| {
+        written("bad-event", "[event]\nid = \"x\"\non = \"midnight\"\n", "")
+    });
+    assert!(bad.is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

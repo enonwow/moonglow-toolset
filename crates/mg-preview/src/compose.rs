@@ -58,7 +58,14 @@ fn place_unguarded(
     base: Option<&Model>,
     load: &dyn Fn(&str) -> Option<Arc<Model>>,
 ) -> Option<Placed> {
-    let model = load(&part.model)?;
+    let mut model = load(&part.model)?;
+    // A part hung from a node and not animated (a body part, a held
+    // item) is drawn rigid by the game: a mesh in it that is a skin has
+    // no skeleton to follow there and is not drawn at all (a body part
+    // exported as a skin mesh is invisible in the game).
+    if part.attach.is_some() && !part.animated && base.is_some() {
+        model = without_skins(model);
+    }
     let attach = part
         .attach
         .as_deref()
@@ -76,6 +83,24 @@ fn place_unguarded(
         animated: part.animated,
         anims,
     })
+}
+
+/// A model with its skin meshes not drawn (the model itself if it has
+/// none).
+fn without_skins(model: Arc<Model>) -> Arc<Model> {
+    let is_skin = |n: &mg_mdl::Node| {
+        n.mesh().is_some_and(|m| m.render && matches!(m.extra, mg_mdl::MeshExtra::Skin(_)))
+    };
+    if !model.nodes.iter().any(is_skin) {
+        return model;
+    }
+    let mut rigid = (*model).clone();
+    for n in rigid.nodes.iter_mut().filter(|n| is_skin(n)) {
+        if let mg_mdl::NodeKind::Mesh(m) = &mut n.kind {
+            m.render = false;
+        }
+    }
+    Arc::new(rigid)
 }
 
 impl Composed {
@@ -468,6 +493,24 @@ fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f3
 #[cfg(test)]
 mod ray_tests {
     use super::*;
+
+    #[test]
+    fn a_rigid_part_s_skin_meshes_are_not_drawn() {
+        use mg_mdl::{Mesh, MeshExtra, Node, NodeKind};
+        let mesh =
+            |extra| NodeKind::Mesh(Box::new(Mesh { render: true, extra, ..Default::default() }));
+        let mut model = Model::default();
+        model.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
+        model.nodes.push(Node::new("skin", mesh(MeshExtra::Skin(Default::default()))));
+        let rigid = without_skins(Arc::new(model));
+        let drawn: Vec<bool> = rigid.nodes.iter().map(|n| n.mesh().unwrap().render).collect();
+        assert_eq!(drawn, [true, false]);
+        // One without skins is the same model, not a copy.
+        let mut plain = Model::default();
+        plain.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
+        let plain = Arc::new(plain);
+        assert!(Arc::ptr_eq(&without_skins(plain.clone()), &plain));
+    }
 
     #[test]
     fn a_ray_meets_a_triangle_ahead_of_it() {

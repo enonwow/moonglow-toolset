@@ -22,16 +22,7 @@ use crate::{Moonglow, text};
 /// `~/.local/share/moonglow`) on Linux, `~/Library/Application
 /// Support/Moonglow` on macOS, `%APPDATA%\Moonglow` on Windows.
 pub fn data_dir() -> Option<PathBuf> {
-    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    if cfg!(windows) {
-        env("APPDATA").map(|d| d.join("Moonglow"))
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Application Support/Moonglow"))
-    } else {
-        env("XDG_DATA_HOME")
-            .or_else(|| env("HOME").map(|h| h.join(".local/share")))
-            .map(|d| d.join("moonglow"))
-    }
+    mg_module::build::data_dir()
 }
 
 /// A recovery copy's note.

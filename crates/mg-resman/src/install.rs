@@ -219,7 +219,8 @@ fn steam_libraries(vdf: &str) -> Vec<PathBuf> {
     out
 }
 
-fn default_user_dir() -> Option<PathBuf> {
+/// The player's NWN folder where the game puts it on this system.
+pub fn default_user_dir() -> Option<PathBuf> {
     if cfg!(windows) {
         env::var_os("USERPROFILE")
             .map(|h| PathBuf::from(h).join("Documents").join("Neverwinter Nights"))

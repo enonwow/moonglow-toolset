@@ -9,10 +9,10 @@
 //! real NWN folder.
 
 use std::io;
-use std::net::UdpSocket;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 use std::time::{Duration, Instant};
+
+pub use mg_serve::server_binary;
 
 /// What a server run logged.
 #[derive(Debug, Clone)]
@@ -33,32 +33,7 @@ impl ServerRun {
     }
 }
 
-/// The headless server binary for this platform in a game install.
-pub fn server_binary(root: &Path) -> Option<PathBuf> {
-    let rel = if cfg!(target_os = "linux") {
-        if cfg!(target_arch = "aarch64") {
-            "bin/linux-arm64/nwserver-linux"
-        } else {
-            "bin/linux-x86/nwserver-linux"
-        }
-    } else if cfg!(target_os = "macos") {
-        "bin/macos/nwserver-macos"
-    } else {
-        "bin/win32/nwserver.exe"
-    };
-    Some(root.join(rel)).filter(|p| p.is_file())
-}
-
-struct KillOnDrop(Child);
-
-impl Drop for KillOnDrop {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-/// Runs `<user_dir>/modules/<module>.mod` (or a module folder of that name)
+/// Runs `<user_dir>/modules/<module>.mod`
 /// in the headless server until a log line contains `done_marker`, the
 /// server shuts down or `timeout` passes.
 pub fn run_server(
@@ -68,43 +43,21 @@ pub fn run_server(
     done_marker: &str,
     timeout: Duration,
 ) -> io::Result<ServerRun> {
-    let server = server_binary(root).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, "no nwserver in the game install")
+    let server = server_binary(root)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, mg_serve::no_server(root)))?;
+    // Never listed publicly, and locked against anyone who finds the port
+    // anyway: what `mg_serve` does unless asked otherwise.
+    let server = mg_serve::Server::start(&mg_serve::Options {
+        server,
+        user_dir: user_dir.to_path_buf(),
+        module: module.to_string(),
+        name: "moonglow-test".into(),
+        ..Default::default()
     })?;
-    // A free port, so tests can run in parallel.
-    let port = UdpSocket::bind("127.0.0.1:0")?.local_addr()?.port();
-    let log_path = user_dir.join("logs.0").join("nwserverLog1.txt");
-    let _ = std::fs::remove_file(&log_path);
-    // Never list test servers publicly, and lock them against anyone who
-    // finds the port anyway.
-    let secret = format!(
-        "mg{:x}{:x}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos())
-            ^ u128::from(port)
-    );
-
-    let child = Command::new(&server)
-        .current_dir(server.parent().unwrap())
-        .arg("-userdirectory")
-        .arg(user_dir)
-        .args(["-module", module, "-port", &port.to_string(), "-quiet"])
-        .args(["-publicserver", "0", "-servername", "moonglow-test"])
-        .args(["-playerpassword", &secret, "-dmpassword", &secret, "-adminpassword", &secret])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let _guard = KillOnDrop(child);
 
     let start = Instant::now();
     loop {
-        // The log is in the game's codepage, not UTF-8.
-        let log = std::fs::read(&log_path)
-            .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default();
+        let log = server.log();
         if log.contains(done_marker) {
             return Ok(ServerRun { log, finished: true });
         }

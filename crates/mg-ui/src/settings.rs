@@ -94,6 +94,11 @@ pub struct Settings {
     pub fade_geometry: u8,
     /// The palettes show pictures (their Gallery switch), as last left.
     pub palette_gallery: bool,
+    /// The palette shown last: `tiles`, `prefabs`, or a blueprint type's
+    /// extension (`utc`); and whether it showed the module's blueprints.
+    /// `None`: none chosen yet (a module opens on its tiles).
+    pub palette_type: Option<String>,
+    pub palette_custom: bool,
     /// How large the galleries' pictures are, points (their slider's;
     /// `None`: the usual size).
     pub gallery_tile: Option<u16>,

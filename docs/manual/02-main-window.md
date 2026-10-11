@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
 ---
 
 # The main window
@@ -116,8 +116,10 @@ A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).
 
-**Expand All** and **Collapse All** under the Filter open and close every
-group at once (the Palettes pane has the same for its categories).
+**Expand All** and **Collapse All** (⏷ and ⏶, under the Filter, as
+in the Palettes pane) open and close every group at once; beside them is
+how many resources the module has. The Filter says what it looks in,
+and has a × to clear it.
 
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
@@ -167,15 +169,18 @@ keys, wherever the pointer goes after, until it is in an area's view,
 where they move the camera again (the same click in the palette gives
 them to the palette); a thin outline shows which pane has them:
 Up and Down go from row to row, Page Up and Page Down by ten, Home and
-End to the first and the last. Right opens a group, then goes to its
-first row; Left goes from a row to its group, then closes it. Enter
-opens the row's area, script, conversation or blueprint, and opens or
-closes a group. A letter or a digit goes to the next row that begins
+End to the first and the last. Right opens a row that opens (a group,
+an area out to what is placed in it, a kind of object there), then goes
+to the first row in it; Left closes a row that is open, else goes to
+the row it is in. Enter opens the row's area, script, conversation or
+blueprint, goes to a placed object in its area's view, and opens or
+closes a group or a kind. A letter or a digit goes to the next row that begins
 with it (a group's name, or a resource's ResRef). F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
-as the row's menu does). Ctrl+F goes to the Filter,
-and Down from the Filter goes back into the rows. Escape hands the keys
-back. The row the keys are at is marked, and brought into view.
+as the row's menu does). Ctrl+F goes to the Filter; there, Escape
+clears what is typed, and Escape again, or Down, goes back into the
+rows (the palette's search has the same keys). In the rows, Escape hands
+the keys back. The row the keys are at is marked, and brought into view.
 
 ## Tabs and windows
 

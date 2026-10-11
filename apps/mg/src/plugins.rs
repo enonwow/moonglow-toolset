@@ -218,6 +218,9 @@ pub(crate) fn list(dirs: &[PathBuf]) -> Result<Output> {
                     for c in &m.checks {
                         out.line(format!("\tcheck\t{}\t{}", c.id, c.title));
                     }
+                    for e in &m.events {
+                        out.line(format!("\tevent\t{}\t{}", e.id, e.on.name()));
+                    }
                     all.push(json!({
                         "id": m.id, "name": m.name, "version": m.version, "api": m.api,
                         "license": m.license, "description": m.description,
@@ -228,6 +231,9 @@ pub(crate) fn list(dirs: &[PathBuf]) -> Result<Output> {
                         "checks": m.checks.iter().map(|c| json!({
                             "id": c.id, "title": c.title,
                             "severity": severity(c.severity),
+                        })).collect::<Vec<_>>(),
+                        "events": m.events.iter().map(|e| json!({
+                            "id": e.id, "on": e.on.name(),
                         })).collect::<Vec<_>>(),
                     }));
                 }
@@ -433,6 +439,16 @@ pub(crate) fn run(
         }
         let (added, replaced) = hak.write(dir).map_err(|e| anyhow!("{e}"))?;
         notes.note(format!("{}: {added} resources added, {replaced} replaced", file.display()));
+    }
+    for folder in &outcome.folders {
+        if dry_run {
+            let n = folder.files.len();
+            notes.note(format!("would write {n} files into {}", folder.dir.display()));
+            continue;
+        }
+        let (new, replaced) =
+            folder.write().map_err(|e| anyhow!("{}: {e}", folder.dir.display()))?;
+        notes.note(format!("{}: {new} files written, {replaced} replaced", folder.dir.display()));
     }
     let cmd = Command::new(outcome.label, outcome.edits);
     let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run)?;

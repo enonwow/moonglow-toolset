@@ -229,6 +229,7 @@ fn contents_ui(
     go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
     // The object in hand (its row marked), and whether to go to it.
     in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
+    keys: &mut ContentKeys,
 ) -> bool {
     let mut went = false;
     let matches = |name: &str| name.to_lowercase().contains(filter);
@@ -252,15 +253,30 @@ fn contents_ui(
                 }
                 continue;
             }
-            let mut header = egui::CollapsingHeader::new(title).id_salt(("area-kind", area, *kind));
+            let at_kind = keys.cursor == Some(TreeAt::Kind(area, *kind));
+            let mut header = egui::CollapsingHeader::new(title)
+                .id_salt(("area-kind", area, *kind))
+                // (The keys' cursor on a kind shows as its row marked.)
+                .show_background(at_kind);
+            // The keys' cursor at one of its objects, by its place among
+            // those listed.
+            let at_object = match keys.cursor {
+                Some(TreeAt::Object(a, k, i)) if a == area && k == *kind => Some(i),
+                _ => None,
+            };
+            let sought =
+                at_object.filter(|_| keys.moved).and_then(|i| shown.iter().position(|&s| s == i));
             // (What is looked for shows without opening each kind; so does
             // the object to go to.)
             let marked = in_hand.filter(|(k, ..)| k == kind);
             let goes = marked.filter(|m| m.2).and_then(|m| shown.iter().position(|&i| i == m.1));
             if filtered || goes.is_some() {
                 header = header.open(Some(true));
+            } else if let Some((_, open)) = keys.fold.filter(|f| f.0 == TreeAt::Kind(area, *kind)) {
+                header = header.open(Some(open));
             }
-            header.show(ui, |ui| {
+            let clicked = &mut keys.clicked;
+            let shown_header = header.show(ui, |ui| {
                 // The rows in view, and room for those above and below.
                 let font = egui::TextStyle::Button.resolve(ui.style());
                 let spacing = ui.spacing();
@@ -278,6 +294,14 @@ fn contents_ui(
                     ui.scroll_to_rect(rect, Some(egui::Align::Center));
                     went = true;
                 }
+                // (And the keys' row, as near as it need be.)
+                if let Some(at) = sought {
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(ui.cursor().left(), top + at as f32 * step),
+                        egui::vec2(1.0, row),
+                    );
+                    ui.scroll_to_rect(rect, None);
+                }
                 let clip = ui.clip_rect();
                 let first =
                     (((clip.top() - top) / step).floor().max(0.0) as usize).min(shown.len());
@@ -293,7 +317,8 @@ fn contents_ui(
                 for &index in &shown[first..last] {
                     let name = &names[index];
                     let text = if name.is_empty() { "(no name)" } else { name.as_str() };
-                    let is_marked = marked.is_some_and(|m| m.1 == index);
+                    let is_marked =
+                        marked.is_some_and(|m| m.1 == index) || at_object == Some(index);
                     let r = ui.selectable_label(is_marked, text).on_hover_text(
                         "Click to go to it in the area; double-click for its Properties; \
                          right-click for more",
@@ -302,6 +327,9 @@ fn contents_ui(
                         *go = Some((area, *kind, index, Asked::Properties));
                     } else if r.clicked() {
                         *go = Some((area, *kind, index, Asked::Go));
+                    }
+                    if r.clicked() {
+                        *clicked = Some(TreeAt::Object(area, *kind, index));
                     }
                     r.context_menu(|ui| {
                         for (label, asked) in [
@@ -319,9 +347,27 @@ fn contents_ui(
                 }
                 room(ui, shown.len() - last);
             });
+            if at_kind && keys.moved {
+                shown_header.header_response.scroll_to_me(None);
+            }
+            if shown_header.header_response.clicked() {
+                keys.clicked = Some(TreeAt::Kind(area, *kind));
+            }
+            keys.listed.push((*kind, shown_header.openness > 0.5, shown));
         }
     });
     went
+}
+
+/// The keys' part in an area's contents: where their cursor is, whether
+/// it just moved, a kind they open or close; and back, the row clicked
+/// and what was listed.
+struct ContentKeys {
+    cursor: Option<TreeAt>,
+    moved: bool,
+    fold: Option<(TreeAt, bool)>,
+    clicked: Option<TreeAt>,
+    listed: Vec<(mg_area::ObjectKind, bool, Vec<usize>)>,
 }
 
 /// The gap between rows (taken off a block of rows left out, which is
@@ -346,26 +392,35 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         && !ui.ctx().egui_wants_keyboard_input()
         && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
     let mut fold_away = false;
-    let field = ui
-        .horizontal(|ui| {
-            // (The pane's own button to fold it away: GitHub issue 10.)
-            fold_away = ui.small_button("«").on_hover_text("Fold the module tree away").clicked();
-            crate::widgets::field_label(ui, "Filter");
-            // (As wide as the pane has room for, not wider.)
-            ui.add(egui::TextEdit::singleline(&mut filter).desired_width(f32::INFINITY))
-        })
-        .inner;
+    // (Escape there clears what is typed; again, or Down, back to the
+    // rows.)
+    let field_id = egui::Id::new("tree-filter-field");
+    let left = crate::widgets::filter_keys(ui, field_id, &mut filter, find);
+    // As the palettes' pane: the search across the pane, with what it
+    // looks in said and a button to clear it; under it the list's own
+    // small toolbar.
+    ui.horizontal(|ui| {
+        // (The pane's own button to fold it away: GitHub issue 10.)
+        fold_away = ui.small_button("«").on_hover_text("Fold the module tree away").clicked();
+        let clear = !filter.is_empty();
+        let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
+        ui.add(
+            egui::TextEdit::singleline(&mut filter)
+                .id(field_id)
+                .hint_text("🔍 Filter name, resref")
+                .desired_width(room.max(60.0)),
+        );
+        if clear && ui.small_button("×").on_hover_text("Clear the filter").clicked() {
+            filter.clear();
+        }
+    });
     if fold_away {
         app.show_panel(crate::commands::Id::ViewTree, false);
     }
-    if find {
-        field.request_focus();
-    }
-    if field.has_focus()
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown))
-    {
-        field.surrender_focus();
-        app.tree_cursor = Some(TreeAt::Group(GROUPS[0].0));
+    if let Some(left) = left {
+        if left == crate::widgets::FilterLeft::Down || app.tree_cursor.is_none() {
+            app.tree_cursor = Some(TreeAt::Group(GROUPS[0].0));
+        }
         app.tree_cursor_moved = true;
         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
     }
@@ -376,7 +431,15 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     // opens every group with a match, as it is typed: they can be closed
     // again after.
     let typed = crate::widgets::text_changed(ui, filter_id, &filter) && !filter.is_empty();
-    let fold = crate::widgets::fold_buttons(ui, "group").or(typed.then_some(true));
+    let mut fold = None;
+    ui.horizontal(|ui| {
+        fold = crate::palette_view::fold_icons(ui, "group");
+        let resources = app.ws.as_ref().map_or(0, |ws| ws.module.len());
+        ui.weak(format!("{resources} resource{}", if resources == 1 { "" } else { "s" }))
+            .on_hover_text("Resources in the module");
+    });
+    ui.separator();
+    let fold = fold.or(typed.then_some(true));
     let mut rows = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         // A name too long for the pane is cut short (the pointer over it
         // shows it whole), rather than widen the pane over the middle.
@@ -405,12 +468,39 @@ fn follow_selection(app: &mut Moonglow) {
     }
 }
 
-/// A row of the module tree the arrow keys can be at: a group's, or a
-/// resource's.
+/// A row of the module tree the arrow keys can be at: a group's, a
+/// resource's, and under an area opened out a kind of object's and a
+/// placed object's (by its place in the kind's list).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TreeAt {
     Group(&'static str),
     Resource(ResKey),
+    Kind(ResRef, mg_area::ObjectKind),
+    Object(ResRef, mg_area::ObjectKind, usize),
+}
+
+/// The areas opened out, for the keys: each one's kinds as listed, whether
+/// a kind is open, and its objects as listed.
+type Outs = HashMap<ResRef, Vec<(mg_area::ObjectKind, bool, Vec<usize>)>>;
+
+/// The rows the keys go through, in order: each with how deep it is and,
+/// if it opens, whether it is open.
+fn key_rows(shown: &Shown, outs: &Outs) -> Vec<(TreeAt, usize, Option<bool>)> {
+    let mut rows = Vec::new();
+    for (name, open, keys) in shown {
+        rows.push((TreeAt::Group(name), 0, Some(*open)));
+        for k in keys.iter().filter(|_| *open) {
+            let out = outs.get(&k.resref).filter(|_| k.restype == ResType::ARE);
+            let opens = (k.restype == ResType::ARE).then_some(out.is_some());
+            rows.push((TreeAt::Resource(*k), 1, opens));
+            for (kind, kind_open, objects) in out.into_iter().flatten() {
+                rows.push((TreeAt::Kind(k.resref, *kind), 2, Some(*kind_open)));
+                let inside = objects.iter().filter(|_| *kind_open);
+                rows.extend(inside.map(|i| (TreeAt::Object(k.resref, *kind, *i), 3, None)));
+            }
+        }
+    }
+    rows
 }
 
 /// Where the tree's keys take the cursor from `at`, among the rows shown
@@ -419,8 +509,11 @@ pub enum TreeAt {
 #[derive(Debug, PartialEq)]
 enum Step {
     To(TreeAt),
-    Fold(&'static str, bool),
+    /// Open or close the row (a group, an area, a kind of object).
+    Fold(TreeAt, bool),
     Open(ResKey),
+    /// Go to a placed object in its area's view.
+    Go(ResRef, mg_area::ObjectKind, usize),
     None,
 }
 
@@ -449,49 +542,37 @@ fn seek(shown: &Shown, at: Option<TreeAt>, letter: char) -> Option<TreeAt> {
         .map(|i| rows[i].0)
 }
 
-fn step(shown: &Shown, at: Option<TreeAt>, key: egui::Key) -> Step {
+fn step(shown: &Shown, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step {
     use egui::Key;
-    let rows: Vec<TreeAt> = shown
-        .iter()
-        .flat_map(|(name, open, keys)| {
-            let inside = keys.iter().filter(move |_| *open).map(|k| TreeAt::Resource(*k));
-            std::iter::once(TreeAt::Group(name)).chain(inside)
-        })
-        .collect();
-    let Some(first) = rows.first().copied() else { return Step::None };
-    let last = rows[rows.len() - 1];
-    let index = at.and_then(|a| rows.iter().position(|r| *r == a));
+    let rows = key_rows(shown, outs);
+    let Some(first) = rows.first().map(|r| r.0) else { return Step::None };
+    let last = rows[rows.len() - 1].0;
+    let index = at.and_then(|a| rows.iter().position(|r| r.0 == a));
     let by = |n: isize| match index {
-        Some(i) => Step::To(rows[(i as isize + n).clamp(0, rows.len() as isize - 1) as usize]),
+        Some(i) => Step::To(rows[(i as isize + n).clamp(0, rows.len() as isize - 1) as usize].0),
         // (No row yet, or one that is gone: the first.)
         None => Step::To(first),
     };
-    let group_of = |k: &ResKey| shown.iter().find(|(_, _, keys)| keys.contains(k)).map(|g| g.0);
-    match (key, index.map(|i| rows[i])) {
+    match (key, index.map(|i| (i, rows[i]))) {
         (Key::ArrowDown, _) => by(1),
         (Key::ArrowUp, _) => by(-1),
         (Key::PageDown, _) => by(10),
         (Key::PageUp, _) => by(-10),
         (Key::Home, _) => Step::To(first),
         (Key::End, _) => Step::To(last),
-        // Right opens a group, then goes into it; Left goes to a row's
-        // group, then closes it.
-        (Key::ArrowRight, Some(TreeAt::Group(name))) => match shown.iter().find(|g| g.0 == name) {
-            Some((_, true, keys)) => {
-                keys.first().map_or(Step::None, |k| Step::To(TreeAt::Resource(*k)))
-            }
-            Some((_, false, _)) => Step::Fold(name, true),
-            None => Step::None,
-        },
-        (Key::ArrowLeft, Some(TreeAt::Group(name))) => Step::Fold(name, false),
-        (Key::ArrowLeft, Some(TreeAt::Resource(k))) => {
-            group_of(&k).map_or(Step::None, |g| Step::To(TreeAt::Group(g)))
+        // Right opens a row that opens, then goes to the first row in it;
+        // Left closes one that is open, else goes to the row it is in.
+        (Key::ArrowRight, Some((_, (at, _, Some(false))))) => Step::Fold(at, true),
+        (Key::ArrowRight, Some((i, (_, depth, Some(true))))) => {
+            rows.get(i + 1).filter(|r| r.1 > depth).map_or(Step::None, |r| Step::To(r.0))
         }
-        (Key::Enter, Some(TreeAt::Resource(k))) => Step::Open(k),
-        (Key::Enter, Some(TreeAt::Group(name))) => {
-            let open = shown.iter().any(|g| g.0 == name && g.1);
-            Step::Fold(name, !open)
+        (Key::ArrowLeft, Some((_, (at, _, Some(true))))) => Step::Fold(at, false),
+        (Key::ArrowLeft, Some((i, (_, depth, _)))) => {
+            rows[..i].iter().rev().find(|r| r.1 < depth).map_or(Step::None, |r| Step::To(r.0))
         }
+        (Key::Enter, Some((_, (TreeAt::Resource(k), ..)))) => Step::Open(k),
+        (Key::Enter, Some((_, (TreeAt::Object(area, kind, i), ..)))) => Step::Go(area, kind, i),
+        (Key::Enter, Some((_, (at, _, Some(open))))) => Step::Fold(at, !open),
         _ => Step::None,
     }
 }
@@ -500,6 +581,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     follow_selection(app);
     // The rows shown, for the keys; a group the keys opened or closed.
     let mut shown: Shown = Vec::new();
+    let mut outs = Outs::new();
     let folded = app.tree_fold.take();
     let cursor = app.tree_cursor;
     let cursor_moved = std::mem::take(&mut app.tree_cursor_moved);
@@ -596,7 +678,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             .open(
                 (*name == "Areas" && app.tree_reveal.is_some())
                     .then_some(true)
-                    .or(folded.filter(|(g, _)| g == name).map(|(_, open)| open))
+                    .or(folded.filter(|(g, _)| *g == TreeAt::Group(name)).map(|(_, open)| open))
                     .or(fold),
             )
             .show(ui, |ui| {
@@ -617,6 +699,13 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                     let opened = egui::Id::new(("tree-area-open", k.resref));
                     let is_area = k.restype == ResType::ARE;
                     let mut out = is_area && ui.data(|d| d.get_temp(opened).unwrap_or(false));
+                    // (Opened out or closed by the keys.)
+                    if let Some((_, open)) =
+                        folded.filter(|f| is_area && f.0 == TreeAt::Resource(k))
+                    {
+                        out = open;
+                        ui.data_mut(|d| d.insert_temp(opened, out));
+                    }
                     // The area to bring into view (a tab chosen, or its
                     // menu's Show in Module Tree, which opens it out too).
                     let reveal = app.tree_reveal.filter(|(a, _)| is_area && *a == k.resref);
@@ -676,11 +765,26 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                     .tree_object
                                     .filter(|(a, ..)| *a == k.resref)
                                     .map(|(_, kind, i)| (kind, i, app.tree_object_pending));
-                                if contents_ui(ui, k.resref, contents, &filter, &mut go, in_hand) {
+                                let mut keys = ContentKeys {
+                                    cursor,
+                                    moved: cursor_moved,
+                                    fold: folded,
+                                    clicked: None,
+                                    listed: Vec::new(),
+                                };
+                                let went = contents_ui(
+                                    ui, k.resref, contents, &filter, &mut go, in_hand, &mut keys,
+                                );
+                                if went {
                                     app.tree_object_pending = false;
                                 }
+                                clicked = keys.clicked.or(clicked);
+                                outs.insert(k.resref, keys.listed);
                             }
-                            None => read.push(k.resref),
+                            None => {
+                                read.push(k.resref);
+                                outs.insert(k.resref, Vec::new());
+                            }
                         }
                     }
                     if names.contains_key(&k) {
@@ -933,17 +1037,18 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 app.actions.push(Action::DeleteDialog(k));
             }
         }
-        match pressed.map_or(Step::None, |key| step(&shown, app.tree_cursor, key)) {
+        match pressed.map_or(Step::None, |key| step(&shown, &outs, app.tree_cursor, key)) {
             Step::To(at) => {
                 app.tree_cursor = Some(at);
                 app.tree_cursor_moved = true;
                 ui.ctx().request_repaint();
             }
-            Step::Fold(group, open) => {
-                app.tree_fold = Some((group, open));
+            Step::Fold(at, open) => {
+                app.tree_fold = Some((at, open));
                 ui.ctx().request_repaint();
             }
             Step::Open(k) => open = Some(k),
+            Step::Go(area, kind, index) => go = Some((area, kind, index, Asked::Go)),
             Step::None => {}
         }
     }
@@ -1063,30 +1168,89 @@ mod tests {
         ];
         let (areas, scripts) = (TreeAt::Group("Areas"), TreeAt::Group("Scripts"));
         let at = |r| Some(TreeAt::Resource(r));
+        let outs = Outs::new();
         // Down and up, row by row, past a closed group's resources.
-        assert_eq!(step(&shown, Some(areas), Key::ArrowDown), Step::To(TreeAt::Resource(a)));
-        assert_eq!(step(&shown, at(b), Key::ArrowDown), Step::To(TreeAt::Group("Conversations")));
-        assert_eq!(step(&shown, Some(scripts), Key::ArrowDown), Step::To(scripts));
-        assert_eq!(step(&shown, Some(areas), Key::ArrowUp), Step::To(areas));
-        assert_eq!(step(&shown, at(a), Key::End), Step::To(scripts));
-        assert_eq!(step(&shown, at(b), Key::Home), Step::To(areas));
-        assert_eq!(step(&shown, Some(areas), Key::PageDown), Step::To(scripts));
+        assert_eq!(step(&shown, &outs, Some(areas), Key::ArrowDown), Step::To(TreeAt::Resource(a)));
+        assert_eq!(
+            step(&shown, &outs, at(b), Key::ArrowDown),
+            Step::To(TreeAt::Group("Conversations"))
+        );
+        assert_eq!(step(&shown, &outs, Some(scripts), Key::ArrowDown), Step::To(scripts));
+        assert_eq!(step(&shown, &outs, Some(areas), Key::ArrowUp), Step::To(areas));
+        assert_eq!(step(&shown, &outs, at(a), Key::End), Step::To(scripts));
+        assert_eq!(step(&shown, &outs, at(b), Key::Home), Step::To(areas));
+        assert_eq!(step(&shown, &outs, Some(areas), Key::PageDown), Step::To(scripts));
         // Right opens a group, then goes into it; Left the other way.
-        assert_eq!(step(&shown, Some(scripts), Key::ArrowRight), Step::Fold("Scripts", true));
-        assert_eq!(step(&shown, Some(areas), Key::ArrowRight), Step::To(TreeAt::Resource(a)));
-        assert_eq!(step(&shown, at(b), Key::ArrowLeft), Step::To(areas));
-        assert_eq!(step(&shown, Some(areas), Key::ArrowLeft), Step::Fold("Areas", false));
+        assert_eq!(step(&shown, &outs, Some(scripts), Key::ArrowRight), Step::Fold(scripts, true));
+        assert_eq!(
+            step(&shown, &outs, Some(areas), Key::ArrowRight),
+            Step::To(TreeAt::Resource(a))
+        );
+        assert_eq!(step(&shown, &outs, at(b), Key::ArrowLeft), Step::To(areas));
+        assert_eq!(step(&shown, &outs, Some(areas), Key::ArrowLeft), Step::Fold(areas, false));
         // Enter opens a resource, and opens or closes a group.
-        assert_eq!(step(&shown, at(a), Key::Enter), Step::Open(a));
+        assert_eq!(step(&shown, &outs, at(a), Key::Enter), Step::Open(a));
         // A letter: the next row that begins with it, round the end.
         assert_eq!(seek(&shown, Some(areas), 's'), Some(scripts));
         assert_eq!(seek(&shown, Some(scripts), 'A'), Some(areas));
         assert_eq!(seek(&shown, None, 'c'), Some(TreeAt::Group("Conversations")));
         assert_eq!(seek(&shown, Some(areas), 'z'), None);
-        assert_eq!(step(&shown, Some(scripts), Key::Enter), Step::Fold("Scripts", true));
+        assert_eq!(step(&shown, &outs, Some(scripts), Key::Enter), Step::Fold(scripts, true));
         // A row that is gone (its group closed, a filter typed): the first.
-        assert_eq!(step(&shown, at(c), Key::ArrowDown), Step::To(areas));
-        assert_eq!(step(&Vec::new(), None, Key::ArrowDown), Step::None);
+        assert_eq!(step(&shown, &outs, at(c), Key::ArrowDown), Step::To(areas));
+        assert_eq!(step(&Vec::new(), &outs, None, Key::ArrowDown), Step::None);
+    }
+
+    /// Right opens an area out and goes into it, to a kind and to its
+    /// objects; Left comes back out, a row at a time (GitHub issue 12).
+    #[test]
+    fn the_keys_go_into_an_area_opened_out() {
+        use egui::Key;
+        use mg_area::ObjectKind::{Creature, Door};
+        let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+        let (a, b) = (key("a", ResType::ARE), key("b", ResType::ARE));
+        let shown: Shown = vec![("Areas", true, vec![a, b])];
+        let (area, next) = (TreeAt::Resource(a), TreeAt::Resource(b));
+        let (creatures, doors) = (TreeAt::Kind(a.resref, Creature), TreeAt::Kind(a.resref, Door));
+        let object = |i| TreeAt::Object(a.resref, Creature, i);
+        // Closed: Right opens it out; Left goes to its group.
+        let mut outs = Outs::new();
+        assert_eq!(step(&shown, &outs, Some(area), Key::ArrowRight), Step::Fold(area, true));
+        assert_eq!(
+            step(&shown, &outs, Some(area), Key::ArrowLeft),
+            Step::To(TreeAt::Group("Areas"))
+        );
+        assert_eq!(step(&shown, &outs, Some(area), Key::ArrowDown), Step::To(next));
+        // Opened out, its kinds closed.
+        outs.insert(a.resref, vec![(Creature, false, vec![0, 2]), (Door, false, vec![0])]);
+        assert_eq!(step(&shown, &outs, Some(area), Key::ArrowRight), Step::To(creatures));
+        assert_eq!(step(&shown, &outs, Some(area), Key::ArrowDown), Step::To(creatures));
+        assert_eq!(step(&shown, &outs, Some(creatures), Key::ArrowDown), Step::To(doors));
+        assert_eq!(step(&shown, &outs, Some(doors), Key::ArrowDown), Step::To(next));
+        assert_eq!(
+            step(&shown, &outs, Some(creatures), Key::ArrowRight),
+            Step::Fold(creatures, true)
+        );
+        assert_eq!(step(&shown, &outs, Some(creatures), Key::ArrowLeft), Step::To(area));
+        assert_eq!(step(&shown, &outs, Some(area), Key::ArrowLeft), Step::Fold(area, false));
+        // A kind open: into its objects (those listed), and back.
+        outs.insert(a.resref, vec![(Creature, true, vec![0, 2]), (Door, false, vec![0])]);
+        assert_eq!(step(&shown, &outs, Some(creatures), Key::ArrowRight), Step::To(object(0)));
+        assert_eq!(step(&shown, &outs, Some(object(0)), Key::ArrowDown), Step::To(object(2)));
+        assert_eq!(step(&shown, &outs, Some(object(2)), Key::ArrowDown), Step::To(doors));
+        assert_eq!(step(&shown, &outs, Some(object(2)), Key::ArrowRight), Step::None);
+        assert_eq!(step(&shown, &outs, Some(object(2)), Key::ArrowLeft), Step::To(creatures));
+        assert_eq!(
+            step(&shown, &outs, Some(creatures), Key::ArrowLeft),
+            Step::Fold(creatures, false)
+        );
+        // Enter goes to an object in its area, and opens or closes a kind.
+        assert_eq!(
+            step(&shown, &outs, Some(object(2)), Key::Enter),
+            Step::Go(a.resref, Creature, 2)
+        );
+        assert_eq!(step(&shown, &outs, Some(doors), Key::Enter), Step::Fold(doors, true));
+        assert_eq!(step(&shown, &outs, Some(area), Key::Enter), Step::Open(a));
     }
 
     #[test]

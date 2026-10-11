@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T13:08:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
 ---
 
 # Areas
@@ -56,11 +56,13 @@ looking straight down at their middle, north up, as in Aurora.
   A sound that plays from a random place has a rectangle too: how far
   east and north of itself it may play. Areas opened later open as you
   left it.
-- **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
-  Nodes): walkable faces green, the others red.
-- **Object Walkmeshes**: where placeables (their `.pwk`, orange) and doors
-  (their `.dwk`, blue, for the state they're placed in: closed or open)
-  keep creatures out. The selection's are brighter.
+- **Walkmesh…**: a click shows the ground's walkmesh over the area
+  (Aurora's Render AABB Nodes): walkable faces green, the others red; a
+  click again hides what is shown. Hold the button, or right-click it,
+  for the two to choose from: **Ground Walkmesh** and **Object
+  Walkmeshes**, where placeables (their `.pwk`, orange) and doors (their
+  `.dwk`, blue, for the state they're placed in: closed or open) keep
+  creatures out. The selection's are brighter.
 - **Select Tiles**: select tiles rather than objects (Aurora's Select
   Terrain). Without the toolbar: a double click on the ground selects its
   tile (Select Tiles comes on), and a click on an object while tiles are

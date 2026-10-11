@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "apps/*"]
 
 [workspace.package]
-version = "1.20.7"
+version = "1.21.1"
 edition = "2024"
 rust-version = "1.98"
 license = "GPL-3.0-only"
@@ -30,6 +30,7 @@ mg-resman = { path = "crates/mg-resman" }
 mg-rules = { path = "crates/mg-rules" }
 mg-schema = { path = "crates/mg-schema" }
 mg-script = { path = "crates/mg-script" }
+mg-serve = { path = "crates/mg-serve" }
 mg-set = { path = "crates/mg-set" }
 mg-ssf = { path = "crates/mg-ssf" }
 mg-testkit = { path = "crates/mg-testkit" }
@@ -66,6 +67,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
+toml = "1"
 wgpu = "30"
 # (Reading a plugin's archive: flate2 with zlib-rs is built in already.)
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }

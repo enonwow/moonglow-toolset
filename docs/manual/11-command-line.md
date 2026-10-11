@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:00:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
 ---
 
 # Command-line tools
@@ -63,6 +63,10 @@ and testing in Aurora/NWN.
 | `mg tlk STRREF…` | talk-table strings by number |
 | `mg tlk-export TABLE.tlk OUT` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it |
 | `mg tlk-import TABLE.tlk FILE` | read a `.json` or `.csv` file of lines into a talk table (made if it isn't there, as an English table) and save it: the lines the file has are set, the others stay; `--dry-run` says what would change |
+| `mg 2da-diff A.2da B.2da` | what differs between two tables, by row number and column name (not by layout, case or column order): columns and rows added and removed, and each cell that differs. `--edits FILE` writes an edit file for `mg apply` that sets the table in a module to B |
+| `mg 2da-diff A.2da B.2da --base BASE.2da -o MERGED.2da` | merge two tables that were both made from BASE: what either changed is taken. A cell both changed, each to something else, is a conflict (two rows added under one number are, where they differ): it fails and writes nothing, unless `--prefer a` or `--prefer b` says whose to take. `--edits FILE` writes the merged table as an edit file |
+| `mg tlk-diff A.tlk B.tlk [--base BASE.tlk -o MERGED.tlk]` | the same for talk tables, by line. `--lines FILE.json` writes the lines that differ as a file for `mg tlk-import` |
+| `mg tlk-alloc TABLE.tlk --from NAMES.toml` | write a custom talk table from strings kept by name: see [Strings by name](#strings-by-name) |
 
 ## Modules
 
@@ -85,7 +89,10 @@ and testing in Aurora/NWN.
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`; prints the manifest's hash |
 | `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
-| `mg compile MODULE [--uncompiled]` | compile the module's scripts (or only those without a compiled version) and save it |
+| `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
+| `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
+| `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
+| `mg compile MODULE [--uncompiled] [--all]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
@@ -205,6 +212,156 @@ mg areas mymodule.mod --all --static-placeables --dry-run
 - Names, lighting schemes (which also pick each tile's lights) and list
   fields aren't set by this command.
 
+## Running a module in the server
+
+`mg serve MODULE` starts `nwserver` (Linux and Windows: the game has none
+for macOS) on a `.mod`, a module folder or a nasher project. A folder or
+a project is packed first: the server loads an archive only.
+
+- **Private unless asked.** The server is not listed (`--public` lists
+  it) and gets random player, DM and admin passwords, which are printed;
+  `--player-password`, `--dm-password` and `--admin-password` set them.
+  It still looks up Beamdog's master server when it starts, listed or
+  not.
+- **Its own user directory.** The server's vault, database, settings and
+  logs go in a scratch folder in the system's temporary folder, the same
+  one for each run of a module, with the module's haks and talk table
+  linked in from your NWN folder (which is only read). `--dir FOLDER`
+  names another; your own NWN folder is refused without
+  `--real-user-dir`.
+- **What it prints.** Where the server runs (the port, the folders, the
+  two log files), then the server's console, its log (what scripts write
+  with `WriteTimestampedLogEntry`) and the errors and warnings of the
+  engine's own log (a script that failed). "module loaded" comes from
+  the server saying so, not from its port, which answers before a module
+  is loaded. `--marker TEXT` marks the log lines with that text.
+- **What you type** goes to the server's console (`status`, `say`,
+  `exit`, and the commands NWNX adds). `/restart` starts the server
+  again, and `/quit` stops it.
+- **Until.** `--until TEXT` stops the server at the first log line with
+  that text and `--timeout SECONDS` after that long: a failure if
+  `--until` was not seen. `--restart-on-change` starts the server again
+  when the module's file (or folder) changes.
+- **NWNX and the like.** `--env FILE` adds a file of `NAME=value` lines
+  to the server's environment and `--preload LIBRARY` loads a library
+  into it (`LD_PRELOAD`, on Linux); Moonglow knows nothing more of NWNX.
+  Arguments after `--` go to `nwserver` as they are (`-- -maxclients 4
+  -servervault 1`).
+- **`--json`** prints each of these as a line of JSON (`event`:
+  `started`, `passwords`, `ready`, `log`, `marker`, `console`, `engine`,
+  `note`, `changed`, `ended`).
+
+## Testing scripts in the server
+
+`mg test MODULE` runs the module's scripts named `test_*` (each with a
+`main()`) in the server and reports what they assert. A test includes
+`mg_test`, which Moonglow provides (`mg test --include` prints it; a
+module with its own `mg_test.nss` keeps it):
+
+```c
+#include "mg_test"
+void main()
+{
+    Describe("fighter");
+    AssertEqualInt(GetHitDice(OBJECT_SELF), 0, "the module has no level");
+    Assert(GetIsObjectValid(GetFirstArea()), "an area", "the module has none");
+}
+```
+
+| Function | |
+| --- | --- |
+| `Assert(bCondition, sName, sDetail = "")` | passes if the condition holds |
+| `AssertEqualInt`, `AssertEqualString`, `AssertEqualFloat(…, fWithin)` | pass if the two are equal; a failure says what was got and expected |
+| `AssertValid(oObject, sName)` | passes if the object is valid |
+| `Pass(sName)`, `Fail(sName, sDetail = "")` | a result of your own |
+| `Describe(sGroup)` | a name the following results are grouped under |
+
+- **Your module is not changed.** The tests run in a copy in a scratch
+  folder: there a driver becomes the module's OnModuleLoad script. It
+  starts each test as an event of its own, half a second after the
+  module's own OnModuleLoad script, which it runs too. A test that runs
+  out of instructions, or isn't there, is an error and stops no other.
+- `--filter TEXT` runs the tests with that text in their name (`*` for
+  any run of characters). `--tests FOLDER` adds a folder's scripts to
+  the copy. `--settle SECONDS` waits that long after the last test for
+  what tests assert later (`DelayCommand`). `--timeout SECONDS` (120)
+  gives up.
+- The result is a line a test, the failures with what was got and
+  expected, and a failing exit if a test failed or did not run to its
+  end. `--json` gives the same as fields (`tests`, each with its
+  `cases`), `--junit FILE` writes a JUnit report, and `--log` prints the
+  server's log meanwhile.
+- `--driver none` puts nothing into the copy: the module runs its tests
+  itself (from NWNX's start script, say) and calls `TestsDone()`.
+- `--dir`, `--env`, `--preload` and the arguments after `--` are `mg
+  serve`'s.
+
+What the include writes to the log is its format 1 (`MG_TEST_FORMAT`):
+`MG_TEST PASS name` and `MG_TEST FAIL name :: detail`.
+
+## Following a project as you edit
+
+`mg watch PROJECT` follows a module kept as files (a nasher project or a
+module folder) and takes up each change as you save it:
+
+| What changed | What happens |
+| --- | --- |
+| A script | it and the scripts that include it are compiled, and the compiled scripts are put into the development folder |
+| A blueprint (`ut*`) or a conversation | it is put into the development folder as it is |
+| Anything else (a 2DA, an area, `module.ifo`), or a file taken away | the module is built again; with `--serve`, the server is started again on it |
+
+A running server takes up what is in its `development` folder at the next
+use (the next time the script runs, the next creature made from the
+blueprint), without a restart; 2DAs, areas and the module's own settings
+it reads only at its start.
+
+- `--dev-dir FOLDER` is the development folder to write into. Moonglow
+  keeps a list there (`.mg-watch`) of what it wrote, and takes those
+  files away again when the module is built anew (the module has them
+  then); files of yours in the folder are left alone.
+- `--mod FILE` builds the module to a file, at the start and after every
+  change, with every script compiled.
+- `--serve` also runs the module in the server, as `mg serve` does, on a
+  scratch user directory whose `development` folder is the one written
+  into: `--dir`, `--port`, `--env`, `--preload` and the arguments after
+  `--` are `mg serve`'s, and so is what you type. Started again, the
+  server keeps its port and its passwords.
+- A script that does not compile is said, with its line, and nothing is
+  put out for it: the server keeps the one it has.
+- `--json` prints each of these as a line of JSON (`watching`, `synced`,
+  `rebuilt`, and with `--serve` the server's events).
+
+## Strings by name
+
+A project that makes its rules from data needs talk-table numbers that
+never change: a number saved in a character or an item must not come to
+mean another text. `mg tlk-alloc TABLE.tlk --from NAMES.toml` writes a
+custom talk table from strings kept by name:
+
+```toml
+[feat.cleave]
+name = "Great Cleave"
+desc = "A follow-up attack after a kill."
+
+[voice]
+greeting = { text = "Well met.", sound = "vs_greet", sound_length = 1.2 }
+```
+
+- A key is its groups and its name with dots (`feat.cleave.name`). The
+  names file is `.toml` or `.json`.
+- **The map** (`NAMES.strrefs.json`, or `--map FILE`) says which line of
+  the table each key has. Keep it with the project. A new key gets the
+  next line that was never anyone's (from `--start`, passing over lines
+  of the table that have someone else's text); a key you take away keeps
+  its line reserved, and gets it back if you name it again.
+- `--constants FILE.nss` writes the keys as constants with the game's
+  numbers (`const int STRREF_FEAT_CLEAVE_NAME = 16777217;`; `--prefix`
+  changes `STRREF_`), `--constants FILE.json` as JSON.
+- `--check` writes nothing and fails unless the table, the map and the
+  constants are as they would be written: for a build to refuse a names
+  file that was changed and not run. `--against OLDER.json` fails if a
+  key has another line than in an older map (the main branch's).
+
 ## JSON output
 
 With `--json`, every command prints one JSON object on standard output
@@ -214,8 +371,8 @@ and nothing on standard error, for scripts, build pipelines and tools
   (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
   objects `area`, `index` and `position`); `mg verify` its `errors`,
   `warnings`, `missing`, `findings` and `unused`; `mg refs` its `uses`
-  and `script_strings`; `mg compile` its `scripts`, `failed` and
-  `errors` (each with `script`, `line` and `message`); and so on.
+  and `script_strings`; `mg compile` its `scripts` (those compiled), `unchanged` (those passed
+  over), `failed` and `errors` (each with `script`, `line` and `message`); and so on.
 - **Notes:** warnings and summaries, otherwise sent to standard error,
   are in `notes`.
 - **Errors:** a command that fails prints `{"error": "…"}` and exits with

@@ -76,6 +76,8 @@ pub(crate) struct Shared {
     edits: RefCell<Vec<Edit>>,
     /// What the job wants written into haks, each hak once.
     pub(crate) haks: RefCell<Vec<HakWrite>>,
+    /// What the job wants written into folders the user chose.
+    pub(crate) folders: RefCell<Vec<crate::FolderWrite>>,
     pub(crate) game: Option<Arc<GameData>>,
     pub(crate) host: Rc<dyn Host>,
     /// Whose job it is, for a question the API itself asks.
@@ -457,17 +459,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
             lua.create_function(move |lua, (_, name): (This, String)| {
                 let Some(data) = &s.game else { return fail("there is no game data") };
                 let table = data.table(&name).or_else(fail)?;
-                let out = lua.create_table()?;
-                out.set("rows", table.len())?;
-                out.set("columns", table.columns().to_vec())?;
-                let cells = table;
-                out.set(
-                    "get",
-                    lua.create_function(move |_, (_, row, column): (This, usize, String)| {
-                        Ok(cells.get(row, &column).map(str::to_string))
-                    })?,
-                )?;
-                Ok(out)
+                crate::tables::twoda(lua, table.clone())
             })?,
         )?;
         let s = sh.clone();
@@ -753,10 +745,12 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
 fn api(lua: &Lua) -> mlua::Result<Table> {
     let mg = lua.create_table()?;
     mg.set("api", crate::API)?;
-    for (kind, registry) in [("command", "mg.commands"), ("check", "mg.checks")] {
+    for (kind, registry) in
+        [("command", "mg.commands"), ("check", "mg.checks"), ("event", "mg.events")]
+    {
         lua.set_named_registry_value(registry, lua.create_table()?)?;
         mg.set(
-            kind,
+            if kind == "event" { "on" } else { kind },
             lua.create_function(move |lua, (id, handler): (String, Function)| {
                 let handlers: Table = lua.named_registry_value(registry)?;
                 if handlers.contains_key(id.as_str())? {
@@ -814,6 +808,8 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
         )?;
     }
     mg.set("image", lua.create_function(crate::files::image)?)?;
+    mg.set("twoda", crate::tables::twoda_api(lua)?)?;
+    mg.set("tlk", crate::tables::tlk_api(lua)?)?;
     // Where a struct read with `gff` is: its path, for the edits.
     mg.set(
         "path",
@@ -955,6 +951,7 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
         haks: RefCell::new(Vec::new()),
+        folders: RefCell::new(Vec::new()),
         game: input.game,
         host: host.clone(),
         who: who.to_string(),
@@ -995,7 +992,40 @@ pub(crate) fn run_command(
     if host.cancelled() {
         return Err(PluginError::Canceled(plugin.manifest.name.clone()));
     }
-    Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take() })
+    Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take(), folders: sh.folders.take() })
+}
+
+/// What a plugin does on an event: its handler, called as a command's is,
+/// with what happened as `ctx.event`.
+pub(crate) fn run_event(
+    plugin: &Plugin,
+    decl: &crate::EventDecl,
+    happened: &crate::Event,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Outcome, PluginError> {
+    let sh = shared(plugin, input, &host);
+    let run = || -> mlua::Result<Option<String>> {
+        let lua = start(Some(&plugin.manifest.entry), &sh)?;
+        let f = handler(&lua, "mg.events", "event", &decl.id)?;
+        let ctx = context(&lua, &sh, about(plugin))?;
+        let event = lua.create_table()?;
+        event.set("name", happened.kind.name())?;
+        let resources: Vec<String> = happened.resources.iter().map(ToString::to_string).collect();
+        event.set("resources", resources)?;
+        ctx.set("event", event)?;
+        Ok(match f.call::<LuaValue>(ctx)? {
+            LuaValue::Table(t) => t.get::<Option<String>>("label")?,
+            LuaValue::String(s) => Some(s.to_str()?.to_string()),
+            _ => None,
+        })
+    };
+    let label = run().map_err(|e| failed(plugin, &host, e))?;
+    if host.cancelled() {
+        return Err(PluginError::Canceled(plugin.manifest.name.clone()));
+    }
+    let label = label.unwrap_or_else(|| format!("{}: {}", plugin.manifest.name, decl.id));
+    Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take(), folders: sh.folders.take() })
 }
 
 pub(crate) fn run_check(
@@ -1039,7 +1069,8 @@ pub(crate) fn run_check(
         Ok(out)
     };
     let findings = run().map_err(|e| failed(plugin, &host, e))?;
-    if !sh.edits.borrow().is_empty() || !sh.haks.borrow().is_empty() {
+    let wrote = !sh.haks.borrow().is_empty() || !sh.folders.borrow().is_empty();
+    if !sh.edits.borrow().is_empty() || wrote {
         return Err(PluginError::Script {
             plugin: plugin.manifest.name.clone(),
             message: format!("the check {:?} edits the module: a check only reads", decl.id),
@@ -1067,8 +1098,11 @@ pub(crate) fn inspect(
         let declared: BTreeMap<&str, Vec<&str>> = BTreeMap::from([
             ("command", manifest.commands.iter().map(|c| c.id.as_str()).collect()),
             ("check", manifest.checks.iter().map(|c| c.id.as_str()).collect()),
+            ("event", manifest.events.iter().map(|c| c.id.as_str()).collect()),
         ]);
-        for (kind, registry) in [("command", "mg.commands"), ("check", "mg.checks")] {
+        for (kind, registry) in
+            [("command", "mg.commands"), ("check", "mg.checks"), ("event", "mg.events")]
+        {
             let mut code = registered(registry)?;
             code.sort();
             for id in &declared[kind] {
@@ -1149,7 +1183,12 @@ pub(crate) fn run_console(
     if host.cancelled() {
         return Err(PluginError::Canceled("Console".into()));
     }
-    Ok(Outcome { label: "Plugin console".into(), edits: sh.edits.take(), haks: sh.haks.take() })
+    Ok(Outcome {
+        label: "Plugin console".into(),
+        edits: sh.edits.take(),
+        haks: sh.haks.take(),
+        folders: sh.folders.take(),
+    })
 }
 
 /// Every name a plugin's code can use, as the reference writes them
@@ -1190,6 +1229,7 @@ pub(crate) fn api_names() -> Vec<String> {
         // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
         out.extend(crate::files::NAMES.map(String::from));
+        out.extend(crate::tables::NAMES.map(String::from));
         out.extend(crate::terrain::NAMES.map(String::from));
         out.sort();
         Ok(out)

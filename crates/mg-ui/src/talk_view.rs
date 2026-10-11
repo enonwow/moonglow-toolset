@@ -615,6 +615,40 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         .id_salt("talk-rows")
         .max_height(list_height)
         .auto_shrink([false, true]);
+    // The keys are the list's from a click on a line (GitHub issues 12
+    // and 24): Up and Down (Page Up and Down, Home and End) choose a
+    // line, Enter goes to its text.
+    use crate::palette_view::{Keys, give_keys, keys_are};
+    let seen_id = egui::Id::new("talk-rows-seen");
+    let mut to_text = false;
+    if keys_are(ui.ctx(), Keys::Talk) && !ui.ctx().egui_wants_keyboard_input() && !rows.is_empty() {
+        use egui::Key;
+        let at = v.selected.and_then(|s| rows.iter().position(|r| *r == s));
+        let last = rows.len() as isize - 1;
+        let steps = [
+            (Key::ArrowDown, 1),
+            (Key::ArrowUp, -1),
+            (Key::PageDown, 10),
+            (Key::PageUp, -10),
+            (Key::End, isize::MAX / 2),
+            (Key::Home, isize::MIN / 2),
+        ];
+        let pressed = ui.input_mut(|i| {
+            steps.into_iter().find(|(k, _)| i.consume_key(egui::Modifiers::NONE, *k))
+        });
+        if let Some((_, by)) = pressed {
+            let to = at.map_or(0, |at| (at as isize).saturating_add(by).clamp(0, last)) as usize;
+            v.selected = Some(rows[to]);
+            // (Into view, if it is not among the lines drawn.)
+            let seen: Option<(usize, usize)> = ui.data(|d| d.get_temp(seen_id));
+            v.reveal = seen.is_none_or(|(from, end)| to <= from || to + 2 >= end);
+        }
+        to_text = v.selected.is_some()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            give_keys(ui.ctx(), Keys::Area);
+        }
+    }
     // The list changed under the selected line: it comes back into view.
     if std::mem::take(&mut v.reveal)
         && let Some(at) = v.selected.and_then(|s| rows.iter().position(|r| *r == s))
@@ -622,19 +656,29 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         let pitch = row_height + ui.spacing().item_spacing.y;
         list = list.vertical_scroll_offset((at as f32 * pitch - list_height / 2.0).max(0.0));
     }
-    list.show_rows(ui, row_height, rows.len(), |ui, range| {
+    let shown = list.show_rows(ui, row_height, rows.len(), |ui, range| {
+        ui.data_mut(|d| d.insert_temp(seen_id, (range.start, range.end)));
         for &row in &rows[range] {
             let line = t.line(row);
-            ui.horizontal(|ui| {
+            // The whole row chooses its line (not its number alone), and
+            // shows the pointer over it; twice, to go to its text.
+            let behind = ui.painter().add(egui::Shape::Noop);
+            let selected = v.selected == Some(row);
+            let drawn = ui.horizontal(|ui| {
                 let strref = Table::strref(row).0.to_string();
-                let selected = v.selected == Some(row);
-                let r = ui.add_sized(
-                    [90.0, row_height],
-                    egui::Button::selectable(selected, egui::RichText::new(strref).monospace()),
+                let number = egui::RichText::new(strref).monospace();
+                let number = match selected {
+                    true => number.color(ui.visuals().selection.stroke.color),
+                    false => number,
+                };
+                ui.allocate_ui_with_layout(
+                    egui::vec2(90.0, row_height),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(90.0);
+                        ui.add(egui::Label::new(number).selectable(false));
+                    },
                 );
-                if r.clicked() {
-                    v.selected = Some(row);
-                }
                 let w = if feminine { 300.0 } else { 600.0 };
                 // The first line of a text, left-aligned in its column.
                 let text = |ui: &mut Ui, s: &str| {
@@ -642,7 +686,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
                     let layout = egui::Layout::left_to_right(egui::Align::Center);
                     ui.allocate_ui_with_layout(egui::vec2(w, row_height), layout, |ui| {
                         ui.set_min_width(w);
-                        ui.add(egui::Label::new(first).truncate());
+                        ui.add(egui::Label::new(first).truncate().selectable(false));
                     });
                 };
                 text(ui, &line.text);
@@ -650,11 +694,35 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
                     text(ui, f);
                 }
                 if !line.sound.is_empty() {
-                    ui.weak(&line.sound);
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(&line.sound).weak()).selectable(false),
+                    );
                 }
             });
+            let mut rect = drawn.response.rect;
+            rect.max.x = rect.max.x.max(ui.max_rect().right());
+            let r = ui
+                .interact(rect, ui.id().with(("talk-row", row)), egui::Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if r.clicked() || r.double_clicked() {
+                v.selected = Some(row);
+                give_keys(ui.ctx(), Keys::Talk);
+                to_text |= r.double_clicked();
+            }
+            let fill = match (selected, r.hovered()) {
+                (true, _) => Some(ui.visuals().selection.bg_fill),
+                (false, true) => Some(ui.visuals().widgets.hovered.weak_bg_fill),
+                _ => None,
+            };
+            if let Some(fill) = fill {
+                ui.painter().set(
+                    behind,
+                    egui::Shape::rect_filled(rect.expand2([2.0, 1.0].into()), 2.0, fill),
+                );
+            }
         }
     });
+    crate::palette_view::keys_outline(ui, shown.inner_rect, Keys::Talk);
     if rows.is_empty() && !query.is_empty() {
         ui.weak("No line has that.");
     }
@@ -689,6 +757,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
             .auto_shrink(false);
         area.show(ui, |ui| {
             let edit = egui::TextEdit::multiline(text)
+                .id(egui::Id::new(salt))
                 .desired_rows(3)
                 .desired_width(f32::INFINITY)
                 .min_size(egui::vec2(0.0, box_height))
@@ -697,6 +766,10 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         })
         .inner
     };
+    // (Enter in the list, or a line clicked twice: to its text.)
+    if to_text && editable {
+        ui.memory_mut(|m| m.request_focus(egui::Id::new("talk-text")));
+    }
     ui.add_enabled_ui(editable, |ui| {
         ui.label(if feminine { "Text (masculine)" } else { "Text" });
         if text_box(ui, "talk-text", &mut line.text, "the line's text") {
