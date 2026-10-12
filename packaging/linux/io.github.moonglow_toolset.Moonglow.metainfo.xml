@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.22.1" date="2026-10-12">
+      <description>
+        <p>A long list in a blueprint's page opens at what is chosen. A
+        creature given an appearance with a body of parts gets its
+        parts. An Ink story's choices are written as Inky reads them.
+        The 2DA editor adds rows by the number and deletes a row.</p>
+      </description>
+    </release>
     <release version="1.22.0" date="2026-10-12">
       <description>
         <p>A 2DA editor: a table of the module, of a hak or in a file is
