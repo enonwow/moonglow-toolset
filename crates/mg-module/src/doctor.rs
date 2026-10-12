@@ -967,17 +967,7 @@ fn walk_objects(
     path: &str,
     out: &mut Vec<(String, String)>,
 ) {
-    let int = |label: &str| -> Option<i64> {
-        match s.get(label)? {
-            Value::Byte(v) => Some(i64::from(*v)),
-            Value::Word(v) => Some(i64::from(*v)),
-            Value::Dword(v) => Some(i64::from(*v)),
-            Value::Int(v) => Some(i64::from(*v)),
-            Value::Short(v) => Some(i64::from(*v)),
-            Value::Char(v) => Some(i64::from(*v)),
-            _ => None,
-        }
-    };
+    let int = |label: &str| s.integer(label);
     // A row the object names must exist; with `model`, the model its
     // column names must too (a missing one crashes Aurora's area view).
     let mut check = |d: &mut Doctor,

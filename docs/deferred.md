@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:14:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:25:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1650,21 +1650,23 @@ unless it says so.
 - **Written more than once, below:** a loose value made a typed GFF
   value (mg, the plugin host, the JSON reader: the integer ranges by
   type); "check the table is there, then a cursor at it" seven times
-  across the format readers; in mg-module, five recursive GFF walks
-  (four of which one visitor would serve, with their path strings kept
-  to the letter), the GIT list table in four shapes, `Struct::integer`
-  and `list` rewritten by hand at some 15 sites, the conversation's
-  owning links walked three times, creature parts and colors listed in
-  both `blueprints.rs` and `instances.rs`. (M)
-- **Written more than once, in the renderer and previews:** a buffer
-  grown and written seven times in `renderer.rs`; the rest pose worked
-  out three ways; an animation found by name five times in mg-preview;
-  `armor()` rebuilding `CreatureLook::to_utc`; the ray and box and ray
-  and triangle tests in both mg-preview and mg-area; a group's slot
-  turned in three places. Also there: `LightGrid::new` makes five lists
-  a frame, and the light count, the fog's end and the skinned flag are
-  put in uniforms no shader reads. (M; the renderer's through CI on the
-  three systems)
+  across the format readers; in mg-module, three recursive GFF walks
+  that `Struct::walk_fields` does not fit as it is (the text search's,
+  which keeps its path as steps; the doctor's objects, which goes by
+  the struct and the list it is in; the references' rewriting one,
+  which changes what it walks), the GIT list table in four shapes
+  (each maps a list to another thing: a category, a struct id, a
+  resource type, a word), the conversation's owning links walked three
+  times, creature parts and colors listed in both `blueprints.rs` and
+  `instances.rs`. (M)
+- **Written more than once, in the renderer and previews:** the rest
+  pose worked out three ways; `armor()` rebuilding
+  `CreatureLook::to_utc`; a group's slot turned in three places. Also
+  there: `LightGrid::new` makes five lists a frame, and the light
+  count, the fog's end and the skinned flag are put in uniforms no
+  shader reads. (The ray tests the review saw in both mg-preview and
+  mg-area are in mg-preview alone now; mg-area's are its own, on its
+  `Ray`.) (M; the renderer's through CI on the three systems)
 - **Never used, or never otherwise:** the second half of
   `ModelView::frame` (the model is there exactly when the composed
   preview is); arguments that are always the same

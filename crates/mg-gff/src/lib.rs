@@ -29,7 +29,7 @@ pub use json::{
     value_from_json, value_to_json,
 };
 pub use read::ReadError;
-pub use value::{Field, FieldType, Label, LabelError, Struct, Value};
+pub use value::{Field, FieldAt, FieldType, Label, LabelError, Struct, Value};
 pub use write::WriteError;
 
 /// Struct id the root struct carries.

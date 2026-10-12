@@ -363,21 +363,15 @@ const TAG_FIELDS: [&str; 4] = ["Tag", "LinkedTo", "KeyName", "Quest"];
 /// the transitions, locks and conversation lines that name it (compared
 /// exactly, as the game's tag lookups do).
 pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
-    fn walk(s: &Struct, path: &str, tag: &[u8], out: &mut Vec<String>) {
-        for f in &s.fields {
-            let label = f.label.to_string_lossy();
-            let p = format!("{path}/{label}");
-            match &f.value {
-                Value::String(v) if TAG_FIELDS.contains(&label.as_str()) && v == tag => out.push(p),
-                Value::Struct(c) => walk(c, &p, tag, out),
-                Value::List(items) => {
-                    for (i, c) in items.iter().enumerate() {
-                        walk(c, &format!("{p}[{i}]"), tag, out);
-                    }
-                }
-                _ => {}
+    fn walk(s: &Struct, tag: &[u8], out: &mut Vec<String>) {
+        s.walk_fields(&mut |f| {
+            if let Value::String(v) = f.value
+                && TAG_FIELDS.contains(&f.label)
+                && v == tag
+            {
+                out.push(f.path.to_string());
             }
-        }
+        });
     }
     if tag.is_empty() {
         return Vec::new();
@@ -388,7 +382,7 @@ pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
     for key in keys {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
         let mut paths = Vec::new();
-        walk(&gff.root, "", tag.as_bytes(), &mut paths);
+        walk(&gff.root, tag.as_bytes(), &mut paths);
         for path in paths {
             let place = describe(key, Some(&gff), &path);
             out.push(Usage { from: key, path, place });

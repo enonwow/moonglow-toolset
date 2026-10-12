@@ -26,6 +26,14 @@ struct Placed {
     anims: Vec<(String, Arc<Model>)>,
 }
 
+impl Placed {
+    /// One of its animations (its own or a supermodel's), by name.
+    fn animation(&self, name: &str) -> Option<&Animation> {
+        let owner = self.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+        owner.1.animation(name)
+    }
+}
+
 /// A preview ready to draw.
 #[derive(Debug)]
 pub struct Composed {
@@ -186,10 +194,7 @@ impl Composed {
         if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_))) {
             return None;
         }
-        let playing = animation.and_then(|name| {
-            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
-            owner.1.animation(name)
-        });
+        let playing = animation.and_then(|name| self.base.animation(name));
         let pose = match playing {
             Some(a) => anim::pose(model, a, t),
             None => self.base.gpu.rest.clone(),
@@ -216,18 +221,13 @@ impl Composed {
     }
 
     fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
-        fn find<'a>(anims: &'a [(String, Arc<Model>)], name: &str) -> Option<&'a Animation> {
-            anims
-                .iter()
-                .find(|(n, _)| n.eq_ignore_ascii_case(name))
-                .and_then(|(_, owner)| owner.animation(name))
-        }
         // The animation asked for, else the other standing one: a model
         // whose appearance says full-body (`pause1`) may have a creature's
         // animations (`cpause1`), and stands in its rest pose without.
         let base_anim = animation.and_then(|a| {
-            find(&self.base.anims, a)
-                .or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(&self.base.anims, a)))
+            self.base
+                .animation(a)
+                .or_else(|| ["pause1", "cpause1"].iter().find_map(|a| self.base.animation(a)))
         });
         let base_pose: Arc<Vec<Mat4>> = Arc::new(match &base_anim {
             Some(a) => anim::pose(&self.base.gpu.model, a, t),
@@ -247,8 +247,8 @@ impl Composed {
             // Animated parts play the animation on their own nodes: their
             // own (wings, tails), else the base's (robe and cloak bones).
             let pose = if p.animated {
-                let own = animation.and_then(|a| find(&p.anims, a)).or_else(|| {
-                    ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(&p.anims, a))
+                let own = animation.and_then(|a| p.animation(a)).or_else(|| {
+                    ["creadyl", "cpause1", "pause1"].iter().find_map(|a| p.animation(a))
                 });
                 // (A skeleton's animation, the base's or its supermodel's,
                 // moves the part as it moves the base: at the base's
@@ -305,10 +305,7 @@ impl Composed {
     /// taller or shorter than at rest, and a picture framed by its rest
     /// cut its head off.
     pub fn bounds_in(&self, animation: Option<&str>, t: f32) -> (Vec3, Vec3) {
-        let find = |name: &str| {
-            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
-            owner.1.animation(name)
-        };
+        let find = |name: &str| self.base.animation(name);
         let playing = animation
             .and_then(|a| find(a).or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(a))));
         match (playing, animation) {
@@ -427,10 +424,7 @@ impl Composed {
         for p in &self.parts {
             let at = p.attach.and_then(|i| pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
             let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
-                let find = |name: &str| {
-                    let owner = p.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
-                    owner.1.animation(name)
-                };
+                let find = |name: &str| p.animation(name);
                 let own = find(asked)
                     .or_else(|| ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(a)));
                 let worn = self.base.gpu.model.animation_scale;
