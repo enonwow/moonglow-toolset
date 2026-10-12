@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.23.1" date="2026-10-12">
+      <description>
+        <p>mg serve compiles the scripts of a module folder or a nasher
+        project before it serves it, and mg test counts a test that
+        stopped partway as an error. The 2DA editor can save a table
+        with one space between cells, and a selection in the script
+        editor ends at each line's last character.</p>
+      </description>
+    </release>
     <release version="1.23.0" date="2026-10-12">
       <description>
         <p>A table of your own says what its columns hold, in a file
