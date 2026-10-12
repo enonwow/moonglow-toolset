@@ -14,7 +14,7 @@ use mg_testkit::engine::{ServerRun, run_server, server_binary};
 use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
 use rayon::prelude::*;
 
-mod common;
+use crate::common;
 use common::{PROBE, compile, world};
 
 /// The first placed object (not a creature: they may wander) whose blueprint

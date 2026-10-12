@@ -192,8 +192,8 @@ cargo run --release -p mg -- --help      # the command-line tools
 ## Testing
 
 ```sh
-cargo test --workspace                          # unit tests (corpus tests skip without a game install)
-cargo test -p mg-corpus-tests --release         # corpus, differential and engine tests
+cargo test --workspace --exclude mg-corpus-tests --lib --bins --tests   # unit, UI and command-line tests
+cargo test -p mg-corpus-tests --release --tests                         # corpus, differential and engine tests (skip without a game install)
 cargo clippy --workspace --all-targets          # must be warning-free
 cargo fmt                                       # rustfmt.toml: width 100
 ```

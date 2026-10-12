@@ -9,7 +9,7 @@ use mg_resman::{ErfContainer, GameInstall, LayerClass, ResKey, ResMan, priority}
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
-mod common;
+use crate::common;
 use common::probe_module;
 
 /// The engine's name for a layer.

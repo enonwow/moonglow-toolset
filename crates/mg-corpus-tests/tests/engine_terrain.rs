@@ -21,7 +21,7 @@ use mg_testkit::{corpus, oracle_tool, scratch_dir};
 use mg_tiles::TileIndex;
 use mg_tiles::paint::{Grid, Rules, Stroke};
 
-mod common;
+use crate::common;
 use common::compile;
 
 fn r(s: &str) -> ResRef {

@@ -7,7 +7,7 @@ use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
 use mg_testkit::{bundled_modules, corpus, scratch_dir};
 use rayon::prelude::*;
 
-mod common;
+use crate::common;
 use common::rewrite_all_gffs;
 
 /// Every shipped module opens; its module info names areas that exist and

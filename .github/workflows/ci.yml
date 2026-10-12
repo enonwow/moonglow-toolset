@@ -1,13 +1,14 @@
 name: CI
 
 # Not for documentation alone, but for the manual (built into the app); not
-# for tags (their commit was tested on its branch).
+# for the Scoop manifest (bucket/, committed after each release: nothing
+# built reads it); not for tags (their commit was tested on its branch).
 on:
   push:
     branches: ["**"]
-    paths: ["**", "!docs/**", "!**.md", "docs/manual/**"]
+    paths: ["**", "!docs/**", "!**.md", "!bucket/**", "docs/manual/**"]
   pull_request:
-    paths: ["**", "!docs/**", "!**.md", "docs/manual/**"]
+    paths: ["**", "!docs/**", "!**.md", "!bucket/**", "docs/manual/**"]
 
 # A newer push to the same branch cancels the run it supersedes.
 concurrency:
@@ -16,10 +17,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Line tables, not full debug information: the test binaries otherwise
-  # outgrow the runners' disks.
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
-  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   test:
@@ -50,4 +47,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         # Corpus, differential and engine tests skip without a game install.
-        run: cargo test --workspace
+        # Not the examples (developer tools; a plain `cargo test` links all
+        # 22 of them, and clippy has checked them above).
+        run: cargo test --workspace --lib --bins --tests
+      - name: Documentation tests
+        run: cargo test --workspace --doc

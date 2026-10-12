@@ -9,11 +9,20 @@ renderer), licensed GPL-3.0. The plan, architecture and phase list are in
 ## Commands
 
 ```sh
-cargo test --workspace                          # unit tests (corpus tests skip without a game install)
-cargo test -p mg-corpus-tests --release         # corpus, differential and engine tests
+cargo test --workspace --exclude mg-corpus-tests --lib --bins --tests   # unit, UI and command-line tests
+cargo test -p mg-corpus-tests --release --tests                         # corpus, differential and engine tests (skip without a game install)
 cargo clippy --workspace --all-targets          # must be warning-free
 cargo fmt                                       # rustfmt.toml: width 100, "Max" heuristics
 ```
+
+The two test commands are the whole suite, each test once: a plain
+`cargo test --workspace` also runs the corpus tests a second time,
+unoptimized, and links the 22 examples (documentation tests, as CI runs
+them: `cargo test --workspace --doc`).
+Test files are grouped into a few binaries (`tests/groups/` in
+`mg-corpus-tests` and `apps/mg`): a new test file is named in its group,
+and one group runs with `--test engine` (a file's tests: `--test engine
+engine_tlk`).
 
 Corpus tests read the installed game: `NWN_ROOT` (or the Steam default path)
 and neverwinter.nim's tools and nasher as oracles (`NWN_TOOLS_BIN`, default

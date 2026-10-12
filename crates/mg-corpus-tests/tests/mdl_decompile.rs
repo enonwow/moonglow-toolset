@@ -1,8 +1,7 @@
 //! The native decompiler against the game's models: every binary model
 //! decompiles, and reading the ASCII back gives the same model.
 
-#[path = "mdl_common/mod.rs"]
-mod common;
+use crate::mdl_common as common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

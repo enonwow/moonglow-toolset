@@ -7,7 +7,7 @@
 //! must give the same objects.
 //!
 //! To make the probes for the oracle:
-//! `cargo test -p mg-corpus-tests --test aurora_update_instances -- --ignored`
+//! `cargo test -p mg-corpus-tests --test aurora -- --ignored write_the_probes`
 //! writes `update-probe-defaults.mod` and `update-probe-doors.mod` into the
 //! oracle's `modules` folder.
 

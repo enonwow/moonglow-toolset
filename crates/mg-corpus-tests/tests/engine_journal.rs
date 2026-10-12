@@ -16,7 +16,7 @@ use mg_schema::{ExoString, StructExt, ifo, jrl};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
-mod common;
+use crate::common;
 use common::compile;
 
 const QUESTS: [(&str, u32); 3] = [("q_rats", 150), ("Q_Mixed_Case", 1), ("q_final", 123456)];

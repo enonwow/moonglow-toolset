@@ -24,6 +24,10 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 * [Plugins: a proposal](plugin-proposal.md) - The proposal for Moonglow's plugins, accepted 2026-10-03 - what plugins are for and can add, how one runs (sandboxed Luau), the API, safety, runtimes compared, the groundwork, documentation and testing, and where the work stands.
 * [Proposed corrections to nwn.wiki](wiki-proposal.md) - Proposed corrections to fifteen nwn.wiki pages that say something the game or Aurora does differently - for each, what the page says, what it should say and how that was checked - in order of how much trouble the current text causes.
 
+# Report
+
+* [Review: test necessity, test speed and codebase cleanliness](test-review.md) - Where the time between a finished change and a release goes (test binaries linked, sweeps repeated, CI runs per release, a 917 GB target directory), what was changed on the branch worktree-test-review with its measurements, and what is left for a decision.
+
 # Subdirectories
 
 * [manual](manual/index.md) - The user manual, a chapter per file, also built into the program (Help › User Manual, which shows each chapter without its frontmatter) and shipped beside it. (17 Manual Page, 1 Manual)

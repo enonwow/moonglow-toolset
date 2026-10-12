@@ -14,7 +14,7 @@ use mg_testkit::engine::{ServerRun, run_server, server_binary};
 use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
 use rayon::prelude::*;
 
-mod common;
+use crate::common;
 use common::{PROBE, compile, rewrite_all_gffs, world};
 
 #[test]

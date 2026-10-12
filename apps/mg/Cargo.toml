@@ -6,6 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+autotests = false
+
+# One test binary (tests/groups/cli.rs, each test file a module of it): a
+# binary per file was 23 links for 34 tests, run one binary at a time.
+[[test]]
+name = "cli"
+path = "tests/groups/cli.rs"
 
 [dependencies]
 anyhow.workspace = true

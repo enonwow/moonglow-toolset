@@ -81,6 +81,11 @@ dbg_macro = "warn"
 todo = "warn"
 undocumented_unsafe_blocks = "warn"
 
+# Line tables (backtraces with file and line), not full debug information:
+# with it each test binary is over 600 MB, and target/ grew to 900 GB.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 2
 

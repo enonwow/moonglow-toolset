@@ -3,8 +3,7 @@
 //! (planes, neighbours, bounds, part numbers) is what the game's files
 //! hold.
 
-#[path = "mdl_common/mod.rs"]
-mod common;
+use crate::mdl_common as common;
 
 use std::collections::HashMap;
 use std::sync::Mutex;

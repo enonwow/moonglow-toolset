@@ -24,7 +24,7 @@ use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 use serde_json::Value as Json;
 
-mod common;
+use crate::common;
 use common::compile;
 
 fn r(s: &str) -> ResRef {

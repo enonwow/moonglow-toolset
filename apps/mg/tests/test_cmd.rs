@@ -39,6 +39,7 @@ fn tests_run_in_the_server_and_report() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
+    let _alone = mg_testkit::engine::one_at_a_time();
     let dir = mg_testkit::scratch_dir("mg-test");
     let user = dir.join("user");
     let tests = dir.join("tests");

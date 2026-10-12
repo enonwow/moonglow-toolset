@@ -16,7 +16,7 @@ use mg_schema::{StructExt, ifo, utc};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
-mod common;
+use crate::common;
 use common::compile;
 
 const LOG: &str = "void Log(string s) { WriteTimestampedLogEntry(s); }\n";

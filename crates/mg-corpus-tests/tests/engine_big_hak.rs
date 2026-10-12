@@ -13,7 +13,7 @@ use mg_resman::{Container, ErfContainer, ResKey};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
-mod common;
+use crate::common;
 use common::{compile, probe_module};
 
 fn table(cell: &str) -> Vec<u8> {

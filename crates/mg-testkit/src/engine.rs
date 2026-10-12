@@ -10,6 +10,7 @@
 
 use std::io;
 use std::path::Path;
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 pub use mg_serve::server_binary;
@@ -33,6 +34,43 @@ impl ServerRun {
     }
 }
 
+/// The most servers a test binary runs at once. The engine tests share a
+/// binary and libtest runs them on every core; each server loads a module,
+/// and tests time out on a machine that runs too many.
+const SERVERS_AT_ONCE: usize = 4;
+
+static RUNNING: Mutex<usize> = Mutex::new(0);
+static A_SERVER_ENDED: Condvar = Condvar::new();
+
+/// One of the [`SERVERS_AT_ONCE`] places, held while a server runs.
+struct Turn;
+
+impl Turn {
+    fn take() -> Turn {
+        let mut running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
+        while *running >= SERVERS_AT_ONCE {
+            running = A_SERVER_ENDED.wait(running).unwrap_or_else(PoisonError::into_inner);
+        }
+        *running += 1;
+        Turn
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        *RUNNING.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        A_SERVER_ENDED.notify_one();
+    }
+}
+
+/// For a test that has another program start the server (`mg serve`, `mg
+/// test`) and waits on it by the clock: holds the others of its binary
+/// back until the returned guard is dropped.
+pub fn one_at_a_time() -> MutexGuard<'static, ()> {
+    static ONE: Mutex<()> = Mutex::new(());
+    ONE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Runs `<user_dir>/modules/<module>.mod`
 /// in the headless server until a log line contains `done_marker`, the
 /// server shuts down or `timeout` passes.
@@ -45,6 +83,8 @@ pub fn run_server(
 ) -> io::Result<ServerRun> {
     let server = server_binary(root)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, mg_serve::no_server(root)))?;
+    // (Before the clock starts: a test waiting its turn is not timing out.)
+    let _turn = Turn::take();
     // Never listed publicly, and locked against anyone who finds the port
     // anyway: what `mg_serve` does unless asked otherwise.
     let server = mg_serve::Server::start(&mg_serve::Options {

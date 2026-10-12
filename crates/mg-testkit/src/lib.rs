@@ -105,6 +105,27 @@ pub fn files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     v
 }
 
+/// The test files of a crate that no test binary holds: the `*.rs` files of
+/// `<manifest_dir>/tests` that are neither a `[[test]]` of the crate's
+/// `Cargo.toml` nor a module of a group (`#[path = "../<file>.rs"]` in
+/// `tests/groups/*.rs`). For crates that turn `autotests` off: a file left
+/// out would not be compiled, and its tests would pass by not running.
+pub fn ungrouped_tests(manifest_dir: &str) -> Vec<String> {
+    let dir = Path::new(manifest_dir);
+    let mut named = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
+    for group in files_with_ext(&dir.join("tests/groups"), "rs") {
+        named.push_str(&std::fs::read_to_string(group).unwrap_or_default());
+    }
+    files_with_ext(&dir.join("tests"), "rs")
+        .iter()
+        .filter_map(|p| Some(p.file_name()?.to_str()?.to_string()))
+        .filter(|file| {
+            !named.contains(&format!("\"tests/{file}\""))
+                && !named.contains(&format!("\"../{file}\""))
+        })
+        .collect()
+}
+
 /// A fresh, empty scratch directory for a test under `target/test-output/`.
 pub fn scratch_dir(name: &str) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");

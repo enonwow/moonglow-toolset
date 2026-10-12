@@ -16,7 +16,7 @@ use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
 use rayon::prelude::*;
 
-mod common;
+use crate::common;
 use common::compile;
 
 /// Types the engine is asked about for a reference: scripts must be

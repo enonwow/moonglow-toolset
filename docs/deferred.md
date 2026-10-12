@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:56:48Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -15,6 +15,45 @@ what was measured in the game or Aurora is in the [findings](findings.md),
 and what stays as it is by decision or by design is in the last section.
 
 Size: S (an hour or two), M (a day or so), L (several days).
+
+## Tests and the build (the [review](test-review.md) of October 2026)
+
+- **Sweeps paid for more than once:** every model read nine times
+  across `mdl_compile`, `mdl_decompile`, `mdl_lint` and `models`; every
+  script compiled identically by `script_analysis` and
+  `script_frontend`; every area walked by four tests; the same
+  "original module + probe" server run started by four engine tests;
+  nasher unpacking each module two or three times; `audio.rs` loading
+  every sound twice. One sweep could feed several checks. (M)
+- **`game_ascii_census` asserts nothing** (`mdl_lint.rs`): it prints a
+  tally. (S)
+- **The whole-install sweeps on every run:** a sample for the everyday
+  run and the sweeps before a release would take most of the remaining
+  corpus time; a change to the testing strategy (`PLAN.md` §7). (M)
+- **The `areas` group was not run** after the tests were grouped (the
+  GPU was in use by another test run); it compiles and lists its 13
+  tests. (S)
+- **Tests write to the developer's Moonglow data folder:** the compile
+  memory from `apps/mg/tests/json.rs`, `nasher.rs` and `watch.rs`, the
+  script cache from `lsp.rs`; only `compile.rs` redirects it. (S)
+- **Five UI tests render outside the GPU guard** (`h.render()` in
+  `blueprint_harness` tests of `app.rs`). (S)
+- **`screens.rs`:** 22 tests share and empty the scratch directory
+  `screens`, so a full run keeps the last test's pictures only; two
+  `app.rs` tests share `ui-bp-bandit_named`. (S)
+- **`app.rs` in one file:** 15,162 lines in chronological order; a
+  dozen subject modules under the same binary, a harness helper for the
+  47 repeated installs and 115 hand-built harnesses, and the GPU lock
+  only for tests that draw an area (a dozen take it for nothing). (L)
+- **`mg` links the GPU stack** through `mg-preview` and never uses it:
+  96 crates of its build. (M)
+- **A version bump rebuilds all 28 crates** (`version.workspace`); the
+  version in the two apps alone would keep the libraries' artifacts. The
+  viewer takes the crates by git tag, which this does not change. (S)
+- **Two CI runs on the same release commit** (`tmp/v…`, then
+  `develop`). (S)
+- **Shared test fixtures written many times:** the `mg` runner (10
+  files), the per-module resource stack (12), `fn lines` (6). (M)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
