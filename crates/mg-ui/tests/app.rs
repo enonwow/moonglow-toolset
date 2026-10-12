@@ -9238,6 +9238,33 @@ fn the_start_location_shows_on_raised_ground() {
     assert_eq!(stored(&mut h), (area, 0.0), "the module's start is as it was");
 }
 
+/// The main toolbar's Start opens the area the module starts in, with its
+/// view at the start location (as Aurora's Go to Start Location does).
+#[test]
+fn go_to_start_location_opens_the_start_s_area() {
+    let Some((mut h, area)) = area_harness_on("start-go", "trm02", None) else { return };
+    h.run_steps(3);
+    let start = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        glam::Vec2::new(r.read(&ifo::MOD_ENTRY_X), r.read(&ifo::MOD_ENTRY_Y))
+    };
+    // The view looks elsewhere, and its tab is closed.
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().target =
+        glam::Vec3::new(start.x + 25.0, start.y + 25.0, 0.0);
+    close_tab(h.state_mut(), &Tab::Area(area));
+    h.run_steps(2);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
+    h.get_by_label("🏃 Start").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is opened");
+    let target = h.state().area_views[&area].orbit.unwrap().target;
+    assert!(target.truncate().distance(start) < 0.01, "{target} is not at {start}");
+    // (The command is in the View menu and the command palette too.)
+    assert!(mg_ui::commands::Id::all().contains(&mg_ui::commands::Id::GoToStart));
+}
+
 /// Closes a tab, wherever it is.
 fn close_tab(app: &mut Moonglow, tab: &Tab) {
     if let Some(path) = app.dock.find_tab(tab) {

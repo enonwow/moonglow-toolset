@@ -428,6 +428,8 @@ pub struct Moonglow {
     pub item_clip: Vec<mg_core::ResRef>,
     /// An object to show and select when its area's view is next drawn.
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
+    /// The area whose view goes to the start location when next drawn.
+    pub(crate) start_focus: Option<mg_core::ResRef>,
     /// The References tab.
     pub references: references::References,
     /// What each script was compiled from when Compile All last compiled
@@ -681,6 +683,7 @@ impl Moonglow {
             adjust: None,
             find_instance: None,
             area_focus: None,
+            start_focus: None,
             references: Default::default(),
             text_typed: None,
             script_stamps: Default::default(),

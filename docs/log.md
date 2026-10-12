@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-12
+* **Update**: [Areas](manual/04-areas.md): Go to Start Location is a command of the main window too (Start on the toolbar, View › Go to Start Location), which opens the area the module starts in at the start location, as Aurora's does; the area's own button opens the other area when the start is not in this one. Reported by a builder.
 * **Update**: [Modules](manual/03-modules.md) (a new section, the 2DA editor), [the main window](manual/02-main-window.md), [coming from Aurora](manual/14-coming-from-aurora.md), [the 2DA editor's proposal](2da-editor-proposal.md) (what was built, with pictures, and what was not) and [the deferred list](deferred.md): a 2DA is edited in the module, in a hak open in the hak editor or in a file; its cells are checked as typed; rows are taken from another copy of the table.
 * **Update**: [The deferred list](deferred.md): "Made every frame, or never read, in the renderer" dropped by the owner's verdict (the values are parts of vectors the shaders read, and the lists are small). [The 2DA editor's proposal](2da-editor-proposal.md): its recommendations taken as they stand, to be built.
 * **Creation**: [A 2DA editor and merger: a proposal](2da-editor-proposal.md): what there is to build on, the five decisions that are the owner's, four phases, and what is not known; [the deferred list](deferred.md) points to it.

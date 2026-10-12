@@ -63,6 +63,8 @@ pub enum Id {
     BuildModule,
     PublishNwsync,
     Verify,
+    /// The area the module starts in, opened at the start location.
+    GoToStart,
     TestModule,
     TestChoose,
     PackTarget,
@@ -159,6 +161,8 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ViewPalettes),
             Do(Id::ViewLog),
             Separator,
+            Do(Id::GoToStart),
+            Separator,
             Do(Id::HidePanels),
             Do(Id::ResetLayout),
         ],
@@ -204,7 +208,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
 
 /// The toolbar: each command with its button's text and its tip (`None`:
 /// a gap).
-pub const TOOLBAR: [Option<(Id, &str, &str)>; 15] = [
+pub const TOOLBAR: [Option<(Id, &str, &str)>; 16] = [
     Some((Id::NewModule, "🗋 New", "New module")),
     Some((Id::OpenModule, "🗁 Open", "Open module")),
     Some((Id::Save, "💾 Save", "Save module")),
@@ -214,6 +218,11 @@ pub const TOOLBAR: [Option<(Id, &str, &str)>; 15] = [
     None,
     Some((Id::ModuleProperties, "ℹ Properties", "Module properties")),
     Some((Id::AreaWizard, "🗺 New Area", "Area Wizard")),
+    Some((
+        Id::GoToStart,
+        "🏃 Start",
+        "Go to Start Location: opens the area the module starts in, at the start location",
+    )),
     Some((Id::Resources, "🔍 Resources", "Resource browser")),
     Some((Id::Palettes, "📦 Palettes", "Blueprint palettes")),
     Some((
@@ -359,6 +368,11 @@ impl Id {
                 "The module's haks and talk table, for players' games to download",
             ),
             Id::Verify => ("verify", "Verify Module", ""),
+            Id::GoToStart => (
+                "go-to-start",
+                "Go to Start Location",
+                "Open the area the module starts in, at the start location",
+            ),
             Id::TestModule => ("test-module", "Test Module", ""),
             Id::TestChoose => (
                 "test-choose",
@@ -579,6 +593,7 @@ impl Id {
             | Id::BuildModule
             | Id::PublishNwsync
             | Id::Verify
+            | Id::GoToStart
             | Id::TestModule
             | Id::TestChoose => open,
         }
@@ -694,6 +709,10 @@ impl Id {
             }
             Id::PreviewWindow => {
                 app.preview_window = !app.preview_window;
+                return;
+            }
+            Id::GoToStart => {
+                crate::area_view::go_to_start(app);
                 return;
             }
             Id::FullScreen => {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:31:01Z }
 ---
 
 # Areas
@@ -24,7 +24,7 @@ looking straight down at their middle, north up, as in Aurora.
   view looks. Click the marker to select it (a yellow box, as round an
   object). Drag it by its ring or its arrow to move it; selected, the
   arrow's tip has a round handle that turns it (both follow the snapping grid and
-  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it.
+  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls), to see and
   place what is under them (Aurora's Environment › Fade Geometry):

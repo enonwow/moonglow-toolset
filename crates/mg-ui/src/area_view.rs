@@ -1361,6 +1361,33 @@ fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     Some((p, r.read(&ifo::MOD_ENTRY_DIR_Y).atan2(r.read(&ifo::MOD_ENTRY_DIR_X))))
 }
 
+/// Brings the view to the start location, if it is in its area.
+fn look_at_start(app: &mut Moonglow, view: &mut AreaView) -> bool {
+    let (Some((p, _)), Some(o)) = (start_on_ground(app, view), &mut view.orbit) else {
+        return false;
+    };
+    o.target = p;
+    o.distance = o.distance.min(30.0);
+    true
+}
+
+/// Opens the area the module starts in, its view at the start location
+/// (Aurora's Go to Start Location).
+pub(crate) fn go_to_start(app: &mut Moonglow) {
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(info) = ws.doc(&crate::module_props::info_key()) else { return };
+    let area: ResRef = info.root.read(&ifo::MOD_ENTRY_AREA);
+    if !ws.module.contains(&ResKey::new(area, ResType::ARE)) {
+        app.log.error(format!(
+            "The module's start location is in an area it does not have (\"{area}\"): set it \
+             in an area's view (right-click the ground, Set Start Location Here)."
+        ));
+        return;
+    }
+    app.start_focus = Some(area);
+    app.actions.push(Action::OpenTab(crate::Tab::Area(area)));
+}
+
 /// The start location as the view shows it: on the ground above or below
 /// the stored point (a new module's start is at height 0, under the ground
 /// of tilesets that build it higher; the game puts players on the walkmesh).
@@ -1456,6 +1483,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
             orbit.distance = orbit.distance.min(25.0);
         }
         app.area_focus = None;
+    }
+    // The start location to go to (Go to Start Location).
+    if app.start_focus == Some(area) && view.orbit.is_some() {
+        app.start_focus = None;
+        look_at_start(app, &mut view);
     }
     toolbar(app, ui, &mut view);
     let start = start_on_ground(app, &view);
@@ -1633,11 +1665,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             o.yaw = -FRAC_PI_2;
         }
-        if ui.button(labelled(icons::GO_TO_START, "Go to Start Location")).clicked()
-            && let (Some((p, _)), Some(o)) = (start_on_ground(app, view), &mut view.orbit)
-        {
-            o.target = p;
-            o.distance = o.distance.min(30.0);
+        if ui.button(labelled(icons::GO_TO_START, "Go to Start Location")).clicked() {
+            // In another area: that area's view is opened at it, as Aurora does.
+            if !look_at_start(app, view) {
+                go_to_start(app);
+            }
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
