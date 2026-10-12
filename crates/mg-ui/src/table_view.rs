@@ -62,6 +62,8 @@ pub struct TableDoc {
     anchor: Option<(usize, usize)>,
     /// A drag over the cells is selecting them.
     dragging: bool,
+    /// A column's name is being dragged to another place: the column.
+    moving: Option<usize>,
     /// What is being typed into the selected cell.
     pub typing: Option<String>,
     pub filter: String,
@@ -134,6 +136,7 @@ impl TableDoc {
             selected: None,
             anchor: None,
             dragging: false,
+            moving: None,
             typing: None,
             filter: String::new(),
             go_to: String::new(),
@@ -765,8 +768,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let has_copies = app.game.as_deref().is_some_and(|g| g.resman.contains(&app.tables[at].key));
     let mut act = None;
     header(app, ui, at, &home, has_copies, faults.len(), &mut act);
-    let pane = ui.available_rect_before_wrap();
-    keys(app, ui, at, pane);
+    keys(app, ui, at);
     let below = 96.0;
     let grid_height = (ui.available_height() - below).max(120.0);
     ui.allocate_ui(egui::vec2(ui.available_width(), grid_height), |ui| {
@@ -977,7 +979,7 @@ fn header(
             doc.filter.clear();
             doc.selected = Some((row, doc.selected.map_or(0, |s| s.1)));
             doc.reveal = true;
-            give_keys(ui.ctx(), Keys::Table);
+            take_keys(ui.ctx(), doc.id);
         }
         if wrong > 0 {
             let text = egui::RichText::new(match wrong {
@@ -1027,11 +1029,23 @@ fn shown_rows(doc: &TableDoc) -> Vec<usize> {
         .collect()
 }
 
+/// Gives the keys to a table's grid: the arrows, and Undo and Redo, are
+/// that table's from then on.
+fn take_keys(ctx: &egui::Context, table: u32) {
+    give_keys(ctx, Keys::Table);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("table-keys-of"), table));
+}
+
+/// The table whose grid was given the keys last.
+fn keys_table(ctx: &egui::Context) -> Option<u32> {
+    ctx.data(|d| d.get_temp(egui::Id::new("table-keys-of")))
+}
+
 /// The keys in the grid, from a click on a cell: the arrows, Tab, Page Up
 /// and Down, Home and End move; Enter or F2 types into the cell, Delete
 /// empties it; Ctrl+C copies it, Ctrl+V pastes cells from there on;
-/// Ctrl+Z and Ctrl+Y are the table's while the pointer is over it.
-fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize, pane: egui::Rect) {
+/// Ctrl+Z and Ctrl+Y are the table's while the keys are in its grid.
+fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     let doc = &mut app.tables[at];
     // "Go to the next wrong cell", from the header's button.
     if doc.go_to == "!" {
@@ -1047,11 +1061,12 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize, pane: egui::Rect) {
             doc.selected = next;
             doc.filter.clear();
             doc.reveal = true;
-            give_keys(ui.ctx(), Keys::Table);
+            take_keys(ui.ctx(), doc.id);
         }
     }
-    let over = ui.ctx().pointer_hover_pos().is_some_and(|p| pane.contains(p));
-    if over && doc.typing.is_none() && !ui.ctx().egui_wants_keyboard_input() {
+    // Undo and Redo are the table's while the keys are in its grid.
+    let mine = keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id);
+    if mine && doc.typing.is_none() && !ui.ctx().egui_wants_keyboard_input() {
         let (undo, redo) = ui.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
@@ -1216,6 +1231,12 @@ fn grid(
     let (mut clicked, mut begin, mut done, mut cancel) = (None, false, false, false);
     // A column's name, right-clicked: renamed (false) or removed (true).
     let mut column_act = None;
+    // A column moved: from which place to which (its menu, or its name
+    // dragged onto another's).
+    let mut column_move = None;
+    let moving = doc.moving.filter(|_| ui.input(|i| i.pointer.primary_down()));
+    let released = doc.moving.is_some() && moving.is_none();
+    let mut over_column = None;
     let wrong = ui.visuals().error_fg_color;
     // The column names stay in sight over the rows, and the rows' numbers
     // beside them: each goes with the rows' own scroll, a frame behind.
@@ -1237,11 +1258,35 @@ fn grid(
                         let text = egui::RichText::new(c).strong();
                         let (rect, r) = ui.allocate_exact_size(
                             egui::vec2(CELL, row_height),
-                            egui::Sense::click(),
+                            egui::Sense::click_and_drag(),
                         );
+                        // Dragged by its name to another column's place.
+                        if r.drag_started() {
+                            doc.moving = Some(index);
+                        }
+                        if doc.moving.is_some() && pointer.is_some_and(|p| rect.contains(p)) {
+                            over_column = Some(index);
+                            if doc.moving != Some(index) {
+                                // (Where it would go: before or after this one.)
+                                let before = doc.moving.is_some_and(|from| from > index);
+                                let x = if before { rect.left() } else { rect.right() };
+                                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+                                ui.painter().vline(x, rect.y_range(), stroke);
+                            }
+                        }
                         r.context_menu(|ui| {
                             if ui.button("Rename Column…").clicked() {
                                 column_act = Some((index, false));
+                                ui.close();
+                            }
+                            let left = ui.add_enabled(index > 0, egui::Button::new("Move Left"));
+                            if left.clicked() {
+                                column_move = Some((index, index - 1));
+                                ui.close();
+                            }
+                            let last = index + 1 == columns.len();
+                            if ui.add_enabled(!last, egui::Button::new("Move Right")).clicked() {
+                                column_move = Some((index, index + 1));
                                 ui.close();
                             }
                             let more = columns.len() > 1;
@@ -1272,13 +1317,43 @@ fn grid(
                             (None, Some(ColumnKind::Row(t))) => format!("{c}: a row of {t}.2da"),
                             (None, None) => c.clone(),
                         };
-                        r.on_hover_text(about + "\nRight-click: rename or remove the column");
+                        r.on_hover_text(
+                            about
+                                + "\nDrag: move the column. Right-click: rename, move or remove it",
+                        );
                     }
                     // (Room for the rows' own scroll bar at the right.)
                     ui.add_space(ui.spacing().scroll.bar_width + 12.0);
                 });
             });
     });
+    if released {
+        // (Let go over another column's name: moved there.)
+        if let (Some(from), Some(to)) = (doc.moving.take(), over_column) {
+            column_move = Some((from, to));
+        }
+    }
+    if let Some((from, to)) = column_move {
+        doc.typing = None;
+        if doc.edit.move_column(from, to) {
+            // (The selected cell goes with its column.)
+            doc.anchor = None;
+            doc.selected = doc.selected.map(|(r, c)| {
+                let c = if c == from {
+                    to
+                } else if from < c && c <= to {
+                    c - 1
+                } else if to <= c && c < from {
+                    c + 1
+                } else {
+                    c
+                };
+                (r, c)
+            });
+            doc.changed();
+        }
+        return;
+    }
     match column_act {
         Some((column, true)) => {
             doc.typing = None;
@@ -1469,28 +1544,28 @@ fn grid(
             doc.selected = Some((*next, column));
             doc.reveal = true;
         }
-        give_keys(ui.ctx(), Keys::Table);
+        take_keys(ui.ctx(), doc.id);
     }
     if cancel {
         doc.typing = None;
-        give_keys(ui.ctx(), Keys::Table);
+        take_keys(ui.ctx(), doc.id);
     }
     if let Some(cell) = drag_from {
         doc.commit();
         doc.selected = Some(cell);
         doc.anchor = None;
         doc.dragging = true;
-        give_keys(ui.ctx(), Keys::Table);
+        take_keys(ui.ctx(), doc.id);
     } else if let Some(cell) = reach.filter(|c| Some(*c) != doc.selected) {
         doc.commit();
         doc.select_to(cell);
-        give_keys(ui.ctx(), Keys::Table);
+        take_keys(ui.ctx(), doc.id);
     }
     if let Some(cell) = clicked {
         doc.commit();
         doc.anchor = None;
         doc.selected = Some(cell);
-        give_keys(ui.ctx(), Keys::Table);
+        take_keys(ui.ctx(), doc.id);
         if begin {
             let now = doc.edit.table().cell(cell.0, cell.1).unwrap_or_default().to_string();
             doc.typing = Some(now);

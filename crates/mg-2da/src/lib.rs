@@ -273,6 +273,29 @@ impl TwoDa {
         Ok(())
     }
 
+    /// Moves a column to another place among the columns, with its cells:
+    /// the columns between move one place the other way. Nothing for a
+    /// place the table does not have.
+    pub fn move_column(&mut self, from: usize, to: usize) -> bool {
+        let count = self.columns.len();
+        if from >= count || to >= count || from == to {
+            return false;
+        }
+        let mut columns = self.columns.clone();
+        let name = columns.remove(from);
+        columns.insert(to, name);
+        if self.set_columns(columns).is_err() {
+            return false;
+        }
+        for row in &mut self.rows {
+            // (A row with fewer cells than columns is given the rest.)
+            row.resize(count.max(row.len()), None);
+            let cell = row.remove(from);
+            row.insert(to, cell);
+        }
+        true
+    }
+
     /// Gives a column another name (an error for one the table has).
     pub fn rename_column(&mut self, column: usize, name: &str) -> Result<(), TwoDaError> {
         let mut columns = self.columns.clone();
@@ -540,6 +563,15 @@ mod tests {
         );
         assert_eq!(Layout::of(b"2DA V2.0\n\n\tA\tB\n0\tx\ty\n"), Layout::Compact);
         assert_eq!(Layout::of(b"2DA V2.0\n\n  A B\n"), Layout::Aligned, "no rows: the game's way");
+        // A column moved takes its cells along, and moved back is as it was.
+        let before = t.clone();
+        let (first, last) = (t.columns()[0].clone(), t.columns().len() - 1);
+        let cell = t.cell(0, 0).map(str::to_string);
+        assert!(t.move_column(0, last) && !t.move_column(0, 99) && !t.move_column(1, 1));
+        assert_eq!((t.column(&first), t.cell(0, last).map(str::to_string)), (Some(last), cell));
+        assert_eq!(t.columns()[0], before.columns()[1]);
+        assert!(t.move_column(last, 0));
+        assert_eq!(t, before);
         // A column taken out and put back where it was, and renamed.
         let before = t.clone();
         let first = t.columns()[0].clone();

@@ -1062,6 +1062,38 @@ fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
     (!buf.is_dirty() && decode(&on_disk) == buf.text).then_some(path)
 }
 
+/// Opens a script in the external editor alone, with no editor of
+/// Moonglow's (Options › Script Editor): where the script has a file of
+/// its own to edit in place (a nasher project's source, a module folder's
+/// file) that Moonglow holds nothing more of, and files changed outside
+/// are read again, which is how its saves come back. Whether it was.
+pub(crate) fn open_only_external(app: &mut Moonglow, key: ResKey) -> bool {
+    let Some(editor) = app.settings.external_editor.clone() else { return false };
+    if app.settings.no_auto_reload {
+        return false;
+    }
+    let Some(path) =
+        app.ws.as_ref().and_then(|ws| ws.module.file_of(&key)).map(|p| p.to_path_buf())
+    else {
+        return false;
+    };
+    // (Open here with something the file lacks: Moonglow's editor has it.)
+    if app.scripts.contains_key(&key) && project_file(app, key).is_none() {
+        return false;
+    }
+    match std::process::Command::new(&editor).arg(&path).spawn() {
+        Ok(running) => {
+            crate::test_module::let_run(running);
+            app.log.info(format!("{key}: editing {} in {}", path.display(), editor.display()));
+            true
+        }
+        Err(e) => {
+            app.log.error(format!("{}: {e}", editor.display()));
+            false
+        }
+    }
+}
+
 /// Opens the script in the external editor: a nasher project's own source
 /// file, in place ([`project_file`]); else a scratch copy. The editor's
 /// saves come back into the buffer ([`reload_external`]), or, for a

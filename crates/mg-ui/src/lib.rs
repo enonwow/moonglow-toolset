@@ -2390,13 +2390,30 @@ impl Moonglow {
                                 p.surface.is_main() && Some((p.surface, p.node)) != palette
                             }),
                         };
-                        match pane {
-                            Some(pane) => {
+                        // A script, with a script's window open: a tab of
+                        // that window, not one more window (Options ›
+                        // Script Editor).
+                        let beside = (matches!(tab, Tab::Script(_))
+                            && !self.settings.scripts_own_windows)
+                            .then(|| {
+                                self.dock.iter_leaves().find(|(p, leaf)| {
+                                    !p.surface.is_main()
+                                        && leaf.tabs.iter().any(|t| matches!(t, Tab::Script(_)))
+                                })
+                            })
+                            .flatten()
+                            .map(|(p, _)| p);
+                        match (pane, beside) {
+                            (Some(pane), _) => {
                                 self.dock.set_focused_node_and_surface(pane);
                                 self.dock.push_to_focused_leaf(tab.clone());
                                 self.tab_places.remove(&tab);
                             }
-                            None => self.open_window(tab.clone()),
+                            (None, Some(window)) => {
+                                self.dock.set_focused_node_and_surface(window);
+                                self.dock.push_to_focused_leaf(tab.clone());
+                            }
+                            (None, None) => self.open_window(tab.clone()),
                         }
                     } else {
                         // Into the main window, not the palette's pane: the
@@ -2479,6 +2496,13 @@ impl Moonglow {
                     && self.settings.scripts_external
                     && self.settings.external_editor.is_some()
                 {
+                    // (Alone, where the script's own file can be edited in
+                    // place.)
+                    if self.settings.scripts_external_only
+                        && script_view::open_only_external(self, key)
+                    {
+                        return;
+                    }
                     self.script_tools.open_externally.insert(key);
                 }
                 self.run_now(Action::OpenTab(tab));

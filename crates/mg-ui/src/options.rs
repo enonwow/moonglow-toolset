@@ -60,6 +60,8 @@ pub struct OptionsDraft {
     pub auto_compile: bool,
     pub debug_info: bool,
     pub scripts_external: bool,
+    pub scripts_external_only: bool,
+    pub scripts_together: bool,
     pub script_templates: String,
     pub scratch_dir: String,
     pub external_editor: String,
@@ -142,6 +144,8 @@ impl OptionsDraft {
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
             scripts_external: s.scripts_external,
+            scripts_external_only: s.scripts_external_only,
+            scripts_together: !s.scripts_own_windows,
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
@@ -202,6 +206,8 @@ impl OptionsDraft {
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
             scripts_external: self.scripts_external,
+            scripts_external_only: self.scripts_external_only,
+            scripts_own_windows: !self.scripts_together,
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
@@ -718,6 +724,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Generate Debug Information When Compiling Scripts",
                             )
                             .on_hover_text("Store a .ndb with each compiled script, for debuggers");
+                            ui.checkbox(
+                                &mut draft.scripts_together,
+                                "Open scripts as tabs of one window",
+                            )
+                            .on_hover_text(
+                                "A script opens as a tab of the window scripts are open in \
+                                 already; off, each in a window of its own. (A tab dragged out \
+                                 is a window of its own again, and scripts docked in the \
+                                 middle open there either way)",
+                            );
                             crate::widgets::field_label(ui, "External Script Editor");
                             path_row(ui, &mut draft.external_editor, &mut browse, Browse::Editor);
                             ui.add_enabled(
@@ -732,6 +748,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  editor too; what it saves comes back into Moonglow's editor",
                             )
                             .on_disabled_hover_text("Choose an external script editor first");
+                            ui.add_enabled(
+                                draft.scripts_external && !draft.external_editor.trim().is_empty(),
+                                egui::Checkbox::new(
+                                    &mut draft.scripts_external_only,
+                                    "…and not in Moonglow's editor",
+                                ),
+                            )
+                            .on_hover_text(
+                                "Only the external editor opens, for a script kept as a file \
+                                 of its own (a nasher project's, a module folder's), whose \
+                                 saves Moonglow reads as it does files changed outside. A \
+                                 script in a .mod file still opens in Moonglow's editor too: \
+                                 that is how what the external editor saves comes back",
+                            )
+                            .on_disabled_hover_text("With Open scripts in the external editor");
                             crate::widgets::field_label(ui, "External Script Compiler");
                             ui.horizontal(|ui| {
                                 ui.add(

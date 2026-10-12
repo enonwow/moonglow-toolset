@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T10:58:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:20Z }
 ---
 
 # Options
@@ -112,12 +112,22 @@ the module is opened again from its file.
 - **Generate Debug Information When Compiling Scripts** (`.ndb` files):
   for the script compiled in its editor, and for Compile All Scripts,
   which compiles again a script that has no debug file yet.
+- **Open scripts as tabs of one window**: on by default. A script opens
+  as a tab of the window scripts are open in already; off, each in a
+  window of its own. (Scripts docked in the main pane open there either
+  way.)
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
 - **Open scripts in the external editor**: a script opened from the
   module tree opens there as well; what it saves comes back into
   Moonglow's editor. In a nasher project the external editor gets the
   project's own file (see [Scripts](07-scripts.md)).
+- **…and not in Moonglow's editor**: with the option above, only the
+  external editor opens, for a script kept as a file of its own (a
+  nasher project's, a module folder's): what it saves is read as files
+  changed outside are (General). A script in a `.mod` file still opens
+  in Moonglow's editor too, which is how the external editor's saves
+  come back; so does one Moonglow holds unsaved text of.
 - **External Script Compiler**: a compiler program to use in place of the
   built-in one (empty: the built-in one, which is the game's and
   Aurora's own). Compile in the script editor, Compile All Scripts, the

@@ -167,6 +167,12 @@ pub struct Settings {
     /// Options > Script Editor: a script opened from the module tree opens
     /// in the external script editor as well.
     pub scripts_external: bool,
+    /// Options > Script Editor: Open each script in a window of its own
+    /// (off: a script opens as a tab of the window scripts are open in).
+    pub scripts_own_windows: bool,
+    /// Options > Script Editor: and not in Moonglow's own editor, where
+    /// the script has a file of its own (a project's, a module folder's).
+    pub scripts_external_only: bool,
     /// Options > Script Editor: Code Templates Directory, listed with the
     /// game's (`data/scr`) and the user's `scripttemplates`.
     pub script_templates: Option<PathBuf>,

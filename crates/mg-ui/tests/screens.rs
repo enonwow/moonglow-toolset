@@ -270,6 +270,51 @@ fn described_table() {
     shoot(&mut h, &dir, "described-table");
 }
 
+/// The conversation editor's Text Appears When page, with a script that
+/// has parameters.
+#[test]
+#[ignore]
+fn dialog_script_parameters() {
+    use mg_module::dialog::{Parent, add_node, new_dialog, params_value};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-dialog-params");
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "What do you want made?");
+    {
+        let link = &mut g.root.list_mut("StartingList").unwrap()[0];
+        link.set("Active", mg_gff::Value::resref("cond_weapmod".parse().unwrap()));
+        let pairs = [
+            ("tag".to_string(), "weficort".to_string()),
+            ("apariencia".to_string(), "05".to_string()),
+        ];
+        link.set("ConditionParams", params_value(&pairs));
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("smith", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.set(
+        ResKey::parse("cond_weapmod", ResType::NSS).unwrap(),
+        b"// TRUE where the weapon is the one named\nint StartingConditional()\n{\n    return TRUE;\n}\n".to_vec(),
+    );
+    let path = dir.join("d.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(key)));
+    h.run_steps(4);
+    h.get_by_label_contains("What do you want made?").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "dialog-script-parameters");
+}
+
 /// The Talk Table editor on a line with a long text: plain, and with a
 /// feminine table.
 #[test]

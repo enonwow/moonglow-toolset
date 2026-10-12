@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:03:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:19Z }
 ---
 
 # The main window
@@ -227,6 +227,11 @@ the next conversation, the Faction Editor again) opens there as a tab,
 not as a window over the area. Drag one out to a window of its own and
 the next opens as a window again. This is kept between runs; **View ›
 Reset Layout** forgets it.
+
+**Scripts gather in one window.** A script opened while another's
+window is open becomes a tab of that window, not one more window
+(**Options › Script Editor › Open scripts as tabs of one window**, on by
+default; off, each script has a window of its own).
 
 **With no area open**, the main pane says so and lists the areas opened
 lately in this module, then the module's areas, each to open with a

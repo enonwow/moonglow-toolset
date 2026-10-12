@@ -15679,6 +15679,17 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.len(), t.get(0, "Label"), t.get(2, "Cost")), (3, Some("Ale"), Some("8")));
+    // Ctrl+Z takes the paste back and Ctrl+Y makes it again: the table's
+    // own steps, with the keys in its grid, not the module's.
+    let module_step = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(0, "Label")), (2, Some("Bread")), "the paste is undone");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), module_step);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"));
     // A plain arrow is one cell again; Shift and a click reaches to it.
     h.key_press(egui::Key::ArrowUp);
     h.run_steps(2);
@@ -15732,6 +15743,34 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     h.get_by_label("Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"), "back where it was");
+    // A column is moved by its menu, and by a drag of its name onto
+    // another's: its cells go with it, and the selected cell with its.
+    h.get_by_label("Ale").click();
+    h.run_steps(2);
+    secondary(&mut h, "Label");
+    h.get_by_label("Move Right").click();
+    h.run_steps(3);
+    let t = table_of(&h, id);
+    assert_eq!(
+        (t.columns().to_vec(), t.cell(0, 1)),
+        (vec!["Costs".to_string(), "Label".into()], Some("Ale"))
+    );
+    assert_eq!(h.state().tables[0].selected, Some((0, 1)));
+    let (from, to) =
+        (h.get_by_label("Label").rect().center(), h.get_by_label("Costs").rect().center());
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(egui::pos2((from.x + to.x) / 2.0, to.y));
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(2);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Costs"]);
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).columns(), ["Costs", "Label"], "a step to take back");
 }
 
 /// A table with a description beside it (`name.2da.toml`): its cells are
@@ -15866,6 +15905,81 @@ fn a_described_table_is_chosen_from_its_lists() {
     // (Looked at once a second, of the time egui gives.)
     h.run_steps(90);
     h.get_by_label("1 cell is wrong");
+}
+
+/// With the option, a project's script opens in the external editor alone:
+/// no editor of Moonglow's. A script of a module in one file still opens
+/// in Moonglow's too (that is how the external editor's saves come back).
+#[cfg(unix)]
+#[test]
+fn a_project_s_script_opens_in_the_external_editor_alone() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Alone", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    let base = mg_testkit::scratch_dir("ui-external-alone");
+    let (project, archive) = (base.join("project"), base.join("alone.mod"));
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    for (module, tab_opens) in [(&project, false), (&archive, true)] {
+        if tab_opens {
+            let mut m = Module::open(&project).unwrap();
+            m.save_as(&ModuleLocation::Archive(archive.clone())).unwrap();
+        }
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.settings.no_last_area = true;
+        app.settings.external_editor = Some("/bin/true".into());
+        app.settings.scripts_external = true;
+        app.settings.scripts_external_only = true;
+        app.open_module(module);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 800.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
+        h.run_steps(4);
+        let said = h.state().log.entries.iter().filter(|(_, m)| m.contains("in /bin/true")).count();
+        assert_eq!(said, 1, "{:?}", h.state().log.entries);
+        assert_eq!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), tab_opens, "{module:?}");
+    }
+}
+
+/// Scripts open as tabs of one window (the window a script is open in
+/// already), or, with the option off, each in a window of its own.
+#[test]
+fn scripts_open_as_tabs_of_one_window() {
+    let dir = mg_testkit::scratch_dir("ui-scripts-together");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let keys: Vec<ResKey> =
+        ["one", "two", "three"].iter().map(|n| ResKey::parse(n, ResType::NSS).unwrap()).collect();
+    for key in &keys {
+        m.set(*key, b"void main()\n{\n}\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let open = |h: &mut Harness<'_, Moonglow>, key: ResKey| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+        let at = h.state().dock.find_tab(&Tab::Script(key)).expect("the script's tab");
+        (at.surface, at.node)
+    };
+    let first = open(&mut h, keys[0]);
+    let second = open(&mut h, keys[1]);
+    assert_eq!(first, second, "a tab of the first one's window");
+    h.state_mut().settings.scripts_own_windows = true;
+    let third = open(&mut h, keys[2]);
+    assert_ne!(third.0, first.0, "a window of its own");
 }
 
 /// The window's own close button asks before Moonglow closes where there

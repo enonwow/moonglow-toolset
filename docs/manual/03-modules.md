@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:52:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T22:17:30Z }
 ---
 
 # Modules
@@ -419,9 +419,15 @@ numbers at the left as it scrolls.
   follow: delete a row others come after only in a table whose rows
   nothing names yet (**Find References to Row** shows the tables that
   do), and empty it otherwise.
-- **Add Column…** adds one at the end. A right click on a column's name
-  renames the column or removes it, with its cells (Undo puts it back
-  where it was).
+- **Add Column…** adds one at the end. A column is moved by dragging
+  its name onto another column's (a line shows where it will go), or by
+  **Move Left** and **Move Right** in the menu a right click on its name
+  opens; its cells go with it. The same menu renames the column or
+  removes it, with its cells (Undo puts it back where it was).
+- **Undo** and **Redo** in the editor's own row are the table's steps,
+  and so are Ctrl+Z and Ctrl+Y while the keys are in its grid (after a
+  click on a cell): there they take back a paste or a typed cell, not
+  the module's last change.
 - **Find** narrows the rows to those with the text in any cell (Ctrl+F
   goes to it, Escape clears it); **Go to** takes a row's number.
 - **Undo** and **Redo** are the table's own, step by step (Ctrl+Z and

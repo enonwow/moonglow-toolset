@@ -791,8 +791,11 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
         app.text_typed = focused;
     }
     let in_text = app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input();
+    // (And a 2DA's, while the keys are in its grid: the table's own steps
+    // are taken back there, not the module's last change.)
+    let in_table = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Table);
     for id in Id::all() {
-        if in_text && matches!(id, Id::Undo | Id::Redo) {
+        if (in_text || in_table) && matches!(id, Id::Undo | Id::Redo) {
             continue;
         }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));

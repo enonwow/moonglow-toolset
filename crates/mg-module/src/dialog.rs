@@ -515,6 +515,9 @@ pub struct Branch {
     pub lines: Vec<(Kind, Struct)>,
     /// For each line, its original (kind, index), to remap internal links.
     origin: Vec<(Kind, u32)>,
+    /// When the top line appears: the condition script and its parameters
+    /// of the link it was copied by (they are the link's, not the line's).
+    condition: Vec<(&'static str, Value)>,
 }
 
 /// Copies the branch a link under a parent points to (following owning
@@ -537,7 +540,11 @@ pub fn copy_branch(g: &Gff, parent: Parent, pos: usize) -> Option<Branch> {
         }
     }
     let lines = order.iter().filter_map(|(k, i)| Some((*k, node(g, *k, *i)?.clone()))).collect();
-    Some(Branch { kind: top.0, lines, origin: order })
+    let condition = ["Active", "ConditionParams"]
+        .into_iter()
+        .filter_map(|label| Some((label, link.get(label)?.clone())))
+        .collect();
+    Some(Branch { kind: top.0, lines, origin: order, condition })
 }
 
 /// Pastes a copy of a branch under a parent (Paste). Links inside the branch
@@ -578,7 +585,11 @@ pub fn paste_branch(g: &mut Gff, parent: Parent, branch: &Branch, same_dialog: b
         list_mut(g, k.list()).push(s);
     }
     if let Some(l) = links_mut(g, parent) {
-        l.push(new_link(placed[0], parent, false));
+        let mut link = new_link(placed[0], parent, false);
+        for (label, value) in &branch.condition {
+            link.set(label, value.clone());
+        }
+        l.push(link);
     }
     renumber(g);
     true
@@ -805,5 +816,19 @@ mod tests {
         // A reply branch cannot go under the root.
         let reply = copy_branch(&g, Parent::Node(Kind::Entry, 0), 0).unwrap();
         assert!(!paste_branch(&mut g, Parent::Root, &reply, true));
+        // When a line appears (its script and the script's parameters) is
+        // the link's to it: the copy appears when the copied line does.
+        let params = params_value(&[("tag".into(), "weficort".into())]);
+        {
+            let link = &mut links_mut(&mut g, Parent::Root).unwrap()[0];
+            link.set("Active", resref("cond_weapmod"));
+            link.set("ConditionParams", params.clone());
+        }
+        let branch = copy_branch(&g, Parent::Root, 0).unwrap();
+        assert!(paste_branch(&mut g, Parent::Root, &branch, true));
+        let pasted = links(&g, Parent::Root).last().unwrap();
+        assert_eq!(pasted.resref("Active").map(|r| r.to_string()).as_deref(), Some("cond_weapmod"));
+        assert_eq!(pasted.get("ConditionParams"), Some(&params));
+        assert!(!is_link(pasted) && link_index(pasted) != link_index(&links(&g, Parent::Root)[0]));
     }
 }

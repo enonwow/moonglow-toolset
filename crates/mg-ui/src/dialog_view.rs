@@ -1080,8 +1080,15 @@ fn script_with_params(
             actions.push(Action::EditScript { name, condition: label == "Active" });
         }
     });
-    if ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices").clicked()
-    {
+    // (As wide as they are, not as the page: the page stretches what is
+    // put in it, which squeezed the parameters' fields to a few letters.)
+    let own_width = egui::Layout::top_down(egui::Align::Min);
+    let wizard = ui
+        .with_layout(own_width, |ui| {
+            ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices")
+        })
+        .inner;
+    if wizard.clicked() {
         app.open_script_wizard(key, path.clone(), label, salt == "cond");
     }
     // The pairs being edited live in a buffer until a field loses focus or a
@@ -1094,27 +1101,38 @@ fn script_with_params(
     let mut commit = false;
     let mut focused = false;
     let mut remove_at = None;
-    egui::Grid::new(("dlg-params", key, salt, path.to_string())).num_columns(3).show(ui, |ui| {
+    // A name's field and a value's, sharing the page's width: the value
+    // the wider.
+    let room = (ui.available_width() - 110.0).max(250.0);
+    let name_width = (room * 0.35).clamp(110.0, 260.0);
+    let value_width = (room - name_width).clamp(140.0, 520.0);
+    let mut add = false;
+    ui.with_layout(own_width, |ui| {
         for (i, (k, v)) in pairs.iter_mut().enumerate() {
-            let rk = ui.add(egui::TextEdit::singleline(k).desired_width(110.0).hint_text("name"));
-            let rv = ui.add(egui::TextEdit::singleline(v).desired_width(140.0).hint_text("value"));
-            commit |= rk.lost_focus() || rv.lost_focus();
-            focused |= rk.has_focus() || rv.has_focus();
-            if ui.small_button("−").clicked() {
-                remove_at = Some(i);
-            }
-            ui.end_row();
+            ui.horizontal(|ui| {
+                // (First in its row: at the row's end it was past the
+                // page's edge where the page is narrow.)
+                if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
+                    remove_at = Some(i);
+                }
+                let name = egui::TextEdit::singleline(k).desired_width(name_width);
+                let rk = ui.add(name.hint_text("name"));
+                let value = egui::TextEdit::singleline(v).desired_width(value_width);
+                let rv = ui.add(value.hint_text("value"));
+                commit |= rk.lost_focus() || rv.lost_focus();
+                focused |= rk.has_focus() || rv.has_focus();
+            });
         }
+        add = ui
+            .small_button("+")
+            .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
+            .clicked();
     });
     if let Some(i) = remove_at {
         pairs.remove(i);
         commit = true;
     }
-    if ui
-        .small_button("+")
-        .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
-        .clicked()
-    {
+    if add {
         pairs.push((String::new(), String::new()));
         commit = true;
     }

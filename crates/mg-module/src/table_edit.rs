@@ -17,6 +17,8 @@ enum Change {
     Column(String),
     /// A column taken out: where it was, its name and its cells.
     ColumnOut(usize, String, Vec<Option<String>>),
+    /// A column moved: from which place to which.
+    ColumnMoved(usize, usize),
     /// A column renamed: which, from what, to what.
     ColumnNamed(usize, String, String),
     /// A row taken away, with the cells it had: the rows after it are
@@ -142,6 +144,16 @@ impl Editing {
         let Some(name) = self.table.columns().get(column).cloned() else { return false };
         let Some(cells) = self.table.remove_column(column) else { return false };
         self.done(format!("Remove column {name}"), Change::ColumnOut(column, name, cells));
+        true
+    }
+
+    /// Moves a column to another place among the columns; whether it moved.
+    pub fn move_column(&mut self, from: usize, to: usize) -> bool {
+        let Some(name) = self.table.columns().get(from).cloned() else { return false };
+        if !self.table.move_column(from, to) {
+            return false;
+        }
+        self.done(format!("Move column {name}"), Change::ColumnMoved(from, to));
         true
     }
 
@@ -331,6 +343,7 @@ impl Editing {
             Change::ColumnOut(column, name, cells) => {
                 let _ = self.table.insert_column(*column, name, cells.clone());
             }
+            Change::ColumnMoved(from, to) => _ = self.table.move_column(*to, *from),
             Change::ColumnNamed(column, old, _) => _ = self.table.rename_column(*column, old),
             Change::Column(_) => {
                 let mut columns = self.table.columns().to_vec();
@@ -360,6 +373,7 @@ impl Editing {
             }
             Change::Dropped(row, _) => _ = self.table.rows.remove(*row),
             Change::ColumnOut(column, ..) => _ = self.table.remove_column(*column),
+            Change::ColumnMoved(from, to) => _ = self.table.move_column(*from, *to),
             Change::ColumnNamed(column, _, new) => _ = self.table.rename_column(*column, new),
             Change::Column(name) => _ = self.table.add_column(name),
         }
@@ -412,6 +426,17 @@ mod tests {
         assert_eq!(e.clear_cells(&[0, 3], 0, 1), 0, "empty already: no step");
         e.undo();
         assert_eq!((e.table().get(0, "Cost"), e.table().get(3, "Label")), (Some("9"), Some("d")));
+        // A column is moved, with its cells, and back.
+        assert!(e.move_column(0, 2) && !e.move_column(0, 0) && !e.move_column(0, 9));
+        assert_eq!(e.table().columns(), ["Cost", "Name", "Label"]);
+        assert_eq!((e.undo_label(), e.table().cell(3, 2)), (Some("Move column Label"), Some("d")));
+        e.undo();
+        assert_eq!(
+            (e.table().columns()[0].as_str(), e.table().get(3, "Label")),
+            ("Label", Some("d"))
+        );
+        e.redo();
+        e.undo();
         // A column is renamed, and taken out with its cells.
         assert_eq!(e.rename_column(0, "Name"), Err(TwoDaError::DuplicateColumn("Name".into())));
         assert_eq!(e.rename_column(0, "Tag"), Ok(true));
