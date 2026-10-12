@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T20:24:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Differences from Aurora
@@ -50,7 +50,6 @@ it differs, it is on purpose:
   lighting (checked against the game's screenshots) but does not use the
   game's shaders.
 
-Not done yet: dragging items between inventories (use the palette and
-Remove), the Conversation Editor's Scrap tab (the clipboard holds one
+Not done yet: the Conversation Editor's Scrap tab (the clipboard holds one
 copied or cut branch), and the Sound Wizard's category filter (the sound
 picker opens filtered to ambient or positional sounds instead).

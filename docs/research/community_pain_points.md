@@ -1,12 +1,24 @@
 ---
 type: Research Note
-title: Aurora Toolset pain points, and where Moonglow goes next
-description: Survey of 2026-10-01 of what builders most want changed in the Aurora Toolset, Moonglow 0.2.0 measured against each pain point, the resulting map of improvements and the survey's gaps.
+title: Aurora Toolset pain points (survey of October 2026, against Moonglow 0.2.0)
+description: Historical. Survey of 2026-10-01 of what builders most want changed in the Aurora Toolset, with Moonglow 0.2.0 measured against each pain point and the map of improvements drawn from it then; most of that map has since been built.
 tags: [survey, community, aurora, roadmap]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T12:51:56Z }
+status: deprecated
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:29:36Z }
 ---
 
-# Aurora Toolset pain points, and where Moonglow goes next
+# Aurora Toolset pain points (survey of October 2026, against Moonglow 0.2.0)
+
+> **Historical.** Written on 1 and 2 October 2026, after Moonglow 0.2.0, and
+> kept as the record of what builders asked for and why the work that
+> followed was chosen: other documents cite its items by number. It is not
+> kept up to date. The "Moonglow 0.2.0" columns of section 2 describe that
+> version (a few cells were amended in the days after), and section 3's map
+> is the plan as it stood then: nearly all of Tiers 1 and 2 and much of
+> Tier 3 has been built since. What Moonglow does now is in
+> [Coming from Aurora](../manual/14-coming-from-aurora.md) and the rest of
+> the [manual](../manual/index.md); what is still open is in
+> [the deferred list](../deferred.md).
 
 Surveyed 2026-10-01, after Moonglow 0.2.0. The question: now that Moonglow
 does what Aurora does, what do builders most want changed? Three read-only

@@ -1,19 +1,24 @@
 ---
-type: Plan
-title: 'Moonglow Toolset: Plan'
-description: The plan of Moonglow Toolset with its current status - what of Aurora it reproduces, the landscape, principles, crate architecture, key designs, phases, testing strategy, licensing and risks.
-tags: [plan, architecture, testing, parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:34:52Z }
+type: Reference
+title: 'Moonglow Toolset: Architecture and Record of the Phases'
+description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
+tags: [architecture, testing, parity, phases, plan]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:30:26Z }
 ---
 
-# Moonglow Toolset: Plan
+# Moonglow Toolset: Architecture and Record of the Phases
 
 Moonglow is a from-scratch, cross-platform reimplementation of the Neverwinter
 Nights: Enhanced Edition Aurora Toolset (`nwtoolset.exe`), written in Rust with
-an egui interface. The first goal is **functional parity with Aurora**: every
+an egui interface. The first goal was **functional parity with Aurora**: every
 module Aurora can author, Moonglow can author, and every module Moonglow saves
 behaves the same in the game. Byte-identical output is not a goal; functional
 regressions are not allowed.
+
+This document began as the plan (2026-09-30). The phases it planned are
+built, so it is now the description of the architecture (§1 to §5), a record
+of the phases (§6), the testing strategy (§7) and licensing (§8). What is
+still open is not here: it is in the [deferred list](deferred.md).
 
 Decisions taken (2026-09-30):
 
@@ -24,61 +29,6 @@ Decisions taken (2026-09-30):
 | Platforms | Linux, Windows, macOS from the start |
 | License | GPL-3.0 (§8) |
 | Oracles | Files (bundled modules, neverwinter.nim, nwn.py), Aurora under Wine, the game itself (nwserver/nwmain with a separate test user directory) |
-
-## Status
-
-| Phase | State |
-| --- | --- |
-| 0 Bootstrap | Done: workspace, lint/format, CI workflow (3 OS), corpus locator, oracle tools, engine test runner, Aurora harness, parity inventory. Builds clean for Linux, Windows and macOS targets. |
-| 1 Core formats | GFF, ERF (V1.0 + EE E1.0 read), KEY/BIF, 2DA, TLK, SET, SSF done; textures, TXI and MTR done in Phase 7, ITP with palettes |
-| 2 Resource manager and rules | Done: load order and game data (2DA cells, talk-table strings) checked against the engine |
-| 3 Schema and module workspace | Done except Aurora's blueprint defaults (Phase 8; module and area defaults done in Phase 5): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
-| 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
-| 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
-| 6 Text-and-tree editors | Done: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
-| 7 Renderer and model viewer | Done: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176); the wgpu renderer with the game's lighting (its uniforms read back from the client and matched; reference scenes within 1/255 of the client per region), material maps, environment and cube maps, animations with supermodels, GPU skinning, animated and dangly meshes, emitters (fountain, explosion, point-to-point, lightning, chunks; gravity, bounce and tinting measured in the client); blueprint previews (`mg-preview`, also by appearance alone); the model viewer (Resources: open any model or preview a blueprint). Since then, for the Moonglow Viewer: what the game's compiler writes (materialname, renderhint, tangents, Bézier keys, the emitters' three-stop IDs) read back; walkmesh files (WOK, PWK, DWK) under their object's root; ASCII source maps; normal maps on the model's own tangents; the depth buffer kept after a frame; animations played once and blended; resource layers changed in place |
-| 8 Blueprints and palettes | In progress: standard and custom palettes (custom ones rebuilt like Aurora's), the palette pane (edit, edit copy, delete, preview), and editors for every blueprint type (waypoint, sound, trigger, encounter, store, door, placeable, item with item properties, creature with statistics, classes, skills, feats, spells, special abilities and inventory); item costs as the engine computes them (every base-game item agrees with `nwserver`); every blueprint type, edited and written by Moonglow, spawned or placed in the engine; blueprint wizards matching Aurora's. Still to do: the creature CR calculation (needs more Aurora probes), the Creature and Levelup Wizards and creature templates, color pickers and icons |
-| 9 Area editor, objects | Exit met: every shipped area (1,462) opens and renders (tiles with lights and animation loops, objects, fog measured in the client); the area viewer with Aurora's camera and selection bindings, filters, grid, placing from the palette (doors on door hooks), moving, turning, raising, deleting, copy and paste, polygons, Adjust Location with visual transforms, Find Instance, Area Properties, Properties of placed objects (alone or several together, with their inventories), the context menu's commands (Add to Palette, Create Waypoint and Set, initial states, spawn points, …), the Preview window. What placing writes, Add to Palette, Create Waypoint and Adjust Location are identical to Aurora's (three captures); edits round-trip and load in the engine. Since then: skyboxes as the client draws them (around the camera with the horizon fade in the fog's color; checked against the client); grass is not drawn (Aurora does not, and the client's does not show at editor distances). Add Popup Text, Setup Store and the Levelup Wizard came with Phase 11 |
-| 10 Area editor, terrain | Exit met: painting as Aurora paints, worked out from scripted Aurora sessions (no source) and replayed: 62 recorded steps in four tilesets (terrain brushes with the primary rules on all eight neighbours in relative heights, raise and lower with neighbours settling within a step, crossers on the quarter-cells a drag passes, the eraser clearing crossers outward, refused strokes, tile groups turned and placed, the doors their hooks bring) give Aurora's corners, heights and crossers at every step; Resize Area and Rotate Area give Aurora's tiles and doors; painted areas load in the engine with the ground where the strokes put it. The area viewer's terrain mode (the tileset palette, brushes with a cursor that turns red where a stroke would be refused, groups with right-click turning), tile selection with Delete and next variant, Tile Properties (lights, animation loops), the walkmesh overlay and Area Statistics, copying and pasting tiles, Shift + click stepping tiles through their variants |
-| 11 Build, verify, test | Exit met: no row of the parity checklist is missing (✗); each is done (✅), deliberately different (—), or partly done (◐, its gap named). Build Module with Aurora's options, layout and results (compile scripts, creature challenge ratings, encounters, palettes; missing and unused resources), the challenge rating calculation read from Aurora and matching its ratings for 4,204 probe creatures, Test Module (F9), Verify, Area Statistics, the Area Wizard's after-steps, Update Instances, script sets and class spell lists, all Options pages but Spell Checking (EE ships no lexicon), Setup Store and Add Popup Text, the Levelup and Creature Wizards (matching Aurora's levelings and creatures), creature spell and inventory warnings (31 probe creatures), the Conversation Editor's options (Input Text popup, link directions, drag, backups), sound playback (every game sound decodes; previews, area ambience, music and placed sounds), Select Portrait, item icons and color swatches, Print. Partly: drag and drop in inventories, the Scrap tab, a few unchecked Aurora details |
-| 12 Hardening and release | In progress: crash safety (recovery copies of unsaved work every 5 minutes in Moonglow's data folder, offered back at the next start; crash reports; saves already write through a temporary file and keep a `.bak`); performance budgets on the three largest campaigns (`crates/mg-ui/tests/campaign_perf.rs`; Tyrants of the Moonsea, 5,295 resources: opens in 0.05 s, its largest area, 784 tiles, in 0.3 s and draws in 13 ms, verify 0.7 s, all 1,433 scripts compile in 0.7 s, the module writes in 0.02 s; budgets 3 s, 5 s, 50 ms, 10 s, 120 s and 5 s); campaign talk tables are found in the install's `data/tlk/`; packaging (`packaging/`: the icon, an AppImage, a Flatpak manifest, an Inno Setup installer with the C runtime built in, a universal macOS app and disk image, third-party license notices, a release workflow; the AppImage (11.7 MB) and the Flatpak (7.6 MB bundle on the Freedesktop 25.08 runtime) are built and run here, the Windows and macOS packages are left to CI); the user manual (`docs/manual/`, 13 chapters, also in the app under Help › User Manual, with About). Still to do: build the packages on CI and try each on its system |
-
-What the tests establish so far (in release mode: a sample of the install in under a
-minute on every run, the whole of it in four minutes before a release, §7):
-
-- All 57 shipped modules and haks index; all 27,179 GFFs inside them and every
-  GFF among the ~114,000 base-game resources round-trip to identical trees;
-  rewritten archives keep every entry byte for byte.
-- 360 sampled GFFs of every type agree with neverwinter.nim's `nwn_gff` in
-  both directions (its JSON of the file, and the GFF it writes from ours).
-- All 822 shipped 2DAs parse and agree with `nwn_twoda`, except where the
-  engine proves `nwn_twoda` wrong (below).
-- All 10 installed talk tables (every language, masculine and feminine)
-  round-trip.
-- For ~600 resources placed to cross every precedence boundary (development
-  over haks, user haks over install haks, haks over the module, the module
-  over override, override over the keys), Moonglow's resman picks the same
-  source as the engine's `ResManGetAliasFor`.
-- Every shipped module (28), with every GFF rewritten by Moonglow and saved
-  as an archive and as a folder, reopens identical; run in `nwserver`, the
-  rewritten modules present exactly the same world as the originals (every
-  area, and 121,287 objects with type, tag, blueprint, position and facing;
-  creatures by identity).
-- Verification: of 4,943 references checked across all shipped modules, the
-  989 Moonglow reports missing are unknown to the engine and the sampled
-  satisfied ones resolve there. An area exported from Prelude (92 resources
-  with dependencies) and imported into another module presents the same 22
-  objects in the engine.
-- The built-in compiler (Beamdog's, vendored and built from source) compiles
-  all 33,196 scripts in the base game and the shipped modules (with their
-  haks) byte for byte as `nwn_script_comp` does.
-- For all 33,121 compilable shipped scripts, the outline of the script and
-  its includes names exactly the functions (with types), constants and
-  structs in the compiler's debug output; the spec parser agrees with
-  nwn.py's (which misses 78 constants with lowercase names).
-- All 47 shipped tilesets parse (1,192 primary rules between them; 73 data
-  warnings, such as tiles using undeclared terrains, and 5 tile models BioWare
-  never shipped); all 487 soundsets round-trip byte for byte.
 
 ## 1. What we are reproducing
 
@@ -164,7 +114,7 @@ alternatives are GPL, LGPL or incomplete; §8).
    timestamps unless the format needs them.
 6. **Fast by construction.** Memory-mapped BIF/ERF, lazy parsing, parallel
    indexing, asynchronous asset loading, GPU instancing. Performance budgets are
-   tested (§7).
+   measured (§7).
 7. **Interoperable.** GFF JSON compatible with neverwinter.nim and nasher, so
    Moonglow projects can live in git alongside existing tools.
 8. **The engine is the reference.** Where tools disagree, an engine test
@@ -176,41 +126,42 @@ alternatives are GPL, LGPL or incomplete; §8).
 ## 4. Architecture
 
 A Cargo workspace, layered bottom-up. A crate may only depend on crates above it
-in this list. ✅ = exists.
+in this list (test code may also use `mg-testkit`). All of these exist.
 
 | Crate | Responsibility |
 | --- | --- |
-| `mg-core` ✅ | ResRef, ResType table, languages and codepages, StrRef, LocString, bounds-checked binary reader/writer |
-| `mg-gff` ✅ | GFF V3.2 read/write, lossless tree, typed accessors, nwn-lib JSON, structural diff |
-| `mg-erf` ✅ | ERF/MOD/HAK/NWM/SAV: read V1.0 and E1.0 (zstd), write V1.0 |
-| `mg-key` ✅ | KEY/BIF V1, memory-mapped |
-| `mg-2da` ✅ | 2DA V2.0, lenient like the engine, number parsing like the engine |
-| `mg-tlk` ✅ | TLK V3.0, custom TLK StrRefs |
-| `mg-set` ✅ | tilesets (SET/INI) with data warnings |
-| `mg-ssf` ✅ | soundsets |
-| `mg-audio` ✅ | sounds and music decoded (MP3 behind `BMU V1.0`, IMA ADPCM and PCM WAVE) for playback |
-| `mg-resman` ✅ | layered resolution in the engine's order, DDS/TGA rule, install detection |
-| `mg-image` ✅ | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
-| `mg-mdl` (partial) | MDL binary and ASCII (done), WOK/PWK/DWK walkmeshes |
-| `mg-schema` ✅ | typed views of IFO, ARE, GIT, GIC, UTC/UTD/UTE/UTI/UTM/UTP/UTS/UTT/UTW, DLG, JRL, FAC, ITP; Aurora defaults |
-| `mg-rules` ✅ | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...) |
-| `mg-script` | compiler integration; NWScript lexer/parser/symbol index for the editor; nwscript.nss spec |
-| `mg-tiles` (partial) | tilesets, tile grid model, terrain painting engine with SET rules, walkmesh assembly; so far the corner lattice, tile fitting and new-area terrain |
-| `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
-| `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
-| `mg-plugin` | plugins: manifests, and a sandboxed Luau runtime in which a plugin's commands and checks read a module and hand back edits and findings (`docs/plugin-proposal.md`; the API in `docs/manual/17-plugin-api.md`) |
-| `mg-serve` ✅ | the game's headless server run on a module: private unless asked, a user directory of the caller's, its log followed, its console on a pipe (`mg serve`, `mg test`, the engine tests) |
-| `mg-render` (partial) | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles (done); picking, gizmos |
-| `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
-| `mg-area` (partial) | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area |
+| `mg-core` | ResRef, ResType table, languages and codepages, StrRef, LocString, bounds-checked binary reader/writer, SHA-1 |
+| `mg-gff` | GFF V3.2 read/write, lossless tree, typed accessors, nwn-lib JSON, structural diff |
+| `mg-erf` | ERF/MOD/HAK/NWM/SAV: read V1.0 and E1.0 (zstd), write V1.0 |
+| `mg-key` | KEY/BIF V1, memory-mapped |
+| `mg-2da` | 2DA V2.0, lenient like the engine, number parsing like the engine |
+| `mg-tlk` | TLK V3.0, custom TLK StrRefs |
+| `mg-set` | tilesets (SET/INI) with data warnings |
+| `mg-ssf` | soundsets |
+| `mg-audio` | sounds and music decoded (MP3 behind `BMU V1.0`, IMA ADPCM and PCM WAVE) for playback |
+| `mg-resman` | layered resolution in the engine's order, DDS/TGA rule, install detection |
+| `mg-image` | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
+| `mg-mdl` | MDL binary and ASCII, read and written; the model compiler, the linter and the outline; WOK/PWK/DWK walkmeshes |
+| `mg-schema` | typed views of IFO, ARE, GIT, GIC, UTC/UTD/UTE/UTI/UTM/UTP/UTS/UTT/UTW, DLG, JRL, FAC, ITP, PTM and PTT, generated from the observed schema |
+| `mg-rules` | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...) |
+| `mg-script` | the compiler built in; NWScript lexer, outline and analysis for the editor and `mg lsp`; the `nwscript.nss` spec |
+| `mg-tiles` | the tile grid over a lattice of corners, tile fitting, and terrain painting with the SET's rules |
+| `mg-module` | module workspace: open/save, working copy, palettes, reference graph, verify and the content doctor, build, import/export, haks/TLK, nasher projects |
+| `mg-edit` | editor core: the undoable workspace, commands with their inverses, edits as JSON (no UI) |
+| `mg-plugin` | plugins: manifests, and a sandboxed Luau runtime in which a plugin's commands and checks read a module and hand back edits and findings (the API in `docs/manual/17-plugin-api.md`; the decisions in `docs/plugin-proposal.md`) |
+| `mg-serve` | the game's headless server run on a module: private unless asked, a user directory of the caller's, its log followed, its console on a pipe (`mg serve`, `mg test`, the engine tests) |
+| `mg-render` | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles |
+| `mg-preview` | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
+| `mg-area` | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area; picking, arranging, reshaping and the walkmesh |
 | `mg-ui` | egui widgets and editors |
-| `apps/mg` ✅ | CLI: `ls`, `pack`, `unpack`, `gff`, `which`, `cat`, `layers`, `tlk` so far; later build, verify, compile, diff, render |
+| `apps/mg` | the command line: 43 commands (`mg --help`; the manual's `11-command-line.md`), each able to answer in JSON |
 | `apps/moonglow` | the GUI application |
 
-Test support: `mg-testkit` ✅ (corpus locator, oracle tools, engine runner),
-`mg-corpus-tests` ✅ (corpus, differential and engine tests). Tools:
-`tools/aurora/` ✅ (Aurora under Wine, on the desktop or on an off-screen display driven by
-scripts; form decoder, inventory generator, wizard capture).
+Test support: `mg-testkit` (corpus locator, oracle tools, engine runner),
+`mg-corpus-tests` (corpus, differential and engine tests). Tools:
+`tools/aurora/` (Aurora under Wine, on the desktop or on an off-screen display driven by
+scripts; form decoder, inventory generator, wizard capture), `tools/nwclient/`
+(the sandboxed game client) and `tools/shaders/`.
 
 ## 5. Key designs
 
@@ -218,7 +169,7 @@ scripts; form decoder, inventory generator, wizard capture).
 
 `mg-gff` stores a GFF as a tree of structs (type id + ordered fields, duplicate
 labels allowed). `mg-schema` defines each object type as a thin typed wrapper
-generated by a derive macro: getters return the field or Aurora's default,
+generated from the observed schema (`schema_codegen.rs`): getters return the field or Aurora's default,
 setters write only that field. Nothing is discarded, so unknown EE or NWNX fields
 survive. Round-trip tests compare trees exactly; oracle comparisons normalize
 field order (which the game ignores).
@@ -271,14 +222,16 @@ gamma correction; per-fragment lighting from area sun/moon ambient and diffuse,
 tile main and source lights (`lightcolor.2da`), and placeable and model lights
 (top 32 per object by priority and distance); GGX specular; MTR materials with
 normal, specular, roughness, height and self-illumination maps; environment
-maps, fog, skyboxes; later grass, stencil shadows, emitters and water. Editor
-overlays (grid, gizmos, selection, trigger polygons, walkmesh, AABB) render in
-a separate pass. Toggles like Aurora's "use area lighting" and day/night stay.
-The renderer also runs offscreen for image tests (L5): reference scenes are
+maps, fog, skyboxes, emitters and water. Not drawn: shadows (see the
+[deferred list](deferred.md)) and grass (Aurora draws none, and the client's
+does not show at editor distances). Editor overlays (grid, selection, trigger
+polygons, walkmeshes) are drawn over the scene. Toggles like Aurora's "use area lighting" and day/night stay.
+The renderer also runs offscreen for image tests (§7, L5): reference scenes are
 compared, within a tolerance, with screenshots of the same area, camera and
 time of day taken in the real client (`nwmain` with a test user directory).
 
-Running the game's own shaders stays open as a later option. A spike
+Running the game's own shaders was not chosen, and exact stock-shader parity
+is not a goal. It stays possible: a spike
 (2026-09-30) showed that the stock `vslit`/`fslit` pair, assembled with the
 engine preamble and verbatim `#include` splicing (`tools/shaders/assemble.py`),
 compiles to Vulkan SPIR-V under glslang's relaxed rules, and naga accepts it once
@@ -290,316 +243,145 @@ along, at the cost of native glslang/SPIRV-Tools dependencies.
 
 `mg-tiles` models the area as a lattice of corner terrains and heights plus edge
 crossers. Painting chooses, for each affected cell, a tile and orientation from
-the SET whose corners and edges match its neighbours; where no tile provides a
+the SET whose corners and edges match its neighbors; where no tile provides a
 transition, the SET's `[PRIMARY RULES]` (placed/adjacent → changed terrain and
-height) rewrite neighbouring corners and the change propagates. Aurora's exact
-choices (tie-breaking, randomness, propagation extent) are pinned down by
+height) rewrite neighboring corners and the change propagates. Aurora's exact
+choices (tie-breaking, randomness, propagation extent) were pinned down by
 recording Aurora under Wine on scripted painting sequences and replaying them
-against Moonglow (§7, L4), starting early so fixtures exist before Phase 10.
+against Moonglow (§7, L4; `aurora_terrain.rs`).
 
-## 6. Phases
+## 6. Record of the phases
 
-Each phase ends with a demonstrable result and green tests. Later phases do not
-start until the earlier layer they depend on is tested against the corpus.
+The work was planned as thirteen phases, each ending with a demonstrable
+result and green tests, and a list of improvements after parity. All of it
+is built; the releases are the tags `v0.1.0` (2026-10-01) to `v1.21.3`
+(2026-10-11). Each row says what the phase was and what holds it. Test
+files are in `crates/mg-corpus-tests/tests/` unless a path says otherwise.
+What a phase left undone is in the [deferred list](deferred.md).
 
-### Phase 0: Bootstrap ✅
-Workspace, lint/format config, CI matrix, corpus locator, test tiers, project
-`CLAUDE.md`, Aurora oracle harness, engine test runner, parity inventory.
+| Phase | What it was | Held by |
+| --- | --- | --- |
+| 0 Bootstrap | Workspace, lint and format settings, CI on three systems, corpus locator, oracle tools, engine test runner, Aurora harness, parity inventory | `.github/workflows/ci.yml`, `mg-testkit`, `tools/aurora/`, `docs/parity/aurora-ui-inventory.md` |
+| 1 Core formats | GFF, ERF (V1.0, and EE's E1.0 read), KEY/BIF, 2DA, TLK, SET, SSF, ITP; textures, TXI and MTR came with Phase 7 | `archives.rs`, `base_game.rs`, `nwn_gff_diff.rs`, `twoda.rs`, `tlk.rs`, `small_formats.rs`, `palettes.rs` |
+| 2 Resource manager and rules | The engine's load order and the game's data (2DA cells, talk-table strings) | `engine_resman.rs`, `engine_2da.rs`, `engine_rules.rs` |
+| 3 Schema and module workspace | Typed field descriptors for all 19 authored GFF types, generated from the schema observed in the shipped data; the module workspace (archives and folders, atomic save with backup), reference graph, verify, hak conflict report, ERF export and import | `modules.rs`, `engine_modules.rs`, `engine_verify.rs`, `engine_transfer.rs`; `mg verify`, `mg haks`, `mg export`, `mg import` |
+| 4 Script back end | The official compiler built in (vendored C++ built with the `cc` crate, on the three systems in CI), module compile, and the NWScript front end (lexer, declaration parser, the `nwscript.nss` spec) | `scripts.rs`, `script_frontend.rs`, `script_analysis.rs`, `nwscript_spec.rs` |
+| 5 Application shell | The undoable workspace (`mg-edit`) and the application (`mg-ui`, `apps/moonglow`): menus, toolbar and keys, module tree, docked tabs, Module Properties, the script editor, a generic GFF editor, the log, the New Module and Area wizards with Aurora's defaults, settings, options, import and export, the resource browser | `crates/mg-ui/tests/app.rs` (`egui_kittest`), `aurora_new.rs`, `engine_new_module.rs` |
+| 6 Text-and-tree editors | String Edit, Variables, resource pickers; the Faction, Journal and Conversation editors; the script editor's tools and the Script Wizard | `aurora_factions.rs`, `aurora_journal.rs`, `aurora_dialog.rs`, `aurora_script_wizard.rs`, `engine_factions.rs`, `engine_journal.rs`, `engine_dialog.rs`; `docs/parity/checklists.md` |
+| 7 Renderer and model viewer | Textures (TGA, DDS, PLT), TXI and MTR; models, binary and ASCII; the wgpu renderer with the game's lighting, material maps, animations with supermodels, skinning, animated and dangly meshes, emitters; blueprint previews (`mg-preview`); the model viewer | `textures.rs`, `models.rs`, `models_nwnmdlcomp.rs`, `crates/mg-render/tests/render.rs`, `crates/mg-preview/tests/previews.rs`, `client_render.rs` (by hand) |
+| 8 Blueprints and palettes | Standard and custom palettes, the palette pane, editors and wizards for every blueprint type, item costs as the engine computes them | `aurora_blueprints.rs`, `aurora_palette_add.rs`, `engine_blueprints.rs`, `engine_item_cost.rs`, `item_properties.rs` |
+| 9 Area editor, objects | Every shipped area opens and draws; the area viewer with Aurora's camera and selection bindings, filters, grid, placing, moving, turning, raising, copy and paste, polygons, Adjust Location, Find Instance, Area Properties, the context menu's commands, the Preview window | `areas.rs`, `aurora_instances.rs`, `engine_area_edits.rs`, `engine_facings.rs` |
+| 10 Area editor, terrain | Painting as Aurora paints (terrain, crossers, groups, heights), Resize Area and Rotate Area, tile properties, the walkmesh overlay, Area Statistics | `aurora_terrain.rs`, `engine_terrain.rs`, `tiles.rs` |
+| 11 Build, verify, test | Build Module with Aurora's options, the challenge rating calculation, Test Module (F9), Verify, Update Instances, the Levelup and Creature Wizards, creature spell and inventory warnings, sound playback, the remaining dialogs | `aurora_creatures.rs`, `aurora_levelup.rs`, `aurora_creature_wizard.rs`, `aurora_spell_warnings.rs`, `aurora_inventory.rs`, `aurora_update_instances.rs`, `audio.rs` |
+| 12 Hardening and release | Recovery copies of unsaved work and crash reports; performance budgets on the largest campaigns; packages (AppImage, Flatpak, Windows installer, macOS disk image, built by `.github/workflows/release.yml` on every `v*` tag); the user manual (17 chapters, also in the application) | `crates/mg-ui/src/recovery.rs`, `crates/mg-ui/tests/campaign_perf.rs` (by hand), `packaging/`, `docs/manual/` |
 
-### Phase 1: Core formats
-✅ GFF, ERF, KEY/BIF, 2DA, TLK with corpus and differential tests; first CLI.
-✅ SSF, SET, ITP, TXI, MTR, each with corpus tests.
-
-### Phase 2: Resource manager and rules data ✅
-`mg-resman` and `mg-rules` (cached 2DAs, talk tables incl. custom TLK,
-dropdown choices), checked against the engine's `ResManGetAliasFor`,
-`Get2DAString` and `GetStringByStrRef`. Accessors for individual tables arrive
-with the editors that use them.
-
-### Phase 3: Typed schema and module workspace (core ✅)
-✅ `mg-schema`: typed field descriptors for every authored GFF type, generated
-from the schema observed in the shipped data
-(`docs/research/gff-observed-schema.md`); ✅ `mg-module`: archives and module
-folders, atomic save with backup, module info (areas, haks, custom TLK).
-✅ reference graph, verify (missing and unused resources), hak conflict
-report, ERF export/import with dependencies, faction reset and area-list
-bookkeeping; CLI `mg verify`, `mg haks`, `mg export`, `mg import`.
-Deferred to the wizards (Phases 5 and 8): capturing Aurora's defaults for new
-objects. Original scope: `mg-schema` for all authored GFF types with Aurora's defaults (captured from
-Aurora's wizards), `mg-module`: open/save `.mod` and module folders, working
-copy, atomic save with backup, import/export ERF, haks and custom TLK (with the
-conflict check), reference graph, basic verify.
-**Exit:** open → save of every bundled module is semantically identical, and the
-saved modules load and run their start-up in `nwserver`.
-
-### Phase 4: Script back end ✅
-✅ The official compiler built in (`mg-script`: vendored C++ built with the
-`cc` crate, C API, per-thread instances), module compile (`mg_module::build`,
-`mg compile`); ✅ NWScript front end for the editor: a lexer that covers
-every byte (EE literals: raw and hashed strings, binary and octal), a
-tolerant declaration parser (includes, defines, structs, globals, functions
-with docs) and the `nwscript.nss` spec (1,187 functions, 6,279 constants,
-engine structures). Remaining: building the C++ on Windows and macOS in CI.
-**Exit:** ✅ compiling every script in the base game and the shipped modules
-gives the same NCS as `nwn_script_comp` (the shipped NCS match only where the
-same compiler produced them: 68%).
-
-### Phase 5: Application shell
-egui app with a docked layout like Aurora's (module tree, tabbed editors,
-palette, message log, status bar), menus, toolbars, shortcuts, options, game path
-setup, TLK-driven labels, new-module wizard, module properties, haks/TLK,
-import/export, resource browser, undo/redo wiring. Early spike: a code-editor
-widget that stays fast on 10k-line scripts.
-**Exit:** create a module, edit its properties, save; it loads in the engine;
-`egui_kittest` UI tests cover the flows.
-
-Done so far: `mg-edit` (a workspace of cached GFF documents over the module;
-commands of field/list/resource edits, each with its inverse, so undo and redo
-restore every change, including unsaved GFF edits under a whole-resource
-replacement); `mg-ui` with the menu bar (File, Edit, Build), shortcuts
-(Ctrl+O/S/Z/Y, F7), the module tree with filter, docked tabs (welcome, module
-properties, scripts, any GFF resource), module properties (name, tag,
-description with its line ends kept, starting area, XP scale, custom TLK,
-time, events, haks in priority order, areas), the script editor (lexer
-highlighting, save, compile one, compile all), verify to the log;
-`apps/moonglow` (eframe on wgpu, native file dialogs). `egui_kittest` tests
-drive open, edit, undo/redo, save and reopen through the accessibility tree.
-New modules and areas (`mg_module::new`, on `mg-tiles`) are made as
-Aurora's Module and Area wizards make them, captured by driving Aurora on an
-off-screen display (`tools/aurora/headless.sh`, `xdrive.py`,
-`capture_new_areas.py`): module info, the five default factions, custom
-palettes derived from the game's palette skeletons (categories sorted with
-Windows' word sort, engine-only categories dropped), and for areas the
-`areag.ini` defaults, `environment.2da` lighting and weather, and tiles
-fitted to `Default` terrain with a `Floor` patch at the center (group tiles
-excluded, variants, orientations and lights at random as Aurora does). All
-44 captured areas (every tileset, sizes 2 to 8, rectangles) match Aurora's
-field for field except the random choices, which are checked to be among
-Moonglow's candidates; a module made by Moonglow with an area per tileset
-runs in `nwserver`, which reports every area property and all tiles as
-written. Where no tile fits (a 5×5 Lizardfolk Interior) Aurora crashes;
-Moonglow reports it. File > New Module, Wizards > Area Wizard (one undoable
-command) and the unsaved-changes prompt are in the UI with tests.
-Also done: settings kept between runs (recent modules, game and user
-folders; Tools > Options), File > Import/Export (with dependencies, overwrite
-choices, one undoable import), and the resource browser (all ~114,000
-resources of the load order with their layer; read-only GFF, 2DA, script and
-text views; copy into the module, save to a file). The off-screen display
-also runs Moonglow itself for visual checks.
-The script editor spike is done (see §9: egui's editor is fast enough on
-the game's largest script), and a toolbar gives the common commands.
-
-### Phase 6: Text-and-tree editors
-Localized string editor, variables, pickers; script editor (highlighting,
-compile with error navigation, function browser, completion, search, script
-wizard); conversation editor (tree, links, conditions/actions with parameters,
-animations, sounds, tokens, test); journal editor; faction editor.
-**Exit:** parity checklists for these editors complete; engine tests exercise the
-conversations, journal and factions they produce.
-
-Done so far: the shared editors (String Edit with StrRef and every
-language, Variables, Select Resource) and Module Properties with Aurora's
-tabs; the Faction Editor (`mg_module::factions`: Aurora's files exactly,
-GetReputation in the engine for every pair), the Journal Editor
-(`mg_module::journal`: Aurora's files exactly, XP by tag in the engine),
-the Conversation Editor (`mg_module::dialog`: Aurora's conversation as an
-outline; conditions with EE parameters and actions run in the engine), and
-the script editor's tools (symbol lists with help, compiler messages that
-go to their line, find/replace and find in files, bookmarks, completion,
-templates, new script and save as, numbered bookmarks, color options),
-and the Script Wizard
-(`mg_module::script_wizard`: Aurora's captured scripts byte for byte, except
-where Aurora's output does not compile or work in EE). Conversation spell
-check does nothing in Aurora EE and text export/import has no UI, so neither
-is needed for parity.
-
-### Phase 7: Renderer and model viewer ✅
-wgpu renderer with EE-style lighting (§5.5), textures (TGA/DDS/PLT/TXI), MTR
-materials, MDL (ASCII and binary, all node types), animation, skinning, dangly
-meshes, emitters, offscreen snapshots; previews for part-based creatures (armor parts, PLT colors), items,
-placeables, doors.
-**Exit:** reference scenes look like in-game screenshots of the same scene
-(within a tolerance set from the first comparisons).
-**Exit met:** the reference scenes (`client_render.rs`: sun; tile lights)
-match the client within 1/255 per region mean (a floor region on a dark
-wall's edge within 5; tolerances 3 and 6), and the light uniforms Moonglow
-uploads equal the client's (read back through a debug shader). Known
-approximations: dangly-mesh dynamics and the point-to-point and lightning
-emitter details follow the wiki's descriptions, not measurements.
-
-### Phase 8: Blueprints and palettes
-Standard and custom palettes, blueprint wizards and editors for items (item
-properties), creatures (classes, feats, skills, spells, inventory, level-up
-wizard), placeables, doors, triggers, encounters, sounds, stores, waypoints;
-editing, copying, deleting custom blueprints and updating instances.
-**Exit:** parity checklists complete; engine tests spawn every blueprint type.
-
-### Phase 9: Area editor, objects
-Area wizard, tileset loading, area rendering (day/night, tile lights, fog,
-skybox, grass), camera, area properties, placing/selecting/moving/rotating all
-object types, visual transforms, trigger and encounter polygons, filters, grid,
-preview window, multi-edit, copy/paste, find instance.
-**Exit:** every official area opens and renders; object edits round-trip and
-load in the engine.
-
-### Phase 10: Area editor, terrain ✅
-Tile painting with SET rules (terrain, crossers, groups, heights, rotation), tile
-properties (lights, animation loops), resize/rotate, door hooks, walkmesh
-overlays, area statistics.
-**Exit:** recorded Aurora painting scenarios produce the same tile grids.
-**Exit met:** `aurora_terrain.rs` replays 62 recorded steps (54 scripted by
-`tools/aurora/capture_terrain.py`, 8 group placements by hand) and four
-resizes and rotations; every step gives Aurora's lattice; `engine_terrain.rs`
-loads a painted area in the engine.
-
-### Phase 11: Build, verify, test
-Build module (compile, palette regeneration, bookkeeping), verify module, test
-module (launch the game with the module), plot wizard, the remaining dialogs.
-**Exit:** the parity checklist is complete.
-
-### Phase 12: Hardening and release
-Performance budgets on the largest campaigns, crash safety (autosave, recovery),
-packaging (AppImage/Flatpak, Windows installer, macOS app bundle), user manual.
+Parity itself is tracked row by row in `docs/parity/checklists.md`: each row
+is done, deliberately different, or partly done with its gap named. Known
+gaps against the original scope: the Plot Wizard is not built; spell
+checking is left out (EE ships no lexicon, and Aurora's finds nothing);
+the Conversation Editor's Scrap tab is partly done. The renderer's approximations (dangly-mesh dynamics and the
+point-to-point and lightning emitters follow the wiki's descriptions, not
+measurements) and what it does not draw (shadows, grass) are in §5.5.
 
 ### After parity
-Ordered by what builders report about Aurora (`docs/research/community_pain_points.md`,
-surveyed after 0.2.0). What each item left undone is collected in
-`docs/deferred.md`, to be decided once the list is worked through.
 
-1. Tier 1, reasons to switch:
-   - git-native modules (open and save a nasher JSON tree in place, with no
-     spurious diffs) — done: File › Open Folder… and Save As nasher
-     Project…, `mg init` and `mg build`. nasher's own unpack of all 28
-     shipped modules is, byte for byte, what Moonglow writes; edited
-     projects save to what nasher unpacks from the edited module; packed
-     modules present the same world in the engine
-     (`docs/research/notes_nasher.md`);
-   - where-used and rename everywhere — done: Find References (resources
-     and tags, with readable places that open the editor there) and Rename
-     (references, own names, `#include` lines, script strings if asked;
-     includers recompiled), `mg refs` and `mg rename`; checked in the
-     engine (`engine_rename.rs`);
-   - a content doctor (Verify that names the bad 2DA row, SET section or
-     MTR, with CI output) — done: `mg-module` `doctor`, in Verify and `mg
-     verify --json` (failing on errors); calibrated on all shipped modules
-     and their haks, the shadowed-row verdicts checked in the engine
-     (`docs/research/notes_doctor.md`);
-   - a test loop builders trust (choose the character, test from here,
-     reload haks and 2DAs without a restart) — done: Test Module, Choose
-     Character (`+LoadNewModule`), Test From Here (the module as it is,
-     its start moved; checked in the engine, `engine_test_start.rs`),
-     Reload Resources (haks and folders by fingerprint, automatic every
-     few seconds);
-   - placement tools (drop to ground, rotation keys, snapping, locking,
-     prefabs) — done: also lining up, spacing out, mirroring and the
-     pointer's position to the centimeter; locks are an `MG_Locked` byte
-     on the object (the engine shows the same world with every object
-     locked, `engine_locked.rs`);
-   - a "Coming from Aurora" chapter.
-2. Tier 2, depth:
-   - script intelligence and `mg lsp` — done: definitions, references,
-     symbol rename and errors as you type in the editor and in `mg lsp`
-     (locals checked against the compiler's NDB for all 2,854,819
-     compiled functions of the game's and shipped modules' scripts);
-     incremental compiles not yet;
-   - budgets at persistent-world scale — done: a synthetic world of 300
-     areas, 8,000 item blueprints and 54 haks (`world_perf.rs`,
-     `docs/research/notes_scale.md`), every step well within budget;
-     the game reads nothing that starts past 2 GiB into a hak, nor does
-     Moonglow now, and the content doctor names it (`engine_big_hak.rs`);
-     Find opens palette and tree categories seen closed;
-   - the EE fields Aurora hides — done: texture, animation and shader
-     replacements and `MiscVisuals` (a Visuals page; the area view draws
-     replaced textures), shader area flags, a tile's replacement texture
-     (drawn), domains, school, familiar and companion, stacks past the
-     base item's limit; each read back by the engine
-     (`engine_ee_fields.rs`, `docs/research/notes_ee_fields.md`);
-   - bulk editing — done: Update Instances for a selection or a palette
-     category (every area or one, objects to untick, as Aurora asks; its
-     rules captured from Aurora, `aurora_update_instances.rs`, which also
-     fixed triggers and encounters losing their outlines), editing several
-     blueprints together, several areas' properties together (a chooser
-     filtered by name, tileset and kind), variable sets, Find and Replace Text across the
-     module's strings in every language (`text_replace.rs`), `mg
-     update-instances` and `mg replace`;
-   - conversation authoring (node markers, import and export, play-through)
-     — done: lines name their condition, action, journal update and sound;
-     Test plays as the game does (the first NPC line whose condition
-     passes, the replies whose conditions pass, each condition switchable);
-     export to plain text, CSV, Twine (Twee 3) and Ink, import of CSV lines
-     and of Twine and Ink stories as new conversations, `mg dialog-export`
-     and `mg dialog-import`; all 2,854 shipped conversations survive a round
-     trip (`dialog_formats.rs`); spell checking deferred;
-   - palette search — done: words in name, resref or tag, letters in order
-     when nothing matches; a picture and the tag on hover (rendered once
-     each); Favorites and Recent; custom blueprints dragged between
-     categories; rows out of sight skipped (10,000 shown: 2.5 ms a frame).
-3. Tier 3, later:
-   - 2DA and TLK editing — done as planned (a 2DA view and a talk-table
-     editor, not a 2DA editor): 2DAs in the resource browser show StrRefs
-     as text, the layer each row comes from and what a hak changed; Tools ›
-     Talk Table edits the module's talk table and its feminine table (new
-     ones made in the `tlk` folder), String Edit moves text into it. The
-     game reads a custom talk table from the module's haks, the module or
-     the `tlk` folder, in that order, and won't load a module whose table
-     it can't find (`engine_tlk.rs`; the wiki says haks don't count):
-     Moonglow and `mg verify` look where the game does, and the doctor
-     reports a missing one;
-   - haks in the GUI — done: Tools › Haks (New Hak, Open Hak…, Build Hak
-     from Folder…) opens a hak editor (add files and folders, remove,
-     rename, extract, undo; names the game can't read refused with why;
-     saved streamed, beside and then over the old one; the game's own haks
-     only saved as copies); every shipped hak re-saved holds the same
-     resources and `nwn_erf` reads it (`hak_edit.rs`). Module Properties ›
-     Add Haks and Talk Table… (and `mg attach`) copies content into the
-     user folder and attaches it in one step; the hak list takes effect
-     without reopening the module;
-   - PWK and AABB toggles, and minimap export — done: Object Walkmeshes
-     beside Walkmesh (Aurora's Render AABB Nodes) draws placeables' `.pwk`
-     and doors' `.dwk` in their placed state (every shipped placed one
-     found, `object_walkmeshes.rs`); Export Minimap… and `mg minimap` lay
-     out tile pictures as the game client's map does, TGA and DDS alike
-     (`client_minimap.rs`: the client screenshotted with colored test
-     pictures); every shipped area's minimap composes (`minimaps.rs`);
-   - remappable keys — done: Tools › Options › Keyboard (43 commands
-     across the window, the area view, the script and conversation
-     editors; recorded by pressing them; conflicts named; kept in the
-     settings by command id), matched exactly; menus and tooltips show
-     them; Aurora's missing keys added (Ctrl+Alt+V/S/C/I, F10, F11, the
-     conversation editor's Ctrl+A, Delete, Ctrl+C/X/V);
-   - automation — done: `--json` on every `mg` command (one object on
-     standard output, notes inside, `{"error": …}` on failure;
-     `apps/mg/tests/json.rs` runs them all), `mg find` (blueprints and
-     placed objects by type, tag, name, resref, area and field values)
-     and `mg info`; a plugin API since (`docs/plugin-proposal.md`);
-   - NWSync publishing — done: Build › Publish to NWSync… and `mg nwsync`
-     write the repository (manifest, zstd data, .json, `latest`); for a
-     module with two of the game's haks and a premium talk table, the
-     manifest is nwn_nwsync_write's byte for byte, the data the same
-     unpacked, and neverwinter.nim reads Moonglow's; with the module, the
-     same resources and `module.ifo` (`nwsync.rs`). SHA-1 is Moonglow's
-     own; ruzstd's frames are given their content size, which the
-     reference zstd's one-shot decoder needs;
-   - tileset authoring — done: Tools › Tilesets edits `.set` files line by
-     line (every shipped set written back untouched is the same bytes, a
-     value changed is one line), with undo: general settings, terrains and
-     crossers, tiles (added only at the end), groups; Make Palette (and
-     `mg tileset-palette`) generates `palstd.itp`, holding every group the
-     game's 33 palettes place (`tileset_authoring.rs`); Check runs the
-     doctor's tileset checks; Render Minimap Pictures draws tiles from
-     above, laid out as the game's pictures (38 of 42 tcn01 tiles judged
-     match best unturned; `screens.rs`, by hand).
+Ordered by what builders report about Aurora
+(`docs/research/community_pain_points.md`, surveyed after 0.2.0). All
+three tiers are built; the manual describes each feature, and the deferred
+list holds what each left undone.
+
+| Item | Where it is | Held by |
+| --- | --- | --- |
+| git-native modules (nasher trees opened and saved in place) | File › Open Folder…, Save As nasher Project…, `mg init`, `mg build` | `nasher.rs`; `docs/research/notes_nasher.md` |
+| Where-used and rename everywhere | Find References, Rename, `mg refs`, `mg rename` | `engine_rename.rs` |
+| A content doctor | Verify Module, `mg verify --json`, `mg checks` | `doctor.rs`, `engine_doctor.rs`; `docs/research/notes_doctor.md` |
+| A test loop (choose the character, test from here, reload haks and 2DAs) | Test Module, Test From Here, Reload Resources | `engine_test_start.rs` |
+| Placement tools (drop to ground, turning keys, snapping, locking, prefabs) | the area view | `engine_locked.rs` |
+| A "Coming from Aurora" chapter | `docs/manual/14-coming-from-aurora.md` | |
+| Script intelligence | the script editor, `mg lsp` | `script_analysis.rs`, `apps/mg/tests/lsp.rs` |
+| Budgets at persistent-world scale; haks over 2 GiB | | `crates/mg-ui/tests/world_perf.rs` (by hand), `engine_big_hak.rs`; `docs/research/notes_scale.md` |
+| The EE fields Aurora hides | the editors' Visuals pages and others | `engine_ee_fields.rs`; `docs/research/notes_ee_fields.md` |
+| Bulk editing | Update Instances for a selection, several blueprints or areas together, Find and Replace Text, `mg update-instances`, `mg replace`, `mg areas` | `aurora_update_instances.rs`, `text_replace.rs` |
+| Conversation authoring (markers, play-through, export and import) | the Conversation Editor, `mg dialog-export`, `mg dialog-import` | `dialog_formats.rs` |
+| Palette search, favorites and recent | the palette pane | `crates/mg-ui/tests/app.rs` |
+| 2DA view and talk-table editor | the resource browser, Tools › Talk Table | `engine_tlk.rs` |
+| Haks in the GUI | Tools › Haks, `mg attach` | `hak_edit.rs` |
+| Object walkmeshes and minimap export | the area view, `mg minimap` | `object_walkmeshes.rs`, `minimaps.rs`, `client_minimap.rs` (by hand) |
+| Remappable keys | Tools › Options › Keyboard: every command of the menus, kept by command id | `crates/mg-ui/src/keys.rs`, `crates/mg-ui/src/commands.rs` |
+| Automation | `--json` on every `mg` command, `mg find`, `mg info`, `mg set`, `mg apply`; plugins (`mg-plugin`, experimental) | `apps/mg/tests/json.rs`, `crates/mg-plugin/tests/` |
+| NWSync publishing | Build › Publish to NWSync…, `mg nwsync` | `nwsync.rs` |
+| Tileset authoring | Tools › Tilesets, `mg tileset-palette` | `tileset_authoring.rs` |
+
+Built since, outside this list (see the manual's
+[command-line chapter](manual/11-command-line.md) and the
+[log](log.md)): `mg serve`, `mg test` and `mg watch` (`mg-serve`), `mg
+2da-diff` and `mg tlk-diff`, `mg tlk-alloc`, lights from the area's menu
+([the proposal](lights-proposal.md)), and the model compiler and writers
+in `mg-mdl`.
+
+### What the test runs recorded
+
+These counts are what the test runs printed when the work landed
+(October 2026, game build 89.8193.37-17). They were not measured again
+for this revision, and the tests assert lower bounds
+(`mg_testkit::at_least`), not these figures.
+
+- All 57 shipped modules and haks index; all 27,179 GFFs inside them and every
+  GFF among the ~114,000 base-game resources round-trip to identical trees;
+  rewritten archives keep every entry byte for byte.
+- 360 sampled GFFs of every type agree with neverwinter.nim's `nwn_gff` in
+  both directions (its JSON of the file, and the GFF it writes from ours).
+- All 822 shipped 2DAs parse and agree with `nwn_twoda`, except where the
+  engine proves `nwn_twoda` wrong (§7).
+- All 10 installed talk tables (every language, masculine and feminine)
+  round-trip.
+- For ~600 resources placed to cross every precedence boundary, Moonglow's
+  resman picks the same source as the engine's `ResManGetAliasFor`.
+- Every shipped module (28), with every GFF rewritten by Moonglow and saved
+  as an archive and as a folder, reopens identical; run in `nwserver`, the
+  rewritten modules present exactly the same world as the originals (every
+  area, and 121,287 objects with type, tag, blueprint, position and facing).
+- Of 4,943 references checked across all shipped modules, the 989 Moonglow
+  reports missing are unknown to the engine.
+- The built-in compiler compiles all 33,196 scripts in the base game and
+  the shipped modules byte for byte as `nwn_script_comp` does; the shipped
+  NCS match only where the same compiler produced them (68%). For the
+  33,121 compilable ones, the outline names exactly the functions,
+  constants and structs in the compiler's debug output.
+- All 47 shipped tilesets parse (1,192 primary rules between them); all 487
+  soundsets round-trip byte for byte.
+- All 32,832 models in the game read, binary and ASCII; the two readers
+  agree through nwnmdlcomp on a sample of 176.
+- The reference scenes (`client_render.rs`: sun; tile lights) match the
+  client within 1/255 per region mean (a floor region on a dark wall's
+  edge within 5; tolerances 3 and 6), and the light uniforms Moonglow
+  uploads equal the client's.
+- Every shipped area (1,462) opens and renders.
+- `aurora_terrain.rs` replays 62 recorded painting steps in four tilesets
+  (54 scripted by `tools/aurora/capture_terrain.py`, 8 group placements by
+  hand) and four resizes and rotations; every step gives Aurora's lattice.
+- All 44 captured new areas (every tileset, sizes 2 to 8) match Aurora's
+  field for field except the random choices.
+- Every base-game item's cost agrees with `nwserver`; Aurora's challenge
+  ratings match for 4,204 probe creatures.
+- All 2,854 shipped conversations survive a round trip through the export
+  formats (`dialog_formats.rs`).
+- Tyrants of the Moonsea (5,295 resources) opens in 0.05 s, its largest
+  area (784 tiles) in 0.3 s and draws in 13 ms, verify takes 0.7 s, all
+  1,433 scripts compile in 0.7 s and the module writes in 0.02 s, against
+  budgets of 3 s, 5 s, 50 ms, 10 s, 120 s and 5 s (`campaign_perf.rs`, on
+  the development machine).
 
 ## 7. Testing strategy
 
 | Tier | What | Runs |
 | --- | --- | --- |
-| L0 unit | per-crate tests, property tests (proptest) for readers/writers, truncation tests | always |
+| L0 unit | per-crate tests, property tests (proptest, in `mg-core`, `mg-gff` and `mg-edit`), truncation tests | always |
 | L1 corpus | parse and round-trip every resource in the install and bundled modules | when a game install is found: a sample of the long sweeps on every run, all of them before a release |
-| L2 differential | compare against neverwinter.nim (GFF JSON, 2DA; later ERF, TLK, NCS bytes) | when its tools are installed; sampled as L1 |
+| L2 differential | compare against neverwinter.nim and nasher (GFF JSON, 2DA, NCS bytes, ERF, nasher source trees, NWSync manifests) | when the tools are installed; sampled as L1 |
 | L3 engine | build a module, run it in `nwserver` with a scratch user directory; a probe script logs what the engine sees (`Get2DAString`, `ResManGetAliasFor`, object state) | Linux, when the game is installed; the tests over every shipped module sampled as L1 |
-| L4 Aurora parity | scripted scenarios in Aurora under Wine produce reference outputs; Moonglow must match them semantically | on demand; recorded fixtures replayed always |
-| L5 image | offscreen renders vs golden images (SSIM threshold); periodic comparisons with game screenshots | GPU runners / locally |
+| L4 Aurora parity | scripted scenarios in Aurora under Wine produce reference outputs; Moonglow must match them semantically | captures are made on demand and kept outside the repository (`~/.local/share/moonglow-oracle/captures/`); the tests replay them when they are there |
+| L5 image | offscreen renders (`mg-render`, `mg-preview`) on every run with a GPU; comparisons with the game client's screenshots and shader uniforms (`client_render.rs`, region means within a tolerance) | with a GPU; the client comparisons by hand |
 | L6 UI | `egui_kittest` flows through editors and dialogs | always |
 
 Every feature lands with tests at the lowest tier that can catch its
@@ -608,19 +390,21 @@ regressions, plus a line ticked in the parity checklist that names the test.
 **Sweeps and samples.** A test that goes over the whole install (every
 area rendered, every model decompiled and compiled back, every script
 compiled, every sound decoded, every shipped module run in the server)
-takes a fixed sample on an ordinary run, every sixth module or tenth
-resource (`mg_testkit::sweep`), and all of it when `MOONGLOW_FULL_CORPUS=1`
-is set, as it is before a release. The sample is the same each run, so a
-failure stays where it was; counts a sweep must reach are scaled
-(`mg_testkit::at_least`), and shares that describe the whole game get some
-slack on a sample. Sweeps that take a second or two are not sampled.
-Where several tests need the same costly thing they share it: one
-decompile of each model feeds three tests, one compile of each script
-two, and the engine tests that compare a changed module with the
+takes a fixed sample on an ordinary run, every fifth or sixth module and
+every eighth or tenth resource (`mg_testkit::sweep`), and all of it when
+`MOONGLOW_FULL_CORPUS=1` is set, as it is before a release. The sample is
+the same each run, so a failure stays where it was; counts a sweep must
+reach are scaled (`mg_testkit::at_least`), and shares that describe the
+whole game get some slack on a sample. Sweeps that take a second or two
+are not sampled. Where several tests need the same costly thing they share
+it: one decompile of each model feeds three tests, one compile of each
+script two, and the engine tests that compare a changed module with the
 original run the original once (`common::original_world`). The corpus
 tests are six binaries (`tests/groups/`), so that tests of different
 files run side by side; at most eight servers run at once
 (`mg_testkit::engine`), and GPU tests one at a time (`mg_testkit::gpu`).
+How this came about, with the timings before and after, is in the
+[test review](test-review.md).
 
 When an oracle tool disagrees with Moonglow, an engine test decides and the
 divergence is recorded (see `CLAUDE.md`). So far: `nwn_twoda` drops `""` 2DA
@@ -629,28 +413,33 @@ cells, but the engine reads them as empty cells in place (Beamdog's own
 non-empty rows; `nwn_gff` cannot read back JSON with an empty field label, which
 BioWare's own palettes contain.
 
-Performance budgets (checked in CI on Linux): index the base install, open the
-largest official campaign module, open and render its largest area, save it.
-Budgets are set from the first measurements and only tightened. Two
-ignored tests, run by hand, need the game and a GPU: `campaign_perf.rs`
-(the three largest campaigns) and `world_perf.rs` (a synthetic persistent
-world).
+**Performance.** Performance is measured by four test targets in
+`crates/mg-ui/tests/`, run by hand in release (their tests are ignored,
+and the targets are `test = false`, so neither `cargo test` nor CI runs
+them): `campaign_perf.rs` (the three largest campaigns) and
+`world_perf.rs` (a synthetic persistent world) hold each step to a budget;
+`frame_perf.rs` (frames against 144 a second) and `editor_perf.rs` (the
+script editor on `nwscript.nss`) print timings. They need the game, and
+all but `editor_perf.rs` a GPU. Budgets are set from the first
+measurements (three to five times them in `world_perf.rs`) and only
+tightened.
 
 ## 8. Licensing
 
 Moonglow is licensed under GPL-3.0 (`LICENSE`; `GPL-3.0-only` in the crate
 manifests). That allows building in the official NWScript compiler (GPL-3.0)
-and depending on GPL code where it helps (e.g. nwnrs for MDL/MTR/SET
-cross-checks, xoreos and Neverblender as references). Beamdog's shaders and all
-game assets are loaded from the user's install and never redistributed.
+and depending on GPL code where it helps (nwnrs for MDL/MTR/SET cross-checks,
+xoreos and Neverblender as references; nwnrs is in no manifest today).
+Beamdog's shaders and all game assets are loaded from the user's install
+and never redistributed.
 
 ## 9. Risks
 
-| Risk | Mitigation |
-| --- | --- |
-| Tile painting behavior is undocumented | SET rules plus recorded Aurora scenarios (L4) from early on |
-| EE lighting looks off | Model derived from the stock shaders; compared with client screenshots (L5); stock-shader translation as a fallback (§5.5) |
-| egui text editing on large scripts | Resolved (Phase 5 spike): with the laid-out text cached between frames, `nwscript.nss` (13,869 lines) costs 0.4 ms per idle frame and ~10 ms per keystroke (190 ms to open, 140 ms for the first edit); `crates/mg-ui/tests/editor_perf.rs` |
-| Building the C++ compiler on all platforms | Plain C++ with no dependencies; CI builds it on all three; `nwn_script_comp` as a fallback |
-| Aurora defaults we cannot see | Capture them from Aurora's wizards into fixtures |
-| Scope | Parity checklist drives order; editors ship without previews until Phase 7 lands |
+The risks named at the outset are settled, so the table is dropped: tile
+painting was pinned down by recorded Aurora sessions (`aurora_terrain.rs`);
+the lighting was matched to the client (`client_render.rs`); egui's text
+editor proved fast enough on the game's largest script
+(`crates/mg-ui/tests/editor_perf.rs`); the C++ compiler builds on the
+three systems in CI; Aurora's defaults were captured from its wizards
+(`aurora_new.rs`, `aurora_blueprints.rs`). What is open today is in the
+[deferred list](deferred.md).

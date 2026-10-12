@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.2, for editors that check
+-- The types of Moonglow's plugin API, version 0.3, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:

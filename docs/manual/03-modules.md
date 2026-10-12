@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T00:37:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:34Z }
 ---
 
 # Modules
@@ -217,7 +217,7 @@ where a field says so). The table must be in a hak on the list: the game
 does not read one kept in the module itself. A module without one is
 read as ever (Windows-1252; Polish text Windows-1250). Plugins' text
 follows the table too, and so does the command line where it is given a
-module (`mg set`, `apply`, `find`, `info`, `areas`, `replace`, `dialog`):
+module (`mg set`, `apply`, `find`, `info`, `areas`, `replace`, `dialog-export`, `dialog-import`):
 it needs the game install to find the hak. `mg gff` on a file of its own
 is Windows-1252.
 

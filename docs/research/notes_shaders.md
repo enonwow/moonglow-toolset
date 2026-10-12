@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:29:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:36Z }
 ---
 
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
@@ -725,7 +725,7 @@ See C and D.5.
 - Static tile geometry is combined into buckets and baked into world-space vertex data ([CL] .37).
 
 ### Vertex colours
-- MDL `colors` → `vCustomColor`, unused by stock shaders. Moonglow does not upload them (nor `tverts1–3`), so it draws as the stock shaders do; tangents it uploads where the model has them (§ normal map TSB above), else it takes the frame from screen-space derivatives.
+- MDL `colors` → `vCustomColor`, unused by stock shaders. Moonglow uploads them and `tverts1` (not `tverts2–3`) but uses them only for the custom shader pairs it knows (`vertexalpha_*`, `mzlm_*`: `mg-render/src/renderer.rs` `Effect`), so otherwise it draws as the stock shaders do; tangents it uploads where the model has them (§ normal map TSB above), else it takes the frame from screen-space derivatives.
 - `vColor` = engine-baked static lighting (vertex-lit mode only).
 
 ### PLT (`fs_pltgen`)
@@ -860,7 +860,7 @@ Sources: CHANGELOG.md / patchnotes (85.32 → 37-17), `Neverwinter Nights Enhanc
 ---------------------------------------------------------------------------------------------------
 
 ## M) Open questions and unknowns
-1. **Fog amount → fogStart/fogEnd**:
+1. ~~Fog amount → fogStart/fogEnd~~: answered in F (measured in the client). As first asked:
    - What is the formula from `Sun/MoonFogAmount` (0–15) and `FogClipDist`?
    - Is fogEnd exactly FogClipDist, and does a skybox add +90 to fogEnd or only to the far clip?
    - The wiki's "0–200" range conflicts with the 0–15 values seen in AREs and environment.2da.

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T23:26:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Blueprints
@@ -19,7 +19,7 @@ The palette pane (right) shows the blueprints by type. Its header, from
 the top:
 
 - **The types**: a row of icons (tiles, creatures, doors, encounters,
-  items, placeables, sounds, merchants, triggers, waypoints, prefabs),
+  items, placeables, sounds, stores, triggers, waypoints, prefabs),
   one click each; the pointer over an icon names it, and the type shown
   is named under the row. The icons go to a second and a third row in
   a pane narrower than the eleven of them, and are a dropdown with their
@@ -214,8 +214,7 @@ type's wizard asks what Aurora's asks (the base item for an item, the
 appearance for a placeable, the classes for a creature…), a palette
 category and a name, then opens the new blueprint's properties. The Name
 page shows the ResRef and Tag the blueprint gets, made from the name as
-Aurora makes them: type others there to choose your own (not the Creature
-Wizard, yet).
+Aurora makes them: type others there to choose your own.
 
 ## The editors
 
@@ -270,7 +269,7 @@ arrows after a number make it one more or one less, as Aurora's do),
 familiar and animal companion; **Levelup Wizard…** levels the creature up
 by the classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
 class and level), **Special Abilities**, **Inventory**, Scripts,
-Advanced, Comments.
+Advanced, Visuals, Comments.
 
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.

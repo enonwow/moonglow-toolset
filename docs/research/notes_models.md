@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE model and texture formats: research notes for Moonglow Toolset'
 description: NWN:EE model and texture formats for the renderer - ASCII and binary MDL, animations and supermodels, part-based creatures and PLT, textures and materials, special nodes, walkmeshes, lights, limits - with citations, open questions and where the wiki and the data disagree.
 tags: [models, mdl, textures, plt, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:36Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -35,7 +35,7 @@ Target: NWN:EE 89.8193.37-17 (Steam, Linux). Written 2026-09-30 for the renderer
    - Binary vertices are already per-corner: all streams share one index.
    - ASCII faces use separate vertex and UV indices, so they must be de-indexed.
    - ASCII normals come from smoothing groups when `normals` is absent; tangents are needed for normal maps.
-4. **Animations bind by node name** (case-insensitive). Look up an animation by name in the model, then walk up its supermodel chain.
+4. **Animations bind by node name** (case-insensitive) in models read from text; compiled models bind by part number (B.19). Look up an animation by name in the model, then walk up its supermodel chain.
    - Player chain: pmh0 → a_ba → a_ba_non_combat → a_ba_med_weap → a_ba_custom → a_ba_casts.
    - Races use their own animation sets, e.g. pmd0/pmg0/pmo0 → a_da.
    - `setanimationscale` scales inherited animations (exact rule unverified).
@@ -645,7 +645,7 @@ Node header only, 0x70 bytes. Absent from the corpus.
 1. The EE-compiled layout = 1.69 layout. No version field; routines, back-pointers, pads, model flags, lightmapped and controller pad hold garbage.
 2. EE raw data may contain unreferenced zero gaps: the raw index list is allocated with the "vertex-indices count", which can be bigger than faces×3, and that count can be 0 in EE (15,511 meshes).
    No tangent or extra normal stream exists in base-game EE binaries (the gaps are zeros, and no pointer references them).
-   Patch 8193.36 note: "validation of compiled models upon first load to fix invalid normals and tangents". Tangents are computed at load [U whether newer compiles store them].
+   Patch 8193.36 note: "validation of compiled models upon first load to fix invalid normals and tangents". Tangents are computed at load, unless the model was compiled with a render hint: the game's compiler then stores them (item 5).
 3. EE skin 0x3B0 variant (§11).
 4. Light controller 144 (§8).
 5. **materialname / renderhint in binary [V: `nwmain compilemodel` on authored probes, 2026-10-01].** No base-game binary uses them (the base game ships only 7 `.mtr`, referenced via `bitmap`).
@@ -670,9 +670,9 @@ Probe emitters (an overridden `plc_a01` in a scratch user directory) in the sand
 1. If the first 4 bytes ≠ 0, parse as ASCII. Otherwise `M=12`, `R=12+u32@4`.
 2. Model header at M. Walk nodes from +0x48. Switch on `flags@+0x6C` (the only type tag).
 3. Read the §8 controllers into (time, values). Convert quaternions from x,y,z,w; model-level values are the rest pose.
-4. Meshes: vcount@+0x230, streams via RPtr (0xFFFFFFFF = none), faces@+0x78 (32 B). Ignore the strip/raw-index arrays.
+4. Meshes: vcount@+0x230, streams via RPtr (0xFFFFFFFF = none), faces@+0x78 (32 B). Ignore the strip array; draw the raw index list (+0x210) where it has more triangles than the faces (§9).
 5. Skins: bones from the i16 node→bone map (inverse), weights and refs from raw, qbone (w,x,y,z) and tbone per node index.
-6. Animations: array @+0x78; each has its own tree and header (§6). Bind by name.
+6. Animations: array @+0x78; each has its own tree and header (§6). Bind by part number for compiled models, by name where either side was read from text (§19).
 7. Use unaligned little-endian reads and bounds-check every offset (garbage exists in EE files).
 
 ### B.22 ASCII keywords
@@ -1283,7 +1283,7 @@ node dummy pmh0_chest001 (parent NULL)
 node trimesh pmh0_chest001g   bitmap pmh0_chest001
 ```
 - Geometry is authored in the attach node's local space: attach the part model root at the skeleton node (capart NODENAME), inherit its animated transform. E.g. head001 z∈[-0.06,0.18] above head_g; chest z∈[-0.05,0.50] above torso_g; handr z∈[-0.16,0.01].
-- **Texture = the mesh `bitmap`, not the model name**: pmh0_handr001→`pmh0_handl003`, pmh0_shor001→`pmh0_shol001`, pfd0_chest001→`pfh0_chest001`, pma0_chest005→`pmh0_chest036`, pmo0_chest010→`pmh0_forer017`, pmh2_chest001→`pmh0_chest001`. Heads use race-specific (pmd0_head001→pmd0_head001). [W:53670455] also warns the PLT is whatever BITMAP says.
+- **Texture = the mesh `bitmap`, not the model name** (as the files say; the client draws a part with the texture of its own name where one exists, `docs/findings.md` "A body part is drawn in its own texture"): pmh0_handr001→`pmh0_handl003`, pmh0_shor001→`pmh0_shol001`, pfd0_chest001→`pfh0_chest001`, pma0_chest005→`pmh0_chest036`, pmo0_chest010→`pmh0_forer017`, pmh2_chest001→`pmh0_chest001`. Heads use race-specific (pmd0_head001→pmd0_head001). [W:53670455] also warns the PLT is whatever BITMAP says.
 - Texture lookup order DDS > PLT > TGA [W:14618045]; a PLT found → colorize (D3). Sub-meshes whose bitmap names an MTR can override PLT use [W:14618045 "Overriding Palette Colors"].
 - PLT fallback when the named PLT is missing (EE, [W:38176344]; example chest 400, pheno 123, female half-orc): `pfo123_chest400.plt` (or the fallback-phenotype name if the MDL fell back) → `pfo0_chest400.plt` (pheno 0, hardcoded) → `pfh0_chest400.plt` (human, same gender) → `pmh0_chest400.plt`. Also [W:14618045]: race-specific → `pmh0_…plt`. 85.32: "PLT textures can now be phenotype-specific"; 1.67: custom P races past row 481 use their RACE letter for PLT names, else human; 37-13: "Toolset properly loads non-human PLT textures".
 - MDL fallback: requested phenotype missing → DefaultPhenoType (`pfo123_chest400` → `pfo2_chest400`). No documented gender/race fallback for MDLs (missing = part invisible) [W:38176344, W:49447501 "bodypart just disappears"].
@@ -2128,7 +2128,7 @@ From `lang/en/docs/CHANGELOG.md` and `Neverwinter Nights Enhanced Edition (v74..
 - DWK dummies are `NN_DWK_dp_closed_01` (with an underscore), not `DWK_dp_closed01`: Model Special Nodes and DWK are wrong. The engine likely matches `_DWK_dp_` + state, and `_02` for the second point.
 - `tilefade 4` is used 1,877 times in base tiles but is undocumented.
 - Tile source lights are not always dummies: 77 `sl` nodes are `light` nodes.
-- Base main lights carry radius 14/5 (or 10) and shadow 0, while the wiki claims the engine overrides them to 10/5 with shadow 1.
+- Base main lights carry radius 14/5 (or 10) and shadow 0, while the wiki claims the engine overrides them to 10/5 with shadow 1. (Not a wiki error for the radius: the client forces 10/5, `notes_shaders.md` E.6; the shadow override was not checked.)
 - Animation events `cast`, `parry` and `draw_arrow` exist in the data, although the wiki calls them unused.
 - Placeable state animation names are `open`/`close`/`on`/`off`/`dead`/`default` (PDF-SO). The wiki table suggests `open`/`close` are transitions, but in the data they are 1-frame poses and the transitions are `close2open`/`open2close`.
 

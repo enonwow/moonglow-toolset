@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Plugin API reference
@@ -302,7 +302,7 @@ fails. A file of more than 64 MB is not read.
 | `folder.name` | The folder's name. |
 | `folder:files()` | The names of its files and of those in its folders, sorted. |
 | `folder:bytes(name)` | A file's bytes. |
-| `folder:text(name)` | A file as text: UTF-8 if it is, else from the Windows-1252 codepage. |
+| `folder:text(name)` | A file as text: UTF-8 if it is, else from the module's codepage (Windows-1252, unless a hak of the module has an `encoding.2da`). |
 | `folder:write(name, bytes)` | Writes a file into the folder, when the handler has returned: as `name` (a name alone, not a path; not one that begins with a dot), in place of a file of that name there. The first time a job writes into a folder the user is asked whether to allow it, and a refusal ends the job. Undo does not take it back, and a check can't write. |
 | `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. |
 
@@ -350,7 +350,8 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 - Nothing is kept between jobs. A plugin runs when its command is
   chosen, when its check runs with Verify Module, and by itself only on
   the events its manifest declares (`mg.on`).
-- Text must fit the Windows-1252 codepage.
+- Text must fit the module's codepage (Windows-1252, unless a hak of the
+  module has an `encoding.2da`).
 
 ## What the API doesn't have yet
 

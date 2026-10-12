@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Writing plugins
@@ -138,9 +138,9 @@ were at the last save (or when the module was opened). Its edits go in
 as one undoable step after the save, so the module then has unsaved
 changes again: an event that edits should have little to say. Where it
 asks for a folder (`ctx.ui:open_folder`) or for leave to write (a hak, a
-folder), the user is asked once in a session of Moonglow and the answer
+folder), the user is asked once and the answer
 is kept for that plugin's events; a form is asked every time. Events
-happen in the window only: `mg` fires none.
+happen in the window only (`mg plugin run --event` runs one's handler).
 
 ```lua
 mg.on("emit", function(ctx)

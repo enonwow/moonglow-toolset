@@ -3,12 +3,12 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:04:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:31:18Z }
 ---
 
 # Plugins: for authors
 
-Plugins are experimental: the plugin API is at 0.2, and a later release
+Plugins are experimental: the plugin API is at 0.3, and a later release
 may change it ([`CHANGES.md`](CHANGES.md) lists each change).
 
 What a plugin author needs besides the manual:
@@ -38,9 +38,10 @@ What a plugin author needs besides the manual:
 
 The manual has the rest: [Plugins](../manual/15-plugins.md) (for the
 people who use them), [Writing plugins](../manual/16-writing-plugins.md)
-and the [Plugin API reference](../manual/17-plugin-api.md). The design,
-and what is planned beyond API 0.2, is in the
-[proposal](../plugin-proposal.md).
+and the [Plugin API reference](../manual/17-plugin-api.md). The design
+and its reasons are in the [proposal](../plugin-proposal.md); what is
+planned beyond API 0.3 is in the [deferred list](../deferred.md)
+(Automation).
 
 To check a plugin, try a command without the window, and pack a plugin
 into the archive that Plugins › Install Plugin from File… takes:

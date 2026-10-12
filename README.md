@@ -103,7 +103,7 @@ Moonglow's later work follows what builders have long asked of Aurora
 - **Plugins (experimental):** a team's own commands and checks, written
   in Luau and run in a sandbox; their edits are one step of Undo, and
   their checks run with Verify Module, in the window and in a build
-  pipeline. The plugin API is at 0.1 and may still change.
+  pipeline. The plugin API is at 0.3 and may still change.
 
 ![The script editor with a script from the original campaign](docs/images/script.png)
 
@@ -163,8 +163,8 @@ See [Command-line tools](docs/manual/11-command-line.md).
 - [Writing plugins](docs/manual/16-writing-plugins.md) and the
   [plugin API reference](docs/manual/17-plugin-api.md), with
   [examples](docs/plugins/README.md).
-- [The plan](docs/PLAN.md): goals, architecture, phases, testing strategy and
-  licensing.
+- [Architecture](docs/PLAN.md): goals, architecture, the record of the phases,
+  testing strategy and licensing.
 - [Packaging](packaging/README.md): building the AppImage, Flatpak, Windows
   installer and macOS app.
 - [Findings](docs/findings.md): what building Moonglow taught us about

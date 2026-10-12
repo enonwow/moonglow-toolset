@@ -2,8 +2,8 @@
 
 A from-scratch, cross-platform (Linux, Windows, macOS) reimplementation of the
 Neverwinter Nights: Enhanced Edition Aurora Toolset in Rust (egui UI, wgpu
-renderer), licensed GPL-3.0. The plan, architecture and phase list are in
-`docs/PLAN.md`; the Aurora parity checklist is
+renderer), licensed GPL-3.0. The architecture and the record of the phases are in
+`docs/PLAN.md` (what is open: `docs/deferred.md`); the Aurora parity checklist is
 `docs/parity/aurora-ui-inventory.md`.
 
 ## Commands
@@ -85,7 +85,8 @@ docs --links` stays clean. After adding or changing one: `okf index docs`
 and an entry in `docs/log.md`. Manual chapters carry frontmatter too; the
 app shows them without it (`mg-ui/src/manual.rs`, whose tests require it).
 The two generated documents get theirs from their generators
-(`tools/aurora/uiinv/gen.py`, `crates/mg-corpus-tests/examples/observed_schema.rs`).
+(`tools/aurora/uiinv/gen.py`, after `inputs.py` has made its inputs from the
+installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
 
 ## Rules
 

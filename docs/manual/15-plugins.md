@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Plugins
@@ -15,7 +15,7 @@ plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
 **Plugins are experimental.** They are new in Moonglow 1.0, and the
-plugin API (version 0.1) may change in a later release as the people who
+plugin API (version 0.3) may change in a later release as the people who
 write plugins try it. A plugin written for one version of the API is not
 run by a Moonglow that has another: Manage Plugins says so, and the
 plugin needs its author's update. What you build with plugins, and what

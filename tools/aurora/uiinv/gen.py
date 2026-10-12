@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
-"""Generate the Aurora Toolset UI inventory markdown from parsed DFMs + TLK tables + hand mapping."""
+"""Generate the Aurora Toolset UI inventory markdown from parsed DFMs + TLK tables + hand mapping.
+
+    python3 tools/aurora/uiinv/inputs.py          # the inputs, from the installed game (see inputs.py)
+    python3 tools/aurora/uiinv/gen.py [OUTPUT]    # default: docs/parity/aurora-ui-inventory.md
+"""
 import datetime, json, struct, re, sys, collections
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-W = HERE.parent
 sys.path.insert(0, str(HERE))
+import common
 import mapping as M
 
-forms = json.load(open(W / 'forms.json'))
-tlk = {e['id']: e.get('text', '') for e in json.load(open(W / 'tlk/dialog.json'))['entries']}
-data = open(W.parent / 'exe/.data', 'rb').read()
-locb = json.load(open(W / 'locbases.json'))
+forms = common.forms()
+tlk = common.tlk()
+data = common.exe_data()
+locb = common.locbases()
+build = common.build()
+KNOWN_BUILD = build.get('build_id') == M.BUILD_ID
+
+
+def build_text():
+    """The exe the inputs were read from, as build.json has it."""
+    b = build
+    ver = f'NWN:EE {M.GAME_VERSION}, ' if KNOWN_BUILD else ''
+    s = (f"Read from `{b['exe']}` of {ver}build `{b.get('build_id')}` ({b.get('build_date')}; "
+         f"linked {b['linked']}, {b['size']:,} bytes, SHA-256 `{b['sha256']}`) and `{b['talk_table']}`.")
+    if not KNOWN_BUILD:
+        s += (f" `mapping.py` was written for build `{M.BUILD_ID}` ({M.GAME_VERSION}): its hand-set StrRef table"
+              " offsets (`LOC_OVERRIDE`) and mappings were not checked against this one.")
+    return s
 
 VK = {8: 'Backspace', 9: 'Tab', 13: 'Enter', 27: 'Esc', 32: 'Space', 33: 'PgUp', 34: 'PgDn', 35: 'End', 36: 'Home',
       37: 'Left', 38: 'Up', 39: 'Right', 40: 'Down', 45: 'Ins', 46: 'Del'}
@@ -469,14 +487,19 @@ tags: [aurora, parity, ui, inventory, generated]
 generated: { by: process:aurora-uiinv-gen, at: {AT} }
 sources:
   - id: nwtoolset
-    resource: nwtoolset.exe of NWN:EE 89.8193.37 (its embedded DFM forms and per-form localisation tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
+    resource: nwtoolset.exe of NWN:EE {VERSION} (its embedded DFM forms and per-form localisation tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
     title: The Aurora toolset's executable and the game's data
 ---
 """
 
 
 def main():
-    out = FRONTMATTER.replace('{AT}', datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')).split('\n')
+    if not KNOWN_BUILD:
+        print(f"warning: build {build.get('build_id')} is not the one mapping.py was written for ({M.BUILD_ID}):"
+              ' check LOC_OVERRIDE with loccheck.py', file=sys.stderr)
+    version = f"{M.GAME_VERSION}, build {build.get('build_id')}" if KNOWN_BUILD else f"build {build.get('build_id')}"
+    out = (FRONTMATTER.replace('{AT}', datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+           .replace('{VERSION}', version).split('\n'))
     nres = sum(1 for fn in forms if base_for(fn) is not None)
     out.extend(M.HEADER.strip('\n').replace('{LOCSTATS}', f'The StrRef table was resolved for {nres} of {len(forms)} forms').split('\n'))
     out.append('')
@@ -522,8 +545,9 @@ def main():
             for k in c['children']: w(k)
         w(f)
     out.append('')
-    out.extend(M.TRAILER.strip('\n').split('\n'))
-    Path(sys.argv[1]).write_text('\n'.join(out) + '\n')
+    out.extend(M.TRAILER.strip('\n').replace('{BUILD}', build_text()).split('\n'))
+    target = Path(sys.argv[1]) if len(sys.argv) > 1 else common.INVENTORY
+    target.write_text('\n'.join(out) + '\n')
     print('missing sections for', missing)
     print(len(out), 'lines')
 

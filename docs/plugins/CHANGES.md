@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Plugin API changes
@@ -35,7 +35,8 @@ as it is. A plugin that uses what is new says `api = "0.3"`.
   folder only, by name.
 - Events: an `[event]` section in the manifest (`on = "module-opened"`
   or `"module-saved"`) and `mg.on(id, handler)`; the handler runs as a
-  command does, with what happened as `ctx.event`. In the window only.
+  command does, with what happened as `ctx.event`. In the window only;
+  from Moonglow 1.21.3, `mg plugin run --event` runs one too.
 
 ## 0.2
 

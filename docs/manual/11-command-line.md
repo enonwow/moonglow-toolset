@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
 ---
 
 # Command-line tools
@@ -359,7 +359,7 @@ and nothing on standard error, for scripts, build pipelines and tools
   (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
   objects `area`, `index` and `position`); `mg verify` its `errors`,
   `warnings`, `missing`, `findings` and `unused`; `mg refs` its `uses`
-  and `script_strings`; `mg compile` its `scripts` (those compiled), `unchanged` (those passed
+  and `script_strings`; `mg compile` its `scripts` (how many were compiled), `unchanged` (how many were passed
   over), `failed` and `errors` (each with `script`, `line` and `message`); and so on.
 - **Notes:** warnings and summaries, otherwise sent to standard error,
   are in `notes`.

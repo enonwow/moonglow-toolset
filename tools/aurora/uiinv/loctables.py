@@ -1,7 +1,12 @@
+#!/usr/bin/env python3
+"""List the candidate StrRef tables of the exe's .data section (a survey:
+`gen.py` does not read its output).
+
+    python3 tools/aurora/uiinv/loctables.py    # writes loctables.json beside the inputs
+"""
 import struct,json,re
-d=json.load(open('tlk/dialog.json'))
-T={e['id']:e.get('text','') for e in d['entries']}
-b=open('exe/.data','rb').read()
+import common
+b=common.exe_data()
 pat=b'\x00'*12+b'\xff'*12
 starts=[m.start() for m in re.finditer(re.escape(pat),b) if m.start()%4==0]
 tables=[]
@@ -15,6 +20,6 @@ for s in starts:
         else: break
     tables.append((s,recs))
 print(len(starts))
-json.dump([(s,r) for s,r in tables],open('loctables.json','w'))
+json.dump([(s,r) for s,r in tables],open(common.work_dir()/'loctables.json','w'))
 for s,r in tables[:5]: print(s,len(r))
 print(sorted(len(r) for s,r in tables))

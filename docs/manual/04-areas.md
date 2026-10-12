@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:34Z }
 ---
 
 # Areas
@@ -415,15 +415,14 @@ memory its models take.
 Right-click the area in the module tree › **Properties**, or **Area
 Properties** on the viewer's toolbar:
 
-- **Basic**: name, tag, the tileset (fixed once made), the lighting
-  scheme, the load screen, Variables.
-- **Visual**: day and night (or always one), the sun and moon colors,
+- **Basic**: name, the tileset (fixed once made) and the size.
+- **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
   fog colors and amounts, shadows, the skybox, lightning, rain and snow
   chances, as Aurora's Customize Environment sets them.
 - **Audio**: day and night ambient sounds and their volumes, music, battle
   music, the environment's sound effects.
-- **Events**, **Advanced** (flags such as interior, underground, natural,
-  no rest, PvP; **Shader Flags**, the area flags past those three, which
+- **Events**, **Advanced** (the tag, the loading screen, Variables; flags
+  such as interior, underground, natural, no rest, PvP; **Shader Flags**, the area flags past those three, which
   custom shaders read from their `areaFlags` uniform), **Comments**.
 
 ### Several areas together
