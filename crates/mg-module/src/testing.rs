@@ -94,12 +94,27 @@ pub fn driver(tests: &[ResKey], original: Option<&str>, settle: f32) -> String {
 
 /// Puts the driver into `module` (a scratch copy: never the builder's own)
 /// as its OnModuleLoad script, with the assertion include where the module
-/// has none of its own. Returns whether the module's own include was kept.
-pub fn inject(module: &mut Module, tests: &[ResKey], settle: f32) -> Result<bool, ModuleError> {
+/// has none of its own. Each test is made to say when its `main()` has
+/// returned ([`returning`]). Returns whether the module's own include was
+/// kept, and the tests that will say so.
+pub fn inject(
+    module: &mut Module,
+    tests: &[ResKey],
+    settle: f32,
+) -> Result<(bool, Vec<String>), ModuleError> {
     let include = ResKey::parse(INCLUDE_NAME, ResType::NSS).expect("a resource name");
     let own = module.contains(&include);
     if !own {
         module.set(include, INCLUDE.as_bytes().to_vec());
+    }
+    let mut returns = Vec::new();
+    for key in tests {
+        let name = key.resref.to_lowercase().to_string();
+        let source = module.get(key).map(|s| String::from_utf8_lossy(s).into_owned());
+        if let Some(wrapped) = source.and_then(|s| returning(&s, &name)) {
+            module.set(*key, wrapped.into_bytes());
+            returns.push(name);
+        }
     }
     let mut info = module.info()?;
     let original = info.root.read(&ifo::MOD_ON_MOD_LOAD).to_string();
@@ -109,7 +124,32 @@ pub fn inject(module: &mut Module, tests: &[ResKey], settle: f32) -> Result<bool
     let name: ResRef = DRIVER_NAME.parse().expect("a resource name");
     info.root.write(&ifo::MOD_ON_MOD_LOAD, name);
     module.set_info(&info)?;
-    Ok(own)
+    Ok((own, returns))
+}
+
+/// A test's source made to say when its `main()` has returned: `main` is
+/// given another name (in its place, so that no line moves), and a `main`
+/// after it calls that and writes `MG_TEST RETURNED name`. A script that
+/// stops inside (a function the server has not got, a division by zero)
+/// never writes it, though the script that ran it goes on. `None` where
+/// no `void main()` is found to rename.
+pub fn returning(source: &str, name: &str) -> Option<String> {
+    let pattern = regex_lite::Regex::new(r"\bvoid\s+main\s*\(\s*(void)?\s*\)").expect("a pattern");
+    // (Not one after `//` on its line: a test may well have another's
+    // in a comment above its own.)
+    let found = pattern.find_iter(source).find(|m| {
+        let line = &source[source[..m.start()].rfind('\n').map_or(0, |i| i + 1)..m.start()];
+        !line.contains("//")
+    })?;
+    let mut out = String::with_capacity(source.len() + 160);
+    out += &source[..found.start()];
+    out += "void MgTestMain()";
+    out += &source[found.end()..];
+    out += &format!(
+        "\nvoid main()\n{{\n    MgTestMain();\n    WriteTimestampedLogEntry(\"{MARK}RETURNED \
+         {name}\");\n}}\n"
+    );
+    Some(out)
 }
 
 /// One assertion of a test.
@@ -144,6 +184,12 @@ pub struct Report {
     pub format: Option<u32>,
     /// The run said it was done.
     pub done: bool,
+    /// The tests that say when their `main()` has returned
+    /// ([`returning`]): one of them that ends without saying so stopped
+    /// inside.
+    pub returns: Vec<String>,
+    /// The test running has said its `main()` returned.
+    returned: bool,
     /// The test running (begun, not ended) and what was logged since.
     running: Option<(usize, Vec<String>)>,
     /// What the engine said of scripts that failed, by script, until the
@@ -169,6 +215,9 @@ impl Report {
     fn unfinished(&mut self) {
         if let Some((i, said)) = self.running.take() {
             let mut why = String::from("did not run to its end");
+            if self.tests[i].cases.is_empty() {
+                why += " (and made no assertion)";
+            }
             for line in said.iter().take(8) {
                 why += "\n";
                 why += line;
@@ -217,10 +266,21 @@ impl Report {
                 self.unfinished();
                 let i = self.test(rest);
                 self.running = Some((i, Vec::new()));
+                self.returned = false;
+            }
+            "RETURNED" => {
+                if self.running.as_ref().is_some_and(|(i, _)| self.tests[*i].script == rest) {
+                    self.returned = true;
+                }
             }
             "END" => {
                 if self.running.as_ref().is_some_and(|(i, _)| self.tests[*i].script == rest) {
-                    self.running = None;
+                    // (The script that ran it went on, but its own main()
+                    // never returned: it stopped inside.)
+                    match self.returns.iter().any(|r| r == rest) && !self.returned {
+                        true => self.unfinished(),
+                        false => self.running = None,
+                    }
                 }
             }
             "PASS" | "FAIL" => {
@@ -458,6 +518,42 @@ mod tests {
         assert!(x.contains("TOO MANY INSTRUCTIONS"));
     }
 
+    /// A test that stops inside its main() (the script that ran it goes
+    /// on, and says END) is an error, not a test that passed with nothing
+    /// asserted.
+    #[test]
+    fn a_test_that_stops_inside_is_an_error() {
+        let source = "#include \"mg_test\"\n// void main() of old\nvoid  main ( )\n{\n    Assert(1, \"x\");\n}\n";
+        let wrapped = returning(source, "test_a").unwrap();
+        assert!(wrapped.contains("// void main() of old\nvoid MgTestMain()\n{"), "{wrapped}");
+        assert!(wrapped.ends_with(
+            "void main()\n{\n    MgTestMain();\n    WriteTimestampedLogEntry(\"MG_TEST RETURNED test_a\");\n}\n"
+        ));
+        assert_eq!(wrapped.lines().nth(4), source.lines().nth(4), "no line moves");
+        assert_eq!(returning("int StartingConditional() { return 1; }", "x"), None);
+
+        let mut r =
+            Report { returns: vec!["test_env".into(), "test_ok".into()], ..Default::default() };
+        for line in [
+            "MG_TEST BEGIN 1 3",
+            "MG_TEST RUN test_env",
+            "MG_TEST END test_env",
+            "MG_TEST RUN test_ok",
+            "MG_TEST PASS fine",
+            "MG_TEST RETURNED test_ok",
+            "MG_TEST END test_ok",
+            // (One with a driver of its own way: not held to it.)
+            "MG_TEST RUN test_old",
+            "MG_TEST END test_old",
+        ] {
+            r.line(line);
+        }
+        assert!(r.line("MG_TEST DONE"));
+        let errors: Vec<_> = r.tests.iter().map(|t| t.error.as_deref()).collect();
+        assert_eq!(errors, [Some("did not run to its end (and made no assertion)"), None, None]);
+        assert!(!r.ok() && r.errors() == 1 && r.passed() == 1);
+    }
+
     #[test]
     fn a_run_cut_short_names_what_did_not_run() {
         let mut r = Report::default();
@@ -476,7 +572,7 @@ mod tests {
         info.root.write(&ifo::MOD_ON_MOD_LOAD, "my_load".parse::<ResRef>().unwrap());
         m.set_info(&info).unwrap();
         m.set(key("test_a"), b"void main() {}".to_vec());
-        assert!(!inject(&mut m, &[key("test_a")], 0.0).unwrap());
+        assert!(!inject(&mut m, &[key("test_a")], 0.0).unwrap().0);
         assert_eq!(m.info().unwrap().root.read(&ifo::MOD_ON_MOD_LOAD).to_string(), DRIVER_NAME);
         let d = String::from_utf8(m.get(&key(DRIVER_NAME)).unwrap().to_vec()).unwrap();
         assert!(d.contains("ExecuteScript(\"my_load\""));
@@ -484,7 +580,7 @@ mod tests {
         // Again (a copy that has it): the driver does not run itself, and
         // a module's own include is kept.
         m.set(key(INCLUDE_NAME), b"// ours".to_vec());
-        assert!(inject(&mut m, &[], 0.0).unwrap());
+        assert!(inject(&mut m, &[], 0.0).unwrap().0);
         let d = String::from_utf8(m.get(&key(DRIVER_NAME)).unwrap().to_vec()).unwrap();
         assert!(!d.contains("ExecuteScript(\"mg_test_run\""));
         assert_eq!(m.get(&key(INCLUDE_NAME)).unwrap(), b"// ours");

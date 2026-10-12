@@ -19,6 +19,11 @@ void main()
 }
 "#;
 const OK: &str = "#include \"mg_test\"\nvoid main() { Pass(\"fine\"); }\n";
+/// A test that stops inside its main(), at a division by nothing: what
+/// ran it goes on, and it asserted nothing before.
+const STOPS: &str = "#include \"mg_test\"\nvoid main()\n{\n    int nNone = \
+                     GetLocalInt(GetModule(), \"mg_none\");\n    int nBad = 10 / nNone;\n    \
+                     Pass(\"after\");\n}\n";
 const ENDLESS: &str = "void main() { int n = 0; while (TRUE) { n++; } }\n";
 
 fn mg(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
@@ -47,6 +52,7 @@ fn tests_run_in_the_server_and_report() {
     std::fs::write(tests.join("test_math.nss"), MATH).unwrap();
     std::fs::write(tests.join("test_ok.nss"), OK).unwrap();
     std::fs::write(tests.join("test_endless.nss"), ENDLESS).unwrap();
+    std::fs::write(tests.join("test_stops.nss"), STOPS).unwrap();
     let chess = dir.join("chess.mod");
     std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
     let before = std::fs::read(&chess).unwrap();
@@ -59,7 +65,7 @@ fn tests_run_in_the_server_and_report() {
     assert!(!ok && r["ok"] == false && r["done"] == true, "{r}");
     assert_eq!(
         (&r["passed"], &r["failed"], &r["errors"]),
-        (&6.into(), &1.into(), &1.into()),
+        (&6.into(), &1.into(), &2.into()),
         "{r}"
     );
     let of = |name: &str| {
@@ -75,6 +81,12 @@ fn tests_run_in_the_server_and_report() {
     let why = endless["error"].as_str().unwrap();
     assert!(why.contains("TOO MANY INSTRUCTIONS"), "{why}");
     assert_eq!(of("test_ok")["passed"], 1);
+    // One that stopped inside is an error, not a test that passed with
+    // nothing asserted.
+    let stops = of("test_stops");
+    let why = stops["error"].as_str().unwrap_or_default();
+    assert!(why.starts_with("did not run to its end"), "{stops}");
+    assert_eq!(stops["passed"], 0);
     let xml = std::fs::read_to_string(&junit).unwrap();
     assert!(xml.contains("<failure message=\"got 4, expected 5\"/>"), "{xml}");
     // The module is as it was, and the player's folder got nothing.

@@ -201,6 +201,37 @@ pub(crate) fn file_url(path: &std::path::Path) -> String {
     if p.starts_with('/') { format!("file://{p}") } else { format!("file:///{p}") }
 }
 
+/// Where a selection is drawn, row by row, in the galley's own space: from
+/// its first character to its last, and on the rows between to each row's
+/// last character (a row with none: a sliver, so that an empty line in a
+/// selection is seen to be in it).
+pub(crate) fn selection_rects(
+    galley: &egui::Galley,
+    range: &egui::text::CCursorRange,
+) -> Vec<egui::Rect> {
+    if range.is_empty() {
+        return Vec::new();
+    }
+    let [min, max] = range.sorted_cursors();
+    let (min, max) = (galley.layout_from_cursor(min), galley.layout_from_cursor(max));
+    let mut out = Vec::new();
+    for ri in min.row..=max.row {
+        let Some(placed) = galley.rows.get(ri) else { continue };
+        let row = &placed.row;
+        let left = if ri == min.row { row.x_offset(min.column) } else { 0.0 };
+        let right = if ri == max.row { row.x_offset(max.column) } else { row.size.x };
+        // (The last row with nothing of it selected: the selection ends
+        // at its start.)
+        if ri == max.row && ri != min.row && right <= left {
+            continue;
+        }
+        let right = if right <= left && ri != max.row { left + 3.0 } else { right };
+        let rect = egui::Rect::from_min_max(egui::pos2(left, 0.0), egui::pos2(right, row.size.y));
+        out.push(rect.translate(placed.pos.to_vec2()));
+    }
+    out
+}
+
 fn editor_id(key: ResKey) -> egui::Id {
     egui::Id::new(("script", key))
 }
@@ -860,14 +891,37 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
                         .selectable(false),
                 );
+                // The selection is drawn here, not by the field: to each
+                // line's last character, where the field draws a line end
+                // that is selected as half a character more (which reads
+                // as a space the line does not have). The field's own is
+                // not drawn (no color), and the field's ground and the
+                // selection go under its text.
+                let under = ui.painter().add(egui::Shape::Noop);
+                let ground = ui.visuals().text_edit_bg_color();
+                let selected = std::mem::replace(
+                    &mut ui.visuals_mut().selection.bg_fill,
+                    egui::Color32::TRANSPARENT,
+                );
                 let out = egui::TextEdit::multiline(&mut buf.text)
                     .code_editor()
                     .desired_width(f32::INFINITY)
                     .desired_rows(1)
                     .min_size(egui::vec2(0.0, room))
                     .id(editor_id(key))
+                    .background_color(egui::Color32::TRANSPARENT)
                     .layouter(&mut layouter)
                     .show(ui);
+                ui.visuals_mut().selection.bg_fill = selected;
+                let field = out.response.response.rect;
+                let radius = ui.style().interact(&out.response.response).corner_radius;
+                let mut shapes = vec![egui::Shape::rect_filled(field, radius, ground)];
+                let rows = out.cursor_range.map(|r| selection_rects(&out.galley, &r));
+                for rect in rows.unwrap_or_default() {
+                    let rect = rect.translate(out.galley_pos.to_vec2());
+                    shapes.push(egui::Shape::rect_filled(rect, 0.0, selected));
+                }
+                ui.painter().set(under, egui::Shape::Vec(shapes));
                 if let Some(r) = out.cursor_range {
                     let rect =
                         out.galley.pos_from_cursor(r.primary).translate(out.galley_pos.to_vec2());
@@ -1349,6 +1403,41 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A selection is drawn to each line's last character: no wider than
+    /// the line (the field's own drew a selected line end as more of the
+    /// line), with a sliver on an empty line.
+    #[test]
+    fn a_selection_ends_at_each_line_s_last_character() {
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::monospace(14.0);
+            galley = Some(ui.painter().layout_no_wrap(
+                "ab;\n\ncdef\n".into(),
+                font,
+                egui::Color32::WHITE,
+            ));
+        });
+        // (The font's texture is not uploaded anywhere here.)
+        out.textures_delta.clear();
+        let galley = galley.unwrap();
+        let cursor = egui::text::CCursor::new;
+        let range = |a, b| egui::text::CCursorRange::two(cursor(a), cursor(b));
+        let rows = &galley.rows;
+        // From the first character to after "cd": three rows.
+        let found = selection_rects(&galley, &range(0, 7));
+        assert_eq!(found.len(), 3);
+        assert_eq!(found[0].width(), rows[0].row.size.x, "the line, and no more");
+        assert_eq!(found[1].width(), 3.0, "an empty line's sliver");
+        assert!(found[2].width() > 0.0 && found[2].width() < rows[2].row.size.x);
+        assert_eq!(found[1].top(), rows[1].pos.y);
+        // Whole lines, to the start of the next: nothing on that one.
+        assert_eq!(selection_rects(&galley, &range(0, 5)).len(), 2);
+        // Backwards is the same; nothing selected is nothing drawn.
+        assert_eq!(selection_rects(&galley, &range(7, 0)), found);
+        assert!(selection_rects(&galley, &range(2, 2)).is_empty());
+    }
 
     #[test]
     fn print_pages_are_highlighted_and_escaped() {

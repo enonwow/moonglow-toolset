@@ -1513,6 +1513,11 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             for t in &ran.report.tests {
                 match (&t.error, t.failed()) {
+                    // (Run to its end with nothing asserted: said, not a
+                    // failure.)
+                    (None, 0) if t.cases.is_empty() => {
+                        out.line(format!("ok    {} (0: it made no assertion)", t.script));
+                    }
                     (None, 0) => out.line(format!("ok    {} ({})", t.script, t.cases.len())),
                     (None, n) => out.line(format!("FAIL  {} ({n} of {})", t.script, t.cases.len())),
                     (Some(_), _) => out.line(format!("ERROR {}", t.script)),

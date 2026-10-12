@@ -16086,6 +16086,25 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     assert!(mg_ui::table_view::save(h.state_mut(), loose));
     let text = std::fs::read_to_string(&file).unwrap();
     assert!(text.ends_with("2  \"Two Words\" ****\r\n"), "{text:?}");
+    // Compact: saved with one space between cells (ticking it is a change
+    // to save), and a file read so is saved so again.
+    assert!(!h.state().tables.iter().find(|d| d.id == loose).unwrap().compact);
+    // (The hak's table is open beside it: the file's is the one opened last.)
+    h.get_all_by_label("Compact").last().unwrap().click();
+    h.run_steps(3);
+    let doc = h.state().tables.iter().find(|d| d.id == loose).unwrap();
+    assert!(doc.compact && doc.edit.is_dirty());
+    assert!(mg_ui::table_view::save(h.state_mut(), loose));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        text,
+        "2DA V2.0\r\n\r\n Label Cost\r\n0 Bread 1\r\n1 Cheese 2\r\n2 \"Two Words\" ****\r\n"
+    );
+    let other = dir.join("tabs.2da");
+    std::fs::write(&other, "2DA V2.0\n\n\tLabel\tCost\n0\tBread\t1\n").unwrap();
+    let tabs = mg_ui::table_view::open_path(h.state_mut(), &other).unwrap();
+    assert!(h.state().tables.iter().find(|d| d.id == tabs).unwrap().compact, "as the file was");
+    h.state_mut().tables.retain(|d| d.id != tabs);
     // A cell a 2DA cannot hold is refused, and said.
     let doc = h.state_mut().tables.iter_mut().find(|d| d.id == loose).unwrap();
     assert!(doc.edit.set(0, 0, Some("a \"b\"".into())).is_err());

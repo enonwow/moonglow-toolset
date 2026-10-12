@@ -97,18 +97,25 @@ fn engine_reads_a_table_the_editor_wrote() {
     e.paste(row, 1, "7\tlast").unwrap();
     let t = e.table().clone();
     let bytes = t.to_bytes(mg_core::Codepage::default()).unwrap();
+    // (And saved compact, one space between cells: the same cells.)
+    let compact = t.to_bytes_as(mg_core::Codepage::default(), mg_2da::Layout::Compact).unwrap();
     let mut probes = String::new();
     for r in 0..t.len() + 1 {
         for c in t.columns() {
             probes += &format!(
                 "    WriteTimestampedLogEntry(\"MG_CELL {r}.{c}=[\" + Get2DAString(\"mg_edited\", \"{c}\", {r}) + \"]\");\n"
             );
+            probes += &format!(
+                "    WriteTimestampedLogEntry(\"MG_COMPACT {r}.{c}=[\" + Get2DAString(\"mg_compact\", \"{c}\", {r}) + \"]\");\n"
+            );
         }
     }
     let script =
         format!("void main()\n{{\n{probes}    WriteTimestampedLogEntry(\"MG_DONE\");\n}}\n");
     let key = mg_resman::ResKey::parse("mg_edited", ResType::TWODA).unwrap();
-    crate::common::probe_module(&root, &dir, "mg_edited_p", &script, &[], &[(key, bytes)]);
+    let compact_key = mg_resman::ResKey::parse("mg_compact", ResType::TWODA).unwrap();
+    let tables = [(key, bytes), (compact_key, compact)];
+    crate::common::probe_module(&root, &dir, "mg_edited_p", &script, &[], &tables);
     let run = run_server(&root, &dir, "mg_edited_p", "MG_DONE", Duration::from_secs(120)).unwrap();
     assert!(run.finished, "{}", &run.log[run.log.len().saturating_sub(2000)..]);
     let cells = run.values("MG_CELL");
@@ -120,6 +127,11 @@ fn engine_reads_a_table_the_editor_wrote() {
             assert!(cells.contains(&want), "{want} not among {cells:?}");
         }
     }
+    let mut compact = run.values("MG_COMPACT");
+    let mut aligned = cells.clone();
+    compact.sort();
+    aligned.sort();
+    assert_eq!(compact, aligned, "the compact table reads as the aligned one");
     assert!(cells.contains(&"3.Label=[Two Words]".to_string()));
     assert!(cells.contains(&"1.Label=[]".to_string()), "an emptied row is there, and empty");
 }

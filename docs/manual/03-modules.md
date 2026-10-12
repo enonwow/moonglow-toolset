@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:52:46Z }
 ---
 
 # Modules
@@ -452,8 +452,12 @@ unticks them all. **Take** brings each ticked row in whole, as one
 step.
 
 Saving lays the table out as the game's own files are (columns in line,
-rows numbered from 0). An empty row at the very end is not written: a
-table has no empty rows after its last.
+rows numbered from 0), or, with **Compact** ticked, with one space
+between cells: a smaller file with less for the game to pass over as it
+reads, where columns in line are easier to read and to copy from. The
+box begins as the file was (one space or one tab between its cells:
+compact), and ticking it is a change to save. An empty row at the very
+end is not written: a table has no empty rows after its last.
 
 ### A table's description
 

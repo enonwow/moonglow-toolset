@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T11:49:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T13:23:37Z }
 ---
 
 # Command-line tools
@@ -202,7 +202,10 @@ mg areas mymodule.mod --all --static-placeables --dry-run
 
 `mg serve MODULE` starts `nwserver` (Linux and Windows: the game has none
 for macOS) on a `.mod`, a module folder or a nasher project. A folder or
-a project is packed first: the server loads an archive only.
+a project is packed first: the server loads an archive only. Its
+scripts that have no compiled script are compiled for the packed copy,
+as `mg build` would (the server runs compiled scripts only), and one
+that does not compile is said; the sources are left as they are.
 
 - **Private unless asked.** The server is not listed (`--public` lists
   it) and gets random player, DM and admin passwords, which are printed;
@@ -267,6 +270,12 @@ void main()
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
   out of instructions, or isn't there, is an error and stops no other.
+  So is one that stops inside its `main()` (a division by nothing, a
+  function the server has not got, as an NWNX one with NWNX not loaded):
+  in the copy each test says when its `main()` has returned, and one
+  that never says so did not run to its end, whatever it had asserted.
+  A test that ran to its end and asserted nothing passes, and is said to
+  have made no assertion.
 - `--filter TEXT` runs the tests with that text in their name (`*` for
   any run of characters). `--tests FOLDER` adds a folder's scripts to
   the copy. `--settle SECONDS` waits that long after the last test for

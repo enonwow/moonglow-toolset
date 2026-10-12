@@ -71,6 +71,8 @@ pub struct TableDoc {
     /// How far the rows are scrolled: the column names and the rows'
     /// numbers follow.
     scroll: egui::Vec2,
+    /// Saved with one space between cells, not with the columns in line.
+    pub compact: bool,
     /// Talk-table columns show their text, not their numbers.
     pub strref_text: bool,
     /// Columns described as a list or as flags show their values' names.
@@ -137,6 +139,7 @@ impl TableDoc {
             go_to: String::new(),
             reveal: false,
             scroll: egui::Vec2::ZERO,
+            compact: false,
             strref_text: true,
             value_names: true,
             described: None,
@@ -225,7 +228,9 @@ fn codepage(app: &Moonglow) -> mg_core::Codepage {
     app.game.as_deref().map_or_else(mg_core::Codepage::default, |g| g.codepage())
 }
 
-fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing) -> u32 {
+/// (`compact`: the table's file had one blank between cells, and is saved
+/// so again unless the builder says otherwise.)
+fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing, compact: bool) -> u32 {
     if let Some(d) = app.tables.iter().find(|d| d.key == key && d.home == home) {
         let id = d.id;
         app.actions.push(Action::OpenTab(Tab::Table(id)));
@@ -233,9 +238,15 @@ fn open_doc(app: &mut Moonglow, key: ResKey, home: Home, edit: Editing) -> u32 {
     }
     app.next_table += 1;
     let id = app.next_table;
-    app.tables.push(TableDoc::new(id, key, home, edit));
+    let mut doc = TableDoc::new(id, key, home, edit);
+    doc.compact = compact;
+    app.tables.push(doc);
     app.actions.push(Action::OpenTab(Tab::Table(id)));
     id
+}
+
+fn is_compact(data: &[u8]) -> bool {
+    mg_2da::Layout::of(data) == mg_2da::Layout::Compact
 }
 
 fn parse(app: &Moonglow, key: ResKey, data: &[u8]) -> Result<TwoDa, String> {
@@ -246,7 +257,7 @@ fn parse(app: &Moonglow, key: ResKey, data: &[u8]) -> Result<TwoDa, String> {
 pub fn open_in_module(app: &mut Moonglow, key: ResKey) -> Option<u32> {
     let data = app.ws.as_ref()?.module.get(&key)?.to_vec();
     match parse(app, key, &data) {
-        Ok(t) => Some(open_doc(app, key, Home::Module, Editing::new(t))),
+        Ok(t) => Some(open_doc(app, key, Home::Module, Editing::new(t), is_compact(&data))),
         Err(e) => {
             app.log.error(e);
             None
@@ -257,8 +268,8 @@ pub fn open_in_module(app: &mut Moonglow, key: ResKey) -> Option<u32> {
 /// Opens a table of a hak that is open in the hak editor.
 pub fn open_in_hak(app: &mut Moonglow, hak: u32, key: ResKey) -> Option<u32> {
     let data = app.haks.iter().find(|d| d.id == hak)?.hak.data(key);
-    match data.and_then(|d| parse(app, key, &d)) {
-        Ok(t) => Some(open_doc(app, key, Home::Hak(hak), Editing::new(t))),
+    match data.and_then(|d| Ok((parse(app, key, &d)?, is_compact(&d)))) {
+        Ok((t, compact)) => Some(open_doc(app, key, Home::Hak(hak), Editing::new(t), compact)),
         Err(e) => {
             app.log.error(e);
             None
@@ -269,14 +280,16 @@ pub fn open_in_hak(app: &mut Moonglow, hak: u32, key: ResKey) -> Option<u32> {
 /// Opens a 2DA file anywhere.
 pub fn open_path(app: &mut Moonglow, path: &std::path::Path) -> Option<u32> {
     let name = path.file_stem().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let read = || -> Result<(ResKey, TwoDa), String> {
+    let read = || -> Result<(ResKey, TwoDa, bool), String> {
         let resref = ResRef::from_str(&name).map_err(|e| format!("{}: {e}", path.display()))?;
         let key = ResKey::new(resref, ResType::TWODA);
         let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok((key, parse(app, key, &data)?))
+        Ok((key, parse(app, key, &data)?, is_compact(&data)))
     };
     match read() {
-        Ok((key, t)) => Some(open_doc(app, key, Home::File(path.to_path_buf()), Editing::new(t))),
+        Ok((key, t, compact)) => {
+            Some(open_doc(app, key, Home::File(path.to_path_buf()), Editing::new(t), compact))
+        }
         Err(e) => {
             app.log.error(e);
             None
@@ -442,7 +455,7 @@ pub fn edit_copy(app: &mut Moonglow, key: ResKey, home: Home) -> Option<u32> {
         Ok(t) => {
             let mut edit = Editing::new(t);
             edit.mark_unsaved();
-            Some(open_doc(app, key, home, edit))
+            Some(open_doc(app, key, home, edit, is_compact(&data)))
         }
         Err(e) => {
             app.log.error(e);
@@ -466,7 +479,11 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
     let Some(at) = app.tables.iter().position(|d| d.id == id) else { return false };
     app.tables[at].commit();
     let (key, home) = (app.tables[at].key, app.tables[at].home.clone());
-    let bytes = match app.tables[at].edit.table().to_bytes(cp) {
+    let layout = match app.tables[at].compact {
+        true => mg_2da::Layout::Compact,
+        false => mg_2da::Layout::Aligned,
+    };
+    let bytes = match app.tables[at].edit.table().to_bytes_as(cp, layout) {
         Ok(b) => b,
         Err(e) => {
             app.tables[at].problem = Some(format!("Not saved: {e}"));
@@ -887,6 +904,16 @@ fn header(
         {
             doc.commit();
             doc.taking = Some(Taking::default());
+        }
+        let was = doc.compact;
+        ui.checkbox(&mut doc.compact, "Compact").on_hover_text(
+            "How the table is saved: ticked, with one space between cells (a smaller file, \
+             with less for the game to pass over as it reads); not, with the columns in \
+             line, as the game's own tables are (easier to read and to copy from). It begins \
+             as the file was",
+        );
+        if doc.compact != was {
+            doc.edit.mark_unsaved();
         }
         ui.checkbox(&mut doc.strref_text, "Strings as text").on_hover_text(
             "Columns that hold a talk-table string's number show the string; the number is \

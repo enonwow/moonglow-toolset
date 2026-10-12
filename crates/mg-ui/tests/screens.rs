@@ -760,6 +760,49 @@ fn script_editor() {
     shoot(&mut h, &dir, "script-editor");
 }
 
+/// A selection in the script editor: whole lines (to their line ends),
+/// and part of one.
+#[test]
+#[ignore]
+fn script_selection() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-script-selection");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let text = "void main()\n{\n    int nGold = 5;\n    string sName = \"x\";\n\n    return;\n}\n";
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 420.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    // From the start of "int nGold" line to the start of the empty line:
+    // two whole lines with their line ends.
+    let from = text.find("    int").unwrap();
+    let to = text.find("\n\n").unwrap() + 1;
+    for (name, range) in [("lines", (from, to)), ("part", (from + 4, from + 13))] {
+        let id = egui::Id::new(("script", key));
+        let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(range.0),
+            egui::text::CCursor::new(range.1),
+        )));
+        state.store(&h.ctx, id);
+        h.ctx.memory_mut(|m| m.request_focus(id));
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("script-selection-{name}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn creature_wizard() {

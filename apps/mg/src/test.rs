@@ -76,11 +76,15 @@ pub(crate) fn run(
         true => Vec::new(),
         false => testing::test_scripts(&m, c.filter.as_deref()),
     };
+    // The tests that say when their main() has returned.
+    let mut returns = Vec::new();
     if !c.own_driver {
         if tests.is_empty() {
             bail!("no tests: the module has no test_* script with a main() that matches");
         }
-        if testing::inject(&mut m, &tests, c.settle)? {
+        let (own, said) = testing::inject(&mut m, &tests, c.settle)?;
+        returns = said;
+        if own {
             notes.push(format!(
                 "the module's own {}.nss is used, not Moonglow's",
                 testing::INCLUDE_NAME
@@ -117,6 +121,7 @@ pub(crate) fn run(
 
     let config = serve::Config { module: copy, dir: Some(dir), stdin: false, ..c.serve.clone() };
     let mut report = Report::default();
+    report.returns = returns;
     let mut late = false;
     let end = serve::serve(gi, &config, &mut |e| {
         match e {

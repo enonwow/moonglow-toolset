@@ -8,8 +8,9 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use mg_core::ResType;
 use mg_module::{Module, ModuleLocation};
-use mg_resman::GameInstall;
+use mg_resman::{GameInstall, ResKey};
 
 /// What to serve, and how.
 #[derive(Debug, Clone, Default)]
@@ -156,6 +157,30 @@ pub(crate) fn prepare(
             std::fs::copy(module, &target).with_context(|| target.display().to_string())?;
         }
     } else {
+        // A project or a folder: its scripts that have no compiled script
+        // are compiled, as `mg build` would (the server runs compiled
+        // scripts only, and a module packed without them loads and does
+        // nothing).
+        let uncompiled: Vec<ResKey> = (m.keys_of(ResType::NSS))
+            .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
+            .copied()
+            .collect();
+        if !uncompiled.is_empty() {
+            let mut rm = mg_resman::ResMan::for_game(gi)?;
+            let _ = m.stack_onto(&mut rm, gi);
+            let results = mg_module::build::compile_named_scripts(&mut m, &rm, &uncompiled, None);
+            let compiled =
+                uncompiled.iter().filter(|k| m.contains(&ResKey::new(k.resref, ResType::NCS)));
+            notes.push(format!(
+                "compiled {} of the module's scripts that had no compiled script",
+                compiled.count()
+            ));
+            for r in &results {
+                if let Err(e) = &r.result {
+                    notes.push(format!("warning: {} did not compile: {}", r.script, e.message));
+                }
+            }
+        }
         // (The server loads an archive only.)
         m.save_as(&ModuleLocation::Archive(target.clone()))?;
         let _ = std::fs::remove_file(target.with_extension("mod.bak"));

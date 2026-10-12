@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T13:17:08Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -56,6 +56,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Script intelligence (`mg lsp`, the script editor)
 
+- **The script editor's selection** is drawn by Moonglow, to each
+  line's last character (the text widget's own drew a selected line end
+  as half a character more, which a builder read as a space added).
+  Only there: a script or a text shown in the resource browser, and the
+  other text fields, have the widget's own. (S)
 - **The longest constants in the side lists:** the lists open wide
   enough for names of up to 44 characters (every function, all but some
   160 constants, `PLAYER_DEVICE_PROPERTY_…` and the like, of up to 67);
@@ -619,9 +624,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     blueprints, areas or scripts. (M)
   - A row both copies changed is taken whole or left: its cells are not
     chosen one by one. (S)
-  - A table saved is laid out anew (the file's own widths and its row
-    labels are not kept: rows are numbered), and an empty row at the
-    end is not written. (S)
+  - A table saved is laid out anew, columns in line or compact as its
+    file was (its own widths, its tabs and its row labels are not
+    kept: rows are numbered), and an empty row at the end is not
+    written. `mg 2da-diff -o` and a plugin's `twoda:write` write
+    columns in line only. (S)
   - A table open in the editor is not read again when what it was read
     from changes under it (the module's Undo taking its save back, the
     hak's table replaced, the file changed outside). (S)

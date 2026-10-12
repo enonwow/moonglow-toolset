@@ -298,6 +298,13 @@ impl TwoDa {
     /// Serializes the table with aligned columns and CRLF line ends, as the
     /// game's own files are laid out.
     pub fn to_bytes(&self, codepage: Codepage) -> Result<Vec<u8>, TwoDaError> {
+        self.to_bytes_as(codepage, Layout::Aligned)
+    }
+
+    /// Serializes the table as `layout` says: its columns in line, or one
+    /// space between cells (a smaller file, with less for the game to
+    /// pass over as it reads).
+    pub fn to_bytes_as(&self, codepage: Codepage, layout: Layout) -> Result<Vec<u8>, TwoDaError> {
         let esc = |c: &Option<String>| -> Result<String, TwoDaError> {
             match c {
                 None => Ok("****".into()),
@@ -324,6 +331,16 @@ impl TwoDa {
         }
         out += "\r\n";
         let line = |label: &str, cells: &[String]| {
+            if layout == Layout::Compact {
+                // (The column names' line begins with a space, as the
+                // rows begin with their numbers.)
+                let mut l = label.to_string();
+                for c in cells {
+                    l.push(' ');
+                    l += c;
+                }
+                return l + "\r\n";
+            }
             let mut l = format!("{label:id_width$}");
             for (i, c) in cells.iter().enumerate() {
                 if i + 1 == cells.len() {
@@ -340,6 +357,29 @@ impl TwoDa {
             out += &line(&i.to_string(), r);
         }
         codepage.encode(&out).map(|b| b.into_owned()).ok_or(TwoDaError::Unquotable)
+    }
+}
+
+/// How a table's file is laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Layout {
+    /// Columns in line, padded with spaces: the game's own files.
+    #[default]
+    Aligned,
+    /// One space between cells.
+    Compact,
+}
+
+impl Layout {
+    /// How a file is laid out: compact where no row has two blanks
+    /// together between its cells (one space or one tab between each).
+    pub fn of(data: &[u8]) -> Layout {
+        let padded = data
+            .split(|b| *b == b'\n')
+            .skip(3)
+            .any(|line| line.trim_ascii().windows(2).any(|w| w.iter().all(|b| b" \t".contains(b))));
+        let rows = data.split(|b| *b == b'\n').skip(3).any(|l| !l.trim_ascii().is_empty());
+        if rows && !padded { Layout::Compact } else { Layout::Aligned }
     }
 }
 
@@ -487,6 +527,19 @@ mod tests {
         assert_eq!(t.add_column("name"), Err(TwoDaError::DuplicateColumn("name".into())));
         t.set(2, 2, Some("7".into())).unwrap();
         t.clear_row(1);
+        // One space between cells reads back as the same table, and a
+        // file's own layout is known.
+        let compact = t.to_bytes_as(Codepage::default(), Layout::Compact).unwrap();
+        let aligned = t.to_bytes(Codepage::default()).unwrap();
+        assert!(compact.len() < aligned.len());
+        assert!(!String::from_utf8_lossy(&compact).lines().skip(2).any(|l| l.contains("  ")));
+        assert_eq!(TwoDa::parse(&compact, Codepage::default()).unwrap(), t);
+        assert_eq!(
+            (Layout::of(&compact), Layout::of(&aligned)),
+            (Layout::Compact, Layout::Aligned)
+        );
+        assert_eq!(Layout::of(b"2DA V2.0\n\n\tA\tB\n0\tx\ty\n"), Layout::Compact);
+        assert_eq!(Layout::of(b"2DA V2.0\n\n  A B\n"), Layout::Aligned, "no rows: the game's way");
         // A column taken out and put back where it was, and renamed.
         let before = t.clone();
         let first = t.columns()[0].clone();
