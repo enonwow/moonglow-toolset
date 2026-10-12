@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:48:38Z }
 ---
 
 # The main window
@@ -19,17 +19,19 @@ close it, **Palettes** on the toolbar brings it back.
 
 | Menu | Commands |
 | --- | --- |
-| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Close, Exit |
-| Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Find References… |
+| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Import Conversation…, Close, Exit |
+| Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References… |
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Hide All Panels, Reset Layout |
-| Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
-| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
+| Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
+| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, About Moonglow Toolset |
 
 **The menus by the keyboard.** Alt, pressed and let go on its own, or
-F10 opens the first menu; the same closes the menus. Left and Right go
+F10 opens the first menu; the same closes the menus. (With the pointer
+over an area's view, F10 is Select Tiles or Objects, as in Aurora: Alt
+opens the menus there.) Left and Right go
 from menu to menu, round the ends; Up and Down from row to row, past the
 lines and the rows that can't be chosen now; Enter or Space chooses the
 row marked. Right on a row with a submenu opens it, Left closes it;
@@ -58,6 +60,7 @@ changes them; the menus show the current keys.
 | Ctrl+S | Save |
 | Ctrl+Z | Undo |
 | Ctrl+Y, Ctrl+Shift+Z | Redo |
+| Ctrl+H | Find and Replace Text |
 | Ctrl+Alt+A | Area Wizard |
 | Ctrl+Alt+F | Faction Editor |
 | Ctrl+Alt+J | Journal Editor |

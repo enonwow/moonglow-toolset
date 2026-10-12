@@ -133,7 +133,7 @@ pub enum Action {
     SaveAsProjectDialog,
     /// File › Open Folder…: a module folder or a nasher project.
     OpenFolderDialog,
-    /// Build › Pack Target: a nasher project's module file, as nasher packs it.
+    /// Build › Pack *file*: a nasher project's module file, as nasher packs it.
     PackTarget,
     /// Saves, then runs the action if the module was saved.
     SaveThen(Box<Action>),
@@ -521,6 +521,9 @@ pub struct Moonglow {
     pub(crate) menu_row: [usize; 2],
     pub(crate) menu_open: Option<usize>,
     pub(crate) menu_alt_spoiled: bool,
+    /// Whether the pointer was over an area's view when one was last
+    /// drawn: F10 is Select Tiles there, not the menus'.
+    pub(crate) area_hovered: bool,
     /// Where each open tool window was seen last (see [`Place`]).
     tab_places: HashMap<Tab, Place>,
     /// Each pane's tabs in their order, as this frame began (the dock is
@@ -723,6 +726,7 @@ impl Moonglow {
             menu_row: [0, 0],
             menu_open: None,
             menu_alt_spoiled: false,
+            area_hovered: false,
             tab_places: HashMap::new(),
             panes_tabs: Vec::new(),
             closed_tabs: Vec::new(),
@@ -2646,7 +2650,7 @@ impl Moonglow {
         }
     }
 
-    /// Build › Pack Target: writes a nasher project's module file (its
+    /// Build › Pack *file*: writes a nasher project's module file (its
     /// target's `file`), scripts compiled, as `nasher pack` would. Returns
     /// where it went.
     fn pack_target(&mut self) -> Option<PathBuf> {
@@ -2674,11 +2678,11 @@ impl Moonglow {
                 }
             }
             Ok(None) => {
-                self.log.error("Pack Target: the module isn't in a nasher project");
+                self.log.error("Pack: the module isn't in a nasher project");
                 None
             }
             Err(e) => {
-                self.log.error(format!("Pack Target: {e}"));
+                self.log.error(format!("Pack: {e}"));
                 None
             }
         }

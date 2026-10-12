@@ -2773,6 +2773,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     view.held = Held::read(ui, response, view.held);
     let scaling = wheel_scales(app, ui, view, response, (command, shift));
+    app.area_hovered |= response.hovered();
     camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
     // (Asked of each kind only when that is what is dragged: asking takes
     // the payload, whatever it is.)

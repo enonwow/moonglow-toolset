@@ -14195,6 +14195,42 @@ fn look_creature_wizard_appearance() {
     img.save(mg_testkit::scratch_dir("ui-cw-look").join("look.png")).unwrap();
 }
 
+/// F10 with the pointer over an area's view is Select Tiles or Objects, as
+/// in Aurora; the menus don't take it there (they do everywhere else, and
+/// Alt opens them anywhere).
+#[test]
+fn f10_over_an_area_selects_tiles() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("f10-tiles") else { return };
+    h.run_steps(40);
+    let shown = |h: &Harness<'_, Moonglow>, label: &str| {
+        h.query_all_by_label_contains(label).next().is_some()
+    };
+    h.hover_at(screen(&h, area, Vec3::new(5.0, 5.0, 0.0)));
+    h.run_steps(3);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].tile_mode, "over to the tiles");
+    assert!(!shown(&h, "Save As"), "and no menu opened");
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(!h.state().area_views[&area].tile_mode, "back to the objects");
+    // Off the view (over the menu bar), F10 is the menus'.
+    h.hover_at(egui::pos2(300.0, 4.0));
+    h.run_steps(3);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(shown(&h, "Save As"));
+    assert!(!h.state().area_views[&area].tile_mode);
+    // And with a menu open it closes them, wherever the pointer is.
+    h.hover_at(screen(&h, area, Vec3::new(5.0, 5.0, 0.0)));
+    h.run_steps(3);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(!shown(&h, "Save As"));
+    assert!(!h.state().area_views[&area].tile_mode);
+}
+
 /// Between objects and tiles without the toolbar: a double click on the
 /// ground selects its tile (Select Tiles comes on), and a click on an
 /// object there selects it (and Select Tiles goes off).

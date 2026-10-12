@@ -3,14 +3,14 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:52:06Z }
 ---
 
 # Options
 
 **Tools › Options…** has Aurora's pages, in a window that docks and
 tabs with the others. **OK** applies the changes; the module stays open.
-**Cancel**, closing the window or Escape discards them. Only another game or user folder (the Folders page)
+**Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop switch (the Folders page) or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 
@@ -52,7 +52,7 @@ the module is opened again from its file.
   module file to load. Switch it off to keep a folder a folder (a source
   tree that something else packs). The `.mod`
   that was there is kept as its `.BackupMod` (with backups on). A nasher
-  project is not packed this way: it has **Build › Pack Target**.
+  project is not packed this way: it has **Build › Pack** *file*.
 - **Minimize Toolset on test module**.
 - **Start a Steam copy of the game through Steam for a test** (on):
   off, the game's program is started on its own, without Steam's overlay

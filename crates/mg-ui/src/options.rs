@@ -274,14 +274,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.horizontal(|ui| {
                         if ui.button("OK").clicked() || (over && crate::widgets::enter(ui)) {
                             close = true;
-                            if draft.moves_game(&app.settings) {
+                            if draft.moves_game(&app.settings)
+                                || draft.edit_language != app.settings.edit_language
+                            {
+                                // (Another language: text is read again in
+                                // it, and the game's data where the install
+                                // has that language's.)
                                 app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
                             } else {
                                 // Only looks: no reload.
                                 app.settings = draft.apply(&app.settings);
-                                crate::text::set_edit_language(mg_core::Language(
-                                    app.settings.edit_language.unwrap_or(0),
-                                ));
                             }
                         }
                         // (Escape closes it too, as the window in front:
@@ -401,7 +403,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "A module opened as a folder is saved into the folder, and as \
                                  <folder>.mod next to it as well, as Aurora saves a module \
                                  directory: the game loads the .mod. (A nasher project has \
-                                 Build › Pack Target for its module file.)",
+                                 Build › Pack for its module file.)",
                             );
                             ui.checkbox(
                                 &mut draft.minimize_on_test,
@@ -1033,6 +1035,34 @@ mod tests {
         assert_eq!(d.apply(&s).script_style.colors[3], Some([255, 0, 0]));
         d.game_root = "/games/nwn".into();
         assert!(d.moves_game(&s));
+    }
+
+    /// Options › Language alone, OK: applied as a language is (text fields
+    /// are read again in it), not as a look.
+    #[test]
+    fn another_language_alone_is_applied_as_one() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        // (No game here, whatever this machine has: nothing to read again.)
+        app.settings.game_root = Some(mg_testkit::scratch_dir("ui-options-language"));
+        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h.state_mut().actions.push(Action::OptionsDialog);
+        h.run();
+        let field = egui::Id::new("a field's text, in English");
+        h.state_mut().buffers.insert(field, "English".into());
+        h.get_by_label("Language").click();
+        h.run();
+        h.get_by_label("Specified Language:").click();
+        h.run();
+        h.get_by_label("German").click();
+        h.run();
+        h.get_by_label("OK").click();
+        h.run();
+        crate::text::set_edit_language(mg_core::Language::ENGLISH);
+        assert_eq!(h.state().settings.edit_language, Some(mg_core::Language::GERMAN.0));
+        assert!(!h.state().buffers.contains_key(&field), "its text is the other language's");
     }
 
     #[test]

@@ -837,7 +837,8 @@ impl MenuKeys {
 /// The menu bar, from [`MENUS`]. By the mouse as egui has it, and: with a
 /// menu open, the pointer over another menu's name opens that one. By the
 /// keyboard: Alt (pressed and let go alone) or F10 opens the first menu,
-/// and closes the menus; Left and Right go from menu to menu, round the
+/// and closes the menus (F10 over an area's view is Select Tiles there,
+/// while that is its key); Left and Right go from menu to menu, round the
 /// ends; Up and Down from row to row, past separators and rows that can't
 /// be chosen; Enter or Space chooses; Right opens a submenu, Left closes
 /// it; Escape closes the submenu the keys are in, else the menus. Alt and
@@ -896,7 +897,13 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     } else if other || ctx.input(|i| i.modifiers.ctrl || i.modifiers.shift) {
         app.menu_alt_spoiled = true;
     }
-    let toggle = alt_released || ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F10));
+    // F10 with the pointer over an area's view is that view's while it is
+    // Select Tiles' key there (Aurora's), unless a menu is open to close.
+    let areas = std::mem::take(&mut app.area_hovered)
+        && app.menu_open.is_none()
+        && ctx.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles));
+    let toggle =
+        alt_released || (!areas && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F10)));
 
     let mut tops: Vec<(egui::Id, egui::Response)> = Vec::new();
     let mut keys = std::mem::take(&mut app.menu_keys);
