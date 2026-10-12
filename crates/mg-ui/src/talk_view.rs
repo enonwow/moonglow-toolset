@@ -153,7 +153,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let outside = app.talk_view.outside && app.talk.is_some();
     if app.ws.is_none() && !outside {
         ui.label("Open a module to edit its talk table, or a talk table file on its own.");
-        files(&mut app.actions, ui);
+        ui.horizontal_wrapped(|ui| files(&mut app.actions, ui));
         return;
     }
     let name = load(app);
@@ -161,7 +161,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if !open {
         no_table(app, ui, name);
         ui.add_space(8.0);
-        files(&mut app.actions, ui);
+        ui.horizontal_wrapped(|ui| files(&mut app.actions, ui));
         return;
     }
     app.talk_view.hovered = ui.rect_contains_pointer(ui.max_rect());
@@ -184,23 +184,24 @@ pub(crate) fn undo(app: &mut Moonglow, redo: bool) -> bool {
     true
 }
 
-/// Open File… and New File…: a talk table that is a file anywhere.
+/// Open File… and New File…: a talk table that is a file anywhere. (Put
+/// into the row they are called in: in a wrapping row of their own at
+/// the end of one, they stood in a sliver past the row's end, one under
+/// the other, and held the list a long way down.)
 fn files(actions: &mut Vec<Action>, ui: &mut Ui) {
-    ui.horizontal_wrapped(|ui| {
-        if ui
-            .button("Open File…")
-            .on_hover_text(
-                "Edit a .tlk file anywhere (its feminine table too, if a file named with an f \
-                 after its name is beside it)",
-            )
-            .clicked()
-        {
-            actions.push(Action::TalkFile(false));
-        }
-        if ui.button("New File…").on_hover_text("Make an empty .tlk file and edit it").clicked() {
-            actions.push(Action::TalkFile(true));
-        }
-    });
+    if ui
+        .button("Open File…")
+        .on_hover_text(
+            "Edit a .tlk file anywhere (its feminine table too, if a file named with an f \
+             after its name is beside it)",
+        )
+        .clicked()
+    {
+        actions.push(Action::TalkFile(false));
+    }
+    if ui.button("New File…").on_hover_text("Make an empty .tlk file and edit it").clicked() {
+        actions.push(Action::TalkFile(true));
+    }
 }
 
 /// Open File (or, `new`, New File): the editor takes a talk table that is

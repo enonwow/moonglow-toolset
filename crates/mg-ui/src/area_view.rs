@@ -1508,7 +1508,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
         let before = view.fade;
-        egui::ComboBox::from_id_salt("fade-geometry")
+        let fits =
+            Fits::before(ui, "fade-geometry", &format!("Fade Geometry: {}", view.fade.name()));
+        let r = egui::ComboBox::from_id_salt("fade-geometry")
             .selected_text(format!("Fade Geometry: {}", view.fade.name()))
             .show_ui(ui, |ui| {
                 for f in Fade::ALL {
@@ -1521,6 +1523,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                  (roofs, upper walls), to see and place what is under them: never, while \
                  working on objects (not with Select Tiles or a terrain brush), or always",
             );
+        fits.after(ui, &r);
         if view.fade != before {
             app.settings.fade_geometry = view.fade as u8;
         }
@@ -1565,7 +1568,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let grid = |v: Option<u16>| {
             v.map_or("Snap: off".to_string(), |cm| format!("Snap: {} m", f32::from(cm) / 100.0))
         };
-        egui::ComboBox::from_id_salt("snap-grid")
+        let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
+        let r = egui::ComboBox::from_id_salt("snap-grid")
             .selected_text(grid(app.settings.snap_grid))
             .show_ui(ui, |ui| {
                 for g in [None, Some(25), Some(50), Some(100), Some(250), Some(500)] {
@@ -1574,8 +1578,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             })
             .response
             .on_hover_text("Moved and placed objects snap to this grid");
+        fits.after(ui, &r);
         let angle = |v: Option<u16>| v.map_or("Turn: free".to_string(), |a| format!("Turn: {a}°"));
-        egui::ComboBox::from_id_salt("snap-angle")
+        let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
+        let r = egui::ComboBox::from_id_salt("snap-angle")
             .selected_text(angle(app.settings.snap_angle))
             .show_ui(ui, |ui| {
                 for a in [None, Some(5), Some(15), Some(45), Some(90)] {
@@ -1593,6 +1599,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             })
             .response
             .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
+        fits.after(ui, &r);
         ui.toggle_value(&mut app.settings.turn_together, "Together").on_hover_text(
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
@@ -2178,6 +2185,38 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     painter.add(egui::Shape::mesh(mesh));
     for (p, color) in edges {
         outline(&painter, &p, Stroke::new(1.0, color));
+    }
+}
+
+/// A toolbar's list of choices, begun on the next row where it would not
+/// fit in what is left of this one. (A list is laid out as one group,
+/// which a wrapping row does not move down by itself: it ran past the
+/// tab's edge, and widened the rows after it.) Its width is the one it
+/// had in the last frame.
+struct Fits(egui::Id);
+
+impl Fits {
+    fn before(ui: &mut egui::Ui, salt: &str, text: &str) -> Fits {
+        let id = ui.id().with(("fits", salt));
+        // (Not drawn yet: about what its text will take.)
+        let width = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| {
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let text = ui.fonts_mut(|f| {
+                f.layout_no_wrap(text.to_string(), font, egui::Color32::WHITE).size().x
+            });
+            let spacing = ui.spacing();
+            let around = 2.0 * spacing.button_padding.x + spacing.icon_width + spacing.icon_spacing;
+            (text + around).max(spacing.combo_width)
+        });
+        let row_begun = ui.cursor().left() > ui.max_rect().left() + 1.0;
+        if row_begun && width > ui.available_size_before_wrap().x {
+            ui.end_row();
+        }
+        Fits(id)
+    }
+
+    fn after(self, ui: &mut egui::Ui, r: &egui::Response) {
+        ui.data_mut(|d| d.insert_temp(self.0, r.rect.width()));
     }
 }
 

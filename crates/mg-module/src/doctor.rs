@@ -51,11 +51,12 @@ pub enum Check {
     TwoDaLimit,
     TwoDaShadow,
     TwoDaStrRef,
+    TwoDaRef,
     ObjectRow,
 }
 
 impl Check {
-    pub const ALL: [Check; 19] = [
+    pub const ALL: [Check; 20] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -74,6 +75,7 @@ impl Check {
         Check::TwoDaLimit,
         Check::TwoDaShadow,
         Check::TwoDaStrRef,
+        Check::TwoDaRef,
         Check::ObjectRow,
     ];
 
@@ -97,6 +99,7 @@ impl Check {
             Check::TwoDaLimit => "2da-limit",
             Check::TwoDaShadow => "2da-shadow",
             Check::TwoDaStrRef => "2da-strref",
+            Check::TwoDaRef => "2da-ref",
             Check::ObjectRow => "object-row",
         }
     }
@@ -128,6 +131,7 @@ impl Check {
             Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
             Check::TwoDaShadow => "a 2DA does not hide a longer copy in another hak",
             Check::TwoDaStrRef => "a 2DA's changed rows name talk-table strings that exist",
+            Check::TwoDaRef => "a 2DA's changed rows name rows of other 2DAs that exist",
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
         }
     }
@@ -620,6 +624,86 @@ const DOOR_MODEL: (&str, &str) = ("doortypes", "Model");
 const MODEL_COLUMNS: [(&str, &str); 4] =
     [APPEARANCE_MODEL, PLACEABLE_MODEL, GENERIC_DOOR_MODEL, DOOR_MODEL];
 
+/// Columns that name a row of another table (or of their own): the
+/// table, the column, the table whose row it is. Each is in nwn.wiki's
+/// page of its table as a line reference, and holds for every row of the
+/// game's own tables (`row_columns_hold_for_the_game_s_tables`); `****`
+/// and a negative number name none. Left out: columns the game's own
+/// tables break (`appearance.FOOTSTEPTYPE`), and the tables a class or a
+/// race names in a column (`cls_feat_*`, `race_feat_*`).
+pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 61] = [
+    ("appearance", "SOUNDAPPTYPE", "appearancesndset"),
+    ("baseitems", "ReqFeat0", "feat"),
+    ("baseitems", "ReqFeat1", "feat"),
+    ("baseitems", "ReqFeat2", "feat"),
+    ("baseitems", "ReqFeat3", "feat"),
+    ("baseitems", "ReqFeat4", "feat"),
+    ("baseitems", "WeaponFocusFeat", "feat"),
+    ("baseitems", "EpicWeaponFocusFeat", "feat"),
+    ("baseitems", "WeaponSpecializationFeat", "feat"),
+    ("baseitems", "EpicWeaponSpecializationFeat", "feat"),
+    ("baseitems", "WeaponImprovedCriticalFeat", "feat"),
+    ("baseitems", "EpicWeaponOverwhelmingCriticalFeat", "feat"),
+    ("baseitems", "EpicWeaponDevastatingCriticalFeat", "feat"),
+    ("baseitems", "WeaponOfChoiceFeat", "feat"),
+    ("classes", "Package", "packages"),
+    ("domains", "Level_1", "spells"),
+    ("domains", "Level_2", "spells"),
+    ("domains", "Level_3", "spells"),
+    ("domains", "Level_4", "spells"),
+    ("domains", "Level_5", "spells"),
+    ("domains", "Level_6", "spells"),
+    ("domains", "Level_7", "spells"),
+    ("domains", "Level_8", "spells"),
+    ("domains", "Level_9", "spells"),
+    ("domains", "GrantedFeat", "feat"),
+    ("feat", "PREREQFEAT1", "feat"),
+    ("feat", "PREREQFEAT2", "feat"),
+    ("feat", "OrReqFeat0", "feat"),
+    ("feat", "OrReqFeat1", "feat"),
+    ("feat", "OrReqFeat2", "feat"),
+    ("feat", "OrReqFeat3", "feat"),
+    ("feat", "OrReqFeat4", "feat"),
+    ("feat", "SUCCESSOR", "feat"),
+    ("feat", "MASTERFEAT", "masterfeats"),
+    ("feat", "SPELLID", "spells"),
+    ("feat", "REQSKILL", "skills"),
+    ("feat", "REQSKILL2", "skills"),
+    ("feat", "MinLevelClass", "classes"),
+    ("genericdoors", "SoundAppType", "placeableobjsnds"),
+    ("packages", "ClassID", "classes"),
+    ("packages", "Domain1", "domains"),
+    ("packages", "Domain2", "domains"),
+    ("packages", "School", "spellschools"),
+    ("placeables", "SoundAppType", "placeableobjsnds"),
+    ("placeables", "LightColor", "lightcolor"),
+    ("polymorph", "AppearanceType", "appearance"),
+    ("polymorph", "RacialType", "racialtypes"),
+    ("polymorph", "SPELL1", "spells"),
+    ("polymorph", "SPELL2", "spells"),
+    ("polymorph", "SPELL3", "spells"),
+    ("racialtypes", "Appearance", "appearance"),
+    ("racialtypes", "ToolsetDefaultClass", "classes"),
+    ("racialtypes", "Favored", "classes"),
+    ("racialtypes", "FavoredEnemyFeat", "feat"),
+    ("spells", "Master", "spells"),
+    ("spells", "SubRadSpell1", "spells"),
+    ("spells", "SubRadSpell2", "spells"),
+    ("spells", "SubRadSpell3", "spells"),
+    ("spells", "SubRadSpell4", "spells"),
+    ("spells", "SubRadSpell5", "spells"),
+    ("spells", "FeatID", "feat"),
+];
+
+/// The row a cell of one of [`ROW_COLUMNS`] names; `None`: none. (A
+/// spell's `FeatID` carries a radial spell's place above its low 16
+/// bits.)
+pub fn row_named(table: &str, column: &str, value: i32) -> Option<usize> {
+    let row = usize::try_from(value).ok()?;
+    let radial = table.eq_ignore_ascii_case("spells") && column.eq_ignore_ascii_case("FeatID");
+    Some(if radial { row & 0xFFFF } else { row })
+}
+
 /// What a column of a 2DA holds, where the checks know.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColumnKind {
@@ -627,6 +711,8 @@ pub enum ColumnKind {
     StrRef,
     /// A model's name.
     Model,
+    /// A row's number in the table named (without `.2da`).
+    Row(&'static str),
 }
 
 /// The columns of the table `name` (without `.2da`) that the checks know
@@ -635,7 +721,14 @@ pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
     let of = |list: &'static [(&'static str, &'static str)], kind: ColumnKind| {
         list.iter().filter(|(t, _)| t.eq_ignore_ascii_case(name)).map(move |(_, c)| (*c, kind))
     };
-    of(&STRREF_COLUMNS, ColumnKind::StrRef).chain(of(&MODEL_COLUMNS, ColumnKind::Model)).collect()
+    let rows = ROW_COLUMNS
+        .iter()
+        .filter(|(t, _, _)| t.eq_ignore_ascii_case(name))
+        .map(|(_, c, target)| (*c, ColumnKind::Row(target)));
+    of(&STRREF_COLUMNS, ColumnKind::StrRef)
+        .chain(of(&MODEL_COLUMNS, ColumnKind::Model))
+        .chain(rows)
+        .collect()
 }
 
 /// Rows past which Aurora fails, by table.
@@ -751,6 +844,28 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
                     key,
                     format!("row {row}, {column}"),
                     format!("string {v} doesn't exist: {p} (\"Bad Strref\")"),
+                );
+            }
+        }
+    }
+    // Rows of other tables (as the module has them, this hak's and the
+    // others' over the game's) that its changed rows name.
+    let rows: Vec<usize> = (0..table.len()).filter(|r| changed(*r)).collect();
+    for (t, column, target) in ROW_COLUMNS {
+        if name != t || table.column(column).is_none() {
+            continue;
+        }
+        let Some(length) = d.table(target).map(TwoDa::len) else { continue };
+        for &row in &rows {
+            let named = table.get_int(row, column).and_then(|v| row_named(t, column, v));
+            if let Some(named) = named.filter(|n| *n >= length) {
+                d.push(
+                    Warning,
+                    Check::TwoDaRef,
+                    source,
+                    key,
+                    format!("row {row}, {column}"),
+                    format!("row {named} of {target}.2da doesn't exist: it has {length} rows"),
                 );
             }
         }
@@ -972,6 +1087,55 @@ mod tests {
         let f = examine(&m, &rm, TalkTables { base: 100, custom: Some(1) });
         let object = f.iter().find(|x| x.check == "object-row").unwrap();
         assert!(object.message.contains("model plc_stool"), "{}", object.message);
+    }
+
+    #[test]
+    fn a_2da_s_changed_rows_name_rows_that_exist() {
+        let feat = |rows: &str| format!("2DA V2.0\n\n   LABEL PREREQFEAT1 SPELLID\n{rows}");
+        let mut game = MemContainer::new();
+        game.insert(
+            key("feat", ResType::TWODA),
+            feat("0 Alertness **** ****\n1 Old 9 ****\n").into_bytes(),
+        );
+        game.insert(
+            key("spells", ResType::TWODA),
+            b"2DA V2.0\n\n   Label FeatID\n0 Acid ****\n1 Radial 131075\n".to_vec(),
+        );
+        // Row 1 is the game's, as it was (its own bad row is not this
+        // hak's); row 2 names a feat that is there, row 3 one that is not
+        // and a spell that is not; row 4 names none.
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("feat", ResType::TWODA),
+            feat("0 Alertness **** ****\n1 Old 9 ****\n2 New 4 1\n3 Bad 5 7\n4 None -1 ****\n")
+                .into_bytes(),
+        );
+        // (A spell's FeatID with a radial's place over it: feat 3.)
+        hak.insert(
+            key("spells", ResType::TWODA),
+            b"2DA V2.0\n\n   Label FeatID\n0 Acid ****\n1 Radial 131075\n2 New 131077\n".to_vec(),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables { base: 100, custom: None });
+        assert_eq!(
+            checks(&f),
+            [
+                ("2da-ref", "row 3, PREREQFEAT1".into()),
+                ("2da-ref", "row 3, SPELLID".into()),
+                ("2da-ref", "row 2, FeatID".into()),
+            ]
+        );
+        assert_eq!(f[0].message, "row 5 of feat.2da doesn't exist: it has 5 rows");
+        assert_eq!(f[1].message, "row 7 of spells.2da doesn't exist: it has 3 rows");
+        assert_eq!(f[2].message, "row 5 of feat.2da doesn't exist: it has 5 rows");
+        assert!(f.iter().all(|x| x.severity == Severity::Warning && x.source == "my.hak"));
+        // What a table's columns hold, for those who ask.
+        let kinds = column_kinds("Feat");
+        assert!(kinds.contains(&("FEAT", ColumnKind::StrRef)));
+        assert!(kinds.contains(&("MASTERFEAT", ColumnKind::Row("masterfeats"))));
+        assert!(column_kinds("nothing").is_empty());
     }
 
     #[test]

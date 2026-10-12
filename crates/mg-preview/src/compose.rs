@@ -60,11 +60,10 @@ fn place_unguarded(
 ) -> Option<Placed> {
     let mut model = load(&part.model)?;
     // A part hung from a node and not animated (a body part, a held
-    // item) is drawn rigid by the game: a mesh in it that is a skin has
-    // no skeleton to follow there and is not drawn at all (a body part
-    // exported as a skin mesh is invisible in the game).
-    if part.attach.is_some() && !part.animated && base.is_some() {
-        model = without_skins(model);
+    // item) is drawn rigid by the game, and a mesh in it that is a skin
+    // has no skeleton to follow there.
+    if let Some(node) = part.attach.as_deref().filter(|_| !part.animated && base.is_some()) {
+        model = without_skins(model, node.ends_with("_g"));
     }
     let attach = part
         .attach
@@ -85,17 +84,28 @@ fn place_unguarded(
     })
 }
 
-/// A model with its skin meshes not drawn (the model itself if it has
-/// none).
-fn without_skins(model: Arc<Model>) -> Arc<Model> {
-    let is_skin = |n: &mg_mdl::Node| {
-        n.mesh().is_some_and(|m| m.render && matches!(m.extra, mg_mdl::MeshExtra::Skin(_)))
+/// A part hung from a node, with the skin meshes the game does not draw
+/// there not drawn (the model itself if it has none such). Seen in the
+/// client (`docs/findings.md`, "A skin mesh in a body part or a held
+/// item"): a body part's skin whose bones are the skeleton's, no nodes of
+/// the part, is not drawn where the model is compiled and is drawn as a
+/// plain mesh where it is text; a held item's is drawn in neither.
+/// (`body_part`: it hangs from one of the skeleton's part nodes.)
+fn without_skins(model: Arc<Model>, body_part: bool) -> Arc<Model> {
+    let hidden = |n: &mg_mdl::Node| {
+        n.mesh().is_some_and(|m| match &m.extra {
+            // (Text: no bind pose is stored.)
+            mg_mdl::MeshExtra::Skin(s) => {
+                m.render && !(body_part && s.bones.is_empty() && s.inverse_bind.is_empty())
+            }
+            _ => false,
+        })
     };
-    if !model.nodes.iter().any(is_skin) {
+    if !model.nodes.iter().any(hidden) {
         return model;
     }
     let mut rigid = (*model).clone();
-    for n in rigid.nodes.iter_mut().filter(|n| is_skin(n)) {
+    for n in rigid.nodes.iter_mut().filter(|n| hidden(n)) {
         if let mg_mdl::NodeKind::Mesh(m) = &mut n.kind {
             m.render = false;
         }
@@ -502,14 +512,40 @@ mod ray_tests {
         let mut model = Model::default();
         model.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
         model.nodes.push(Node::new("skin", mesh(MeshExtra::Skin(Default::default()))));
-        let rigid = without_skins(Arc::new(model));
+        let rigid = without_skins(Arc::new(model), false);
         let drawn: Vec<bool> = rigid.nodes.iter().map(|n| n.mesh().unwrap().render).collect();
         assert_eq!(drawn, [true, false]);
         // One without skins is the same model, not a copy.
         let mut plain = Model::default();
         plain.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
         let plain = Arc::new(plain);
-        assert!(Arc::ptr_eq(&without_skins(plain.clone()), &plain));
+        assert!(Arc::ptr_eq(&without_skins(plain.clone(), false), &plain));
+    }
+
+    #[test]
+    fn a_body_part_s_skin_is_drawn_as_the_game_draws_it() {
+        // A part whose mesh is a skin weighted to a bone of the skeleton,
+        // which is no node of the part: as text, and compiled.
+        let text = "newmodel part\nsetsupermodel part NULL\nclassification character\n\
+            beginmodelgeom part\nnode dummy part\n  parent NULL\nendnode\n\
+            node skin part_g\n  parent part\n  bitmap part\n\
+            verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            faces 1\n    0 1 2 1 0 1 2 0\n\
+            weights 3\n    torso_g 1.0\n    torso_g 1.0\n    torso_g 1.0\n\
+            endnode\nendmodelgeom part\ndonemodel part\n";
+        let drawn = |model: Model, body_part: bool| {
+            let rigid = without_skins(Arc::new(model), body_part);
+            rigid.nodes.iter().find_map(|n| n.mesh()).expect("a mesh").render
+        };
+        let as_text = Model::read(text.as_bytes()).unwrap();
+        let compiled = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).unwrap();
+        let as_binary = Model::read(&compiled.binary).unwrap();
+        assert!(matches!(as_binary.nodes[1].mesh().unwrap().extra, mg_mdl::MeshExtra::Skin(_)));
+        assert!(drawn(as_text.clone(), true), "text, a body part: a plain mesh");
+        assert!(!drawn(as_binary.clone(), true), "compiled, a body part: not drawn");
+        assert!(!drawn(as_text, false), "text, a held item: not drawn");
+        assert!(!drawn(as_binary, false), "compiled, a held item: not drawn");
     }
 
     #[test]

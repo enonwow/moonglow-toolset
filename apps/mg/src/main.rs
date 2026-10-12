@@ -352,6 +352,10 @@ enum Cmd {
         /// after every change.
         #[arg(long, value_name = "FILE")]
         r#mod: Option<PathBuf>,
+        /// Make each compiled script's debug file (.ndb) too, for the
+        /// game's script debugger.
+        #[arg(long)]
+        ndb: bool,
         /// Run the module in the server too, as `mg serve` does.
         #[arg(long)]
         serve: bool,
@@ -1508,7 +1512,18 @@ fn run(cli: &Cli) -> Result<Output> {
                 against: against.as_ref(),
             })?
         }
-        Cmd::Watch { project, dev_dir, r#mod, serve, dir, port, env, preload, server_args } => {
+        Cmd::Watch {
+            project,
+            dev_dir,
+            r#mod,
+            ndb,
+            serve,
+            dir,
+            port,
+            env,
+            preload,
+            server_args,
+        } => {
             let gi = install(cli)?;
             let name = serve::module_name(project);
             let server_dir = serve.then(|| {
@@ -1548,7 +1563,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 Ok(())
             };
             let mut rm = resman(&Module::open(project)?)?;
-            let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, &rm)?;
+            let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, *ndb, &rm)?;
             also(&w)?;
             say(
                 json!({

@@ -46,6 +46,9 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     ("Neverwinter Nights - Doom of Icewind Dale", "mdl-text", "hak:doiwd", 1),
     ("Neverwinter Nights - Pirates of the Sword Coast", "mdl-text", "hak:potsc_resources", 5),
     ("Neverwinter Nights - Tyrants of the Moonsea", "mdl-text", "hak:tm_race_2da", 1),
+    // Two spells (rows 807 and 809) whose FeatID names feats 3000 and
+    // 2589 of a feat.2da of 1607 rows.
+    ("Neverwinter Nights - Wyvern Crown of Cormyr", "2da-ref", "hak:wc_2da_shared", 2),
 ];
 
 #[test]
@@ -99,4 +102,49 @@ fn shipped_modules_have_only_known_findings() {
         unexpected.len(),
         unexpected.join("\n")
     );
+}
+
+#[test]
+fn row_columns_hold_for_the_game_s_tables() {
+    // Every column the checks take for a row of another table names a
+    // row that is there, in the game's own tables: a column that did not
+    // would be no rule to hold a hak's table to.
+    use mg_module::doctor::{ColumnKind, column_kinds, row_named};
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let table = |name: &str| {
+        let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA).unwrap();
+        mg_2da::TwoDa::parse(&rm.get(&key).unwrap(), mg_core::Codepage::default()).unwrap()
+    };
+    let (mut columns, mut cells) = (0, 0);
+    for name in [
+        "appearance",
+        "baseitems",
+        "classes",
+        "domains",
+        "feat",
+        "genericdoors",
+        "packages",
+        "placeables",
+        "polymorph",
+        "racialtypes",
+        "spells",
+    ] {
+        let t = table(name);
+        for (column, kind) in column_kinds(name) {
+            let ColumnKind::Row(target) = kind else { continue };
+            assert!(t.column(column).is_some(), "{name}.2da has a column {column}");
+            let length = table(target).len();
+            columns += 1;
+            for row in 0..t.len() {
+                let named = t.get_int(row, column).and_then(|v| row_named(name, column, v));
+                if let Some(named) = named {
+                    cells += 1;
+                    assert!(named < length, "{name} row {row}, {column}: {named} of {target}");
+                }
+            }
+        }
+    }
+    assert_eq!(columns, 61);
+    assert!(cells > 5000, "{cells}");
 }

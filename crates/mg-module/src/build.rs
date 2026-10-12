@@ -17,7 +17,8 @@ pub struct ScriptResult {
 }
 
 /// A script and its bytecode (empty for include files) or error.
-type Compiled = (ResKey, Result<Vec<u8>, CompileError>);
+/// A script, with its compiled script and its debug file if one was made.
+type Compiled = (ResKey, Result<(Vec<u8>, Option<Vec<u8>>), CompileError>);
 
 /// Which scripts to compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,6 +331,20 @@ pub fn compile_named_scripts(
     names: &[ResKey],
     external: Option<&ExternalCompiler>,
 ) -> Vec<ScriptResult> {
+    compile_named_with(module, resman, names, external, false)
+}
+
+/// [`compile_named_scripts`]; with `debug`, each script's debug file
+/// (`.ndb`) is made and stored beside its compiled script, as Aurora's
+/// Generate Debug Information does. (An external compiler makes one or
+/// not by its own settings.)
+pub fn compile_named_with(
+    module: &mut Module,
+    resman: &ResMan,
+    names: &[ResKey],
+    external: Option<&ExternalCompiler>,
+    debug: bool,
+) -> Vec<ScriptResult> {
     if names.is_empty() {
         return Vec::new();
     }
@@ -352,11 +367,12 @@ pub fn compile_named_scripts(
                         .or_else(|| resman.get(&k).ok().map(|d| d.into_owned()))
                 };
                 let mut c = Compiler::new(resolve);
+                c.set_debug_output(debug);
                 let mut local = Vec::new();
                 for k in part {
                     let name = k.resref.to_lowercase().to_string();
                     let result = match c.compile(&name) {
-                        Ok(out) => Ok(out.ncs),
+                        Ok(out) => Ok((out.ncs, out.ndb)),
                         // An include file (no `main`, no
                         // `StartingConditional`): nothing to compile or to
                         // store, as Aurora skips it. It is checked where it
@@ -367,7 +383,7 @@ pub fn compile_named_scripts(
                                 .get(k)
                                 .is_some_and(|src| !mg_script::outline::has_entry_point(src)) =>
                         {
-                            Ok(Vec::new())
+                            Ok((Vec::new(), None))
                         }
                         Err(e) => Err(e),
                     };
@@ -385,9 +401,12 @@ pub fn compile_named_scripts(
     results
         .into_iter()
         .map(|(k, r)| {
-            let result = r.map(|ncs| {
+            let result = r.map(|(ncs, ndb)| {
                 if !ncs.is_empty() {
                     module.set(ResKey::new(k.resref, ResType::NCS), ncs);
+                    if let Some(ndb) = ndb {
+                        module.set(ResKey::new(k.resref, ResType::NDB), ndb);
+                    }
                 }
             });
             ScriptResult { script: k, result }

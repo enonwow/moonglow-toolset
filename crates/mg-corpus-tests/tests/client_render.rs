@@ -1484,7 +1484,15 @@ fn creatures_look() {
         e.set("EquippedRes", Value::resref(ResRef::from_str(resref).unwrap()));
         e
     };
-    let items: HashMap<ResRef, mg_gff::Struct> = [("mg_armor", &armor), ("mg_cloak", &cloak)]
+    // `MG_HELD`: one of the game's item blueprints for the left hand
+    // (a shield, a torch), as `nw_ashsw001`.
+    let held = std::env::var("MG_HELD").ok().map(|name| {
+        let key = ResKey::new(ResRef::from_str(&name).unwrap(), ResType::UTI);
+        Gff::read(&game.resman.get(&key).expect("the held item's blueprint")).unwrap()
+    });
+    let mut made = vec![("mg_armor", &armor), ("mg_cloak", &cloak)];
+    made.extend(held.as_ref().map(|h| ("mg_held", h)));
+    let items: HashMap<ResRef, mg_gff::Struct> = made
         .into_iter()
         .map(|(name, g)| {
             let r = ResRef::from_str(name).unwrap();
@@ -1523,6 +1531,9 @@ fn creatures_look() {
             Ok("1") => worn.truncate(1),
             Ok("2") => drop(worn.remove(0)),
             _ => {}
+        }
+        if held.is_some() {
+            worn.push(equip("mg_held", 0x20));
         }
         c.set("Equip_ItemList", Value::List(worn));
         // `MG_Y`: how far north they stand (the player is at 20).

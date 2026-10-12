@@ -3,7 +3,7 @@ type: Research Note
 title: 'The content doctor: what it checks, and how it was calibrated'
 description: What Moonglow's content doctor checks in a module's custom content, where each check comes from, and how the checks were calibrated on shipped content.
 tags: [doctor, custom-content, checks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:53:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
 ---
 
 # The content doctor: what it checks, and how it was calibrated
@@ -34,6 +34,7 @@ summarized in `community_pain_points.md`. Each check names the source
 | `2da-row` | a row with more cells than columns, in a table the game also has | error |
 | `2da-limit` | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 (Aurora only) | warning |
 | `2da-strref` | a StrRef past the end of `dialog.tlk` or the custom TLK, in a changed or added row of a known column | error |
+| `2da-ref` | a row number past the end of the table it names (`feat.PREREQFEAT1`, `spells.FeatID`, `racialtypes.Appearance`…: `ROW_COLUMNS`), in a changed or added row | warning |
 | `2da-shadow` | a hak's 2DA hiding another custom layer's longer copy | warning |
 | `erf-size` | resources starting 2 GiB or more into a hak, which the game can't read (`notes_scale.md`) | error |
 | `object-row` | a creature (appearance, classes), placeable, door or item naming a 2DA row that doesn't exist, a reserved row (`USER`), or a row whose model doesn't exist | error placed, warning in a blueprint |

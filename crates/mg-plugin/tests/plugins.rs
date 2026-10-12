@@ -471,7 +471,7 @@ fn tables_are_made_and_written() {
         return row, t.rows, #t.columns, again:get(1, "Name"), again:get(1, "Label"),
             again:get(2, "Cost"), again:get(2, "Name"), new:write(),
             mg.twoda.kinds("feat").FEAT, mg.twoda.kinds("placeables").ModelName,
-            next(mg.twoda.kinds("nothing"))
+            mg.twoda.kinds("feat").MASTERFEAT, next(mg.twoda.kinds("nothing"))
     "#;
     run_console(code, input(), host.clone()).unwrap();
     let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
@@ -488,6 +488,7 @@ fn tables_are_made_and_written() {
             "\"2DA V2.0\\r\\n\\r\\n   Label\\r\\n0  only\\r\\n\"",
             "\"strref\"",
             "\"model\"",
+            "\"row:masterfeats\"",
             "nil"
         ]
     );

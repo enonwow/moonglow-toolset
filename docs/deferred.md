@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -87,12 +87,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **`mg watch`** (a project followed into a development folder): the
   project is read whole again at each change, and looked at by its
   files' sizes and times some twice a second (no file-system
-  notifications); a nasher project's default target only; compiled
-  scripts go out without debug files (`.ndb`), which the built-in
-  compiler's batch does not make; nothing is pushed through NWNX's
-  console; with `--serve`, tests are not run again after a change
-  (`mg test` is a run of its own). The `--serve` half is tried by hand,
-  not held by a test. (M, S, S, M, S)
+  notifications); a nasher project's default target only; debug files
+  (`.ndb`) are made where `--ndb` asks (the built-in compiler's batch
+  makes them now: `build::compile_named_with`), but `mg compile` and
+  the window's Compile All Scripts have no such choice (the window's
+  Generate Debug Information is for the script in its editor); nothing
+  is pushed through NWNX's console; with `--serve`, tests are not run
+  again after a change (`mg test` is a run of its own). A test holds
+  the `--serve` half on Linux (a change put out, the server started
+  again at its port after a build, `/quit`). (M, S, S, M, S)
 - **`mg test`**: a result reported while no test is running (a delayed
   assertion after its test ended, a module's own driver) goes under
   "(outside a test)", since NWScript does not say which script is
@@ -297,14 +300,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   event's leave is asked once in a session is not held by a test. (S
   each; settings M)
 - **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
-  and a talk table as values to change and write. Not done:
-  `mg.twoda.kinds` says only what Verify Module's tables say (ten
-  columns that hold a talk-table string, four that name a model): which
-  columns name a row of another table is in no table of the checks yet,
-  so it is not told (to be added to the checks first, then it shows
-  here); a written 2DA is laid out as the game's are, not with the
+  and a talk table as values to change and write; `mg.twoda.kinds`
+  says what Verify Module's tables say (ten columns that hold a
+  talk-table string, four that name a model, sixty-one that name a row
+  of another table). Not done: the tables a class or a race names in a
+  column (`cls_feat_*`, `cls_skill_*`, `race_feat_*`) and their feat
+  and skill columns are not known, nor `iprp` tables, nor columns the
+  game's own tables break (`appearance.FOOTSTEPTYPE`); a row that is
+  there but blank (a padding row) counts as there; a written 2DA is laid out as the game's are, not with the
   widths of the file it was read from; a talk table's language is
-  English and its feminine table is another file. (M, S, S)
+  English and its feminine table is another file. (S each)
 - **`mg tlk-alloc`** (a custom talk table from strings kept by name):
   new keys take lines in the order of their names, not of the file; a
   key's feminine text is not set (the feminine table's lines stay as
@@ -847,7 +852,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   there. Not done of the issue: a pane split off to a side of the main
   one (left, bottom) is not a place that is kept, nor a tab's position
   among the tabs; the dock's whole layout is not kept between runs; the
-  resource browser still opens as a window at first. (M)
+  resource browser still opens as a window at first. The reporter
+  closed the issue as fixed in 1.20.7 (2026-10-10), every point of it
+  ticked: what is left here is by our own account, not asked for. (M)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them, Left and Right
   go between menus (round the ends), Up and Down between rows (past
@@ -866,26 +873,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   take Alt for its own menu; a submenu inside a submenu has no keys
   (there is none today); the bar itself is never "focused" without a
   menu open. (S each)
-- **The module tree by the keyboard** (GitHub issue 12): after a click
-  in it, with the pointer over it, the arrow keys, Page Up and Down,
-  Home and End move a cursor over the groups and their resources, Right
-  and Left open and close a group (and go in and out), Enter opens the
-  resource, Escape hands the keys back; the keys do not reach the area
-  view meanwhile (the palette had this since 1.19.4, and the tree
-  follows its rule: the keys belong to the list clicked last, and work
-  with the pointer over it). Not done of the issue: a focus outline
-  around the pane (the cursor's row is marked instead); the rows of
-  what is placed in an area opened out (the cursor passes them);
-  F6 between panes (the keys are the pane's the pointer is over: F6
-  would have to override that until a click). A letter typed goes to
-  the next row that begins with it (a group's name or a resource's
-  ResRef, not an area's name where areas are shown by name). Since
-  1.20.5: Ctrl+F to the Filter
-  and Down from it into the rows, F2 and Delete (the row under the pointer's,
-  else the cursor's), and Enter in the palette (the blueprint's editor; a
-  category opens or closes). Ctrl+F is the tree's only with the keys
-  the tree's and the pointer over its pane; Down from the Filter goes
-  to the first group, not the first match. (S each)
 - **Tabs by the keyboard** (GitHub issue 15): Close Tab (Ctrl+W), Next
   and Previous Tab (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Page Down and Up),
   Reopen Closed Tab (Ctrl+Shift+T), all in Options › Keyboard and the
@@ -1022,21 +1009,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   none and the status line says so. A turn under way is made a command
   before a save; saved within a moment of the wheel's last notch, what
   is left of its smoothed turning scales a hair more after. (S)
-- **The talk table editor** (a builder): Go to takes a StrRef or a
-  line's number; the text boxes share the room under the list and
-  scroll, where a long text ran out of the window. Not done: the split
-  between the list and the boxes cannot be dragged. (S)
-- **The arrow keys in the palette** (a builder: Aurora's go to the
-  parent on Left and let one move through and fold the tree): Up, Down,
-  Left and Right move a cursor through the blueprint palettes' rows
-  after a click in the palette, and the camera leaves the arrows alone
-  until the pointer is back in an area's view. Not done: the tileset's
-  palette and the Prefabs list have no such keys (the module tree has
-  them since 1.20.0); in
-  the Gallery Up and Down go a picture at a time, not a row of them;
-  the keys repeat only as the system repeats them. With the keys on a
-  category the blueprint selected stays in hand; whether Aurora keeps
-  one in hand then was not checked. (S–M)
 - **The module tree and the object selected in the area:** the tree
   goes to it only where its area is opened out there; an area left
   closed stays closed. Asked for by the user (it was opened out and
@@ -1076,7 +1048,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The feminine table as JSON:** Export JSON writes the main table
   only, as `nwn_tlk` would of that file. (S)
 
-## From GitHub issues 10 to 18, after 1.20.0 (October 2026)
+## From GitHub issues 10 to 24, after 1.20.0 (October 2026)
 
 The reporter's answers to what 1.20.0 built, and two builders' asks.
 
@@ -1092,24 +1064,54 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   was let go where another tab (the resource browser) shared the
   palettes' pane; the pane's tabs no longer count as the middle's. A
   side pane without the palettes in it is not known as one. (S)
-- **The keys after a click** (issue 12): the arrow keys are the list's
-  clicked last (the module tree, a palette, Module Properties' haks)
-  wherever the pointer is, until it is in an area's view; a thin
-  outline shows the pane. They were the list's only with the pointer
-  over it. A letter typed still goes to the tree only with the pointer
-  over it (letters are commands elsewhere). Right and Left go into
-  an area opened out, to its kinds and its placed objects, and both
-  panes' filter fields have Ctrl+F, Escape (clear, then leave) and
-  Down. Not done: a letter typed does not find a kind or a placed
-  object; F2 and Delete are for resources, not for a placed object the
-  keys are at; the other lists with a filter (the resource browser, the
-  script list) do not have these keys. (S each)
-- **A talk table's lines** (issue 24): the whole row chooses its line
-  and shows the pointer over it; the arrow keys choose from there, and
-  Enter or a double click goes to the text. Seen in a picture of the
-  editor made for this (`tests/screens.rs`, a floating window with no
-  module): a blank stretch above the list's first rows, there before
-  this change too; whether the docked editor has it is not known. (S)
+- **The module tree and the palettes by the keyboard** (issue 12, and
+  a builder: Aurora's arrows go to the parent on Left and fold the
+  tree): after a click in a list (the module tree, a palette, Module
+  Properties' haks) the arrow keys, Page Up and Down, Home and End are
+  that list's wherever the pointer is, until it is in an area's view,
+  and a thin outline shows the pane; Right and Left open and close a
+  row and go in and out, into an area opened out too (its kinds and
+  its placed objects); Enter opens (the resource, the blueprint's
+  editor, a category), Escape hands the keys back; F2 and Delete are
+  for the row under the pointer, else the cursor's; both panes' filter
+  fields have Ctrl+F, Escape (clear, then leave) and Down. Not done:
+  - F6 between panes. (S)
+  - A letter typed goes to the tree only with the pointer over it
+    (letters are commands elsewhere), to a group's name or a
+    resource's ResRef: not to an area's name where areas are shown by
+    name, nor to a kind or a placed object. (S)
+  - F2 and Delete are for resources, not for a placed object the keys
+    are at. (S)
+  - Down from the tree's Filter goes to the first group, not the first
+    match. (S)
+  - The other lists with a filter (the resource browser, the script
+    list) do not have these keys; the tileset's palette and the
+    Prefabs list have no arrow keys. (S each)
+  - In the Gallery Up and Down go a picture at a time, not a row of
+    them; the keys repeat only as the system repeats them. (S)
+  - With the keys on a category the blueprint selected stays in hand;
+    whether Aurora keeps one in hand then was not checked. (S)
+- **The talk table editor** (a builder, and issue 24): Go to takes a
+  StrRef or a line's number; the text boxes share the room under the
+  list and scroll; the whole row chooses its line and shows the pointer
+  over it, the arrow keys choose from there, and Enter or a double
+  click goes to the text. Not done: the split between the list and the
+  boxes cannot be dragged. (S)
+- **A pane's own button to fold it away** (issue 10): the module tree
+  («) and the log (–) have one; the palettes' pane has its ✕. Not
+  done: a folded pane's strip shows an arrow, and its name only for
+  the log and in the tip; whether this is what the reporter found
+  unresolved is not known (the answer said only that it was not). (S)
+- **Search in an item's Available Properties** (a builder: Cast Spell
+  alone has hundreds): a field over the list finds the kinds and the
+  choices that have every word typed, opened out. (—)
+- **What a store sells an item for** (a builder: Aurora lists it): each
+  item of a store's pages is listed with its cost at the store's sell
+  mark up. Not compared with Aurora's list (its rounding, whether it
+  counts a stack); the buy price (mark down) is not shown. (S)
+
+## From builders' reports and the owner's notes after 1.21.0 (October 2026)
+
 - **The look of the two side panes** (the owner's notes after 1.21.0):
   the module tree's header is the palettes' (a search field that says
   what it looks in, with a clear button; Expand All and Collapse All as
@@ -1120,41 +1122,20 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   (no pictures, no "more" menu as the palettes' list has); the
   palette's search text and its open categories are not remembered;
   holding the walkmesh button is not held by a test (a right click
-  is). (S each)
-- **The area's toolbar in a narrow tab** runs its rows past the tab's
-  edge: a group of controls that is laid out as one (Snap, Fade
-  Geometry) does not go to the next row when it does not fit, and
-  widens the rows after it, so a button at a row's end is cut off and
-  reached only by scrolling the tab sideways. Seen in a picture of a
-  1000-point window while the walkmesh buttons were made one; there
-  before. (S)
+  is); Expand All and Collapse All have no keys, and an area opened out
+  to its objects, and the kinds under it, keep their own state. (S
+  each)
 - **Builders' reports after 1.21.0:** a creature's body part can be
-  set to none (0), as in Aurora; a body part whose mesh is a skin mesh
-  is not drawn, which is a builder's report of the game (and follows
-  from a part hung rigid from a node), not something seen in the
-  client here; an item's General page no longer runs its name's
-  talk-table reference under the second column (`two_columns` stacks
-  when a column's content is wider than its half). Not reproduced:
-  "unequipping an armor sets all body parts to 0": nothing in the code
-  writes a body part on unequip, and the preview draws the creature's
-  own parts then; the creature it was seen on would tell. (S)
-- **A pane's own button to fold it away** (issue 10): the module tree
-  («) and the log (–) have one; the palettes' pane has its ✕. Not
-  done: a folded pane's strip shows an arrow, and its name only for
-  the log and in the tip; whether this is what the reporter found
-  unresolved is not known (the answer said only that it was not). (S)
-- **Tool windows where they were** (issue 14), said unresolved in
-  1.20.0: not looked into again. What is known to be missing is in
-  "Tool windows where they were last docked": a pane split off to a
-  side is not a place that is kept, nor a tab's position, nor the
-  layout between runs. (M)
-- **Search in an item's Available Properties** (a builder: Cast Spell
-  alone has hundreds): a field over the list finds the kinds and the
-  choices that have every word typed, opened out. (—)
-- **What a store sells an item for** (a builder: Aurora lists it): each
-  item of a store's pages is listed with its cost at the store's sell
-  mark up. Not compared with Aurora's list (its rounding, whether it
-  counts a stack); the buy price (mark down) is not shown. (S)
+  set to none (0), as in Aurora; a body part whose mesh is a skin is
+  drawn as the client draws it ([findings](findings.md), "A skin mesh
+  in a body part or a held item": not where it is compiled, a plain
+  mesh where it is text; a held item's never). Not done: a skin
+  weighted to nodes of its own part, which the client draws out of
+  place, is not drawn; the compiled models tried were `mgv compile`'s,
+  not the game's own compiler's. Not reproduced: "unequipping an armor
+  sets all body parts to 0": nothing in the code writes a body part on
+  unequip, and the preview draws the creature's own parts then; the
+  creature it was seen on would tell. (S)
 
 ## From GitHub issue 7 (October 2026)
 
@@ -1194,24 +1175,13 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
 
 ## Area visibility
 
-- **Spikes across the view with Object Walkmeshes on** (the user, three
-  times: orange lines from placeables to the picture's edge as the
-  camera turned, worst in a flat view zoomed in). The cause was the
-  outline, not the face: each face's edges were drawn as one closed
-  line, whose corners egui joins with miters, and a triangle seen nearly
-  edge-on has corners so sharp that the join shot across the screen.
-  Found by rendering the user's area in the window (`screens.rs`, by
-  hand); 1.20.5 (points nearer than the near plane) and 1.20.6 (faces
-  near the eye cut or left out) answered what a simulation of the
-  projection showed, which was real but was not this. Every closed
-  outline over an area's view is drawn edge by edge now
-  (`area_view::outline`: walkmeshes, a light's reach, tile selections,
-  the terrain cursor, the tiles that refuse a stroke), and a test holds
-  the overlays to have no closed line or stroked polygon. 1.20.6's rule
-  that left faces out near the eye is gone again (it hid what is
-  there); the overlays are still cut where they pass behind the eye.
-  Not done: a face right beside the eye shows as large as it is (a
-  sheet across the view), as its model does. (—)
+- **A walkmesh face right beside the eye** shows as large as it is (a
+  sheet across the view), as its model does. What is left of the
+  spikes across the view with Object Walkmeshes on, which were the
+  mitered corners of each face's closed outline (the [log](log.md),
+  2026-10-10): every closed outline over an area's view is drawn edge
+  by edge (`area_view::outline`), and a test holds the overlays to
+  that. (—)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -1275,9 +1245,6 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   reporter's "stopped animating" (Mindwitness) wasn't seen as such: here
   it animated, with its skin torn by the shifted weights. The model
   viewer's own check of names over 16 characters is as it was. (S)
-- **Expand All and Collapse All** (the module tree, the palettes): the
-  module tree's areas opened out to their objects, and the kinds under
-  them, keep their own state; no keys for them. (S)
 - **The debug log** (Options › General) covers actions, tabs and panes,
   an area's view as it loads, the palettes, jobs, the log pane and the
   graphics libraries' warnings. Not in it: the editors' own steps
@@ -1382,9 +1349,12 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   (Ctrl+Alt+S, now New Script's). (S)
 ## Automation
 
-- **Plugins, beyond API 0.2** (`plugin-proposal.md`; commands and checks
+- **Plugins, beyond API 0.3** (`plugin-proposal.md`; commands and checks
   in sandboxed Luau are built; 0.2 added a file or folder the user
-  chooses, haks written with their leave, areas and terrain, pictures):
+  chooses, haks written with their leave, areas and terrain, pictures;
+  0.3 files written into a chosen folder, 2DAs and talk tables as
+  values, and events, whose own gaps are under "Custom content
+  data"):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -1393,9 +1363,8 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
     (`examples/tileset-import`, tried on the builder's earlier export:
     149 files, an area of one of its groups drawn from the hak). What
     the tool itself does is out of a plugin's reach: there is no view
-    to draw in or brush to take input from, a plugin writes haks and
-    nothing else (no loose files, no talk table), and baking textures
-    in Luau would be slow. Sculpted terrain inside Moonglow would be a
+    to draw in or brush to take input from, and baking textures in
+    Luau would be slow. Sculpted terrain inside Moonglow would be a
     feature of its own. (L)
   - **Not tried in the application on a desktop:** the folder and the
     hak question were driven through the UI harness and `mg`, not with
@@ -1418,7 +1387,7 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
     its checks through git. `mg verify --plugins DIR` covers a build
     pipeline meanwhile. (M)
   - **More kinds of things to add:** exporters and importers, wizards,
-    quick fixes for findings, events, settings a plugin keeps, panels.
+    quick fixes for findings, settings a plugin keeps, panels.
     A plugin's command can't yet read what is selected or open in the
     window. (L)
   - **A plugin's own tests** (`mg plugin test`, against a fixture
@@ -1609,11 +1578,12 @@ Left:
 
 Passed on by the session that maintains Moonglow Viewer
 (`/home/august/Projects/moonglow-viewer`, its `docs/PLAN.md` §10.1 has
-the full text); nothing of it is taken up yet, and none of its findings
-were checked here beyond that the code named is there and that the
-toolset is as the proposal says it is.
+the full text). Its model compiler and writers were taken up (1.20.5),
+and animations bound by part number; the rest is not, and none of its
+findings were checked here beyond that the code named is there and
+that the toolset is as the proposal says it is.
 
-- **A model compiler and writers for `mg-mdl`:** moved (2026-10-09),
+- **The model compiler and writers in `mg-mdl`:** moved (2026-10-09),
   from the viewer's `crates/mgv-mdl` at its 0.1.6: `mg_mdl::binary_write`
   (the binary writer, every node type, both skin layouts),
   `mg_mdl::compile` (ASCII to binary in process: tangents, a walkmesh's

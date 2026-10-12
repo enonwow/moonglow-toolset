@@ -989,6 +989,33 @@ fn area_grid() {
 
 #[test]
 #[ignore]
+fn area_toolbar_narrow() {
+    // The area's toolbar in a narrow tab: its rows end at the tab's edge.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "area-toolbar-narrow");
+}
+
+#[test]
+#[ignore]
 fn lighting_off_and_sound_ranges() {
     // The area with the most placed sounds, at night: with the area's
     // lighting, then without it and with the sounds' ranges, the camera

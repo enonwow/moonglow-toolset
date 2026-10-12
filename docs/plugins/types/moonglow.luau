@@ -215,7 +215,8 @@ end
 function mg.path(struct: Struct): string? return nil end
 
 -- 2DAs made, read (from a file's bytes) and written; `kinds` says which
--- columns of a table of the game's hold what ("strref", "model").
+-- columns of a table of the game's hold what ("strref", "model", or
+-- "row:" and the table whose row it names, as "row:feat").
 mg.twoda = {
     parse = function(bytes: string): TwoDa return nil :: any end,
     new = function(columns: { string }): TwoDa return nil :: any end,

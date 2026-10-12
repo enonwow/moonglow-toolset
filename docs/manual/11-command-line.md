@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
 ---
 
 # Command-line tools
@@ -306,6 +306,9 @@ it reads only at its start.
   then); files of yours in the folder are left alone.
 - `--mod FILE` builds the module to a file, at the start and after every
   change, with every script compiled.
+- `--ndb` makes each compiled script's debug file (`.ndb`) too, for the
+  game's script debugger: put out beside the compiled script, and built
+  into the module.
 - `--serve` also runs the module in the server, as `mg serve` does, on a
   scratch user directory whose `development` folder is the one written
   into: `--dir`, `--port`, `--env`, `--preload` and the arguments after

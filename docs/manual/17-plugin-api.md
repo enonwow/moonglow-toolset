@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
 ---
 
 # Plugin API reference
@@ -152,9 +152,13 @@ an empty one:
 
 `mg.twoda.kinds(name)` says what the columns of one of the game's tables
 hold, where Verify Module checks them: a table by column name, `"strref"`
-(a talk-table string's number: `kinds("feat").FEAT`) or `"model"` (a
-model's name: `kinds("placeables").ModelName`). A table it knows nothing
-of gives an empty one.
+(a talk-table string's number: `kinds("feat").FEAT`), `"model"` (a
+model's name: `kinds("placeables").ModelName`) or `"row:"` and a table's
+name (a row's number in that table: `kinds("feat").MASTERFEAT` is
+`"row:masterfeats"`; since Moonglow 1.21.2). A table it knows nothing
+of gives an empty one. A cell that names a row holds `****` or a
+negative number for none, and a spell's `FeatID` keeps the feat in its
+low 16 bits.
 
 A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new()`; lines count from 0
 as in the file (a custom table's line 0 is the game's string 16777216):

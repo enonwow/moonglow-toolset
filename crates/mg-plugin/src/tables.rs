@@ -149,8 +149,9 @@ pub(crate) fn twoda_api(lua: &Lua) -> mlua::Result<Table> {
             let out = lua.create_table()?;
             for (column, kind) in mg_module::doctor::column_kinds(&name) {
                 let kind = match kind {
-                    ColumnKind::StrRef => "strref",
-                    ColumnKind::Model => "model",
+                    ColumnKind::StrRef => "strref".to_string(),
+                    ColumnKind::Model => "model".to_string(),
+                    ColumnKind::Row(table) => format!("row:{table}"),
                 };
                 out.set(column, kind)?;
             }

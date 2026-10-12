@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
 ---
 
 # Plugin API changes
@@ -24,7 +24,10 @@ as it is. A plugin that uses what is new says `api = "0.3"`.
   laid out as the game's own tables are), and `kinds` says which columns
   of a table hold a talk-table string or a model, as Verify Module knows
   them. What `ctx.game:table` gives can be changed and written too: it
-  is the plugin's own copy.
+  is the plugin's own copy. Since Moonglow 1.21.2 `kinds` also says
+  which columns name a row of another table (`"row:feat"`), still as
+  API 0.3: a plugin that reads only `"strref"` and `"model"` is as it
+  was.
 - `mg.tlk`: `parse` and `new` make a talk table to read, change and
   write (`tlk:get`, `set`, `add`, `write`).
 - `folder:write`: files written into a folder the user chose

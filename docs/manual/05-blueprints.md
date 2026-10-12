@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T23:26:57Z }
 ---
 
 # Blueprints
@@ -279,8 +279,9 @@ every change, as Aurora does on OK.
   large as the window has room for; its wings, tail and colors, and its
   body parts, are to the right, so a change shows as you make it (a
   body part may be **0 (none)**, which draws nothing). A body part's
-  mesh that is a skin mesh is not drawn, as the game does not draw it:
-  body parts are plain meshes. **Pop
+  mesh that is a skin mesh is drawn as the game draws it: not at all
+  where the model is compiled, as a plain mesh where it is kept as
+  text (body parts are meant to be plain meshes). **Pop
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
 - **Feats** shows the feats the creature has beside the list to choose

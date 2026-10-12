@@ -1005,6 +1005,35 @@ fn module_name_in_every_language_and_variables() {
 /// arrow keys choose from there, and Enter goes to the line's text
 /// (GitHub issue 24).
 #[test]
+fn a_talk_table_s_rows_begin_under_its_buttons() {
+    // Open File… and New File… stood in a sliver past the end of the row
+    // before them, one under the other, and the list began a third of
+    // the window down.
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("ui-talk-top");
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(NoDialogs::default())),
+    );
+    let mut table = Table::create("top", &dir, mg_core::Language::ENGLISH, false);
+    let line =
+        Line { text: "Text 0".into(), feminine: None, sound: String::new(), sound_length: 0.0 };
+    table.add_line(&line).unwrap();
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(6);
+    let buttons = ["Open File…", "New File…"].map(|l| h.get_by_label(l).rect());
+    let go_to = h.get_by_label("Go to").rect();
+    let row = h.get_by_label("Text 0").rect();
+    for b in buttons {
+        assert!(b.width() > 40.0, "a button of its text's width: {b:?}");
+        assert!(b.top() < go_to.bottom() + 30.0, "in the row, or the next: {b:?}");
+        assert!(row.top() < b.bottom() + 30.0, "the list right under them: {row:?}, {b:?}");
+    }
+}
+
+#[test]
 fn a_talk_table_s_row_is_clicked_anywhere() {
     use mg_module::talk::{Line, Table};
     let dir = mg_testkit::scratch_dir("ui-talk-rows");
@@ -9139,10 +9168,8 @@ fn the_start_location_shows_on_raised_ground() {
         (r.read(&ifo::MOD_ENTRY_AREA), r.read(&ifo::MOD_ENTRY_Z))
     };
     assert_eq!(stored(&mut h), (area, 0.0));
-    // (A window wide enough for the toolbar: in a narrow one its rows
-    // end past the tab's edge, a button there out of reach.)
-    h.set_size(egui::vec2(1700.0, 900.0));
-    h.run_steps(3);
+    // (The button is at the end of a toolbar's row, which ends at the
+    // tab's edge in a window this narrow too.)
     h.get_by_label("🏃 Go to Start Location").click();
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
