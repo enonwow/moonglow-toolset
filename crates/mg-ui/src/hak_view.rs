@@ -146,21 +146,31 @@ pub fn new_hak(app: &mut Moonglow) {
 pub fn open_hak(app: &mut Moonglow) {
     let start = hak_dir(app);
     let Some(path) = app.dialogs.open_file(FileKind::Hak, start.as_deref()) else { return };
-    if let Some(d) = app.haks.iter().find(|d| d.hak.path.as_deref() == Some(&path)) {
+    open_at(app, &path);
+}
+
+/// Opens a hak's file in the hak editor (its tab brought to the front if
+/// it is open already); its id.
+pub fn open_at(app: &mut Moonglow, path: &std::path::Path) -> Option<u32> {
+    if let Some(d) = app.haks.iter().find(|d| d.hak.path.as_deref() == Some(path)) {
         let id = d.id;
         app.actions.push(crate::Action::OpenTab(Tab::Hak(id)));
-        return;
+        return Some(id);
     }
-    match Hak::open(&path) {
+    match Hak::open(path) {
         Ok(h) => {
             let id = open_tab(app, h);
             // (Built from a folder before: Update from Folder knows it.)
-            let folder = app.settings.hak_folder(&path).map(std::path::Path::to_path_buf);
+            let folder = app.settings.hak_folder(path).map(std::path::Path::to_path_buf);
             if let Some(doc) = app.haks.iter_mut().find(|d| d.id == id) {
                 doc.folder = folder;
             }
+            Some(id)
         }
-        Err(e) => app.log.error(format!("Could not open {}: {e}", path.display())),
+        Err(e) => {
+            app.log.error(format!("Could not open {}: {e}", path.display()));
+            None
+        }
     }
 }
 

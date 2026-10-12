@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:03:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T10:58:07Z }
 ---
 
 # Coming from Aurora
@@ -139,8 +139,9 @@ own.
 - **The resource browser** (Tools › Resource Browser) shows any resource
   in the game, the haks or the module, and where it comes from; models
   open in the model viewer. A 2DA shows its StrRefs as text, which hak
-  each row comes from, and what a hak changed; **Edit…** there, or
-  **Edit Table** in the hak editor, opens it in the
+  each row comes from, and what a hak changed; **Edit…** there (the
+  module's table, a hak's, or a copy), or **Edit Table** in the hak
+  editor, opens it in the
   [2DA editor](03-modules.md#the-2da-editor).
 - **Talk tables**: Tools › Talk Table edits the module's own, and String
   Edit's **Move to Talk Table** puts a text there by StrRef.

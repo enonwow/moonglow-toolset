@@ -240,6 +240,48 @@ impl TwoDa {
         Ok(())
     }
 
+    /// Takes a column out, with its cells (a row's cell, where the row has
+    /// one); `None` for a column the table does not have.
+    pub fn remove_column(&mut self, column: usize) -> Option<Vec<Option<String>>> {
+        if column >= self.columns.len() {
+            return None;
+        }
+        let mut columns = self.columns.clone();
+        columns.remove(column);
+        self.set_columns(columns).ok()?;
+        let cells = self.rows.iter_mut().map(|r| (column < r.len()).then(|| r.remove(column)));
+        Some(cells.map(Option::flatten).collect())
+    }
+
+    /// Puts a column in at `column` (the end, past it), with its cells: one
+    /// for each row, the rows beyond `cells` empty.
+    pub fn insert_column(
+        &mut self,
+        column: usize,
+        name: &str,
+        cells: Vec<Option<String>>,
+    ) -> Result<(), TwoDaError> {
+        let at = column.min(self.columns.len());
+        let mut columns = self.columns.clone();
+        columns.insert(at, name.to_string());
+        self.set_columns(columns)?;
+        let mut cells = cells.into_iter();
+        for row in &mut self.rows {
+            let cell = cells.next().flatten();
+            row.insert(at.min(row.len()), cell);
+        }
+        Ok(())
+    }
+
+    /// Gives a column another name (an error for one the table has).
+    pub fn rename_column(&mut self, column: usize, name: &str) -> Result<(), TwoDaError> {
+        let mut columns = self.columns.clone();
+        if let Some(c) = columns.get_mut(column) {
+            *c = name.to_string();
+        }
+        self.set_columns(columns)
+    }
+
     /// Empties every cell of a row, which stays (the rows after it keep
     /// their numbers: a row is never taken out of a table).
     pub fn clear_row(&mut self, row: usize) {
@@ -445,6 +487,19 @@ mod tests {
         assert_eq!(t.add_column("name"), Err(TwoDaError::DuplicateColumn("name".into())));
         t.set(2, 2, Some("7".into())).unwrap();
         t.clear_row(1);
+        // A column taken out and put back where it was, and renamed.
+        let before = t.clone();
+        let first = t.columns()[0].clone();
+        let cells = t.remove_column(0).unwrap();
+        assert_eq!((t.columns().len(), cells.len()), (before.columns().len() - 1, t.len()));
+        assert!(t.column(&first).is_none() && t.remove_column(99).is_none());
+        t.insert_column(0, &first, cells).unwrap();
+        assert_eq!(t, before);
+        let second = t.columns()[1].clone();
+        assert!(t.rename_column(0, &second).is_err(), "a name the table has");
+        t.rename_column(0, "Other").unwrap();
+        assert_eq!((t.column("other"), t.column(&first)), (Some(0), None));
+        t.rename_column(0, &first).unwrap();
         assert_eq!(t.len(), 3, "a cleared row stays");
         let text = String::from_utf8(t.to_bytes(Codepage::default()).unwrap()).unwrap();
         let rows: Vec<&str> = text.lines().skip(3).map(str::trim).collect();

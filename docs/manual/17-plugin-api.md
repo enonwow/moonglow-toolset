@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
 ---
 
 # Plugin API reference
@@ -161,6 +161,20 @@ known by how the game's own are named (`cls_feat_*`, `cls_skill_*`,
 `race_feat_*`, `packft*`, `packsk*`, `packsp*`). A cell that names a row holds `****` or a
 negative number for none, and a spell's `FeatID` keeps the feat in its
 low 16 bits.
+
+`mg.twoda.describe(text, scripts)` reads
+[a table's description](03-modules.md#a-tables-description) from the
+text of its `name.2da.toml` (since Moonglow 1.23.0); `scripts`, where the
+description takes a list from a script's constants, gives each such
+script's source by its name (`{ my_inc = source }`). It gives:
+
+| | |
+| --- | --- |
+| `d.rows` | The table whose rows the described table's are, if it says. |
+| `d.columns` | Each described column's kind, by name: `"text"`, `"int"`, `"float"`, `"list"`, `"flags"`, `"strref"`, or `"row:"` and a table's name. |
+| `d.notes` | What the description said that was not understood. |
+| `d:name(column, value)` | A value's name in a list, or the names of the flags it has; nil where it has none. |
+| `d:faults(twoda, lengths)` | The cells of `twoda` that are not what the description says, each `{ row, column, value, message }`. `lengths` gives how many rows the tables it names have (`{ classes = 42 }`); a table not given is not held to. Strings are not looked up. |
 
 A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new()`; lines count from 0
 as in the file (a custom table's line 0 is the game's string 16777216):

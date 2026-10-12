@@ -107,7 +107,7 @@ impl eframe::App for App {
         // Closing the window asks about unsaved work like File > Exit.
         if ui.ctx().input(|i| i.viewport().close_requested()) && !self.moonglow.quit_requested {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.moonglow.actions.push(Action::Quit);
+            self.moonglow.actions.push(Action::CloseWindow);
         }
         // (The first frame is drawn hidden; the window shows after it.)
         if ui.ctx().cumulative_frame_nr() >= 1

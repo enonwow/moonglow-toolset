@@ -231,6 +231,9 @@ pub enum Action {
     /// Saves, then starts the game on the module (F9).
     TestModule,
     Quit,
+    /// The window's own close button: Quit, asked about first where there
+    /// is no unsaved work to ask about (Options › General).
+    CloseWindow,
 }
 
 /// Where a window is: where it was last put, where its panes were when
@@ -363,6 +366,8 @@ pub struct Moonglow {
     /// The 2DAs open in the table editor.
     pub tables: Vec<table_view::TableDoc>,
     pub(crate) next_table: u32,
+    /// The Open 2DA window.
+    pub open_table: Option<table_view::OpenTable>,
     /// A table whose tab was asked to close with unsaved changes.
     pub(crate) table_closing: Option<u32>,
     pub(crate) next_hak: u32,
@@ -517,6 +522,9 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// The window's close button was pressed with nothing unsaved: asked
+    /// whether to close.
+    pub closing: bool,
     /// The graphics adapter and its limits, for the debug log.
     render_info: Option<String>,
     /// A nasher project's files changed outside Moonglow.
@@ -666,6 +674,7 @@ impl Moonglow {
             next_hak: 0,
             tables: Vec::new(),
             next_table: 0,
+            open_table: None,
             table_closing: None,
             hak_closing: None,
             hak_list: Default::default(),
@@ -737,6 +746,7 @@ impl Moonglow {
             tree_fold: None,
             import: None,
             confirm_discard: None,
+            closing: false,
             render_info: None,
             outside: Default::default(),
             maximized: HashMap::new(),
@@ -1038,6 +1048,7 @@ impl Moonglow {
         area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
         table_view::closing_window(self, ui.ctx());
+        table_view::open_table_ui(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
@@ -1991,6 +2002,7 @@ impl Moonglow {
             || self.scripts.values().any(|b| b.is_dirty())
             || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable())
             || hak_view::unsaved(self)
+            || table_view::unsaved(self)
             || tileset_view::unsaved(self)
     }
 
@@ -2115,6 +2127,17 @@ impl Moonglow {
                     | Action::Close
                     | Action::Quit
             ),
+        };
+        // The window's X: with unsaved work, the question Exit asks; with
+        // none, one of its own, so that a slip of the pointer does not end
+        // a session of open areas and scripts.
+        let action = match action {
+            Action::CloseWindow if self.has_unsaved_work() => {
+                self.confirm_discard = Some(Action::Quit);
+                return;
+            }
+            Action::CloseWindow if self.settings.close_without_asking => Action::Quit,
+            other => other,
         };
         if discards && self.has_unsaved_work() {
             self.confirm_discard = Some(action);
@@ -2461,6 +2484,7 @@ impl Moonglow {
                 self.run_now(Action::OpenTab(tab));
             }
             Action::PlacePrefab(name) => self.place_prefab(&name),
+            Action::CloseWindow => self.closing = true,
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();
@@ -2641,6 +2665,9 @@ impl Moonglow {
             }
         }
         talk_view::save(self);
+        // (Tables first: one of a hak's is saved into the hak, which is
+        // then written; one of the module's is a step saved below.)
+        table_view::save_all(self);
         hak_view::save_all(self);
         tileset_view::save_all(self);
         let Some(ws) = &mut self.ws else { return };

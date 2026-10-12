@@ -242,6 +242,28 @@ enum EditTable {
     InModule,
     Copy(crate::table_view::Home),
     CopyInFile,
+    /// The table a hak of the module has: the hak's file.
+    InHak(std::path::PathBuf),
+}
+
+/// The module's haks that have `key`, highest first: each one's name and
+/// its file, where that is the builder's own (not one of the game's).
+fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
+    let (Some(game), Some(install)) = (&app.game, &app.install) else { return Vec::new() };
+    let dirs = install.hak_dirs();
+    let mut layers: Vec<_> = game.resman.layers().iter().collect();
+    layers.sort_by_key(|l| std::cmp::Reverse(l.priority));
+    layers
+        .into_iter()
+        .filter_map(|l| {
+            let name = l.label.strip_prefix("hak:")?;
+            if !l.container.contains(&key) {
+                return None;
+            }
+            let path = dirs.iter().map(|d| d.join(format!("{name}.hak"))).find(|p| p.is_file())?;
+            (!path.starts_with(&install.root)).then(|| (name.to_string(), path))
+        })
+        .collect()
 }
 
 /// A 2DA's Edit menu: the module's own table as it is, or a copy of the
@@ -264,7 +286,27 @@ fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
         {
             out = Some(EditTable::Copy(Home::Module));
         }
+        // The table as a hak of the module has it: edited in the hak, which
+        // the hak editor opens.
+        for (name, path) in haks_with(app, key) {
+            let open = app.haks.iter().any(|d| d.hak.path.as_deref() == Some(&path));
+            let tip = match open {
+                true => "The hak's own table: saved into the hak, which its Save writes",
+                false => {
+                    "The hak's own table: the hak is opened in the hak editor, the table is \
+                     saved into it, and the hak's Save writes its file"
+                }
+            };
+            if ui.button(format!("The Table of {name}.hak")).on_hover_text(tip).clicked() {
+                out = Some(EditTable::InHak(path));
+            }
+        }
+        let own: Vec<_> = haks_with(app, key).into_iter().map(|(_, path)| path).collect();
         for doc in &app.haks {
+            // (Its own table is offered above.)
+            if doc.hak.path.as_ref().is_some_and(|p| own.contains(p)) {
+                continue;
+            }
             let name = doc.title();
             let name = name.trim_end_matches(" *");
             let has = doc.hak.items().iter().any(|i| i.key == key);
@@ -470,6 +512,11 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         Some(EditTable::InModule) => _ = crate::table_view::open_in_module(app, key),
         Some(EditTable::Copy(home)) => _ = crate::table_view::edit_copy(app, key, home),
         Some(EditTable::CopyInFile) => crate::table_view::edit_copy_in_file(app, key),
+        Some(EditTable::InHak(path)) => {
+            if let Some(hak) = crate::hak_view::open_at(app, &path) {
+                crate::table_view::open_in_hak(app, hak, key);
+            }
+        }
         None => {}
     }
     if copy {

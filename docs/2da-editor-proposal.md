@@ -3,7 +3,7 @@ type: Proposal
 title: 'A 2DA editor and merger: a proposal'
 description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.
 tags: [proposal, 2da, custom-content, haks, editor]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:54:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
 stale_after: 2027-01-12T00:00:00Z
 sources:
   - id: request
@@ -15,6 +15,9 @@ sources:
   - id: deferred
     resource: deferred.md
     title: 'The deferred list: "No 2DA editor or merger" (L), tables for plugins, diffs and merges from a terminal'
+  - id: sample
+    resource: human:jasperre (a builder's workbook and the 2DA made from it, sent 2026-10-12; not in the repository)
+    title: 'j_ai_spells.xlsx and j_ai_spells.2da: what an experienced builder does in a spreadsheet today'
   - id: code
     resource: crates/mg-2da, crates/mg-module/src/table_layers.rs, crates/mg-module/src/doctor.rs, crates/mg-plugin/src/tables.rs, crates/mg-ui/src/browser.rs, crates/mg-ui/src/hak_view.rs (read 2026-10-12, at 1.21.3 and after)
     title: The code this would be built on
@@ -173,6 +176,8 @@ All four phases, by the recommendations, after 1.21.3 (the manual's
 
 ![Typing in a cell](images/2da-table-editor-typing.png)
 
+![Several cells selected, and a column's menu](images/2da-table-editor-selection.png)
+
 ![Take Rows from Another Copy](images/2da-table-editor-take-rows.png)
 
 ![Find References to a row](images/2da-table-editor-references.png)
@@ -181,6 +186,10 @@ All four phases, by the recommendations, after 1.21.3 (the manual's
 
 Not as proposed, or not done (each is in the [deferred list](deferred.md)):
 
+- Added at builders' asking after 1.22.0: rows added by the number and
+  deleted, columns renamed and removed, several cells selected, copied
+  and pasted between tables, the hak's own table from the resource
+  browser, and a project's `.2da` files listed to open.
 - Decision 3 was taken back in part (the owner, 2026-10-12, at a
   builder's asking): **Delete Row** takes any row away, and the rows
   after it are each one number lower. Nothing that names them is changed
@@ -197,6 +206,106 @@ Not as proposed, or not done (each is in the [deferred list](deferred.md)):
 - None of the unknowns below was settled first: the order of the save
   paths is as recommended, not as builders said.
 
+## Columns that say what they hold: a builder's spreadsheet, read
+
+The largest ask left (a column said to hold a kind of thing, with lists
+to choose from) waited on a sample of what an experienced builder does
+in a spreadsheet today. Jasperre sent his: the workbook his creature
+AI's `j_ai_spells.2da` is made from, and the table it made (2026-10-12;
+neither is kept in this repository).[^sample]
+
+What the workbook is:
+
+| Part | What it does |
+| --- | --- |
+| A sheet to type in (840 rows, 33 columns) | cells hold names a person reads: `DAMAGE_TYPE_ACID`, `JAI_DURATION_SHORT`, "Indiscriminate (Allies may be affected)" |
+| 21 lists to choose from, on 12 sheets | each a name beside the value the table gets: `DAMAGE_TYPE_ACID` is `0x0010`, "NONE" is `****`. A cell may still be typed by hand (a radius of one's own) |
+| A sheet of formulas, the table itself | every cell looks its name up in its list, an empty cell is `****`; saved as text and turned into a 2DA by another tool |
+| Three number ranges | a level from -1 to 10, a class level from 1 to 40, an ability from 3 to 50 |
+| Seven colorings | a cell that must be filled where another says something (a cure names what it cures; a spell that does damage names its kind) |
+
+What the table it made shows (31 columns, 840 rows):
+
+- **Its rows are another table's.** Row for row it is `spells.2da` (row
+  125 of each is Negative Energy Protection): a table that says more
+  about another's rows, which no column kind of today describes.
+- **Half its columns are sets of flags** in hexadecimal, and five of them
+  hold several at once (`0x00380010`), which a list of one name per value
+  cannot show or choose: the workbook has a few such sums as names of
+  their own.
+- **A fault got through.** One cell of the table is `#N/A`: a name no
+  list had. The spreadsheet does not say so, and the game reads it as 0.
+- **The two went apart.** The sheet has a column (Polymorph) the table
+  made from it lacks, as its author said it might.
+- **Most of the lists are a script's constants** (`DAMAGE_TYPE_*`,
+  `CLASS_TYPE_*`, the AI's own `JAI_*`), written out a second time by
+  hand with their values.
+- Three columns name rows of the game's tables (a class, a spell, an
+  area effect), as `2da-ref` knows for the game's own tables.
+
+### What this says a dedicated editor should do
+
+It should not be the spreadsheet again. Where it can beat one:
+
+1. **The table stays the truth.** The cell keeps `0x0010`; the editor
+   shows `DAMAGE_TYPE_ACID` beside it and offers the list. Nothing is
+   made from something else, so nothing goes apart, and a table written
+   by any other tool opens the same.
+2. **A description of the columns, in a file of text** beside the table
+   or for a family of them by name (`j_ai_*`): each column's kind, with
+   its range, its list, its flags or the table whose rows it names; and
+   "these rows are `spells.2da`'s". Text in the repository, so `mg
+   verify`, the editor and a plugin all read the one description, and a
+   headless run holds a table to it.
+3. **Lists read from scripts.** "The constants of `j_inc_constants` that
+   begin `JAI_IMMUNITY_TYPE_`" is a list that cannot fall behind the
+   script: Moonglow has the compiler and the scripts open. No
+   spreadsheet has this.
+4. **Flags as flags:** a column of flags is ticked from its list, and a
+   cell with several shows each by name.
+5. **Faults as typed and in Verify Module:** a value no list has, a
+   number out of its range, a cell that must be filled where another
+   says so. The `#N/A` above is the first kind.
+
+### The decisions, when this is taken up
+
+| Decision | Choices | Recommended |
+| --- | --- | --- |
+| Where a description is kept | a text file beside the sources (a nasher project, a folder); a resource of the hak or module too | the text file first: every builder who asked keeps tables in a repository. A hak carries no such file to the game, and need not |
+| What a cell holds | the value, with its name shown; or the name, with the table made from it | the value: lossless, and one truth |
+| Rules between cells | none; "filled where another is X" | the one rule the workbook has, after the kinds |
+| The game's own tables | described the same way, by files Moonglow brings | later: `2da-ref`'s tables say the rows today, and a builder's own tables are where no tool helps |
+
+Sized L in all: the description and its checks from a terminal and in
+the editor (M), cells chosen and ticked from lists (M), lists read from
+scripts (M), rules between cells (S).
+
+### Built
+
+By the recommendations, after 1.22.1 (the manual's
+[A table's description](manual/03-modules.md#a-tables-description) says
+how it is written and used):
+
+- `mg_module::table_desc`: a description read from `name.2da.toml`
+  (kinds text, int, float, list, flags, row, strref; `rows`; rules),
+  lists written or read from a script's constants, and a table held to
+  it. Tried on the builder's table with a description written for it:
+  the `#N/A` cell is found, and the game's `DAMAGE_TYPE_` flags read
+  from `nwscript`.
+- `mg 2da-check`, for a folder's described tables or one table.
+- The editor: the faults with the others, values by name, a cell chosen
+  from its list, its flags or the other table's rows, and the file read
+  again when it changes.
+
+Then, of what that left: a description found for a table in a `.mod`
+and in a hak, Verify Module's check `2da-described`, a plugin's
+`mg.twoda.describe`, constants made of other constants, Find by the
+names shown, and the folders a build fills passed over.
+
+Not done (each in the [deferred list](deferred.md)): one description for
+a family of tables, the game's own tables described, and the haks'
+tables in Verify Module.
+
 ## What it would not be
 
 Not a spreadsheet (no formulas, no sorting that changes row numbers);
@@ -205,5 +314,6 @@ the generators (`mg.twoda`, a repository's scripts) that write whole
 tables.
 
 [^request]: The owner's ask, 2026-10-12.
+[^sample]: `j_ai_spells.xlsx` and `j_ai_spells.2da`, sent by their author for this (2026-10-12): read for their structure, not kept here.
 [^pain]: `research/community_pain_points.md`: the pain point's row, and the tier-3 entry "Custom content data".
 [^deferred]: `deferred.md`, "Custom content data (2DAs and talk tables)".

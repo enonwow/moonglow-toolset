@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:37:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -629,11 +629,53 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `appearance.2da`); Find looks through every cell at each frame
     (Take Rows reads the copies once, and works the rows out once for
     a copy). (S)
-  - No row is put between others or taken out, by decision; no sorting,
-    no column removed or renamed, no `DEFAULT:` edited. (—)
-  - The keys: no Shift-selection of several cells, no Ctrl+X; a letter
-    typed does not begin typing in the cell (Enter, F2 or a double
-    click does). (S each)
+  - No row is put between others, by decision (Delete Row takes any
+    row away since 1.22.1); no sorting, no `DEFAULT:` edited. (—)
+  - Asked for by builders on 1.22.0 and 1.22.1 (October 2026), none
+    begun:
+    - **A column moved** (a drag of its name). Removed and renamed
+      since 1.23.0. (M)
+    - **Columns hidden** from view. (S)
+    - **A table's description** (`name.2da.toml`: what each column
+      holds, lists from a script's constants, `mg 2da-check`; built
+      after 1.22.1 from a builder's workbook,
+      [the proposal](2da-editor-proposal.md#columns-that-say-what-they-hold-a-builders-spreadsheet-read)).
+      Not done:
+      - One description for a family of tables (`loot_*`); the game's
+        own tables described the same way. (M)
+      - Verify Module reads the descriptions of the module's own
+        tables, not those of its haks' (`mg 2da-check` on the hak's
+        sources does). (S)
+      - A constant whose value is a function's result is left out of a
+        list, and said; one made of constants of another script it
+        includes is too. (S)
+      - A description's folder is walked when it is read (once, and
+        again when the file changes; the folders a build fills are
+        passed over): a second and a half for a repository of 144,000
+        files in a build made for testing, during which the window
+        waits. A table of the project that a description names is read
+        from its file once, not as it is open in the editor. (S)
+      - Without a game install, `mg 2da-check` knows no talk table: a
+        `strref` column's custom string is said not to exist; a
+        plugin's `faults` does not look strings up at all. (S)
+      - A hak's table's description (beside its file in the hak's
+        folder) was tried beside the hak's file, not in a folder a hak
+        is built from. (S)
+    - **A talk-table string chosen from the talk table** in the cell,
+      not gone to. (S; with "a new line in it" above)
+    - **A class's spell tables checked against `spells.2da`** (each
+      spell a class's table names is one the class can learn): Verify
+      Module holds the lists a class names to rows that exist, not to
+      what those rows allow. (M)
+    One builder's view, to weigh the rest by: a spreadsheet does most
+    of this already, and the editor earns its place on a module's own
+    tables (treasure, spawns), not on the game's.
+  - The keys: a letter typed does not begin typing in the cell (Enter,
+    F2 or a double click does); a drag selecting cells does not scroll
+    the table when it reaches its edge. (S each)
+  - Edit… › The Table of a hak, in the resource browser, was tried
+    through the functions under it (the hak opened by its file, its
+    table opened in it), not by its menu on a module with a hak. (S)
   - The hak editor's Edit Table and the Take Rows window against two
     haks' copies were tried through the functions under them and with
     the game's copy, not by their own buttons. (S)
@@ -1129,6 +1171,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The main window and its panes
 
+- **A module's open tabs are not remembered:** opened again, a module
+  has none of the areas, scripts and blueprints that were open when it
+  was closed. Asked for: kept by module (in Moonglow's data folder, not
+  in the module), an option. (M) (a builder's report, October 2026)
 - **Deleting from the module tree:** Delete… removes the resource (an
   area with its GIT and GIC and its area-list entry, a script with its
   NCS) and nothing else: transitions, scripts and conversations that name

@@ -161,10 +161,36 @@ fn table_editor() {
     h.get_by_label("New").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "table-editor-take-rows");
-    // Where a row is named, and a row of another table to choose from.
+    // Several cells selected, and a column's menu.
     {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
         doc.taking = None;
+        doc.go_to(2, 0);
+        doc.select_to((7, 2));
+    }
+    h.run_steps(4);
+    let name = h.get_by_label("DESCRIPTION").rect().center();
+    h.hover_at(name);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: name,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-editor-selection");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // The window's close button, with nothing unsaved.
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "close-question");
+    h.state_mut().closing = false;
+    // Where a row is named, and a row of another table to choose from.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
         doc.go_to(3, prereq);
     }
     h.run_steps(4);
@@ -178,6 +204,70 @@ fn table_editor() {
     h.get_by_label("Edit…").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "table-editor-edit-menu");
+}
+
+/// A table with a description beside it: values by name, a cell that is
+/// none of its list, and a flags cell being ticked (the flags are the
+/// game's own `DAMAGE_TYPE_` constants, read from `nwscript`).
+#[test]
+#[ignore]
+fn described_table() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-described");
+    let install = GameInstall::new(&root, None, "en");
+    // (A project of its own: what the description names is looked for
+    // here, not through this repository.)
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    let file = dir.join("my_ai_spells.2da");
+    std::fs::write(
+        &file,
+        "2DA V2.0\r\n\r\n  Label Level DamageType AOEShape Duration ClassRequired Cures\r\n\
+         0 Acid_Fog 6 0x0010 0 2 **** ****\r\n1 Aid 2 **** **** 3 **** ****\r\n\
+         2 Animate_Dead 3 **** **** 4 2 ****\r\n3 Barkskin 2 **** **** 4 **** ****\r\n\
+         4 Bestow_Curse 3 **** **** 5 **** ****\r\n5 Blade_Barrier 6 0x0006 1 2 **** ****\r\n\
+         6 Bless 1 **** **** 3 **** ****\r\n7 Bless_Weapon 12 **** **** 9 **** ****\r\n\
+         8 Blindness_and_Deafness 2 **** **** #N/A 99 ****\r\n\
+         9 Bulls_Strength 2 **** **** 4 **** ****\r\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("my_ai_spells.2da.toml"),
+        "rows = \"spells\"\n\n[columns.Level]\nkind = \"int\"\nmin = -1\nmax = 10\n\n\
+         [columns.DamageType]\nkind = \"flags\"\nconstants = \"nwscript\"\nprefix = \
+         \"DAMAGE_TYPE_\"\n\n[columns.AOEShape]\nkind = \"list\"\nvalues = { Sphere = 0, \
+         Wall = 1, Cone = 3 }\n\n[columns.Duration]\nkind = \"list\"\nvalues = { Instant = 1, \
+         Short = 2, Medium = 3, Long = 4, Permanent = 5 }\n\n[columns.ClassRequired]\nkind = \
+         \"row\"\ntable = \"classes\"\n",
+    )
+    .unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(5, 2);
+    h.run_steps(4);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v == "2 flags"))
+        .map(|n| n.rect().center())
+        .expect("the flags' list");
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "described-table");
 }
 
 /// The Talk Table editor on a line with a long text: plain, and with a

@@ -328,8 +328,9 @@ impl Id {
             Id::OpenTable => (
                 "open-2da",
                 "2DA File…",
-                "Edit a .2da file anywhere (a hak's table: Edit Table in the hak editor; the \
-                 game's or the module's: Edit… in the resource browser)",
+                "Edit a 2DA: the module's tables and its project's or folder's .2da files are \
+                 listed, whatever folder they are in, and Browse… takes a file anywhere (a \
+                 hak's or the game's table: Edit… in the resource browser)",
             ),
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::Palettes => ("palettes", "Palettes", ""),
@@ -683,7 +684,7 @@ impl Id {
             Id::OpenTileset => return crate::tileset_view::open(app),
             Id::NewHak => return crate::hak_view::new_hak(app),
             Id::OpenHak => return crate::hak_view::open_hak(app),
-            Id::OpenTable => return crate::table_view::open_file(app),
+            Id::OpenTable => return crate::table_view::open_table_window(app),
             Id::BuildHak => return crate::hak_view::build_from_folder(app),
             Id::BuildModule => {
                 app.build.get_or_insert_with(Default::default);

@@ -27,7 +27,9 @@ as it is. A plugin that uses what is new says `api = "0.3"`.
   is the plugin's own copy. Since Moonglow 1.21.2 `kinds` also says
   which columns name a row of another table (`"row:feat"`), still as
   API 0.3: a plugin that reads only `"strref"` and `"model"` is as it
-  was.
+  was. Since Moonglow 1.23.0 `mg.twoda.describe` reads a table's
+  description (`name.2da.toml`) and holds a table to it, still as API
+  0.3.
 - `mg.tlk`: `parse` and `new` make a talk table to read, change and
   write (`tlk:get`, `set`, `add`, `write`).
 - `folder:write`: files written into a folder the user chose

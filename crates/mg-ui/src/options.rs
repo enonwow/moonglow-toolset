@@ -39,6 +39,7 @@ pub struct OptionsDraft {
     pub area_names: bool,
     pub last_area: bool,
     pub tabs_by_recent: bool,
+    pub ask_before_closing: bool,
     pub debug_log: bool,
     pub name_resrefs: bool,
     pub palette_cr: bool,
@@ -121,6 +122,7 @@ impl OptionsDraft {
             area_names: s.area_names,
             last_area: !s.no_last_area,
             tabs_by_recent: s.tabs_by_recent,
+            ask_before_closing: !s.close_without_asking,
             debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
@@ -179,6 +181,7 @@ impl OptionsDraft {
             area_names: self.area_names,
             no_last_area: !self.last_area,
             tabs_by_recent: self.tabs_by_recent,
+            close_without_asking: !self.ask_before_closing,
             no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
@@ -434,6 +437,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_hover_text(
                                 "The first time, on the first area the module tree lists",
+                            );
+                            ui.checkbox(
+                                &mut draft.ask_before_closing,
+                                "Ask before the window is closed",
+                            )
+                            .on_hover_text(
+                                "The window's close button asks first, where there are no \
+                                 unsaved changes to ask about (File › Exit does not)",
                             );
                             ui.checkbox(
                                 &mut draft.tabs_by_recent,

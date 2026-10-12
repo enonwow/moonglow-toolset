@@ -283,6 +283,28 @@ enum Cmd {
         #[arg(long)]
         resource: Option<String>,
     },
+    /// Check builders' own 2DAs against their descriptions: a file
+    /// `name.2da.toml` beside `name.2da` that says what each column holds
+    /// (a whole number in a range, one of a list of values, a set of
+    /// flags, a row of another table, a talk-table string) and whose rows
+    /// the table's are. Lists may be a script's constants, read from the
+    /// script. Each path is a table, or a folder: every table in it (and
+    /// in the folders in it) that has a description. Scripts and tables a
+    /// description names are looked for in the folder (or --beside),
+    /// then in the game. Fails if a cell is wrong or a description cannot
+    /// be read. The format: the manual's Modules chapter, "A table's
+    /// description"
+    #[command(name = "2da-check")]
+    TwodaCheck {
+        /// Tables (.2da) or folders.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// A folder whose scripts and tables the descriptions may name
+        /// (default: the folder given; for a table, the repository or
+        /// nasher project it is in, else its own folder)
+        #[arg(long)]
+        beside: Option<PathBuf>,
+    },
     /// What differs between two talk tables (.tlk), by line. With --base
     /// (the table both were made from), the two merged, as `mg 2da-diff`
     /// merges.
@@ -1526,6 +1548,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 ran.report.tests.len()
             ));
             out
+        }
+        Cmd::TwodaCheck { paths, beside } => {
+            // (A table that names nothing of the game's needs no game.)
+            let game = install(cli).ok().and_then(|gi| mg_rules::GameData::open(&gi).ok());
+            diff::check(paths, beside.as_deref(), game.as_ref(), Codepage::default())?
         }
         Cmd::TwodaDiff { a, b, base, output, edits, prefer, resource } => diff::twoda(
             &diff::Args {

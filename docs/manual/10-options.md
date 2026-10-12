@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T10:58:07Z }
 ---
 
 # Options
@@ -63,6 +63,10 @@ the module is opened again from its file.
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
+- **Ask before the window is closed**: on by default. The window's
+  close button asks before Moonglow closes where nothing is unsaved (with
+  unsaved changes it asks about those, as always); File › Exit closes
+  without this question.
 - **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
   through a pane's tabs in the order they were last used, for as long
   as Ctrl is held (one press: back to the tab before); off, to the next

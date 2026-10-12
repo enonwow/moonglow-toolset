@@ -42,6 +42,8 @@ mod test_cmd;
 mod tlk_alloc;
 #[path = "../tlk_io.rs"]
 mod tlk_io;
+#[path = "../twoda_check.rs"]
+mod twoda_check;
 #[path = "../update_instances.rs"]
 mod update_instances;
 #[path = "../verify.rs"]

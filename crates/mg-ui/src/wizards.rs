@@ -142,6 +142,34 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.wizard = None;
     }
 
+    if app.closing {
+        let mut open = true;
+        let mut answer = None;
+        crate::widgets::dialog(&ctx, "Close Moonglow?", &mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                ui.label("Nothing is unsaved. The tabs that are open will be closed.");
+                ui.horizontal(|ui| {
+                    if ui.button("Close Moonglow").clicked() {
+                        answer = Some(true);
+                    }
+                    if crate::widgets::cancel(ui) {
+                        answer = Some(false);
+                    }
+                });
+                ui.weak("Options › General: Ask before the window is closed");
+            });
+        if let Some(close) = answer {
+            app.closing = false;
+            if close {
+                app.actions.push(Action::Quit);
+            }
+        } else if !open {
+            app.closing = false;
+        }
+    }
+
     if let Some(pending) = app.confirm_discard.clone() {
         let what = app
             .module_path()

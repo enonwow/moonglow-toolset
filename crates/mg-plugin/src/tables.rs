@@ -9,7 +9,7 @@ use std::sync::Arc;
 use mg_2da::TwoDa;
 use mg_module::doctor::ColumnKind;
 use mg_tlk::{Tlk, TlkEntry};
-use mlua::{Lua, Table, Value as LuaValue};
+use mlua::{Lua, ObjectLike, Table, Value as LuaValue};
 
 use crate::runtime::{codepage, fail};
 
@@ -154,7 +154,74 @@ pub(crate) fn twoda_api(lua: &Lua) -> mlua::Result<Table> {
             Ok(out)
         })?,
     )?;
+    api.set("describe", lua.create_function(describe)?)?;
     Ok(api)
+}
+
+/// `mg.twoda.describe(text, scripts)`: a table's description
+/// ([`mg_module::table_desc`]) read from its file's text; `scripts` gives
+/// the sources of the scripts whose constants it names, by name.
+fn describe(lua: &Lua, (text, scripts): (String, Option<Table>)) -> mlua::Result<Table> {
+    use mg_module::table_desc::{Description, Kind};
+    let script = |name: &str| -> Option<Vec<u8>> {
+        let source: mlua::LuaString = scripts.as_ref()?.get(name).ok()?;
+        Some(source.as_bytes().to_vec())
+    };
+    let description = Rc::new(Description::parse(&text, &script).or_else(fail)?);
+    let out = lua.create_table()?;
+    out.set("rows", description.rows.clone())?;
+    out.set("notes", description.notes.clone())?;
+    let columns = lua.create_table()?;
+    for (name, column) in &description.columns {
+        let kind = match &column.kind {
+            Kind::Text => "text".to_string(),
+            Kind::Int { .. } => "int".to_string(),
+            Kind::Float { .. } => "float".to_string(),
+            Kind::List { .. } => "list".to_string(),
+            Kind::Flags { .. } => "flags".to_string(),
+            Kind::Row(table) => format!("row:{table}"),
+            Kind::StrRef => "strref".to_string(),
+        };
+        columns.set(name.as_str(), kind)?;
+    }
+    out.set("columns", columns)?;
+    let d = description.clone();
+    out.set(
+        "name",
+        lua.create_function(move |_, (_, column, value): (This, String, LuaValue)| {
+            let Some(value) = cell(&value)? else { return Ok(None) };
+            Ok(d.column(&column).and_then(|c| c.kind.named(&value)))
+        })?,
+    )?;
+    let d = description;
+    out.set(
+        "faults",
+        lua.create_function(move |lua, (_, table, lengths): (This, Table, Option<Table>)| {
+            // (The table as it is now: what its `write` gives.)
+            let bytes: mlua::LuaString = table.call_method("write", ())?;
+            let t = TwoDa::parse(&bytes.as_bytes(), codepage()).or_else(fail)?;
+            let rows_of = |name: &str| -> Option<usize> { lengths.as_ref()?.get(name).ok()? };
+            let found = lua.create_table()?;
+            let tlk = mg_module::doctor::TalkTables::default();
+            for f in d.faults(&t, &rows_of, tlk) {
+                // (Strings are not looked up here: a plugin has no talk
+                // table to hold them to.)
+                if matches!(d.column(&t.columns()[f.column]).map(|c| &c.kind), Some(Kind::StrRef))
+                    && f.message.contains("doesn't exist")
+                {
+                    continue;
+                }
+                let fault = lua.create_table()?;
+                fault.set("row", f.row)?;
+                fault.set("column", t.columns()[f.column].as_str())?;
+                fault.set("value", t.cell(f.row, f.column))?;
+                fault.set("message", f.message)?;
+                found.push(fault)?;
+            }
+            Ok(found)
+        })?,
+    )?;
+    Ok(out)
 }
 
 fn entry_table(lua: &Lua, e: &TlkEntry) -> mlua::Result<Table> {

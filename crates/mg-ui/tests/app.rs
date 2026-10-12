@@ -15605,6 +15605,316 @@ fn table_of(h: &Harness<'_, Moonglow>, id: u32) -> mg_2da::TwoDa {
     h.state().tables.iter().find(|d| d.id == id).unwrap().edit.table().clone()
 }
 
+/// The 2DA editor's cells are selected several at a time (Shift and the
+/// arrows, Shift and a click, a drag), copied as a spreadsheet's and
+/// emptied in one step; a paste begins at the selection's first cell. A
+/// column's name, right-clicked, renames or removes it. Tools › 2DA File…
+/// lists the module's tables.
+#[test]
+fn a_table_s_cells_are_selected_and_its_columns_changed() {
+    let dir = mg_testkit::scratch_dir("ui-table-select");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // The module's tables are listed to open, by name.
+    mg_ui::table_view::open_table_window(h.state_mut());
+    h.run_steps(3);
+    assert_eq!(h.state().open_table.as_ref().map(|w| w.tables.len()), Some(1));
+    h.get_by_label("mystore.2da").click();
+    h.run_steps(4);
+    assert!(h.state().open_table.is_none());
+    let id = h.state().tables[0].id;
+    let area = |h: &Harness<'_, Moonglow>| h.state().tables[0].area();
+    // Shift and the arrows reach from Bread to Cheese's cost.
+    h.get_by_label("Bread").click();
+    h.run_steps(2);
+    assert_eq!(area(&h), Some((0, 0, 0, 0)));
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowRight] {
+        h.key_press_modifiers(egui::Modifiers::SHIFT, key);
+        h.run_steps(2);
+    }
+    assert_eq!(area(&h), Some((0, 1, 0, 1)));
+    // (Away without Shift and back: one cell, not the rectangle again.)
+    for key in [egui::Key::ArrowUp, egui::Key::ArrowDown] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    assert_eq!(area(&h), Some((1, 1, 1, 1)));
+    h.get_by_label("Bread").click();
+    h.run_steps(2);
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowRight] {
+        h.key_press_modifiers(egui::Modifiers::SHIFT, key);
+        h.run_steps(2);
+    }
+    assert_eq!(area(&h), Some((0, 1, 0, 1)));
+    // Copied: a line a row, tabs between the cells.
+    h.event(egui::Event::Copy);
+    h.step();
+    let copied = h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(copied.as_deref(), Some("Bread\t1\nCheese\t2"));
+    // Delete empties them all, in one step.
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.get(0, "Label"), t.get(1, "Cost")), (None, None));
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Cost"), Some("2"));
+    // A paste begins at the selection's first cell, and adds the rows it
+    // runs past the end by; cells past the last column are left out.
+    h.event(egui::Event::Paste("Ale\t5\tx\nEggs\t3\nFish\t8".into()));
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(0, "Label"), t.get(2, "Cost")), (3, Some("Ale"), Some("8")));
+    // A plain arrow is one cell again; Shift and a click reaches to it.
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    let cell = h.get_by_label("Fish").rect().center();
+    h.hover_at(cell);
+    press(&h, cell, true, egui::Modifiers::SHIFT);
+    press(&h, cell, false, egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    assert_eq!(area(&h).map(|a| a.1), Some(2), "to Fish's row");
+    // A drag selects from where it began to where it is.
+    let (from, to) = (h.get_by_label("Ale").rect().center(), h.get_by_label("3").rect().center());
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(egui::pos2((from.x + to.x) / 2.0, to.y));
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(2);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(area(&h), Some((0, 1, 0, 1)));
+
+    // A column's name, right-clicked: renamed, then removed.
+    let secondary = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let pos = h.get_by_label(label).rect().center();
+        h.hover_at(pos);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    secondary(&mut h, "Cost");
+    h.get_by_label("Rename Column…").click();
+    h.run_steps(3);
+    h.get_by_label("Rename Column");
+    h.event(egui::Event::Text("s".into()));
+    h.run_steps(2);
+    h.get_by_label("Rename").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Costs"]);
+    secondary(&mut h, "Label");
+    h.get_by_label("Remove Column").click();
+    h.run_steps(3);
+    let t = table_of(&h, id);
+    assert_eq!((t.columns().to_vec(), t.cell(0, 0)), (vec!["Costs".to_string()], Some("5")));
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"), "back where it was");
+}
+
+/// A table with a description beside it (`name.2da.toml`): its cells are
+/// held to what the description says, values show by their names, and a
+/// cell is chosen from its list or ticked from its flags, which a
+/// script's constants give.
+#[test]
+fn a_described_table_is_chosen_from_its_lists() {
+    let dir = mg_testkit::scratch_dir("ui-table-described");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/loot_inc.nss"),
+        "const int LOOT_KIND_GOLD = 0x01;\nconst int LOOT_KIND_GEMS = 0x02;\n",
+    )
+    .unwrap();
+    let file = dir.join("loot.2da");
+    std::fs::write(
+        &file,
+        "2DA V2.0\r\n\r\n  Label Chance Kinds Rarity Place\r\n0 Chest 50 0x01 0 1\r\n1 Urn 500 \
+         0x03 1 0\r\n",
+    )
+    .unwrap();
+    // (A table of the project's own, which the description names twice:
+    // the rows are its rows, and a column names one.)
+    std::fs::write(
+        dir.join("src/places.2da"),
+        "2DA V2.0\r\n\r\n  Label\r\n0 Cellar\r\n1 Attic\r\n2 Vault\r\n",
+    )
+    .unwrap();
+    let description = "[columns.Chance]\nkind = \"int\"\nmin = 0\nmax = 100\nnote = \"In a hundred\"\n\n\
+         [columns.Kinds]\nkind = \"flags\"\nconstants = \"loot_inc\"\nprefix = \
+         \"LOOT_KIND_\"\n\n[columns.Rarity]\nkind = \"list\"\nvalues = { Common = 0, Rare = 1 }\n\n\
+         [columns.Place]\nkind = \"row\"\ntable = \"places\"\n";
+    let description = format!("rows = \"places\"\n\n{}", description);
+    std::fs::write(dir.join("loot.2da.toml"), &description).unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run_steps(2);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.get_by_label_contains("Described by loot.2da.toml: 4 columns");
+    let d = h.state().tables[0].description().expect("the description is read");
+    assert_eq!(d.column("Kinds").unwrap().kind.entries().len(), 2);
+    // Values by their names; the cell out of its range is the one wrong.
+    h.get_by_label("LOOT_KIND_GOLD | LOOT_KIND_GEMS");
+    h.get_by_label("Rare");
+    h.get_by_label("1 cell is wrong").click();
+    h.run_steps(3);
+    assert_eq!(h.state().tables[0].selected, Some((1, 1)));
+    h.get_by_label_contains("500 is above what the column takes");
+    h.get_by_label("In a hundred");
+    // The rows are another table's: the other's row is said with the cell.
+    h.get_by_label_contains("Attic of places.2da");
+    // Find looks through the names shown too.
+    h.state_mut().tables[0].filter = "rare".into();
+    h.run_steps(3);
+    assert!(h.query_by_label("Urn").is_some() && h.query_by_label("Chest").is_none());
+    h.state_mut().tables[0].filter.clear();
+    h.run_steps(3);
+    // A row of the project's own table is chosen by its name.
+    h.state_mut().tables[0].go_to(0, 4);
+    h.run_steps(3);
+    h.get_by_label_contains("a row of places.2da");
+    {
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        let at = h
+            .query_all(combo)
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("Attic")))
+            .map(|n| n.rect().center())
+            .expect("the rows' list");
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    }
+    h.get_by_label_contains("Vault").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Place"), Some("2"));
+    // A list's cell is chosen by name: the table gets the value.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let open = |h: &mut Harness<'_, Moonglow>, shows: &str| {
+        let at = h
+            .query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v == shows))
+            .map(|n| n.rect().center())
+            .unwrap_or_else(|| panic!("the list showing {shows}"));
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    h.get_by_label("Common").click();
+    h.run_steps(3);
+    open(&mut h, "Common");
+    h.get_by_label("Rare  (1)").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("1"));
+    // Flags are ticked: each is a bit of the cell, written as the list's
+    // own values are.
+    h.get_by_label("LOOT_KIND_GOLD").click();
+    h.run_steps(3);
+    open(&mut h, "LOOT_KIND_GOLD");
+    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Kinds"), Some("0x03"));
+    h.get_by_label("LOOT_KIND_GOLD  (0x01)").click();
+    h.run_steps(3);
+    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Kinds"), None, "no flag: an empty cell");
+    // A value no list has, typed in the cell, is a fault said as it is typed.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_all_by_label("Rare").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(h.state().tables[0].selected, Some((0, 3)));
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("7".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("17"));
+    h.get_by_label("2 cells are wrong");
+    // The description is read again when its file changes: with a wider
+    // range, the chance of 500 is not wrong any more.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(dir.join("loot.2da.toml"), description.replace("max = 100", "max = 1000"))
+        .unwrap();
+    // (Looked at once a second, of the time egui gives.)
+    h.run_steps(90);
+    h.get_by_label("1 cell is wrong");
+}
+
+/// The window's own close button asks before Moonglow closes where there
+/// is nothing unsaved to ask about; with the option off it closes, and
+/// with unsaved work (a table's here) the question is about that.
+#[test]
+fn closing_the_window_asks_first() {
+    let dir = mg_testkit::scratch_dir("ui-close-asks");
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, SMALL_TABLE).unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    assert!(h.state().closing && !h.state().quit_requested);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(!h.state().closing && !h.state().quit_requested);
+    // An unsaved table: asked about that instead.
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(2);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().edit.add_rows(1);
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    assert!(!h.state().closing && h.state().confirm_discard.is_some());
+    h.state_mut().confirm_discard = None;
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    // Nothing unsaved again: asked, and closed on the answer.
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    h.get_by_label("Close Moonglow").click();
+    h.run_steps(3);
+    assert!(h.state().quit_requested);
+    // With the option off, the button closes.
+    h.state_mut().quit_requested = false;
+    h.state_mut().settings.close_without_asking = true;
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    assert!(h.state().quit_requested && !h.state().closing);
+    // File › Exit never asks this.
+    h.state_mut().quit_requested = false;
+    h.state_mut().settings.close_without_asking = false;
+    h.state_mut().actions.push(mg_ui::Action::Quit);
+    h.run_steps(3);
+    assert!(h.state().quit_requested);
+}
+
 /// The 2DA editor on a table of the module's: a cell typed in, rows
 /// added and emptied, each a step of the table's own to take back; Save
 /// is one step of the module's.
@@ -15624,8 +15934,15 @@ fn a_module_s_table_is_edited_cell_by_cell() {
         .with_size(egui::vec2(1200.0, 800.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
+    // (A description beside the module's file is its tables'.)
+    std::fs::write(
+        path.with_file_name("mystore.2da.toml"),
+        "[columns.Cost]\nkind = \"int\"\nmax = 500\n",
+    )
+    .unwrap();
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);
+    assert!(h.state().tables[0].description().is_some(), "read from beside the .mod");
     assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
     h.get_by_label("mystore.2da");
     // A click selects a cell and F2 (or Enter, or a double click) types
@@ -15737,8 +16054,12 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     mg_ui::hak_view::open_hak(h.state_mut());
     h.run_steps(3);
     let hak_id = h.state().haks[0].id;
+    // (A description beside the hak's file is its tables'.)
+    std::fs::write(dir.join("mystore.2da.toml"), "[columns.Cost]\nkind = \"int\"\nmax = 5\n")
+        .unwrap();
     let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
     h.run_steps(3);
+    assert!(h.state().tables[0].description().is_some(), "read from beside the hak");
     {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
         assert_eq!(doc.home, mg_ui::table_view::Home::Hak(hak_id));

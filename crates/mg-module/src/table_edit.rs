@@ -15,6 +15,10 @@ enum Change {
     /// Rows added at the end, with the cells they were given.
     Rows(usize, Vec<CellChange>),
     Column(String),
+    /// A column taken out: where it was, its name and its cells.
+    ColumnOut(usize, String, Vec<Option<String>>),
+    /// A column renamed: which, from what, to what.
+    ColumnNamed(usize, String, String),
     /// A row taken away, with the cells it had: the rows after it are
     /// each one number lower.
     Dropped(usize, Vec<Option<String>>),
@@ -133,6 +137,26 @@ impl Editing {
         self.redo.clear();
     }
 
+    /// Takes a column out, with its cells; whether it was there.
+    pub fn remove_column(&mut self, column: usize) -> bool {
+        let Some(name) = self.table.columns().get(column).cloned() else { return false };
+        let Some(cells) = self.table.remove_column(column) else { return false };
+        self.done(format!("Remove column {name}"), Change::ColumnOut(column, name, cells));
+        true
+    }
+
+    /// Renames a column; whether its name changed.
+    pub fn rename_column(&mut self, column: usize, name: &str) -> Result<bool, TwoDaError> {
+        let Some(old) = self.table.columns().get(column).cloned() else { return Ok(false) };
+        if old == name {
+            return Ok(false);
+        }
+        self.table.rename_column(column, name)?;
+        let label = format!("Rename column {old} to {name}");
+        self.done(label, Change::ColumnNamed(column, old, name.to_string()));
+        Ok(true)
+    }
+
     /// Applies cell changes (each as it is to be), keeping those that
     /// change something.
     fn put(
@@ -193,6 +217,20 @@ impl Editing {
             && !changed.is_empty()
         {
             self.done(format!("Empty row {row}"), Change::Cells(changed));
+        }
+    }
+
+    /// Empties the cells of a rectangle (`rows`, and the columns from
+    /// `first` to `last`), as one step; how many had something.
+    pub fn clear_cells(&mut self, rows: &[usize], first: usize, last: usize) -> usize {
+        let cells = rows.iter().flat_map(|&r| (first..=last).map(move |c| (r, c, None))).collect();
+        match self.put(cells) {
+            Ok(changed) if !changed.is_empty() => {
+                let count = changed.len();
+                self.done(format!("Empty {count} cells"), Change::Cells(changed));
+                count
+            }
+            _ => 0,
         }
     }
 
@@ -290,6 +328,10 @@ impl Editing {
                 self.table.rows.truncate(left);
             }
             Change::Dropped(row, cells) => self.table.rows.insert(*row, cells.clone()),
+            Change::ColumnOut(column, name, cells) => {
+                let _ = self.table.insert_column(*column, name, cells.clone());
+            }
+            Change::ColumnNamed(column, old, _) => _ = self.table.rename_column(*column, old),
             Change::Column(_) => {
                 let mut columns = self.table.columns().to_vec();
                 columns.pop();
@@ -317,6 +359,8 @@ impl Editing {
                 }
             }
             Change::Dropped(row, _) => _ = self.table.rows.remove(*row),
+            Change::ColumnOut(column, ..) => _ = self.table.remove_column(*column),
+            Change::ColumnNamed(column, _, new) => _ = self.table.rename_column(*column, new),
             Change::Column(name) => _ = self.table.add_column(name),
         }
     }
@@ -362,6 +406,22 @@ mod tests {
         assert_eq!(e.set(0, 2, Some("\"".into())), Err(TwoDaError::Unquotable));
         assert_eq!(e.table().len(), 4);
         assert_eq!(e.table().get(1, "Label"), None);
+        // A rectangle of cells is emptied in one step.
+        assert_eq!(e.clear_cells(&[0, 3], 0, 1), 3);
+        assert_eq!((e.table().get(0, "Label"), e.table().get(3, "Label")), (None, None));
+        assert_eq!(e.clear_cells(&[0, 3], 0, 1), 0, "empty already: no step");
+        e.undo();
+        assert_eq!((e.table().get(0, "Cost"), e.table().get(3, "Label")), (Some("9"), Some("d")));
+        // A column is renamed, and taken out with its cells.
+        assert_eq!(e.rename_column(0, "Name"), Err(TwoDaError::DuplicateColumn("Name".into())));
+        assert_eq!(e.rename_column(0, "Tag"), Ok(true));
+        assert_eq!(e.undo_label(), Some("Rename column Label to Tag"));
+        assert!(e.remove_column(1) && !e.remove_column(9));
+        assert_eq!(e.table().columns(), ["Tag", "Name"]);
+        e.undo();
+        assert_eq!((e.table().columns().len(), e.table().get(0, "Cost")), (3, Some("9")));
+        e.undo();
+        assert_eq!(e.table().get(3, "Label"), Some("d"));
         // A row is taken away with its cells: those after it move up.
         assert!(e.remove_row(2) && !e.remove_row(9));
         assert_eq!(e.undo_label(), Some("Delete row 2"));

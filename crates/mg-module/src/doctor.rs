@@ -52,11 +52,12 @@ pub enum Check {
     TwoDaShadow,
     TwoDaStrRef,
     TwoDaRef,
+    TwoDaDescribed,
     ObjectRow,
 }
 
 impl Check {
-    pub const ALL: [Check; 20] = [
+    pub const ALL: [Check; 21] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -76,6 +77,7 @@ impl Check {
         Check::TwoDaShadow,
         Check::TwoDaStrRef,
         Check::TwoDaRef,
+        Check::TwoDaDescribed,
         Check::ObjectRow,
     ];
 
@@ -100,6 +102,7 @@ impl Check {
             Check::TwoDaShadow => "2da-shadow",
             Check::TwoDaStrRef => "2da-strref",
             Check::TwoDaRef => "2da-ref",
+            Check::TwoDaDescribed => "2da-described",
             Check::ObjectRow => "object-row",
         }
     }
@@ -132,6 +135,9 @@ impl Check {
             Check::TwoDaShadow => "a 2DA does not hide a longer copy in another hak",
             Check::TwoDaStrRef => "a 2DA's changed rows name talk-table strings that exist",
             Check::TwoDaRef => "a 2DA's changed rows name rows of other 2DAs that exist",
+            Check::TwoDaDescribed => {
+                "a table of the module's that has a description (name.2da.toml) holds what it says"
+            }
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
         }
     }
@@ -265,6 +271,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
         }
     }
     objects(&mut d, module);
+    described_tables(&mut d, module);
     custom_tlk(&mut d, module);
     d.out.sort_by(|a, b| {
         (a.severity, &a.source, a.resource).cmp(&(b.severity, &b.source, b.resource))
@@ -755,7 +762,7 @@ pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
 }
 
 /// Why a talk-table string's number names no string, if it names none.
-fn strref_problem(v: u32, tlk: TalkTables) -> Option<String> {
+pub(crate) fn strref_problem(v: u32, tlk: TalkTables) -> Option<String> {
     if v >= 0x0100_0000 {
         match tlk.custom {
             None => Some("the module has no custom talk table".to_string()),
@@ -992,6 +999,63 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     }
 }
 
+/// The module's own tables that have a description beside them
+/// ([`crate::table_desc`]): each cell that is not what its column is said
+/// to hold, and a description that cannot be read.
+fn described_tables(d: &mut Doctor, module: &Module) {
+    use crate::table_desc::{Beside, Description, path_in_module};
+    let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
+    keys.sort();
+    // (The folders are walked once for the tables of one.)
+    let mut walked: Option<(std::path::PathBuf, Beside)> = None;
+    for key in keys {
+        let Some(path) = path_in_module(module, &key).filter(|p| p.is_file()) else { continue };
+        let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let Some(table) =
+            module.get(&key).and_then(|data| TwoDa::parse(data, Codepage::default()).ok())
+        else {
+            continue;
+        };
+        let root = Beside::root_of(&path.with_extension(""));
+        if walked.as_ref().is_none_or(|(r, _)| *r != root) {
+            walked = Some((root.clone(), Beside::of(&root)));
+        }
+        let files = &walked.as_ref().expect("walked").1;
+        let rm = d.rm;
+        let from_game = |name: &str, t: ResType| {
+            let key = ResKey::parse(name, t)?;
+            rm.get(&key).ok().map(|d| d.into_owned())
+        };
+        let script = |name: &str| files.script(name).or_else(|| from_game(name, ResType::NSS));
+        let rows_of = |name: &str| {
+            files.rows_of(name, Codepage::default()).or_else(|| {
+                let data = from_game(name, ResType::TWODA)?;
+                TwoDa::parse(&data, Codepage::default()).ok().map(|t| t.len())
+            })
+        };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) => {
+                let message = format!("its description ({file}) can't be read: {e}");
+                d.push(Severity::Warning, Check::TwoDaDescribed, "module", key, "", message);
+                continue;
+            }
+        };
+        match Description::parse(&text, &script) {
+            Err(e) => {
+                let message = format!("its description ({file}) can't be read: {e}");
+                d.push(Severity::Warning, Check::TwoDaDescribed, "module", key, "", message);
+            }
+            Ok(description) => {
+                for f in description.faults(&table, &rows_of, d.tlk) {
+                    let at = format!("row {}, {}", f.row, table.columns()[f.column]);
+                    d.push(Severity::Warning, Check::TwoDaDescribed, "module", key, at, f.message);
+                }
+            }
+        }
+    }
+}
+
 /// The module's objects: 2DA rows they name that don't exist (a creature
 /// with a class that isn't there crashes Aurora and the game).
 fn objects(d: &mut Doctor, module: &Module) {
@@ -1176,6 +1240,37 @@ mod tests {
         let ids: HashSet<&str> = Check::ALL.iter().map(|c| c.id()).collect();
         assert_eq!(ids.len(), Check::ALL.len());
         assert!(Check::ALL.iter().all(|c| !c.about().is_empty()));
+    }
+
+    /// A module kept as a folder: its table with a description beside it
+    /// is held to the description; one without is not looked at.
+    #[test]
+    fn a_described_table_is_held_to_its_description() {
+        let dir = mg_testkit::scratch_dir("doctor-described");
+        let table = b"2DA V2.0\n\n  Label Chance Kinds\n0 a 50 0x01\n1 b 500 0x04\n";
+        let mut m = Module::new();
+        m.set(ResKey::parse("loot", ResType::TWODA).unwrap(), table.to_vec());
+        m.set(ResKey::parse("other", ResType::TWODA).unwrap(), table.to_vec());
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(dir.join("loot_inc.nss"), "const int KIND_GOLD = 0x01;\n").unwrap();
+        std::fs::write(
+            dir.join("loot.2da.toml"),
+            "[columns.Chance]\nkind = \"int\"\nmax = 100\n\n[columns.Kinds]\nkind = \
+             \"flags\"\nconstants = \"loot_inc\"\nprefix = \"KIND_\"\n",
+        )
+        .unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        assert_eq!(
+            checks(&f),
+            [("2da-described", "row 1, Chance".into()), ("2da-described", "row 1, Kinds".into())]
+        );
+        assert!(f[0].message.contains("500 is above") && f[0].source == "module", "{f:?}");
+        // A description that cannot be read is said once, for its table.
+        std::fs::write(dir.join("loot.2da.toml"), "[columns.Chance]\nkind = \"odd\"\n").unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        assert_eq!(checks(&f), [("2da-described", String::new())]);
+        assert!(f[0].message.contains("loot.2da.toml") && f[0].message.contains("no kind"));
     }
 
     #[test]

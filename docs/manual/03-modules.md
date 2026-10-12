@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:54:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
 ---
 
 # Modules
@@ -371,15 +371,26 @@ Closing a hak with unsaved changes asks first.
 A 2DA is edited where it lives, and the game's own tables are never
 changed:
 
-- **A hak's table:** in the hak editor, right-click the `.2da` and choose
-  **Edit Table**. Save puts the table into the hak (a step of the hak's
-  own Undo); the hak's own **Save** writes the file.
-- **The module's table, or a copy of any table the game reads:** open the
-  table in the resource browser and choose **Edit…**: the module's own
-  table as it is, or a copy in the module, in a hak open in the hak
-  editor, or in a file. A copy is not there until it is saved.
-- **A file anywhere** (an `override` or `development` folder, a
-  repository): **Tools › 2DA File…**
+- **A table of one of the module's haks:** open the table in the
+  resource browser (Tools › Resource Browser, and its name) and choose
+  **Edit… › The Table of *name*.hak**: the hak opens in the hak editor
+  and its table in the 2DA editor. (Or, with the hak open in the hak
+  editor already, right-click the `.2da` there and choose **Edit
+  Table**.) Save puts the table into the hak (a step of the hak's own
+  Undo); the hak's own **Save** writes the file, and **Tools › Reload
+  Resources** shows the module the change. The game's own haks are not
+  offered.
+- **The module's table, or a copy of any table the game reads:**
+  **Edit…** in the resource browser also offers the module's own table
+  as it is, or a copy in the module, in a hak open in the hak editor, or
+  in a file. A copy is not there until it is saved.
+- **A project's or a folder's tables, and a file anywhere:** **Tools ›
+  2DA File…** lists the module's own 2DAs and every `.2da` file of its
+  nasher project or module folder, whatever folder each is in (a hak's
+  sources kept in the repository too), with a name to find them by;
+  Enter opens the first listed. **Browse…** there takes a file anywhere
+  else (an `override` or `development` folder); with no module open, it
+  is asked for at once.
 
 The table is a grid: the column names stay at the top and the rows'
 numbers at the left as it scrolls.
@@ -388,9 +399,16 @@ numbers at the left as it scrolls.
   (Enter keeps what was typed and goes to the row below, Escape leaves
   the cell as it was); Delete empties it (`****`). The arrow keys, Tab,
   Page Up and Down, Home and End move from cell to cell.
-- **Ctrl+C** copies the cell and **Ctrl+V** pastes cells from there on:
-  text with a line for each row and tabs between cells, as a spreadsheet
-  copies them. Rows are added at the end where the paste runs past it.
+- **Several cells** are selected as a rectangle: Shift and the arrow
+  keys, Shift and a click, or a drag over the cells. Delete empties them
+  all in one step.
+- **Ctrl+C** copies what is selected, **Ctrl+X** empties it too, and
+  **Ctrl+V** pastes cells from the selection's first cell on: text with
+  a line for each row and tabs between cells, as a spreadsheet copies
+  them, so rows go from one table to another (or to and from a
+  spreadsheet). Rows are added at the end where the paste runs past it;
+  where the table has fewer columns than what is pasted, the first ones
+  that fit are taken.
 - **Add Row** puts an empty row at the end, or as many as the number
   beside it says (padding, up to the row your own begin at), in one
   step. No row is put between others.
@@ -401,7 +419,9 @@ numbers at the left as it scrolls.
   follow: delete a row others come after only in a table whose rows
   nothing names yet (**Find References to Row** shows the tables that
   do), and empty it otherwise.
-- **Add Column…** adds one at the end.
+- **Add Column…** adds one at the end. A right click on a column's name
+  renames the column or removes it, with its cells (Undo puts it back
+  where it was).
 - **Find** narrows the rows to those with the text in any cell (Ctrl+F
   goes to it, Escape clears it); **Go to** takes a row's number.
 - **Undo** and **Redo** are the table's own, step by step (Ctrl+Z and
@@ -434,6 +454,107 @@ step.
 Saving lays the table out as the game's own files are (columns in line,
 rows numbered from 0). An empty row at the very end is not written: a
 table has no empty rows after its last.
+
+### A table's description
+
+A table of your own (a spawn table, a treasure table, a table an AI
+reads) can say what its columns hold, in a file of text beside it:
+`loot.2da.toml` beside `loot.2da`. The table stays what it is: a cell
+keeps its value, and the description gives the value its name, a list
+to choose it from, and a check.
+
+![A described table: values by name, cells that are wrong, a flags cell ticked](../images/2da-table-described.png)
+
+```toml
+rows = "spells"                 # each row says more of the same row of spells.2da
+
+[columns.Level]
+kind = "int"                    # a whole number
+min = -1
+max = 10
+note = "The spell's level"      # shown with the column
+
+[columns.DamageType]
+kind = "flags"                  # several values at once: bits of the cell
+constants = "nwscript"          # the constants of this script...
+prefix = "DAMAGE_TYPE_"         # ...whose names begin so
+
+[columns.Shape]
+kind = "list"                   # one of these values
+values = { Sphere = 0, Wall = 1, Cone = "0x03" }
+other = true                    # or a value typed by hand
+
+[columns.ClassRequired]
+kind = "row"                    # a row's number
+table = "classes"
+
+[columns.Name]
+kind = "strref"                 # a talk-table string's number
+
+[[rules]]                       # a cell that must be filled...
+when = { column = "Effect", is = "CURE" }
+require = "Cures"               # ...where another says so
+```
+
+| Kind | The cell holds | Wrong when |
+| --- | --- | --- |
+| `text` (or no kind) | anything | never |
+| `int`, with `min` and `max` if you like | a whole number, decimal or `0x` | it is no whole number, or out of the range |
+| `float`, the same | a number with a fraction | it is no number, or out of the range |
+| `list` | one of the values | it is none of them (unless `other = true`) |
+| `flags` | any of the values together, each a bit | a bit no value has is set, or it is no number |
+| `row`, with `table` | a row's number in that table | the table has no such row |
+| `strref` | a talk-table string's number | there is no such string |
+
+- **A list's values** are written `values = { NAME = 1, OTHER = 2 }`
+  (a value in the table's own way of writing it goes in quotes:
+  `"0x0010"`), or read from a script: `constants` names the script and
+  `prefix` what the names begin with. The script is one of your project's
+  (any folder of it) or the game's; its constants are read when the
+  table is opened, so the list is never behind the script. A constant
+  made of others of its script (`A | B`, `1 << 3`) is worked out; one
+  that cannot be (a function's result) is left out, and said. Both may
+  be given: the written values come first. A cell with several flags
+  shows each by its name, and not a name for them all together too.
+- **`rows`** says the table's rows are another table's, row for row (the
+  AI's facts about each spell beside `spells.2da`): the other table's
+  row is shown with the cell, and a row past the other's last is wrong.
+- **A rule** wants one cell filled where another holds a value (its name
+  or the value itself).
+- A table the description names is your project's own if it has one of
+  that name, else the game's. The project is the folder above the table
+  that has a `nasher.cfg` or a `.git`; else the table's own folder.
+
+In the 2DA editor, a described table says so under its buttons, and:
+
+- cells that are wrong by the description are marked like the others,
+  and counted on the button that goes to the next;
+- a list's and a flags' column shows each value's name (**Values as
+  names**, on by default; the value is in the cell's tip, and is what
+  typing in the cell edits);
+- the selected cell is chosen from its list, ticked from its flags (a
+  cell with none is empty; the value is written as the cell wrote it,
+  hexadecimal or decimal) or chosen from the other table's rows by name;
+- **Find** looks through the names shown as well as the values;
+- the file is read again when it changes, so the description and the
+  table can be written side by side.
+
+Where the description is looked for:
+
+| The table | Its description |
+| --- | --- |
+| A file opened in the editor | beside the file |
+| The module's, in a nasher project or a module folder | beside the table's file |
+| The module's, in a `.mod` file | beside the `.mod` file |
+| A hak's, in a hak built from a folder | beside the table's file in that folder |
+| A hak's, otherwise | beside the hak's file |
+
+**Verify Module** (and `mg verify`) holds the module's own described
+tables to their descriptions, as the check `2da-described`. From a
+terminal, `mg 2da-check` does it for every described table of a folder,
+a hak's sources too ([Command-line tools](11-command-line.md)); a
+plugin reads a description with `mg.twoda.describe`
+([the plugin API](17-plugin-api.md)).
 
 ## Import and export
 

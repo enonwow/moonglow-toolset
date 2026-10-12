@@ -516,3 +516,55 @@ fn tables_are_made_and_written() {
     let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
     assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
 }
+
+/// `mg.twoda.describe`: a table's description read, a value named, and a
+/// table held to it.
+#[test]
+fn a_plugin_reads_a_table_s_description() {
+    use mg_plugin::run_console;
+    let host = Rc::new(TestHost::default());
+    let input = || Input { module: module(), game: None };
+    let code = r#"
+        local mg = require("@moonglow")
+        local d = mg.twoda.describe([[
+rows = "places"
+[columns.Chance]
+kind = "int"
+max = 100
+[columns.Kinds]
+kind = "flags"
+constants = "loot_inc"
+prefix = "KIND_"
+[columns.Place]
+kind = "row"
+table = "places"
+]], { loot_inc = "const int KIND_GOLD = 0x01;\nconst int KIND_GEMS = 0x02;" })
+        local t = mg.twoda.parse("2DA V2.0\r\n\r\n  Label Chance Kinds Place\r\n0 a 50 0x03 1\r\n1 b 500 0x04 9\r\n")
+        local faults = d:faults(t, { places = 3 })
+        local said = {}
+        for _, f in faults do table.insert(said, f.row .. " " .. f.column .. " " .. tostring(f.value)) end
+        local ok, err = pcall(mg.twoda.describe, "[columns.A]\nkind = \"odd\"")
+        return d.rows, d.columns.Chance, d.columns.Kinds, d.columns.Place,
+            d:name("Kinds", "0x03"), d:name("Kinds", 2), tostring(d:name("Chance", 5)),
+            table.concat(said, "; "), #d:faults(t), ok, tostring(err):find("no kind") ~= nil
+    "#;
+    run_console(code, input(), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        log,
+        [
+            "\"places\"",
+            "\"int\"",
+            "\"flags\"",
+            "\"row:places\"",
+            "\"KIND_GOLD | KIND_GEMS\"",
+            "\"KIND_GEMS\"",
+            "\"nil\"",
+            "\"1 Chance 500; 1 Kinds 0x04; 1 Place 9\"",
+            // (Without the other table's length, its rows are not held to.)
+            "2",
+            "false",
+            "true",
+        ]
+    );
+}
