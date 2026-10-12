@@ -916,7 +916,8 @@ require = "Cures"
     /// The manual's example is a description that reads, every kind of it.
     #[test]
     fn the_manual_s_example_reads() {
-        let manual = include_str!("../../../docs/manual/03-modules.md");
+        // (A checkout may have given the file other line ends.)
+        let manual = include_str!("../../../docs/manual/03-modules.md").replace("\r\n", "\n");
         let from = manual.find("### A table's description").expect("the manual's part");
         let block = &manual[from..];
         let start = block.find("```toml\n").expect("its example") + "```toml\n".len();
