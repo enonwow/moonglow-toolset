@@ -2,8 +2,6 @@
 //! fields, flags and variables set on those chosen; a dry run and a change
 //! that can't be made change nothing.
 
-use std::process::Command;
-
 use mg_core::{Gender, Language, LocString, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::{Module, ModuleLocation};
@@ -44,8 +42,7 @@ fn areas_are_listed_and_changed_together() {
     let path = dir.join("caves.mod");
     module(&path);
     let run = |args: &[&str]| {
-        let out =
-            Command::new(env!("CARGO_BIN_EXE_mg")).arg("areas").arg(&path).args(args).output();
+        let out = crate::mg().arg("areas").arg(&path).args(args).output();
         let out = out.unwrap();
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
         (out.status.success(), text(&out.stdout), text(&out.stderr))
@@ -97,7 +94,7 @@ fn areas_are_listed_and_changed_together() {
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 
     // JSON: the areas chosen and what changed.
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--json", "areas"])
         .arg(&path)
         .args(["inn", "--remove-var", "nMusic", "--set", "Underground=yes"])
@@ -133,8 +130,7 @@ fn placeables_are_made_static_in_the_areas_chosen() {
     m.set_gff(git_key, &git).unwrap();
     m.save().unwrap();
     let run = |args: &[&str]| {
-        let out =
-            Command::new(env!("CARGO_BIN_EXE_mg")).arg("areas").arg(&path).args(args).output();
+        let out = crate::mg().arg("areas").arg(&path).args(args).output();
         let out = out.unwrap();
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
         (out.status.success(), text(&out.stdout), text(&out.stderr))

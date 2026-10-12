@@ -4,6 +4,9 @@
 //! linked once and their tests run side by side. A new test file is named
 //! in a group (`every_test_file_is_in_a_group` in `formats` says so).
 
+#[path = "../area_common/mod.rs"]
+mod area_common;
+
 #[path = "../areas.rs"]
 mod areas;
 #[path = "../minimaps.rs"]

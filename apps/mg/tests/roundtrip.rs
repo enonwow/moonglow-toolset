@@ -1,19 +1,13 @@
 //! `mg roundtrip`: a module saved, read back and written anew is what it
 //! was; the module itself is not touched.
 
-use std::process::Command;
-
 use mg_gff::{Gff, Value};
 use mg_module::{Module, ModuleLocation};
 use mg_resman::ResKey;
 use serde_json::Value as Json;
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
-        .args(["--no-user-dir", "--json"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = crate::mg().args(["--no-user-dir", "--json"]).args(args).output().unwrap();
     let json = serde_json::from_slice(&out.stdout)
         .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stderr)));
     (out.status.success(), json)
@@ -56,7 +50,7 @@ fn a_module_comes_back_as_it_was() {
     let kept = Module::open(&copy).unwrap();
     assert_eq!(kept.get(&key("guard.utc")), m.get(&key("guard.utc")));
     // (A copy that is there already is not written over.)
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["roundtrip", folder.to_str().unwrap(), "--keep", copy.to_str().unwrap()])
         .output()
         .unwrap();

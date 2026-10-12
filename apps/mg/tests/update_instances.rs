@@ -2,8 +2,6 @@
 //! placed in it; the pieces are made by script), after its blueprint's tag
 //! changes, takes it where it stands; the placeables are untouched.
 
-use std::process::Command;
-
 use mg_core::{ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_module::{Module, ModuleLocation};
@@ -32,7 +30,7 @@ fn update_instances_remakes_a_blueprints_objects_and_saves() {
     let before = objects(&m, "Creature List");
     let placeables = objects(&m, "Placeable List");
 
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--no-user-dir", "update-instances"])
         .arg(&path)
         .arg("gamemaster.utc")

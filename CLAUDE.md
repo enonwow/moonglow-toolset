@@ -11,17 +11,23 @@ renderer), licensed GPL-3.0. The plan, architecture and phase list are in
 ```sh
 cargo test --workspace --exclude mg-corpus-tests --lib --bins --tests   # unit, UI and command-line tests
 cargo test -p mg-corpus-tests --release --tests                         # corpus, differential and engine tests (skip without a game install)
+MOONGLOW_FULL_CORPUS=1 cargo test -p mg-corpus-tests --release --tests    # the same over the whole install: before a release
 cargo clippy --workspace --all-targets          # must be warning-free
 cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf   # the tests run by hand, which --all-targets leaves out
 cargo clippy -p mg-corpus-tests --test client_render --test client_minimap
 cargo fmt                                       # rustfmt.toml: width 100, "Max" heuristics
 ```
 
-The two test commands are the whole suite, each test once: a plain
+The first two test commands are the whole suite, each test once: a plain
 `cargo test --workspace` also runs the corpus tests a second time,
 unoptimized, and links the 22 examples (documentation tests, as CI runs
 them: `cargo test --workspace --doc`).
-Test files are grouped into a few binaries (`tests/groups/` in
+The corpus tests' sweeps (every area, model, script, sound, texture and
+module of the install) take a sample on an everyday run (under a minute)
+and everything with `MOONGLOW_FULL_CORPUS=1` (four minutes), which a
+release is tested with: `mg_testkit::sweep` picks, `at_least` scales the
+counts a sweep must reach. A new sweep over the install goes through
+them. Test files are grouped into a few binaries (`tests/groups/` in
 `mg-corpus-tests` and `apps/mg`): a new test file is named in its group,
 and one group runs with `--test engine` (a file's tests: `--test engine
 engine_tlk`).

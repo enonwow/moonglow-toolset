@@ -3,19 +3,26 @@
 //! - the lexer covers every byte of every source;
 //! - for every script that compiles, the outline of the script and its
 //!   includes lists exactly the functions (with return and parameter types)
-//!   and structs the compiler's debug output (NDB) reports.
+//!   and structs the compiler's debug output (NDB) reports;
+//! - and the analysis' locals agree with it (`script_analysis.rs`), from
+//!   the same compile.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use std::sync::Arc;
+
 use mg_core::ResType;
-use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{ResKey, ResMan};
 use mg_script::Compiler;
+use mg_script::analysis::Index;
 use mg_script::compiler::optimize;
 use mg_script::lex::{TokenKind, tokenize};
 use mg_script::outline::{Outline, outline};
 use mg_script::spec::Spec;
-use mg_testkit::{bundled_modules, corpus};
+use mg_testkit::corpus;
+
+use crate::script_analysis::check_locals;
+use crate::script_common::{each_script_set, on_every_core};
 
 /// Functions and structs as NDB describes them: name → `ret(param,...)` in
 /// NDB type letters with structs resolved to names.
@@ -117,106 +124,97 @@ fn shape_of(outlines: &[&Outline], spec: &Spec) -> Shape {
 struct Results {
     scripts: usize,
     compared: usize,
+    locals: usize,
     lex_unknown: usize,
     failures: Vec<String>,
 }
 
 fn check_scripts(label: &str, rm: &ResMan, names: &[String], spec: &Spec, results: &mut Results) {
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let chunk = names.len().div_ceil(threads).max(1);
-    let partial: Vec<(usize, usize, Vec<String>)> = std::thread::scope(|s| {
-        let handles: Vec<_> = names
-            .chunks(chunk)
-            .map(|part| {
-                s.spawn(move || {
-                    let source = |name: &str| {
-                        ResKey::parse(name, ResType::NSS)
-                            .and_then(|k| rm.get(&k).ok())
-                            .map(|d| d.into_owned())
-                    };
-                    let mut c = Compiler::new(|name, t| {
-                        ResKey::parse(name, t).and_then(|k| rm.get(&k).ok()).map(|d| d.into_owned())
-                    });
-                    c.set_optimization(optimize::NOTHING);
-                    c.set_debug_output(true);
-                    let mut cache: HashMap<String, Outline> = HashMap::new();
-                    let (mut compared, mut unknown, mut fails) = (0, 0, Vec::new());
-                    for name in part {
-                        let Some(src) = source(name) else { continue };
-                        // The lexer covers the source exactly.
-                        let toks = tokenize(&src);
-                        let covered: usize = toks.iter().map(|t| t.span.len()).sum();
-                        if covered != src.len()
-                            || toks.windows(2).any(|w| w[0].span.end != w[1].span.start)
-                        {
-                            fails.push(format!(
-                                "{label}: {name}.nss: tokens do not cover the source"
-                            ));
-                        }
-                        unknown += toks.iter().filter(|t| t.kind == TokenKind::Unknown).count();
+    let partial: Vec<(usize, usize, usize, Vec<String>)> = on_every_core(names, |part| {
+        let source = |name: &str| {
+            ResKey::parse(name, ResType::NSS).and_then(|k| rm.get(&k).ok()).map(|d| d.into_owned())
+        };
+        let mut c = Compiler::new(|name, t| {
+            ResKey::parse(name, t).and_then(|k| rm.get(&k).ok()).map(|d| d.into_owned())
+        });
+        c.set_optimization(optimize::NOTHING);
+        c.set_debug_output(true);
+        let mut cache: HashMap<String, Outline> = HashMap::new();
+        let mut sources = |name: &str| -> Option<Arc<str>> {
+            Some(Arc::from(String::from_utf8_lossy(&source(name)?).as_ref()))
+        };
+        let mut index = Index::new();
+        let (mut compared, mut locals, mut unknown) = (0, 0, 0);
+        let mut fails = Vec::new();
+        for name in part {
+            let Some(src) = source(name) else { continue };
+            // The lexer covers the source exactly.
+            let toks = tokenize(&src);
+            let covered: usize = toks.iter().map(|t| t.span.len()).sum();
+            if covered != src.len() || toks.windows(2).any(|w| w[0].span.end != w[1].span.start) {
+                fails.push(format!("{label}: {name}.nss: tokens do not cover the source"));
+            }
+            unknown += toks.iter().filter(|t| t.kind == TokenKind::Unknown).count();
 
-                        let Ok(out) = c.compile(name) else { continue };
-                        let Some(ndb) = out.ndb else { continue };
-                        // The script's include closure (each file once).
-                        let mut order: Vec<String> = Vec::new();
-                        let mut stack = vec![name.clone()];
-                        let mut seen = BTreeSet::new();
-                        while let Some(n) = stack.pop() {
-                            let n = n.to_ascii_lowercase();
-                            if !seen.insert(n.clone()) {
-                                continue;
-                            }
-                            if !cache.contains_key(&n) {
-                                let Some(src) = source(&n) else { continue };
-                                cache.insert(n.clone(), outline(&src));
-                            }
-                            stack.extend(cache[&n].includes.iter().map(|i| i.name.clone()));
-                            order.push(n);
-                        }
-                        let outlines: Vec<&Outline> =
-                            order.iter().filter_map(|n| cache.get(n)).collect();
-                        let ours = shape_of(&outlines, spec);
-                        let theirs = parse_ndb(&ndb);
-                        compared += 1;
-                        if ours != theirs {
-                            let fa: Vec<_> = ours
-                                .functions
-                                .iter()
-                                .filter(|(k, v)| theirs.functions.get(*k) != Some(v))
-                                .take(3)
-                                .collect();
-                            let fb: Vec<_> = theirs
-                                .functions
-                                .iter()
-                                .filter(|(k, v)| ours.functions.get(*k) != Some(v))
-                                .take(3)
-                                .collect();
-                            let sa: Vec<_> = ours
-                                .structs
-                                .iter()
-                                .filter(|(k, v)| theirs.structs.get(*k) != Some(v))
-                                .take(2)
-                                .collect();
-                            let sb: Vec<_> = theirs
-                                .structs
-                                .iter()
-                                .filter(|(k, v)| ours.structs.get(*k) != Some(v))
-                                .take(2)
-                                .collect();
-                            fails.push(format!(
-                                "{label}: {name}.nss: outline {fa:?} {sa:?} vs NDB {fb:?} {sb:?}"
-                            ));
-                        }
-                    }
-                    (compared, unknown, fails)
-                })
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
+            let Ok(out) = c.compile(name) else { continue };
+            let Some(ndb) = out.ndb else { continue };
+            locals += check_locals(label, name, &ndb, &mut index, &mut sources, &mut fails);
+            // The script's include closure (each file once).
+            let mut order: Vec<String> = Vec::new();
+            let mut stack = vec![name.clone()];
+            let mut seen = BTreeSet::new();
+            while let Some(n) = stack.pop() {
+                let n = n.to_ascii_lowercase();
+                if !seen.insert(n.clone()) {
+                    continue;
+                }
+                if !cache.contains_key(&n) {
+                    let Some(src) = source(&n) else { continue };
+                    cache.insert(n.clone(), outline(&src));
+                }
+                stack.extend(cache[&n].includes.iter().map(|i| i.name.clone()));
+                order.push(n);
+            }
+            let outlines: Vec<&Outline> = order.iter().filter_map(|n| cache.get(n)).collect();
+            let ours = shape_of(&outlines, spec);
+            let theirs = parse_ndb(&ndb);
+            compared += 1;
+            if ours != theirs {
+                let fa: Vec<_> = ours
+                    .functions
+                    .iter()
+                    .filter(|(k, v)| theirs.functions.get(*k) != Some(v))
+                    .take(3)
+                    .collect();
+                let fb: Vec<_> = theirs
+                    .functions
+                    .iter()
+                    .filter(|(k, v)| ours.functions.get(*k) != Some(v))
+                    .take(3)
+                    .collect();
+                let sa: Vec<_> = ours
+                    .structs
+                    .iter()
+                    .filter(|(k, v)| theirs.structs.get(*k) != Some(v))
+                    .take(2)
+                    .collect();
+                let sb: Vec<_> = theirs
+                    .structs
+                    .iter()
+                    .filter(|(k, v)| ours.structs.get(*k) != Some(v))
+                    .take(2)
+                    .collect();
+                fails.push(format!(
+                    "{label}: {name}.nss: outline {fa:?} {sa:?} vs NDB {fb:?} {sb:?}"
+                ));
+            }
+        }
+        (compared, locals, unknown, fails)
     });
     results.scripts += names.len();
-    for (c, u, f) in partial {
+    for (c, l, u, f) in partial {
         results.compared += c;
+        results.locals += l;
         results.lex_unknown += u;
         results.failures.extend(f);
     }
@@ -225,30 +223,25 @@ fn check_scripts(label: &str, rm: &ResMan, names: &[String], spec: &Spec, result
 #[test]
 fn front_end_agrees_with_the_compiler() {
     let root = corpus!();
-    let install = GameInstall::new(&root, None, "en");
-    let base = ResMan::for_game(&install).unwrap();
-    let spec = Spec::parse(&base.get(&ResKey::parse("nwscript", ResType::NSS).unwrap()).unwrap());
-    let mut results = Results { scripts: 0, compared: 0, lex_unknown: 0, failures: Vec::new() };
-
-    let names: Vec<String> =
-        base.list(ResType::NSS).iter().map(|r| r.to_lowercase().to_string()).collect();
-    check_scripts("base", &base, &names, &spec, &mut results);
-    for path in bundled_modules(&root) {
-        let m = Module::open(&path).unwrap();
-        let names: Vec<String> =
-            m.keys_of(ResType::NSS).map(|k| k.resref.to_lowercase().to_string()).collect();
-        let mut rm = ResMan::for_game(&install).unwrap();
-        let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks).unwrap();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
-        let label = path.file_name().unwrap().to_string_lossy().into_owned();
-        check_scripts(&label, &rm, &names, &spec, &mut results);
-    }
+    let mut spec = None;
+    let mut results =
+        Results { scripts: 0, compared: 0, locals: 0, lex_unknown: 0, failures: Vec::new() };
+    each_script_set(&root, |set| {
+        // (The base game's set comes first: nwscript.nss is in it.)
+        let spec = spec.get_or_insert_with(|| {
+            Spec::parse(&set.rm.get(&ResKey::parse("nwscript", ResType::NSS).unwrap()).unwrap())
+        });
+        check_scripts(&set.label, set.rm, set.names, spec, &mut results);
+    });
     eprintln!(
-        "lexed {} scripts ({} unknown characters); outlines of {} compiled scripts compared with NDB",
-        results.scripts, results.lex_unknown, results.compared
+        "lexed {} scripts ({} unknown characters); outlines of {} compiled scripts and the \
+         locals of {} functions compared with NDB",
+        results.scripts, results.lex_unknown, results.compared, results.locals
     );
-    assert!(results.compared > 20_000);
+    if mg_testkit::full_corpus() {
+        assert!(results.compared > 20_000);
+    }
+    assert!(results.locals > results.compared);
     let f = &results.failures;
     let report = mg_testkit::scratch_dir("script_frontend").join("failures.txt");
     std::fs::write(&report, f.join("\n")).unwrap();

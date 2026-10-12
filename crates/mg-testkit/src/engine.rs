@@ -35,9 +35,9 @@ impl ServerRun {
 }
 
 /// The most servers a test binary runs at once. The engine tests share a
-/// binary and libtest runs them on every core; each server loads a module,
-/// and tests time out on a machine that runs too many.
-const SERVERS_AT_ONCE: usize = 4;
+/// binary and libtest runs them on every core; each server loads a module
+/// on a core of its own, and the tests wait on them by the clock.
+const SERVERS_AT_ONCE: usize = 8;
 
 static RUNNING: Mutex<usize> = Mutex::new(0);
 static A_SERVER_ENDED: Condvar = Condvar::new();

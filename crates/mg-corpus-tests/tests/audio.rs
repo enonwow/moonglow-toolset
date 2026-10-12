@@ -5,14 +5,14 @@ use std::process::Command;
 
 use mg_core::ResType;
 use mg_resman::{GameInstall, ResKey, ResMan};
-use mg_testkit::corpus;
+use mg_testkit::{corpus, sweep};
+use rayon::prelude::*;
 
-/// Every sound and music file of the game: (name, data).
-fn sounds(rm: &ResMan) -> Vec<(String, Vec<u8>)> {
+/// Every sound and music file of the game.
+fn sounds(rm: &ResMan) -> Vec<ResKey> {
     [ResType::WAV, ResType::BMU]
         .into_iter()
         .flat_map(|t| rm.list(t).into_iter().map(move |r| ResKey::new(r, t)))
-        .map(|k| (k.to_string(), rm.get(&k).unwrap().into_owned()))
         .collect()
 }
 
@@ -22,17 +22,26 @@ fn every_game_sound_decodes() {
     let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
     let all = sounds(&rm);
     assert!(all.len() > 12_000, "{} sounds", all.len());
+    let all = sweep(all, 10);
+    // (kind, what went wrong) of each, on every core.
+    let results: Vec<(String, Option<String>)> = all
+        .par_iter()
+        .map(|key| {
+            let data = rm.get(key).unwrap();
+            let kind = format!("{:?}", mg_audio::container(&data).map(|c| c.0));
+            let failure = match mg_audio::decode(&data) {
+                Ok(pcm) if pcm.frames() > 0 => None,
+                Ok(_) => Some(format!("{key}: empty")),
+                Err(e) => Some(format!("{key}: {e}")),
+            };
+            (kind, failure)
+        })
+        .collect();
     let mut kinds = std::collections::BTreeMap::new();
-    let mut failed = Vec::new();
-    for (name, data) in &all {
-        let kind = mg_audio::container(data).map(|c| c.0);
-        *kinds.entry(format!("{kind:?}")).or_insert(0) += 1;
-        match mg_audio::decode(data) {
-            Ok(pcm) if pcm.frames() > 0 => {}
-            Ok(_) => failed.push(format!("{name}: empty")),
-            Err(e) => failed.push(format!("{name}: {e}")),
-        }
+    for (kind, _) in &results {
+        *kinds.entry(kind.as_str()).or_insert(0) += 1;
     }
+    let failed: Vec<String> = results.iter().filter_map(|r| r.1.clone()).collect();
     eprintln!("{kinds:?}");
     assert!(failed.is_empty(), "{} of {} failed:\n{}", failed.len(), all.len(), failed.join("\n"));
 }
@@ -71,12 +80,14 @@ fn sounds_agree_with_ffmpeg() {
     let dir = mg_testkit::scratch_dir("audio-ffmpeg");
     let all = sounds(&rm);
     // Every 60th sound and every music track's first few: each container.
-    let picked: Vec<&(String, Vec<u8>)> = all
+    let picked: Vec<(String, Vec<u8>)> = all
         .iter()
         .enumerate()
-        .filter(|(i, (n, _))| i % 60 == 0 || (n.ends_with(".bmu") && i % 10 == 0))
-        .map(|(_, s)| s)
+        .filter(|(i, k)| i % 60 == 0 || (k.restype == ResType::BMU && i % 10 == 0))
+        .map(|(_, k)| (k.to_string(), rm.get(k).unwrap().into_owned()))
         .collect();
+    // (A sample of the sample on an everyday run.)
+    let picked = sweep(picked, 6);
     let mut wrong = Vec::new();
     for (name, data) in &picked {
         let Some((start, kind)) = mg_audio::container(data).map(|c| (c.1, c.0)) else { continue };

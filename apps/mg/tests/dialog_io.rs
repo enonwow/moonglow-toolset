@@ -2,8 +2,6 @@
 //! Champions written as Ink and read back into a copy under another name
 //! plays as the original.
 
-use std::process::Command;
-
 use mg_core::ResType;
 use mg_module::dialog_io::play_outline;
 use mg_module::{Module, ModuleLocation};
@@ -23,7 +21,7 @@ fn a_conversation_goes_out_as_ink_and_back() {
         .max_by_key(|k| m.get(k).map_or(0, <[u8]>::len))
         .unwrap();
     let mg = |args: &[&str]| {
-        let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+        let out = crate::mg()
             .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
             .args(args)
             .output()

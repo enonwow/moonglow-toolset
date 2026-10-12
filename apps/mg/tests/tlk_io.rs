@@ -5,7 +5,7 @@
 use std::process::Command;
 
 fn mg(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mg")).args(args).output().unwrap()
+    crate::mg().args(args).output().unwrap()
 }
 
 fn ok(args: &[&str]) -> String {

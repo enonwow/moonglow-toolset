@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use mg_core::{ResRef, ResType};
 use mg_erf::Erf;
@@ -16,7 +17,7 @@ use mg_gff::Value;
 use mg_module::nasher::Conversion;
 use mg_module::{Module, ModuleLocation};
 use mg_resman::ResKey;
-use mg_testkit::{bundled_modules, corpus, nwn_tool, oracle_tool, scratch_dir};
+use mg_testkit::{Shared, bundled_modules, corpus, nwn_tool, oracle_tool, scratch_dir, sweep};
 use rayon::prelude::*;
 
 /// Unpacks `module` into the project at `dir` with nasher (made with its
@@ -54,6 +55,19 @@ fn nasher_unpack(nasher: &Path, module: &Path, dir: &Path) {
     });
 }
 
+/// nasher's unpack of a shipped module, made once for the tests here (they
+/// read it, or copy it to change it).
+fn unpacked(nasher: &Path, module: &Path) -> PathBuf {
+    static ALL: Shared<PathBuf, PathBuf> = Shared::new();
+    static SCRATCH: OnceLock<PathBuf> = OnceLock::new();
+    ALL.get(&module.to_path_buf(), || {
+        let name = module.file_stem().unwrap().to_string_lossy().replace(' ', "_");
+        let dir = SCRATCH.get_or_init(|| scratch_dir("nasher-unpack")).join(name);
+        nasher_unpack(nasher, module, &dir);
+        dir
+    })
+}
+
 /// The first line where two texts differ, for messages.
 fn first_difference(a: &str, b: &str) -> String {
     for (i, (x, y)) in a.lines().zip(b.lines()).enumerate() {
@@ -65,10 +79,9 @@ fn first_difference(a: &str, b: &str) -> String {
 }
 
 /// Compares one unpacked module; returns the problems found.
-fn check_module(nasher: &Path, module: &Path, scratch: &Path) -> (usize, Vec<String>) {
+fn check_module(nasher: &Path, module: &Path) -> (usize, Vec<String>) {
     let name = module.file_stem().unwrap().to_string_lossy().to_string();
-    let dir = scratch.join(name.replace(' ', "_"));
-    nasher_unpack(nasher, module, &dir);
+    let dir = unpacked(nasher, module);
     let data = std::fs::read(module).unwrap();
     let erf = Erf::read(&data).unwrap();
     let conv = Conversion::default();
@@ -121,9 +134,8 @@ fn moonglow_writes_what_nasher_unpacks() {
     let root = corpus!();
     let nasher = oracle_tool!("nasher");
     let _ = oracle_tool!("nwn_gff");
-    let scratch = scratch_dir("nasher-unpack");
-    let modules = bundled_modules(&root);
-    let results: Vec<_> = modules.par_iter().map(|m| check_module(&nasher, m, &scratch)).collect();
+    let modules = sweep(bundled_modules(&root), 6);
+    let results: Vec<_> = modules.par_iter().map(|m| check_module(&nasher, m)).collect();
     let checked: usize = results.iter().map(|r| r.0).sum();
     let problems: Vec<&String> = results.iter().flat_map(|r| &r.1).collect();
     eprintln!("{checked} files of {} modules agree with nasher", modules.len());
@@ -170,7 +182,7 @@ fn copy_dir(from: &Path, to: &Path) {
 fn edit_project(nasher: &Path, module: &Path, scratch: &Path) -> Vec<String> {
     let name = module.file_stem().unwrap().to_string_lossy().replace(' ', "_");
     let dir = scratch.join(&name);
-    nasher_unpack(nasher, module, &dir);
+    copy_dir(&unpacked(nasher, module), &dir);
     let expected = scratch.join(format!("{name}-nasher"));
     copy_dir(&dir, &expected);
     let before = tree(&dir);
@@ -260,7 +272,9 @@ fn projects_save_what_nasher_unpacks() {
     let nasher = oracle_tool!("nasher");
     let _ = oracle_tool!("nwn_gff");
     let scratch = scratch_dir("nasher-projects");
-    let modules: Vec<_> = bundled_modules(&root)
+    // (Swept before the .nwm are left out, so that the modules are among
+    // those the other test unpacks.)
+    let modules: Vec<_> = sweep(bundled_modules(&root), 6)
         .into_iter()
         .filter(|m| m.extension().is_some_and(|e| e == "mod"))
         .collect();

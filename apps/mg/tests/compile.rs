@@ -3,20 +3,20 @@
 //! the window keeps the same), never beside the module.
 
 use std::path::Path;
-use std::process::Command;
 
 use mg_core::ResType;
 use mg_resman::ResKey;
 use serde_json::Value;
 
 fn compile(root: &Path, dir: &Path, module: &Path, more: &[&str]) -> Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--json", "--user-dir"])
         .arg(dir.join("user"))
         .arg("compile")
         .arg(module)
         .args(more)
-        // (The test's own data folder, not the user's.)
+        // (A data folder that starts empty: what was compiled before is
+        // remembered there.)
         .env("XDG_DATA_HOME", dir.join("data"))
         .env("APPDATA", dir.join("data"))
         .env("HOME", dir.join("data"))

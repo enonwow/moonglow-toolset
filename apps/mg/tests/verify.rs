@@ -1,8 +1,6 @@
 //! `mg verify`: a clean module passes; one with a placed object naming a
 //! placeables.2da row that doesn't exist fails, the JSON naming it.
 
-use std::process::Command;
-
 use mg_core::{ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_module::{Module, ModuleLocation};
@@ -13,9 +11,8 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     let root = mg_testkit::corpus!();
     let chess = root.join("data/mod/Neverwinter Chess.mod");
     let dir = mg_testkit::scratch_dir("mg-verify");
-    let mg = env!("CARGO_BIN_EXE_mg");
     let verify = |path: &std::path::Path| {
-        Command::new(mg)
+        crate::mg()
             .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
             .arg(path)
             .output()
@@ -57,7 +54,7 @@ fn verify_finds_the_talk_table_where_the_game_does() {
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("tlk")).unwrap();
     let verify = |path: &std::path::Path| {
-        let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+        let out = crate::mg()
             .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
             .args(["verify", "--json"])
             .arg(path)

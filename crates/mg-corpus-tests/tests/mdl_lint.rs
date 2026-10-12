@@ -13,37 +13,22 @@ fn game() -> Option<ResMan> {
     ResMan::for_game(&GameInstall::new(root, None, "en")).ok()
 }
 
-/// What the decompiler writes draws no warnings or errors.
+/// What the decompiler writes draws no warnings or errors (linted in
+/// `mdl_decompile.rs`'s sweep, where each model is decompiled).
 #[test]
 fn decompiled_models_are_clean() {
-    let _ = mg_testkit::corpus!();
-    let rm = game().unwrap();
-    let names = rm.list(ResType::MDL);
-    let noisy: Vec<String> = names
-        .par_iter()
-        .filter_map(|name| {
-            let data = rm.get(&ResKey::new(*name, ResType::MDL)).ok()?;
-            let text = mg_mdl::decompile(&data).ok()?;
-            let bad: Vec<String> = mg_mdl::lint::check(&text)
-                .into_iter()
-                .filter(|d| d.severity > Severity::Info)
-                // Duplicate node and animation names are the model's own.
-                .filter(|d| !d.message.contains("second node named"))
-                .filter(|d| !d.message.contains("second animation named"))
-                .map(|d| format!("{}: {}", d.line + 1, d.message))
-                .collect();
-            (!bad.is_empty()).then(|| format!("{name}: {}", bad[..bad.len().min(3)].join("; ")))
-        })
-        .collect();
+    let root = mg_testkit::corpus!();
+    let noisy = &crate::mdl_decompile::swept(&root).noisy;
     for n in noisy.iter().take(20) {
         eprintln!("{n}");
     }
     assert!(noisy.is_empty(), "{} decompiled models draw diagnostics", noisy.len());
 }
 
-/// A census of what the game's own ASCII models draw (printed), and no
-/// errors but the ones expected.
+/// A census of what the game's own ASCII models draw (printed; it asserts
+/// nothing).
 #[test]
+#[ignore = "a census, printed: run by hand"]
 fn game_ascii_census() {
     let _ = mg_testkit::corpus!();
     let rm = game().unwrap();

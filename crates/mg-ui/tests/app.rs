@@ -7880,6 +7880,8 @@ fn equipping_without_the_feat_asks_to_add_it() {
     // The slot shows the axe's icon.
     let image = egui::accesskit::Role::Image;
     assert!(h.get_all_by_label("Battleaxe").any(|n| n.accesskit_node().role() == image));
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-inventory-icons").join("inventory.png"));
     }
@@ -8216,6 +8218,8 @@ fn portraits_are_chosen_from_their_pictures() {
     // A look at the window (ignored test `screens`-style output).
     h.get_by_label("Portraits…").click();
     h.run();
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-portraits").join("select.png"));
     }
@@ -8230,6 +8234,8 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     h.get_by_label("Appearance").click();
     h.run();
     h.get_by_label("Icon");
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-item-icons").join("gem.png"));
     }
@@ -8275,6 +8281,8 @@ fn colours_are_chosen_from_palette_swatches() {
         .expect("the Cloth 1 colour")
         .click();
     h.run();
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-colours").join("swatches.png"));
     }
@@ -8304,6 +8312,8 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     h.run();
     h.get_by_label("Appearance").click();
     h.run();
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-part-colors").join("page.png"));
     }
@@ -15052,7 +15062,7 @@ fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
 #[test]
 fn text_in_another_language_shows_where_the_one_edited_has_none() {
     use mg_core::{Gender, Language, LocString};
-    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_named", ResType::UTC) else {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_text", ResType::UTC) else {
         return;
     };
     // The module's name and the bandit's first name, in English alone.

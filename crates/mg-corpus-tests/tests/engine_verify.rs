@@ -39,7 +39,7 @@ fn missing_references_agree_with_engine() {
     let _ = oracle_tool!("nwn_script_comp");
     let dir = scratch_dir("engine_verify");
     let install = GameInstall::new(&root, None, "en");
-    let modules = bundled_modules(&root);
+    let modules = mg_testkit::sweep(bundled_modules(&root), 5);
 
     struct Job {
         label: String,

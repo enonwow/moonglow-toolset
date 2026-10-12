@@ -14,10 +14,11 @@ use mg_area::{AreaModel, ObjectKind};
 use mg_core::ResType;
 use mg_gff::Gff;
 use mg_mdl::walkmesh::DoorState;
-use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, ResKey, priority};
+use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
-use mg_testkit::{bundled_modules, corpus};
+use mg_testkit::corpus;
+
+use crate::area_common::each_module;
 
 #[test]
 fn placed_placeables_and_doors_have_their_walkmeshes() {
@@ -32,19 +33,14 @@ fn placed_placeables_and_doors_have_their_walkmeshes() {
     assert!(armoire.min.truncate().length() < 3.0 && armoire.max.truncate().length() < 3.0);
 
     let (mut placed, mut with_faces, mut failures) = (0, 0, Vec::new());
-    for path in bundled_modules(&root) {
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let m = Module::open(&path).unwrap();
-        let mut game = GameData::open(&install).unwrap();
-        let haks = m.haks().unwrap();
-        game.resman.add_haks(&install, &haks).unwrap();
-        game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    each_module(&root, |opened| {
+        let (name, m, game) = (&opened.name, &opened.module, &opened.game);
         let mut walkmeshes = ObjectWalkmeshes::default();
         for area in m.areas().unwrap() {
             let gff = |t: ResType| Gff::read(&game.resman.get(&ResKey::new(area, t)).ok()?).ok();
             let (Some(are), Some(git)) = (gff(ResType::ARE), gff(ResType::GIT)) else { continue };
-            let model = AreaModel::read(&game, &are.root, &git.root, None);
-            let faces = walkmeshes.faces(&game, &model);
+            let model = AreaModel::read(game, &are.root, &git.root, None);
+            let faces = walkmeshes.faces(game, &model);
             for (i, o) in model.objects.iter().enumerate() {
                 if !matches!(o.kind, ObjectKind::Placeable | ObjectKind::Door) {
                     continue;
@@ -56,7 +52,7 @@ fn placed_placeables_and_doors_have_their_walkmeshes() {
                     _ => DoorState::Closed,
                 });
                 placed += 1;
-                let has = Walkmesh::of_object(&game, &p.base.model, door).is_some();
+                let has = Walkmesh::of_object(game, &p.base.model, door).is_some();
                 let mine: Vec<&([Vec3; 3], usize)> = faces.iter().filter(|f| f.1 == i).collect();
                 if has != !mine.is_empty() {
                     failures.push(format!(
@@ -81,9 +77,9 @@ fn placed_placeables_and_doors_have_their_walkmeshes() {
                 }
             }
         }
-    }
+    });
     println!("{placed} placeables and doors placed, {with_faces} with walkmeshes");
-    assert!(with_faces > 1000, "{with_faces}");
+    assert!(with_faces > mg_testkit::at_least(1000, 6), "{with_faces}");
     failures.truncate(30);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

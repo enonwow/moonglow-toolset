@@ -116,6 +116,7 @@ fn item_costs_match_the_engine() {
         })
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut items = mg_testkit::sweep(items, 8);
     let extra: Vec<_> = synthetic()
         .into_iter()
         .map(|(name, g)| (ResKey::parse(&name, ResType::UTI).unwrap(), g.to_bytes().unwrap()))

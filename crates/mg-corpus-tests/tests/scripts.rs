@@ -9,31 +9,24 @@ use std::process::Command;
 
 use mg_core::ResType;
 use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, ResKey, ResMan};
 use mg_script::Compiler;
-use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
+use mg_testkit::{corpus, oracle_tool, scratch_dir};
+
+use crate::script_common::{each_script_set, on_every_core};
 
 /// Compiles `names` with the built-in compiler on all cores; `None` for
 /// scripts that do not compile.
 fn compile_all(rm: &ResMan, names: &[String]) -> BTreeMap<String, Option<Vec<u8>>> {
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let chunk = names.len().div_ceil(threads).max(1);
-    std::thread::scope(|s| {
-        let handles: Vec<_> = names
-            .chunks(chunk)
-            .map(|part| {
-                s.spawn(move || {
-                    let mut c = Compiler::new(|name, t| {
-                        ResKey::parse(name, t).and_then(|k| rm.get(&k).ok()).map(|d| d.into_owned())
-                    });
-                    part.iter()
-                        .map(|n| (n.clone(), c.compile(n).ok().map(|o| o.ncs)))
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+    on_every_core(names, |part| {
+        let mut c = Compiler::new(|name, t| {
+            ResKey::parse(name, t).and_then(|k| rm.get(&k).ok()).map(|d| d.into_owned())
+        });
+        part.iter().map(|n| (n.clone(), c.compile(n).ok().map(|o| o.ncs))).collect::<Vec<_>>()
     })
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// Compiles the sources in `src` with `nwn_script_comp`; `None` for scripts
@@ -105,39 +98,29 @@ fn builtin_compiler_matches_nwn_script_comp() {
     let dir = scratch_dir("scripts");
     let empty_user = dir.join("empty-user");
     std::fs::create_dir_all(&empty_user).unwrap();
-    let install = GameInstall::new(&root, None, "en");
     let mut tally = Tally { compiled: 0, failed: 0, shipped_same: 0, shipped_total: 0 };
     let mut failures = Vec::new();
 
-    // The base game's script sources.
-    let base = ResMan::for_game(&install).unwrap();
-    let names: Vec<String> =
-        base.list(ResType::NSS).iter().map(|r| r.to_lowercase().to_string()).collect();
-    let src = dir.join("base-src");
-    std::fs::create_dir_all(&src).unwrap();
-    for n in &names {
-        let data = base.get(&ResKey::parse(n, ResType::NSS).unwrap()).unwrap();
-        std::fs::write(src.join(format!("{n}.nss")), data).unwrap();
-    }
-    let ours = compile_all(&base, &names);
-    let theirs =
-        oracle_compile(&tool, &root, &empty_user, &src, &dir.join("base-out"), &[], &names);
-    let shipped = |n: &str| base.get(&ResKey::parse(n, ResType::NCS)?).ok().map(|d| d.into_owned());
-    compare("base", &ours, &theirs, shipped, &mut tally, &mut failures);
-    eprintln!("base game: {} scripts", names.len());
-
-    // Every shipped module, over its haks and the game.
-    for (i, path) in bundled_modules(&root).iter().enumerate() {
-        let m = Module::open(path).unwrap();
-        let names: Vec<String> =
-            m.keys_of(ResType::NSS).map(|k| k.resref.to_lowercase().to_string()).collect();
-        if names.is_empty() {
-            continue;
-        }
-        let mut rm = ResMan::for_game(&install).unwrap();
-        let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks).unwrap();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    // The base game's script sources, then every shipped module's over its
+    // haks and the game.
+    each_script_set(&root, |set| {
+        let (rm, names) = (set.rm, set.names);
+        let ours = compile_all(rm, names);
+        let Some((m, haks, i)) = set.module else {
+            let src = dir.join("base-src");
+            std::fs::create_dir_all(&src).unwrap();
+            for n in names {
+                let data = rm.get(&ResKey::parse(n, ResType::NSS).unwrap()).unwrap();
+                std::fs::write(src.join(format!("{n}.nss")), data).unwrap();
+            }
+            let out = dir.join("base-out");
+            let theirs = oracle_compile(&tool, &root, &empty_user, &src, &out, &[], names);
+            let shipped =
+                |n: &str| rm.get(&ResKey::parse(n, ResType::NCS)?).ok().map(|d| d.into_owned());
+            compare("base", &ours, &theirs, shipped, &mut tally, &mut failures);
+            eprintln!("base game: {} scripts", names.len());
+            return;
+        };
         let src = dir.join(format!("m{i}-src"));
         std::fs::create_dir_all(&src).unwrap();
         for k in m.keys_of(ResType::NSS) {
@@ -147,28 +130,19 @@ fn builtin_compiler_matches_nwn_script_comp() {
         // so the first hak (highest priority) goes last.
         let hak_files: Vec<_> =
             haks.iter().rev().map(|h| root.join("data/hk").join(format!("{h}.hak"))).collect();
-        let ours = compile_all(&rm, &names);
-        let theirs = oracle_compile(
-            &tool,
-            &root,
-            &empty_user,
-            &src,
-            &dir.join(format!("m{i}-out")),
-            &hak_files,
-            &names,
-        );
-        let label = path.file_name().unwrap().to_string_lossy().into_owned();
+        let out = dir.join(format!("m{i}-out"));
+        let theirs = oracle_compile(&tool, &root, &empty_user, &src, &out, &hak_files, names);
         let shipped = |n: &str| m.get(&ResKey::parse(n, ResType::NCS)?).map(<[u8]>::to_vec);
-        compare(&label, &ours, &theirs, shipped, &mut tally, &mut failures);
-        eprintln!("{label}: {} scripts", names.len());
-    }
+        compare(&set.label, &ours, &theirs, shipped, &mut tally, &mut failures);
+        eprintln!("{}: {} scripts", set.label, names.len());
+    });
 
     eprintln!(
         "compiled {} scripts identically to nwn_script_comp ({} fail to compile in both); \
          {} of {} equal the compiled scripts shipped beside them",
         tally.compiled, tally.failed, tally.shipped_same, tally.shipped_total
     );
-    assert!(tally.compiled > 5000);
+    assert!(tally.compiled > if mg_testkit::full_corpus() { 5000 } else { 500 });
     assert!(
         failures.is_empty(),
         "{} failures:\n{}",

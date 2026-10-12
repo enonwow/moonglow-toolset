@@ -1,8 +1,6 @@
 //! `mg init` and `mg build`: a shipped module put into a nasher project and
 //! built from it gives the module's resources back, scripts compiled.
 
-use std::process::Command;
-
 use mg_core::ResType;
 use mg_module::Module;
 use mg_resman::ResKey;
@@ -17,9 +15,8 @@ fn init_then_build_gives_the_module_back() {
     }
     let dir = mg_testkit::scratch_dir("mg-nasher");
     let project = dir.join("chess");
-    let mg = env!("CARGO_BIN_EXE_mg");
     let run = |args: &[&str]| {
-        let out = Command::new(mg).args(args).output().unwrap();
+        let out = crate::mg().args(args).output().unwrap();
         assert!(out.status.success(), "mg {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     };
     run(&["init", module.to_str().unwrap(), project.to_str().unwrap()]);

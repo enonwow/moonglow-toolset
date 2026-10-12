@@ -1,5 +1,6 @@
 //! Screenshots of windows for looking at their layout, rendered with wgpu
-//! into `target/test-output/screens/`. Not checks; run by hand:
+//! into `target/test-output/screens/` (kept from run to run: each test adds
+//! its pictures). Not checks; run by hand:
 //! `cargo test -p mg-ui --test screens -- --ignored`.
 
 use std::sync::Arc;
@@ -27,7 +28,7 @@ fn script_wizard_pages() {
     let root = mg_testkit::corpus!();
     let app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let lists = Arc::new(Lists::load(app.game.as_deref().unwrap()));
     let key = ResKey::parse("dlg", ResType::DLG).unwrap();
     let mut h = Harness::builder()
@@ -70,7 +71,7 @@ fn module_properties_haks() {
     use mg_schema::{ExoString, StructExt, ifo};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let user = dir.join("haks-user");
     std::fs::create_dir_all(user.join("hak")).unwrap();
     let names = ["bloodwar", "bmmountainsv102", "cb_tile_atemple", "dia_udrkspid3", "ghcastlehd"];
@@ -116,7 +117,7 @@ fn module_properties_haks() {
 fn talk_table_editor() {
     use mg_module::talk::{Line, Table};
     mg_testkit::gpu::hold();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     for feminine in [false, true] {
         let app = Moonglow::new(None, Box::new(NoDialogs::default()));
         let mut h = Harness::builder()
@@ -183,7 +184,7 @@ fn options_window() {
 fn model_viewer() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens-model");
+    let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -239,7 +240,7 @@ fn palette_hover_preview() {
 fn blueprint_preview() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens-model");
+    let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -263,7 +264,7 @@ fn blueprint_preview() {
 fn palettes() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
@@ -279,7 +280,7 @@ fn palettes() {
 fn blueprint_editors() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     for (name, t, pages) in [
         ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
         ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
@@ -335,7 +336,7 @@ fn blueprint_editors() {
 fn item_general_widths() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let (name, t) = ("nw_cloth009", ResType::UTI);
     for width in [820.0, 960.0, 1100.0, 1240.0, 1500.0] {
         let mut app = Moonglow::new(
@@ -421,7 +422,7 @@ fn glyphs() {
 fn store_chosen_item() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let (name, t) = ("nw_storebar01", ResType::UTM);
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
@@ -956,7 +957,7 @@ fn area_grid() {
     // The tile grid among buildings and trees: hidden behind them.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -993,7 +994,7 @@ fn area_toolbar_narrow() {
     // The area's toolbar in a narrow tab: its rows end at the tab's edge.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1022,7 +1023,7 @@ fn lighting_off_and_sound_ranges() {
     // raised.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1074,7 +1075,7 @@ fn areas_by_name_and_area_properties() {
     mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1108,7 +1109,7 @@ fn merchant_markers() {
     // sign, is in the scene, hidden by what is in front of it.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1157,7 +1158,7 @@ fn areas_edited_together() {
     mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1193,7 +1194,7 @@ fn raw_fields_with_row_names() {
     mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1221,7 +1222,7 @@ fn spawn_point_markers() {
     // arrow of its facing.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1267,7 +1268,7 @@ fn creature_appearance_inline() {
     // A creature's Appearance page with its model in the page.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1299,7 +1300,7 @@ fn crosser_cursor() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -1371,7 +1372,7 @@ fn area_fog() {
     use mg_module::new::{AreaSpec, add_area, new_module, tilesets};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let city = tilesets(&game).into_iter().find(|t| t.name == "Medieval City 2").unwrap();
@@ -1415,7 +1416,7 @@ fn city_tile_selection() {
     use mg_module::new::{AreaSpec, add_area, new_module, tilesets};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let city = tilesets(&game).into_iter().find(|t| t.name == "Medieval City 2").unwrap();
@@ -1459,7 +1460,7 @@ fn tile_preview() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -1512,7 +1513,7 @@ fn area_properties_advanced() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -1555,7 +1556,7 @@ fn area_ghost() {
     // A placeable chosen in the palette: see-through under the pointer.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,

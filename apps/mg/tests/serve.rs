@@ -2,12 +2,11 @@
 //! user directory that is not the player's.
 
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::Value;
 
 fn serve(root: &Path, user: &Path, args: &[&str]) -> (bool, Vec<Value>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
         .arg("serve")
         .args(args)

@@ -3,7 +3,7 @@
 //! completion, and (with the game) errors as you type.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde_json::{Value, json};
 
@@ -75,7 +75,7 @@ fn the_language_server_answers() {
     std::fs::write(&inc, "// Doubles a number.\nint Twice(int n) { return n * 2; }\n").unwrap();
     let text = "#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n}\n";
     std::fs::write(&main, text).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let mut child = crate::mg()
         .arg("lsp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

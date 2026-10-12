@@ -4,24 +4,18 @@
 
 use mg_core::ResType;
 use mg_gff::Gff;
-use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, ResKey, priority};
-use mg_rules::GameData;
-use mg_testkit::{bundled_modules, corpus};
+use mg_resman::ResKey;
+use mg_testkit::corpus;
+
+use crate::area_common::each_module;
 
 #[test]
 fn every_shipped_area_has_a_minimap() {
     let root = corpus!();
-    let install = GameInstall::new(&root, None, "en");
     let (mut areas, mut tiles, mut missing) = (0usize, 0usize, 0usize);
     let mut failures = Vec::new();
-    for path in bundled_modules(&root) {
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let m = Module::open(&path).unwrap();
-        let mut game = GameData::open(&install).unwrap();
-        let haks = m.haks().unwrap();
-        game.resman.add_haks(&install, &haks).unwrap();
-        game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    each_module(&root, |opened| {
+        let (name, m, game) = (&opened.name, &opened.module, &opened.game);
         for area in m.areas().unwrap() {
             let Ok(data) = game.resman.get(&ResKey::new(area, ResType::ARE)) else { continue };
             let Ok(are) = Gff::read(&data) else { continue };
@@ -49,9 +43,9 @@ fn every_shipped_area_has_a_minimap() {
                 missing += usize::from(picture.is_none());
             }
         }
-    }
+    });
     println!("{areas} areas, {tiles} tiles, {missing} without a picture");
-    assert!(areas > 1000, "{areas}");
+    assert!(areas > mg_testkit::at_least(1000, 6), "{areas}");
     assert!(missing * 50 < tiles, "{missing} of {tiles} tiles without a picture");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

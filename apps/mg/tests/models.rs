@@ -2,8 +2,6 @@
 //! kept as text, each against its supermodel, and leaves as text what it
 //! can't; `mg cat --text` prints a compiled model as text.
 
-use std::process::Command;
-
 const BASE: &str = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
 setanimationscale 1\nbeginmodelgeom base\n\
 node dummy base\n  parent NULL\nendnode\n\
@@ -11,7 +9,7 @@ node dummy arm\n  parent base\nendnode\n\
 endmodelgeom base\ndonemodel base\n";
 
 fn mg(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mg")).args(args).output().unwrap()
+    crate::mg().args(args).output().unwrap()
 }
 
 #[test]
@@ -60,7 +58,7 @@ fn pack_compiles_the_models_kept_as_text_when_asked() {
 fn cat_prints_a_compiled_model_as_text() {
     let root = mg_testkit::corpus!();
     let run = |args: &[&str]| {
-        let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+        let out = crate::mg()
             .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
             .args(args)
             .output()

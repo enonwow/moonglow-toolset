@@ -106,6 +106,8 @@ fn near(a: f32, b: f32, eps: f32) -> bool {
 fn every_binary_model_writes_back_the_same() {
     let root = mg_testkit::corpus!();
     let rm = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
+    // (All of them on every run: a second and a half, and the shares below
+    // are the whole game's.)
     let names = rm.list(ResType::MDL);
     let cache = Mutex::new(HashMap::new());
     let written = AtomicUsize::new(0);
@@ -249,7 +251,7 @@ fn supermodel_of(rm: &ResMan, model: &Model) -> Option<(Model, PartNumbers)> {
 fn decompiled_models_compile_back() {
     let root = mg_testkit::corpus!();
     let rm = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
-    let names = rm.list(ResType::MDL);
+    let names = mg_testkit::sweep(rm.list(ResType::MDL), 10);
     let (compiled, skins) = (AtomicUsize::new(0), AtomicUsize::new(0));
     // Numbers kept from the compiled model, and numbered afresh from the
     // text alone (where the model's numbers are its own).
@@ -388,8 +390,8 @@ fn decompiled_models_compile_back() {
         "skins bound in another pose than their model's rest: {:?}",
         odd_binds.lock().unwrap()
     );
-    assert!(compiled.load(Ordering::Relaxed) > 25_000);
-    assert!(skins.load(Ordering::Relaxed) > 300);
+    assert!(compiled.load(Ordering::Relaxed) > mg_testkit::at_least(25_000, 10));
+    assert!(skins.load(Ordering::Relaxed) > mg_testkit::at_least(300, 10));
     assert!(failures.is_empty(), "{} models differ", failures.len());
     assert!(fresh.share() >= 1.0, "{}", fresh.text());
     // A few skins were bound in another pose than their model rests in,
@@ -403,7 +405,7 @@ fn decompiled_models_compile_back() {
 fn the_games_ascii_models_compile() {
     let root = mg_testkit::corpus!();
     let rm = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
-    let names = rm.list(ResType::MDL);
+    let names = mg_testkit::sweep(rm.list(ResType::MDL), 10);
     let compiled = AtomicUsize::new(0);
     let start = std::time::Instant::now();
     let lookup = |n: &str| {
@@ -482,6 +484,6 @@ fn the_games_ascii_models_compile() {
     for (name, d) in failures.iter().take(25) {
         eprintln!("  {name}: {}", d.iter().take(3).cloned().collect::<Vec<_>>().join("; "));
     }
-    assert!(compiled.load(Ordering::Relaxed) > 7_000);
+    assert!(compiled.load(Ordering::Relaxed) > mg_testkit::at_least(7_000, 10));
     assert!(failures.is_empty(), "{} models differ", failures.len());
 }

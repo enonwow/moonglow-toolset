@@ -15,17 +15,17 @@ use std::time::Instant;
 use mg_area::{AreaModel, AreaScene, ObjectKind, View, overview};
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct};
-use mg_module::Module;
 use mg_render::{Gpu, Renderer};
-use mg_resman::{GameInstall, LayerClass, ResKey, priority};
+use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_set::Tileset;
-use mg_testkit::{bundled_modules, corpus};
+use mg_testkit::corpus;
+
+use crate::area_common::each_module;
 
 #[test]
 fn every_shipped_area_opens_and_renders() {
     let root = corpus!();
-    let install = GameInstall::new(&root, None, "en");
     mg_testkit::gpu::hold();
     let gpu = Gpu::headless();
     if gpu.is_none() {
@@ -37,14 +37,10 @@ fn every_shipped_area_opens_and_renders() {
     let start = Instant::now();
     let mut standing: std::collections::BTreeMap<ObjectKind, (usize, usize)> = Default::default();
     let mut hooked = (0usize, 0usize);
-    for path in bundled_modules(&root) {
-        let module_name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let m = Module::open(&path).unwrap();
-        let mut game = GameData::open(&install).unwrap();
-        let haks = m.haks().unwrap();
-        let missing_haks = game.resman.add_haks(&install, &haks).unwrap();
+    each_module(&root, |opened| {
+        let (module_name, m, game) = (&opened.name, &opened.module, &opened.game);
+        let missing_haks = &opened.missing_haks;
         assert!(missing_haks.is_empty(), "{module_name}: haks missing: {missing_haks:?}");
-        game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         if let Some(r) = &mut renderer {
             r.clear_textures();
         }
@@ -60,9 +56,9 @@ fn every_shipped_area_opens_and_renders() {
                 continue;
             };
             let tileset = are.root.resref("Tileset").and_then(|r| {
-                tilesets.entry(r).or_insert_with(|| mg_area::tileset(&game, r).ok()).clone()
+                tilesets.entry(r).or_insert_with(|| mg_area::tileset(game, r).ok()).clone()
             });
-            let model = AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+            let model = AreaModel::read(game, &are.root, &git.root, tileset.as_ref());
             areas += 1;
             tiles += model.tiles.len();
             objects += model.objects.len();
@@ -71,7 +67,7 @@ fn every_shipped_area_opens_and_renders() {
             }
             // Objects stand on the ground: the walkmesh under them is at
             // their height.
-            let ground = mg_area::walk::Ground::new(&game, &model);
+            let ground = mg_area::walk::Ground::new(game, &model);
             for o in &model.objects {
                 if o.kind.has_outline() {
                     continue;
@@ -101,14 +97,14 @@ fn every_shipped_area_opens_and_renders() {
             let placeables = git.root.list(ObjectKind::Placeable.list()).unwrap_or(&[]);
             for o in &model.objects {
                 let Some(p) = &o.problem else { continue };
-                if o.kind == ObjectKind::Placeable && shows_nothing(&game, &placeables[o.index]) {
+                if o.kind == ObjectKind::Placeable && shows_nothing(game, &placeables[o.index]) {
                     invisible += 1;
                     continue;
                 }
                 failures.push(format!("{at}: {:?} {} ({:?}): {p}", o.kind, o.index, o.tag));
             }
             let (Some(gpu), Some(r)) = (&gpu, &mut renderer) else { continue };
-            let loaded = AreaScene::new(gpu, &game, &model);
+            let loaded = AreaScene::new(gpu, game, &model);
             if !loaded.missing.is_empty() {
                 failures.push(format!("{at}: models not found: {:?}", loaded.missing));
             }
@@ -120,7 +116,7 @@ fn every_shipped_area_opens_and_renders() {
             }
             rendered += 1;
         }
-    }
+    });
     eprintln!(
         "{areas} areas ({tiles} tiles, {objects} objects, {invisible} placeables the data leaves \
          invisible), {rendered} rendered, in {:.0?}",
@@ -129,6 +125,9 @@ fn every_shipped_area_opens_and_renders() {
     // Creatures, waypoints and stores are placed on the ground; sounds
     // above it; placeables, doors and items are often lifted (onto tables,
     // walls) or on door hooks at the area's edge.
+    // (The shares are the whole game's: a sample of its modules gets some
+    // slack.)
+    let slack = if mg_testkit::full_corpus() { 0.0 } else { 0.05 };
     for (kind, (on, all)) in &standing {
         let share = *on as f64 / *all as f64;
         eprintln!("{kind:?}: {on} of {all} on the ground ({:.1}%)", share * 100.0);
@@ -137,12 +136,12 @@ fn every_shipped_area_opens_and_renders() {
             ObjectKind::Sound => 0.7,
             _ => 0.6,
         };
-        assert!(share >= least, "{kind:?}: only {:.1}% on the ground", share * 100.0);
+        assert!(share >= least - slack, "{kind:?}: only {:.1}% on the ground", share * 100.0);
     }
     let share = hooked.0 as f64 / hooked.1 as f64;
     eprintln!("doors on hooks: {} of {} ({:.1}%)", hooked.0, hooked.1, share * 100.0);
-    assert!(share > 0.9, "only {:.1}% of the doors stand on hooks", share * 100.0);
-    assert!(areas > 1000, "only {areas} areas");
+    assert!(share > 0.9 - slack, "only {:.1}% of the doors stand on hooks", share * 100.0);
+    assert!(areas > mg_testkit::at_least(1000, 6), "only {areas} areas");
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 

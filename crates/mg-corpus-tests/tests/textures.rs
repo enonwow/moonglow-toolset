@@ -28,6 +28,8 @@ fn every_texture_decodes() {
     let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
     for t in [ResType::TGA, ResType::DDS] {
         let keys = textures(&rm, t);
+        assert!(keys.len() > 1000, "too few {t}");
+        let keys = mg_testkit::sweep(keys, 10);
         let failed: Vec<String> = keys
             .par_iter()
             .filter_map(|k| {
@@ -43,16 +45,16 @@ fn every_texture_decodes() {
             })
             .collect();
         eprintln!("{t}: {} files, {} failed", keys.len(), failed.len());
-        assert!(keys.len() > 1000, "too few {t}");
         assert!(failed.is_empty(), "{failed:#?}");
     }
     let keys = textures(&rm, ResType::PLT);
+    assert!(keys.len() > 1000);
+    let keys = mg_testkit::sweep(keys, 10);
     let failed: Vec<String> = keys
         .par_iter()
         .filter_map(|k| Plt::read(&rm.get(k).ok()?).err().map(|e| format!("{k}: {e}")))
         .collect();
     eprintln!("plt: {} files, {} failed", keys.len(), failed.len());
-    assert!(keys.len() > 1000);
     assert!(failed.is_empty(), "{failed:#?}");
 
     // TXI and MTR: known settings.
@@ -139,7 +141,9 @@ fn textures_match_pillow() {
     let mut list = std::fs::File::create(dir.join("list.txt")).unwrap();
     let mut count = 0;
     for (t, step) in [(ResType::TGA, 70), (ResType::DDS, 25)] {
-        for k in textures(&rm, t).into_iter().step_by(step) {
+        // (A sample of the sample on an everyday run.)
+        let picked: Vec<_> = textures(&rm, t).into_iter().step_by(step).collect();
+        for k in mg_testkit::sweep(picked, 6) {
             let data = rm.get(&k).unwrap();
             let tex = mg_image::read(t, &data).unwrap();
             let src =
@@ -167,7 +171,7 @@ fn textures_match_pillow() {
     let text = String::from_utf8_lossy(&out.stdout);
     eprintln!("{text}{}", String::from_utf8_lossy(&out.stderr));
     assert!(out.status.success());
-    assert!(count > 300);
+    assert!(count > if mg_testkit::full_corpus() { 300 } else { 50 });
     assert!(text.contains(&format!("compared {count} bad 0")), "{text}");
 }
 

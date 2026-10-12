@@ -26,7 +26,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Report
 
-* [Review: test necessity, test speed and codebase cleanliness](test-review.md) - Where the time between a finished change and a release goes (test binaries linked, sweeps repeated, CI runs per release, a 917 GB target directory), what was changed on the branch worktree-test-review with its measurements, and what is left for a decision.
+* [Review: test necessity, test speed and codebase cleanliness](test-review.md) - Where the time between a finished change and a release went (test binaries linked, sweeps repeated, CI runs per release, a 917 GB target directory), what was changed about it with the measurements before and after, and what is left.
 
 # Subdirectories
 

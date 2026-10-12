@@ -2,7 +2,6 @@
 //! of the module; what they assert comes back as results.
 
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::Value;
 
@@ -23,7 +22,7 @@ const OK: &str = "#include \"mg_test\"\nvoid main() { Pass(\"fine\"); }\n";
 const ENDLESS: &str = "void main() { int n = 0; while (TRUE) { n++; } }\n";
 
 fn mg(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
         .arg("test")
         .args(args)

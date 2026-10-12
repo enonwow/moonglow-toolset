@@ -49,6 +49,20 @@ mod verify;
 #[path = "../watch.rs"]
 mod watch;
 
+/// `mg`, as every test here starts it: with Moonglow's data and cache
+/// folders (what it remembers of the scripts it compiled, the language
+/// server's cache) under `target/test-output`, not the developer's own.
+/// (On macOS the data folder follows `HOME`, which also finds the game: it
+/// is left alone.)
+fn mg() -> std::process::Command {
+    let home = mg_testkit::output_dir("mg-home");
+    let mut mg = std::process::Command::new(env!("CARGO_BIN_EXE_mg"));
+    mg.env("XDG_DATA_HOME", home.join("data"))
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("APPDATA", home.join("data"));
+    mg
+}
+
 /// This crate's tests are not found by Cargo (`autotests = false`): a file
 /// not named above would not be compiled.
 #[test]

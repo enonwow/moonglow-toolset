@@ -1,18 +1,21 @@
 ---
 type: Report
 title: 'Review: test necessity, test speed and codebase cleanliness'
-description: Where the time between a finished change and a release goes (test binaries linked, sweeps repeated, CI runs per release, a 917 GB target directory), what was changed on the branch worktree-test-review with its measurements, and what is left for a decision.
+description: Where the time between a finished change and a release went (test binaries linked, sweeps repeated, CI runs per release, a 917 GB target directory), what was changed about it with the measurements before and after, and what is left.
 tags: [tests, build, ci, release, review, cleanliness]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:02:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:34:52Z }
 stale_after: 2027-01-01T00:00:00Z
 sources:
   - id: logs
     resource: target/ws-test.txt and target/corpus-test.txt of the main checkout, 2026-10-11 (cargo test --workspace; cargo test -p mg-corpus-tests --release), version 1.21.1
     title: The last recorded test runs before the change
   - id: runs
-    resource: Test runs in the worktree on 2026-10-11, release profile, while the main checkout ran its own workspace tests (16 cores shared)
-    title: Runs of the regrouped tests
+    resource: Test runs in the worktree on 2026-10-11, release profile; the first round while the main checkout ran its own workspace tests (16 cores shared), the second on an idle machine
+    title: Runs of the regrouped and reworked tests
+  - id: decision
+    resource: human:august, 2026-10-11, in conversation - clear target/, one CI run per release, sample the whole-install sweeps (and say so in the plan), share the repeated sweeps, correct the three defects, then merge
+    title: The decisions taken on the review's open points
   - id: actions
     resource: https://github.com/jadzziaa/moonglow-toolset/actions (runs 38084618594 to 38191903814)
     title: GitHub Actions runs of releases 1.21.0 to 1.21.2
@@ -27,8 +30,8 @@ Asked for on 2026-10-11: the way from a finished change to a release
 takes longer than the project's complexity explains. In short: **hardly
 any test is unnecessary; the time goes into how the tests are built and
 run, and into running the same things more than once.** The tests stand.
-What changed is on the branch `worktree-test-review`; what did not is
-listed at the end and in the [deferred list](deferred.md).
+The review's open points were decided the same day[^decision] and are
+done; what is left is at the end and in the [deferred list](deferred.md).
 
 ## What a release cost
 
@@ -80,60 +83,85 @@ they did find:
 | `audio.rs` loads all 12,000 sounds twice | both tests | share or sample |
 
 None of these is wrong; they are the same expensive loop paid for more
-than once. They are in the deferred list, not changed here: each is a
-rewrite of test logic that deserves its own look.
+than once. Most are now shared (below).
 
-## What was changed (branch `worktree-test-review`)
+## What was changed
+
+In two rounds: the structure first, then, once decided,[^decision] the
+sweeps, the sample and the defects.
 
 | Change | Effect |
 | --- | --- |
 | `mg-corpus-tests`: 80 test binaries become 6 (`areas`, `aurora`, `engine`, `formats`, `models`, `scripts`); the files stay where they are and are modules of `tests/groups/<name>.rs` | 74 fewer links per profile; tests of different files run side by side |
-| `apps/mg`: 23 test binaries become 1 (`cli`) | 22 fewer links; 35 tests in 14.6 s[^runs] |
+| `apps/mg`: 23 test binaries become 1 (`cli`) | 22 fewer links; 35 tests in about 15 s[^runs] |
 | Hand-run targets are `test = false`: `screens`, the four `*_perf` (mg-ui), `client_render`, `client_minimap` | 7 fewer links per run; `--test screens` and the documented commands work as before; clippy's `--all-targets` leaves them out as well, so CI and `CLAUDE.md` name them to it |
-| `mg_testkit::engine::run_server` runs at most four servers at once per binary; `one_at_a_time()` for the three command-line tests that wait on `mg serve` by the clock | what made merging the engine tests safe |
+| `mg_testkit::engine::run_server` runs at most eight servers at once per binary; `one_at_a_time()` for the three command-line tests that wait on `mg serve` by the clock | what made merging the engine tests safe |
 | `mg_testkit::ungrouped_tests` and a test in each grouped crate | a new test file left out of its group fails a test instead of silently not running |
 | `[profile.dev] debug = "line-tables-only"` in `Cargo.toml` (CI's two variables removed) | `app` 637 MB → 185 MB; backtraces keep file and line |
-| CI: no run for `bucket/**`; tests without the examples (`--lib --bins --tests`, then `--doc`) | one CI run fewer per release; 22 fewer links on each system |
-| `CLAUDE.md`, `README.md`: the two test commands no longer overlap | the corpus suite runs once per release, in release |
+| CI: no run for `bucket/**`; tests without the examples (`--lib --bins --tests`, then `--doc`); a commit that passed on one branch is not tested again on another | one CI run per release where there were three; 22 fewer links on each system |
+| The two test commands no longer overlap (`CLAUDE.md`, `README.md`) | the corpus suite runs once, in release |
+| **Sweeps and samples** (`mg_testkit::sweep`, `at_least`; `PLAN.md` §7): the long sweeps take every sixth module or tenth resource on an ordinary run and everything with `MOONGLOW_FULL_CORPUS=1`, before a release | an everyday corpus run in 44 s |
+| One decompile of each model for three tests (`mdl_decompile::swept`: reads back the same, keeps its part numbers' order, lints clean) | models, in full: 31 s → 28 s |
+| One compile of each script for the front end's and the analysis' checks (`script_frontend.rs` calls `script_analysis::check_locals`); the script sets and the per-core harness written once (`script_common`) | scripts, in full: 79 s → 54 s |
+| The original module's run in the server is made once and shared (`common::original_world`) by the four engine tests that compare with it | 7 servers per module → 4; engine, in full: 51 s → 22 s (with eight servers at once) |
+| nasher's unpack of each module made once for both tests; the sounds read one at a time, on every core, instead of all 12,000 into memory twice | formats, in full: 56 s → 51 s |
+| The four area walks open their modules through one helper (`area_common`) | one copy of the set-up; the walks themselves stay apart (deferred) |
+| `game_ascii_census`, which asserts nothing, is ignored (run by hand) | |
+| The main checkout's `target/` emptied | 917 GB → 2.4 MB; the disk from 90% to 66% full |
 
-Measured, release profile, on a machine that was also running the main
-checkout's test suite:[^runs]
+Measured in release:[^logs][^runs]
 
-| Group | Before (sum of its binaries)[^logs] | After |
-| --- | --- | --- |
-| formats (19 files) | 145.6 s | 55.9 s |
-| engine (26 files) | 88.0 s | 51.4 s |
-| scripts (4 files) | 99.9 s | 78.9 s |
-| models (6 files) | 35.8 s | 31.3 s |
-| aurora (18 files) | 1.4 s | 0.5 s |
-| areas (5 files) | 100.5 s | not run (see below) |
+| Group | Before (sum of its binaries) | Grouped | Shared, in full | Everyday sample |
+| --- | --- | --- | --- | --- |
+| areas (5 files) | 100.5 s | not run | 78.8 s | 6.2 s |
+| aurora (18 files) | 1.4 s | 0.5 s | 0.3 s | 0.3 s |
+| engine (26 files) | 88.0 s | 51.4 s | 22.2 s | 9.2 s |
+| formats (19 files) | 145.6 s | 55.9 s | 51.0 s | 15.8 s |
+| models (6 files) | 35.8 s | 31.3 s | 27.9 s | 6.0 s |
+| scripts (4 files) | 99.9 s | 78.9 s | 54.1 s | 6.2 s |
+| **all** | **471 s** | | **234 s** | **44 s** |
 
-Together with not running the corpus suite a second time, a release's
-local test time goes from about 1,125 s to roughly 400 s (some 70 s of
-unit, UI and command-line tests, some 310 s of corpus tests with the
-areas at their old time), before counting the links saved.
+("Grouped" was measured while another test suite ran on the machine,
+the two columns after it on an idle one.) Every group passes in full
+and sampled, the `areas` group included; the UI tests (261) and the
+command-line tests (35) pass.
 
-**Not verified:** the `areas` group was compiled, passes clippy and
-lists its 13 tests, but was not run: it opens a GPU device, and the main
-checkout was running its own tests at the time (a full GPU test run once
-brought this machine down). Its GPU tests take turns as before
-(`mg_testkit::gpu::hold`), so about 90 s is expected. CI has not run
-these changes on Windows or macOS.
+With about 70 s of unit, UI and command-line tests, the tests of an
+ordinary change take about two minutes where they took nineteen (1,125 s:
+the corpus suite twice), and those before a release about five.
 
-Things to know when merging:
+The three defects:
 
-- The main checkout has uncommitted changes to `apps/mg/tests/compile.rs`
-  and `crates/mg-corpus-tests/tests/doctor.rs`; the branch touches
-  neither. Thirty corpus files change one line (`mod common;` to
-  `use crate::common;`), and three command-line tests gain one.
+- **Tests and the developer's data folder.** Every command-line test now
+  starts `mg` through one function (`tests/groups/cli.rs`) that points
+  Moonglow's data and cache folders into `target/test-output`. As
+  measured, nothing was being written to the real folder at this commit
+  (no `compiled` folder and no script cache existed there after the
+  tests); the audit had read the code paths, which are fenced now.
+- **Renders outside the GPU guard.** The five `blueprint_harness` tests
+  that render a picture hold the GPU before they do.
+- **Shared scratch directories.** `screens.rs` adds its pictures to
+  `target/test-output/screens` without emptying it
+  (`mg_testkit::output_dir`), so a full run keeps them all; the second
+  test on `ui-bp-bandit_named` has its own copy.
+
+Things to know:
+
+- **Before a release:** `MOONGLOW_FULL_CORPUS=1 cargo test -p
+  mg-corpus-tests --release --tests`. Without the variable the sweeps
+  take their sample, and a fault only the rest of the install shows
+  would pass.
 - `--test <file>` becomes `--test <group> <file>` for corpus and
   command-line tests (`--test engine engine_tlk`); test names gain the
   file's name as a prefix.
-- A new test file in those two crates is added to its group file.
+- A new test file in those two crates is added to its group file, and
+  a new sweep over the install goes through `mg_testkit::sweep`.
 - `small_formats.rs` has the suite's one wall-clock assertion (tilesets
   with absurd door counts parse within 20 s; it guards against a loop
-  of a billion turns). It now shares its binary with the sound and
-  texture sweeps; it passed on a loaded machine, and is kept.
+  of a billion turns). It shares its binary with the sound and texture
+  sweeps; it passes there, and is kept.
+- CI's new steps (the already-tested check, the named clippy targets)
+  have not run on GitHub yet: the first push shows.
 
 ## Cleanliness
 
@@ -154,43 +182,18 @@ generated schema.[^reading] What stands out is size and shape:
 | `[profile.test] opt-level = 1` while dev is 0 | `cargo build` and `cargo test` share no workspace artifacts |
 | Generated schema: 609 `#[allow(unused_imports)]` | the generator emits three imports into every nested module: about 1,800 lines |
 
-Three things that are defects, not style:
+Three defects were found on the way; they are corrected (above).
 
-- **Tests write to the developer's real Moonglow data folder**: the
-  compile memory (`$XDG_DATA_HOME/moonglow/compiled`) from
-  `apps/mg/tests/json.rs`, `nasher.rs` and `watch.rs`, and the script
-  cache from `lsp.rs`. Only `compile.rs` redirects it.
-- **Five UI tests render without the GPU guard** (`app.rs` around lines
-  7883, 8219, 8233, 8278, 8307: `h.render()` in `blueprint_harness`
-  tests), which opens a device outside the one-at-a-time rule.
-- **`screens.rs`: 22 tests share the scratch directory `screens`**, and
-  each empties it first, so a full run keeps only the last test's
-  pictures; two `app.rs` tests share `ui-bp-bandit_named` and can run at
-  the same time.
+## What is left
 
-## For a decision
-
-Ordered by what they would save:
-
-1. **Empty `target/`** in the main checkout (`cargo clean`, or
-   `cargo sweep`): 917 GB. Not done from here: another session builds
-   there. With line tables only it regrows at about a third of the rate.
-2. **One CI run per release instead of two**: the release commit is
-   tested on `tmp/v…` and again, identically, on `develop`. Either push
-   to `develop` directly and wait for that run, or skip CI on `tmp/**`
-   when nothing in the renderer changed.
-3. **Sweeps as their own tier**: the whole-install sweeps (every area
-   rendered, every sound decoded, every script compiled twice) are what
-   is left of the corpus time. The plan (§7) wants them whenever a game
-   is found; they could run before a release only, with a sample for the
-   everyday run. A decision about the testing strategy, so not taken
-   here.
-4. The shared sweeps in the table under "Are the tests necessary?".
-5. Splitting `app.rs` and taking the GPU lock only where a test draws
-   an area: best done by whoever is working on `develop`, since that
-   file changes every day.
+In the [deferred list](deferred.md): the area walks that still go over
+every area four times and the model compile test's second decompile; a
+sample that moves with the date; `app.rs` in one file and the GPU lock
+its non-area tests take for nothing; `mg` linking the GPU stack; the
+version bump that rebuilds every crate; fixtures written many times.
 
 [^logs]: The recorded runs of 2026-10-11 in the main checkout's `target/`.
 [^runs]: Runs in the worktree, 2026-10-11.
 [^actions]: GitHub Actions, releases 1.21.0 to 1.21.2.
 [^reading]: The test files and manifests as of commit eca41c9.
+[^decision]: The user's decisions on the review's open points, 2026-10-11.

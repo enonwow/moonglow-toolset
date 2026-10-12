@@ -3,7 +3,7 @@ type: Plan
 title: 'Moonglow Toolset: Plan'
 description: The plan of Moonglow Toolset with its current status - what of Aurora it reproduces, the landscape, principles, crate architecture, key designs, phases, testing strategy, licensing and risks.
 tags: [plan, architecture, testing, parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:34:52Z }
 ---
 
 # Moonglow Toolset: Plan
@@ -43,7 +43,8 @@ Decisions taken (2026-09-30):
 | 11 Build, verify, test | Exit met: no row of the parity checklist is missing (✗); each is done (✅), deliberately different (—), or partly done (◐, its gap named). Build Module with Aurora's options, layout and results (compile scripts, creature challenge ratings, encounters, palettes; missing and unused resources), the challenge rating calculation read from Aurora and matching its ratings for 4,204 probe creatures, Test Module (F9), Verify, Area Statistics, the Area Wizard's after-steps, Update Instances, script sets and class spell lists, all Options pages but Spell Checking (EE ships no lexicon), Setup Store and Add Popup Text, the Levelup and Creature Wizards (matching Aurora's levelings and creatures), creature spell and inventory warnings (31 probe creatures), the Conversation Editor's options (Input Text popup, link directions, drag, backups), sound playback (every game sound decodes; previews, area ambience, music and placed sounds), Select Portrait, item icons and color swatches, Print. Partly: drag and drop in inventories, the Scrap tab, a few unchecked Aurora details |
 | 12 Hardening and release | In progress: crash safety (recovery copies of unsaved work every 5 minutes in Moonglow's data folder, offered back at the next start; crash reports; saves already write through a temporary file and keep a `.bak`); performance budgets on the three largest campaigns (`crates/mg-ui/tests/campaign_perf.rs`; Tyrants of the Moonsea, 5,295 resources: opens in 0.05 s, its largest area, 784 tiles, in 0.3 s and draws in 13 ms, verify 0.7 s, all 1,433 scripts compile in 0.7 s, the module writes in 0.02 s; budgets 3 s, 5 s, 50 ms, 10 s, 120 s and 5 s); campaign talk tables are found in the install's `data/tlk/`; packaging (`packaging/`: the icon, an AppImage, a Flatpak manifest, an Inno Setup installer with the C runtime built in, a universal macOS app and disk image, third-party license notices, a release workflow; the AppImage (11.7 MB) and the Flatpak (7.6 MB bundle on the Freedesktop 25.08 runtime) are built and run here, the Windows and macOS packages are left to CI); the user manual (`docs/manual/`, 13 chapters, also in the app under Help › User Manual, with About). Still to do: build the packages on CI and try each on its system |
 
-What the tests establish so far (all run in a few seconds, in release mode):
+What the tests establish so far (in release mode: a sample of the install in under a
+minute on every run, the whole of it in four minutes before a release, §7):
 
 - All 57 shipped modules and haks index; all 27,179 GFFs inside them and every
   GFF among the ~114,000 base-game resources round-trip to identical trees;
@@ -594,15 +595,32 @@ surveyed after 0.2.0). What each item left undone is collected in
 | Tier | What | Runs |
 | --- | --- | --- |
 | L0 unit | per-crate tests, property tests (proptest) for readers/writers, truncation tests | always |
-| L1 corpus | parse and round-trip every resource in the install and bundled modules | when a game install is found |
-| L2 differential | compare against neverwinter.nim (GFF JSON, 2DA; later ERF, TLK, NCS bytes) | when its tools are installed |
-| L3 engine | build a module, run it in `nwserver` with a scratch user directory; a probe script logs what the engine sees (`Get2DAString`, `ResManGetAliasFor`, object state) | Linux, when the game is installed |
+| L1 corpus | parse and round-trip every resource in the install and bundled modules | when a game install is found: a sample of the long sweeps on every run, all of them before a release |
+| L2 differential | compare against neverwinter.nim (GFF JSON, 2DA; later ERF, TLK, NCS bytes) | when its tools are installed; sampled as L1 |
+| L3 engine | build a module, run it in `nwserver` with a scratch user directory; a probe script logs what the engine sees (`Get2DAString`, `ResManGetAliasFor`, object state) | Linux, when the game is installed; the tests over every shipped module sampled as L1 |
 | L4 Aurora parity | scripted scenarios in Aurora under Wine produce reference outputs; Moonglow must match them semantically | on demand; recorded fixtures replayed always |
 | L5 image | offscreen renders vs golden images (SSIM threshold); periodic comparisons with game screenshots | GPU runners / locally |
 | L6 UI | `egui_kittest` flows through editors and dialogs | always |
 
 Every feature lands with tests at the lowest tier that can catch its
 regressions, plus a line ticked in the parity checklist that names the test.
+
+**Sweeps and samples.** A test that goes over the whole install (every
+area rendered, every model decompiled and compiled back, every script
+compiled, every sound decoded, every shipped module run in the server)
+takes a fixed sample on an ordinary run, every sixth module or tenth
+resource (`mg_testkit::sweep`), and all of it when `MOONGLOW_FULL_CORPUS=1`
+is set, as it is before a release. The sample is the same each run, so a
+failure stays where it was; counts a sweep must reach are scaled
+(`mg_testkit::at_least`), and shares that describe the whole game get some
+slack on a sample. Sweeps that take a second or two are not sampled.
+Where several tests need the same costly thing they share it: one
+decompile of each model feeds three tests, one compile of each script
+two, and the engine tests that compare a changed module with the
+original run the original once (`common::original_world`). The corpus
+tests are six binaries (`tests/groups/`), so that tests of different
+files run side by side; at most eight servers run at once
+(`mg_testkit::engine`), and GPU tests one at a time (`mg_testkit::gpu`).
 
 When an oracle tool disagrees with Moonglow, an engine test decides and the
 divergence is recorded (see `CLAUDE.md`). So far: `nwn_twoda` drops `""` 2DA
