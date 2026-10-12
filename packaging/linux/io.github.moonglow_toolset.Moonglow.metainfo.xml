@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.21.2" date="2026-10-11">
+      <description>
+        <p>Verify Module warns of a hak's 2DA row that names a row of
+        another table which is not there. The area's toolbar stays
+        inside a narrow tab, the talk table's list begins right under
+        its buttons, and a body part whose mesh is a skin is drawn as
+        the game draws it. mg watch --ndb makes debug files.</p>
+      </description>
+    </release>
     <release version="1.21.1" date="2026-10-11">
       <description>
         <p>The module tree's keys go into an area's placed objects, and
