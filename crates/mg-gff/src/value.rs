@@ -79,6 +79,42 @@ pub enum FieldType {
 }
 
 impl FieldType {
+    /// The least and the greatest number an integer type holds; `None`
+    /// for a type that is no integer.
+    pub fn int_range(self) -> Option<(i128, i128)> {
+        Some(match self {
+            FieldType::Byte => (0, u8::MAX.into()),
+            FieldType::Char => (i8::MIN.into(), i8::MAX.into()),
+            FieldType::Word => (0, u16::MAX.into()),
+            FieldType::Short => (i16::MIN.into(), i16::MAX.into()),
+            FieldType::Dword => (0, u32::MAX.into()),
+            FieldType::Int => (i32::MIN.into(), i32::MAX.into()),
+            FieldType::Dword64 => (0, u64::MAX.into()),
+            FieldType::Int64 => (i64::MIN.into(), i64::MAX.into()),
+            _ => return None,
+        })
+    }
+
+    /// `v` as a value of this integer type; `None` where it does not fit
+    /// ([`FieldType::int_range`]) or the type is no integer.
+    pub fn int_value(self, v: i128) -> Option<Value> {
+        let (min, max) = self.int_range()?;
+        if v < min || v > max {
+            return None;
+        }
+        Some(match self {
+            FieldType::Byte => Value::Byte(v as u8),
+            FieldType::Char => Value::Char(v as i8),
+            FieldType::Word => Value::Word(v as u16),
+            FieldType::Short => Value::Short(v as i16),
+            FieldType::Dword => Value::Dword(v as u32),
+            FieldType::Int => Value::Int(v as i32),
+            FieldType::Dword64 => Value::Dword64(v as u64),
+            FieldType::Int64 => Value::Int64(v as i64),
+            _ => return None,
+        })
+    }
+
     pub fn from_id(id: u32) -> Option<FieldType> {
         use FieldType::*;
         Some(match id {

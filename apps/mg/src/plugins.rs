@@ -411,9 +411,9 @@ pub(crate) fn run(
     let game = game_for(gi, &m, &mut notes);
     // (The edits are shown in the module's own letters, as the plugin
     // wrote them.)
-    if let Some(game) = &game {
-        super::edits::use_codepage(game.codepage().for_language(mg_core::Language::ENGLISH));
-    }
+    let codepage = game.as_ref().map_or(mg_core::Codepage::WINDOWS_1252, |game| {
+        game.codepage().for_language(mg_core::Language::ENGLISH)
+    });
     let host = Rc::new(host);
     let input = Input { module: m.clone(), game };
     let outcome = match &what.changed {
@@ -471,7 +471,7 @@ pub(crate) fn run(
         notes.note(format!("{}: {new} files written, {replaced} replaced", folder.dir.display()));
     }
     let cmd = Command::new(outcome.label, outcome.edits);
-    let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run)?;
+    let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage)?;
     out.notes.splice(0..0, notes.notes);
     host.finish(&mut out);
     Ok(out)

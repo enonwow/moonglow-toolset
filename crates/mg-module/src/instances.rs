@@ -168,29 +168,11 @@ const CREATURE: &[(&str, D)] = &[
     ("Wis", D::Byte(0)),
 ];
 
-/// A part-based creature's parts (each with its EE twin), in Aurora's
-/// order, and its colours.
-const CREATURE_PARTS: [&str; 19] = [
-    "ArmorPart_RFoot",
-    "BodyPart_LFoot",
-    "BodyPart_RShin",
-    "BodyPart_LShin",
-    "BodyPart_LThigh",
-    "BodyPart_RThigh",
-    "BodyPart_Pelvis",
-    "BodyPart_Torso",
-    "BodyPart_Belt",
-    "BodyPart_Neck",
-    "BodyPart_RFArm",
-    "BodyPart_LFArm",
-    "BodyPart_RBicep",
-    "BodyPart_LBicep",
-    "BodyPart_RShoul",
-    "BodyPart_LShoul",
-    "BodyPart_RHand",
-    "BodyPart_LHand",
-    "Appearance_Head",
-];
+/// A part-based creature's parts, as a new blueprint has them, and its
+/// colours.
+fn creature_parts() -> [&'static str; 19] {
+    crate::blueprints::CREATURE_PARTS.map(|(label, _)| label)
+}
 const CREATURE_COLORS: [&str; 4] = ["Color_Skin", "Color_Hair", "Color_Tattoo1", "Color_Tattoo2"];
 
 /// The order Aurora writes a creature's fields in (parts and their twins
@@ -988,7 +970,7 @@ pub fn instance(
             renew(&mut s, "Wings", "Wings_New");
             fill(&mut s, CREATURE);
             if part_based(p.game, &s) {
-                for label in CREATURE_PARTS {
+                for label in creature_parts() {
                     if !s.contains(label) {
                         s.set(label, Value::Byte(0));
                     }
@@ -1146,7 +1128,7 @@ fn arrange_as(restype: ResType, s: &mut Struct) {
         ResType::UTD => DOOR_ORDER.to_vec(),
         _ => return,
     };
-    arrange(s, &order, &CREATURE_PARTS);
+    arrange(s, &order, &creature_parts());
 }
 
 /// A GIT's lists of placed objects and their blueprint types.

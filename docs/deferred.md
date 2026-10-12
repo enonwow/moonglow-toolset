@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:25:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:51:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1633,40 +1633,32 @@ unless it says so.
 - **A dropdown's choices are kept but copied to who asks:**
   `GameData::choice_list` hands the kept list out shared; the editors
   still call `choices`, which copies it. (S)
-- **Written more than once, in the editors:** the inventory pages' list
-  setup and "add what was picked, pasted or dropped" (three pages);
-  thirteen `Edit::InsertItem` and `RemoveItem` literals that
-  `Edit::insert_item` and `remove_item` did not fit as written (a
-  comment inside, a list's name computed); an item's cloak list built
-  twice; the tools' radius by distance (not found where the review saw
-  four: two sites in `area_view.rs` and one in `model_view.rs` scale by
-  the camera's distance, each its own way). (M together)
-- **Written more than once, in mg and the window:** `mg set` and `mg
-  apply` open the module twice and pass the codepage through a static
-  (a value set once for a command's run; threading it through the edit
-  file's readers touches every one of them); some corpus tests still
+- **Written more than once, in the editors:** the store's inventory
+  page adds an item its own way (to the page of its kind, at a place in
+  its grid), where the placeable's and the creature's share
+  `Form::apply_list`; the tools' radius by distance was not found as
+  the review saw it (two sites in `area_view.rs` and one in
+  `model_view.rs` scale by the camera's distance, each its own way).
+  (S each)
+- **Written more than once, in the tests:** some corpus tests still
   stack the game, a module's haks and the module by hand, where
-  `Module::stack_onto` does it for mg and the window. (M)
-- **Written more than once, below:** a loose value made a typed GFF
-  value (mg, the plugin host, the JSON reader: the integer ranges by
-  type); "check the table is there, then a cursor at it" seven times
-  across the format readers; in mg-module, three recursive GFF walks
-  that `Struct::walk_fields` does not fit as it is (the text search's,
-  which keeps its path as steps; the doctor's objects, which goes by
-  the struct and the list it is in; the references' rewriting one,
-  which changes what it walks), the GIT list table in four shapes
+  `Module::stack_onto` does it for mg and the window. (S)
+- **Looked at as written more than once, and left:** three recursive
+  GFF walks that `Struct::walk_fields` does not fit as it is (the text
+  search's, which keeps its path as steps; the doctor's objects, which
+  goes by the struct and the list it is in; the references' rewriting
+  one, which changes what it walks); the GIT list table in four shapes
   (each maps a list to another thing: a category, a struct id, a
-  resource type, a word), the conversation's owning links walked three
-  times, creature parts and colors listed in both `blueprints.rs` and
-  `instances.rs`. (M)
-- **Written more than once, in the renderer and previews:** the rest
-  pose worked out three ways; `armor()` rebuilding
-  `CreatureLook::to_utc`; a group's slot turned in three places. Also
-  there: `LightGrid::new` makes five lists a frame, and the light
-  count, the fog's end and the skinned flag are put in uniforms no
-  shader reads. (The ray tests the review saw in both mg-preview and
-  mg-area are in mg-preview alone now; mg-area's are its own, on its
-  `Ray`.) (M; the renderer's through CI on the three systems)
+  resource type, a word); the conversation's owning links walked three
+  times (three questions: who owns a line, which lines are reached, the
+  tree printed); the talk table's and the GFF reader's own table
+  checks, which `Reader::table` (the key and archive readers') does not
+  fit as written. (S each, if at all)
+- **Made every frame, or never read, in the renderer:**
+  `LightGrid::new` makes five lists a frame, and the light count, the
+  fog's end and the skinned flag are put in uniforms no shader reads
+  (taking them out changes the uniforms' layout in every shader). (M;
+  through CI on the three systems)
 - **Never used, or never otherwise:** the second half of
   `ModelView::frame` (the model is there exactly when the composed
   preview is); arguments that are always the same

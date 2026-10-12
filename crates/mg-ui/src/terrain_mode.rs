@@ -888,12 +888,8 @@ fn cursor_shapes(
             let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
             let color = if st.is_some() { ok } else { refused };
             let group = &tools.set.groups[gi];
-            let columns = group.columns.max(1) as i64;
-            for k in 0..group.tiles.len() as i64 {
-                let (mut c, mut r) = (k % columns, k / columns);
-                for _ in 0..view.group_turns {
-                    (c, r) = (-r, c);
-                }
+            for k in 0..group.tiles.len() {
+                let (c, r) = mg_tiles::group_slot(k, group.columns, view.group_turns);
                 let (x, y) = ((s.cell.0 as i64 + c) as f32, (s.cell.1 as i64 + r) as f32);
                 let h = if x >= 0.0
                     && y >= 0.0

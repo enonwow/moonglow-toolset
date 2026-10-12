@@ -1100,12 +1100,14 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
         Cmd::Set { module, resource, fields, remove, dry_run } => {
-            edits::use_codepage(codepage_at(cli, module));
-            edits::set(module, resource, fields, remove, *dry_run)?
+            let m = Module::open(module)?;
+            let codepage = module_codepage(cli, &m);
+            edits::set(m, resource, fields, remove, *dry_run, codepage)?
         }
         Cmd::Apply { module, edits, dry_run } => {
-            edits::use_codepage(codepage_at(cli, module));
-            edits::apply(module, edits, *dry_run)?
+            let m = Module::open(module)?;
+            let codepage = module_codepage(cli, &m);
+            edits::apply(m, edits, *dry_run, codepage)?
         }
         Cmd::Which { resource } => {
             let rm = ResMan::for_game(&install(cli)?)?;
@@ -2506,12 +2508,6 @@ fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
     let _ = rm.add_haks(&gi, &haks);
     mg_rules::encoding_of(&rm, own)
-}
-
-/// [`module_codepage`] of the module at a path (Windows-1252 if it can't
-/// be opened: the command says why).
-fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
-    Module::open(module).map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, &m))
 }
 
 /// The resman for a module: the game, the module's haks and the module.

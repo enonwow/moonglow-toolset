@@ -3515,13 +3515,7 @@ fn append_object(
     let Some(ws) = app.ws.as_mut() else { return false };
     let git = view.git();
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: kind.list().into(),
-        index,
-        item,
-    };
+    let edit = mg_edit::Edit::insert_item(git, mg_edit::GffPath::root(), kind.list(), index, item);
     app.actions.push(Action::Apply(Command::new(what, vec![edit])));
     view.selection = vec![(kind, index)];
     true
@@ -3917,12 +3911,7 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
         match instance_of(app, key, placement, &[]) {
             Ok(Some(item)) => {
                 let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
-                edits.push(mg_edit::Edit::RemoveItem {
-                    key: git,
-                    path: path.clone(),
-                    list: list.clone(),
-                    index,
-                });
+                edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), index));
                 edits.push(mg_edit::Edit::insert_item(git, path, list, index, item));
             }
             Ok(None) => {}
@@ -4010,13 +3999,13 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
     let mut selection = Vec::new();
     for ((o, s, _), position) in clip.objects.iter().zip(pasted_positions(view, &clip, at)) {
         let count = counts.get_mut(&o.kind).expect("every kind");
-        edits.push(mg_edit::Edit::InsertItem {
-            key: git,
-            path: mg_edit::GffPath::root(),
-            list: o.kind.list().into(),
-            index: *count,
-            item: mg_area::edit::moved(o, s, position, o.rotation),
-        });
+        edits.push(mg_edit::Edit::insert_item(
+            git,
+            mg_edit::GffPath::root(),
+            o.kind.list(),
+            *count,
+            mg_area::edit::moved(o, s, position, o.rotation),
+        ));
         selection.push((o.kind, *count));
         *count += 1;
     }
@@ -4801,13 +4790,13 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
     let index = doc.root.list(ObjectKind::Waypoint.list()).map_or(0, <[_]>::len);
     let tag = mg_module::instances::set_tag(&format!("WP_{tag}"), &tags);
     let item = mg_module::instances::walk_waypoint(&tag, at.to_array());
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: ObjectKind::Waypoint.list().into(),
+    let edit = mg_edit::Edit::insert_item(
+        git,
+        mg_edit::GffPath::root(),
+        ObjectKind::Waypoint.list(),
         index,
         item,
-    };
+    );
     app.actions.push(Action::Apply(Command::new("Create waypoint", vec![edit])));
     view.selection = vec![(ObjectKind::Waypoint, index)];
 }
@@ -4895,19 +4884,8 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
         }
     }
     let path = mg_edit::GffPath::root();
-    edits.push(mg_edit::Edit::RemoveItem {
-        key: git,
-        path: path.clone(),
-        list: kind.list().into(),
-        index,
-    });
-    edits.push(mg_edit::Edit::InsertItem {
-        key: git,
-        path,
-        list: kind.list().into(),
-        index,
-        item: added.instance,
-    });
+    edits.push(mg_edit::Edit::remove_item(git, path.clone(), kind.list(), index));
+    edits.push(mg_edit::Edit::insert_item(git, path, kind.list(), index, added.instance));
     let first = added.blueprints[0].0;
     let held = added.blueprints.len() - 1;
     app.actions.push(Action::Apply(Command::new("Add to palette", edits)));

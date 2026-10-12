@@ -46,13 +46,9 @@ pub fn groups_in(index: &TileIndex, set: &Tileset, grid: &Grid) -> Vec<(usize, V
                 if group.tiles.first().copied().flatten() != Some(p.tile) {
                     continue;
                 }
-                let columns = group.columns.max(1) as i64;
                 let mut cells = Vec::new();
                 for (k, tile) in group.tiles.iter().enumerate() {
-                    let (mut c, mut r) = (k as i64 % columns, k as i64 / columns);
-                    for _ in 0..p.orientation {
-                        (c, r) = (-r, c);
-                    }
+                    let (c, r) = mg_tiles::group_slot(k, group.columns, p.orientation);
                     let (cx, cy) = (x + c, y + r);
                     let Some(t) = tile else { continue };
                     if cx < 0 || cy < 0 || cx >= w || cy >= h {

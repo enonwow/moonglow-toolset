@@ -3,12 +3,10 @@
 //! (Aurora's Inventory… dialog) as its own page.
 
 use egui::Ui;
-use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct};
 use mg_module::palette::BlueprintKind;
 
 use super::{Form, inventory, situated};
-use crate::Action;
 
 pub(super) const PAGES: [&str; 9] = [
     "Basic",
@@ -164,23 +162,5 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         edits = out.edits;
     });
     adds.extend(add);
-    if !adds.is_empty() {
-        let mut held = items.clone();
-        let mut together = taken;
-        for r in adds {
-            let item = f.inventory_item(&held, r);
-            together.push(Edit::insert_item(
-                key,
-                base.clone(),
-                "ItemList",
-                held.len(),
-                item.clone(),
-            ));
-            held.push(item);
-        }
-        f.app.actions.push(Action::Apply(Command::new("Add item", together)));
-    }
-    for (what, edit) in edits {
-        f.app.actions.push(Action::Apply(Command::new(what, vec![edit])));
-    }
+    f.apply_list(&base, &items, adds, taken, edits);
 }

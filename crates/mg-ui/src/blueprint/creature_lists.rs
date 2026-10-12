@@ -1207,19 +1207,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     adds.extend(add);
-    if !adds.is_empty() {
-        let mut held = backpack.clone();
-        let mut together = taken;
-        for r in adds {
-            let item = f.inventory_item(&held, r);
-            together.push(insert(key, base.clone(), "ItemList", held.len(), item.clone()));
-            held.push(item);
-        }
-        apply(f, "Add item", together);
-    }
-    for (what, e) in edits {
-        apply(f, what, vec![e]);
-    }
+    f.apply_list(&base, &backpack, adds, taken, edits);
 }
 
 #[cfg(test)]

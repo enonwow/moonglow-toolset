@@ -683,25 +683,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
         // Simple and layered: one model (layered ones take colours).
         kind => {
             let prefix = if class == "cloak" { String::new() } else { format!("{class}_") };
-            ui.horizontal(|ui| {
-                crate::widgets::field_label(ui, "Appearance");
-                if prefix.is_empty() {
-                    // Cloaks: cloakmodel.2da rows.
-                    let rows: Vec<u16> = game
-                        .table("cloakmodel")
-                        .map(|t| {
-                            (0..t.len())
-                                .filter(|&r| t.get(r, "LABEL").is_some())
-                                .map(|r| r as u16)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    part_choice(f, ui, "Appearance", &["ModelPart1"], &rows, |n| n.to_string());
-                } else {
-                    let numbers = icon_numbers(ui, game, &prefix);
-                    part_choice(f, ui, "Appearance", &["ModelPart1"], &numbers, |n| n.to_string());
-                }
-            });
+            // The numbers to choose from: a cloak's are cloakmodel.2da's
+            // rows, another item's those it has icons for.
             let numbers: Vec<u16> = if prefix.is_empty() {
                 game.table("cloakmodel")
                     .map(|t| {
@@ -714,6 +697,10 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             } else {
                 icon_numbers(ui, game, &prefix).to_vec()
             };
+            ui.horizontal(|ui| {
+                crate::widgets::field_label(ui, "Appearance");
+                part_choice(f, ui, "Appearance", &["ModelPart1"], &numbers, |n| n.to_string());
+            });
             icon_grid(f, ui, game, &numbers);
             if kind == 1 {
                 ui.separator();

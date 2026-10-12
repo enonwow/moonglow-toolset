@@ -170,13 +170,7 @@ pub fn door_edits(
             };
             // The door looks as its hook's type says (captured).
             item.set("Appearance", Value::Dword(door_type.max(0) as u32));
-            edits.push(Edit::InsertItem {
-                key: git_key,
-                path: GffPath::root(),
-                list: "Door List".into(),
-                index: next,
-                item,
-            });
+            edits.push(Edit::insert_item(git_key, GffPath::root(), "Door List", next, item));
             next += 1;
         }
     }

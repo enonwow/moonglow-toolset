@@ -529,13 +529,8 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 if ui.selectable_label(false, h).clicked() {
                     let mut item = ifo::MOD_HAK_LIST.new_item();
                     item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
-                    let insert = Edit::InsertItem {
-                        key: info_key(),
-                        path: GffPath::root(),
-                        list: list(),
-                        index: haks.len(),
-                        item,
-                    };
+                    let insert =
+                        Edit::insert_item(info_key(), GffPath::root(), list(), haks.len(), item);
                     app.actions.push(command(vec![insert], "Add hak"));
                 }
             }

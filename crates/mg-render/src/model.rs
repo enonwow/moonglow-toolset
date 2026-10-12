@@ -257,28 +257,38 @@ impl GpuModel {
 
 /// A node's transform relative to its parent.
 pub fn local(position: [f32; 3], orientation: [f32; 4], scale: f32) -> Mat4 {
-    let q = Quat::from_array(orientation);
-    let q = if q.length_squared() > 1e-12 { q.normalize() } else { Quat::IDENTITY };
-    Mat4::from_scale_rotation_translation(Vec3::splat(scale), q, Vec3::from(position))
+    crate::anim::Local::new(position, orientation, scale).matrix()
 }
 
-/// Each node's transform in model space, in the rest pose.
+/// Each node's transform in model space, in the rest pose. (A node whose
+/// parent comes after it, which no model of the game's has, stands as if
+/// it had none.)
 pub fn rest_pose(model: &Model) -> Vec<Mat4> {
-    let mut out: Vec<Mat4> = Vec::with_capacity(model.nodes.len());
-    for n in &model.nodes {
-        let l = local(n.position, n.orientation, n.scale);
-        let world = match n.parent {
-            Some(p) => out[p] * l,
-            None => l,
-        };
-        out.push(world);
-    }
-    out
+    crate::anim::compose(model, &crate::anim::rest_locals(model))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A node that names a parent after itself (no model of the game's
+    /// does; a broken custom one might) stands as if it had none: the rest
+    /// pose went past the end of what it had worked out.
+    #[test]
+    fn a_node_whose_parent_comes_later_has_a_rest_pose() {
+        use mg_mdl::{Node, NodeKind};
+        let mut model = Model::default();
+        let mut child = Node::new("child", NodeKind::Dummy);
+        child.parent = Some(1);
+        child.position = [1.0, 0.0, 0.0];
+        let mut parent = Node::new("parent", NodeKind::Dummy);
+        parent.position = [0.0, 2.0, 0.0];
+        model.nodes = vec![child, parent];
+        let pose = rest_pose(&model);
+        assert_eq!(pose.len(), 2);
+        assert_eq!(pose[0].w_axis.truncate(), Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(pose[1].w_axis.truncate(), Vec3::new(0.0, 2.0, 0.0));
+    }
 
     /// A skin whose bone map names a node the model doesn't have (custom
     /// content with a bone map left from another model: bone 36 of a model

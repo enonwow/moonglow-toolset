@@ -191,35 +191,10 @@ pub(crate) fn item_parts(
 /// Armour, worn by a human (a man, or a woman where `female`) of
 /// phenotype 0 with head 1 and bare body parts where the armour has none.
 fn armor(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, PreviewError> {
-    let mut utc = Struct::new(0);
-    for (field, v) in [
-        ("Appearance_Type", 6u16), // Human
-        ("Gender", u16::from(female)),
-        ("Phenotype", 0),
-        ("Appearance_Head", 1),
-    ] {
-        utc.set(field, Value::Word(v));
-    }
-    // Bare skin where the armour has no part (no bare shoulders or belt).
-    for field in [
-        "ArmorPart_RFoot",
-        "BodyPart_LFoot",
-        "BodyPart_RShin",
-        "BodyPart_LShin",
-        "BodyPart_LThigh",
-        "BodyPart_RThigh",
-        "BodyPart_Pelvis",
-        "BodyPart_Torso",
-        "BodyPart_Neck",
-        "BodyPart_RFArm",
-        "BodyPart_LFArm",
-        "BodyPart_RBicep",
-        "BodyPart_LBicep",
-        "BodyPart_RHand",
-        "BodyPart_LHand",
-    ] {
-        utc.set(field, Value::Byte(1));
-    }
+    // (Appearance 6: a human. Bare skin where the armour has no part;
+    // no bare shoulders or belt.)
+    let look = crate::CreatureLook { gender: u8::from(female), ..crate::CreatureLook::new(6) };
+    let mut utc = look.to_utc();
     let mut worn = uti.clone();
     worn.id = 0x2;
     utc.set("Equip_ItemList", Value::List(vec![worn]));
