@@ -103,6 +103,7 @@ fn a_module_s_own_driver_runs_its_tests() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
+    let _alone = mg_testkit::engine::one_at_a_time();
     let dir = mg_testkit::scratch_dir("mg-test-own");
     let user = dir.join("user");
     std::fs::create_dir_all(&user).unwrap();
