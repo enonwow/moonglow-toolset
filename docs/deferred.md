@@ -46,9 +46,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
   viewer takes the crates by git tag, which this does not change. (S)
 - **Shared test fixtures written many times:** the `mg` runner's
   wrappers (10 files), `fn lines` in the Aurora tests (6). (M)
-- **CI has not run the new workflow** (the already-tested check, the
-  named clippy targets, tests without the examples) on its three
-  systems. (S)
+- **CI's time with the new workflow is not measured:** its first run
+  passed on the three systems from an empty cache (14 to 24 minutes);
+  compare a warm run with the 8 to 10 minutes of before. (S)
 
 ## Script intelligence (`mg lsp`, the script editor)
 

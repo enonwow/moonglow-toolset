@@ -160,8 +160,10 @@ Things to know:
   with absurd door counts parse within 20 s; it guards against a loop
   of a billion turns). It shares its binary with the sound and texture
   sweeps; it passes there, and is kept.
-- CI's new steps (the already-tested check, the named clippy targets)
-  have not run on GitHub yet: the first push shows.
+- CI ran the new workflow on `tmp/test-review` (run 38196706314) and
+  passed on Linux, Windows and macOS. That run started from an empty
+  cache (the profile change rebuilds every dependency) and took 14 to 24
+  minutes; what a warm run takes, the next push shows.
 
 ## Cleanliness
 
