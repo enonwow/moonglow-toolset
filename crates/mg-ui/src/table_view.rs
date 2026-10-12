@@ -72,6 +72,8 @@ pub struct TableDoc {
     revision: u64,
     faults: Option<(u64, Arc<Vec<CellFault>>)>,
     /// The name of a column being added, as typed.
+    /// How many rows Add Row adds.
+    pub add_count: usize,
     pub new_column: Option<String>,
     pub taking: Option<Taking>,
     /// Where a row is named, as last asked: the row, and each place.
@@ -104,6 +106,7 @@ impl TableDoc {
             strref_text: true,
             revision: 0,
             faults: None,
+            add_count: 1,
             new_column: None,
             taking: None,
             references: None,
@@ -508,17 +511,26 @@ fn header(
             doc.changed();
         }
         ui.separator();
+        let count = doc.add_count.max(1);
+        let add = if count == 1 { "Add Row".to_string() } else { format!("Add {count} Rows") };
         if ui
-            .button("Add Row")
-            .on_hover_text("An empty row at the end (a row's number is what names it: none is put between others)")
+            .button(add)
+            .on_hover_text(
+                "Empty rows at the end, as many as the number beside says (a row's number is \
+                 what names it: none is put between others)",
+            )
             .clicked()
         {
             doc.commit();
-            let row = doc.edit.add_rows(1);
+            let row = doc.edit.add_rows(count);
             doc.selected = Some((row, doc.selected.map_or(0, |s| s.1)));
             doc.reveal = true;
             doc.changed();
         }
+        let mut n = count;
+        ui.add(egui::DragValue::new(&mut n).range(1..=10_000).speed(0.2))
+            .on_hover_text("How many rows Add Row adds (padding, to begin at a row of your own)");
+        doc.add_count = n;
         let row = doc.selected.map(|s| s.0);
         if ui
             .add_enabled(row.is_some(), egui::Button::new("Empty Row"))
@@ -531,6 +543,25 @@ fn header(
         {
             doc.typing = None;
             doc.edit.clear_row(row);
+            doc.changed();
+        }
+        if ui
+            .add_enabled(row.is_some(), egui::Button::new("Delete Row"))
+            .on_hover_text(
+                "The selected row taken away. Every row after it is then one number lower, \
+                 and what names those rows by number (other tables, blueprints, scripts) is \
+                 not changed to follow: Find References to Row shows the tables that do. To \
+                 keep the numbers, Empty Row",
+            )
+            .clicked()
+            && let Some(row) = row
+        {
+            doc.typing = None;
+            doc.edit.remove_row(row);
+            let column = doc.selected.map_or(0, |s| s.1);
+            doc.selected =
+                doc.edit.table().len().checked_sub(1).map(|last| (row.min(last), column));
+            doc.reveal = true;
             doc.changed();
         }
         if ui.button("Add Column…").clicked() {

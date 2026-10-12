@@ -15,6 +15,9 @@ enum Change {
     /// Rows added at the end, with the cells they were given.
     Rows(usize, Vec<CellChange>),
     Column(String),
+    /// A row taken away, with the cells it had: the rows after it are
+    /// each one number lower.
+    Dropped(usize, Vec<Option<String>>),
 }
 
 /// A table being edited.
@@ -193,6 +196,18 @@ impl Editing {
         }
     }
 
+    /// Takes a row away; whether it was there. The rows after it are
+    /// each one number lower: what names them by number (other tables,
+    /// blueprints, scripts) is not followed.
+    pub fn remove_row(&mut self, row: usize) -> bool {
+        if row >= self.table.len() {
+            return false;
+        }
+        let cells = self.table.rows.remove(row);
+        self.done(format!("Delete row {row}"), Change::Dropped(row, cells));
+        true
+    }
+
     pub fn add_column(&mut self, name: &str) -> Result<(), TwoDaError> {
         self.table.add_column(name)?;
         self.done(format!("Add column {name}"), Change::Column(name.to_string()));
@@ -274,6 +289,7 @@ impl Editing {
                 let left = self.table.len().saturating_sub(*count);
                 self.table.rows.truncate(left);
             }
+            Change::Dropped(row, cells) => self.table.rows.insert(*row, cells.clone()),
             Change::Column(_) => {
                 let mut columns = self.table.columns().to_vec();
                 columns.pop();
@@ -300,6 +316,7 @@ impl Editing {
                     let _ = self.table.set(*row, *column, after.clone());
                 }
             }
+            Change::Dropped(row, _) => _ = self.table.rows.remove(*row),
             Change::Column(name) => _ = self.table.add_column(name),
         }
     }
@@ -345,6 +362,14 @@ mod tests {
         assert_eq!(e.set(0, 2, Some("\"".into())), Err(TwoDaError::Unquotable));
         assert_eq!(e.table().len(), 4);
         assert_eq!(e.table().get(1, "Label"), None);
+        // A row is taken away with its cells: those after it move up.
+        assert!(e.remove_row(2) && !e.remove_row(9));
+        assert_eq!(e.undo_label(), Some("Delete row 2"));
+        assert_eq!((e.table().len(), e.table().get(2, "Label")), (3, Some("d")));
+        e.undo();
+        assert_eq!((e.table().len(), e.table().get(3, "Label")), (4, Some("d")));
+        assert_eq!(e.table().get(2, "Label"), None);
+        e.redo();
         assert!(e.is_dirty());
         e.mark_saved();
         assert!(!e.is_dirty());

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:16:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:54:41Z }
 ---
 
 # Modules
@@ -391,10 +391,16 @@ numbers at the left as it scrolls.
 - **Ctrl+C** copies the cell and **Ctrl+V** pastes cells from there on:
   text with a line for each row and tabs between cells, as a spreadsheet
   copies them. Rows are added at the end where the paste runs past it.
-- **Add Row** puts an empty row at the end. **Empty Row** empties the
-  selected row, which stays. No row is put between others or taken out:
-  a row's number is what characters, areas and scripts know it by, and
-  the rows after it would all change theirs.
+- **Add Row** puts an empty row at the end, or as many as the number
+  beside it says (padding, up to the row your own begin at), in one
+  step. No row is put between others.
+- **Empty Row** empties the selected row, which stays: the rows after it
+  keep their numbers. **Delete Row** takes it away, and every row after
+  it is then one number lower. A row's number is what other tables,
+  blueprints, areas and scripts know it by, and nothing is changed to
+  follow: delete a row others come after only in a table whose rows
+  nothing names yet (**Find References to Row** shows the tables that
+  do), and empty it otherwise.
 - **Add Column…** adds one at the end.
 - **Find** narrows the rows to those with the text in any cell (Ctrl+F
   goes to it, Escape clears it); **Go to** takes a row's number.

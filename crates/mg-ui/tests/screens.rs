@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use mg_core::ResType;
 use mg_edit::GffPath;
 use mg_module::script_wizard::{ClassLevel, Lists, Perform};
@@ -427,6 +427,49 @@ fn item_general_widths() {
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         shoot(&mut h, &dir, &format!("item-general-{width}"));
     }
+}
+
+/// A creature's Appearance list, opened: at the appearance it has, its
+/// Filter field above the rows.
+#[test]
+#[ignore]
+fn appearance_list_opened() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.open_palette = false;
+    let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    // (The lists of the Basic page in order: the appearance's is the one
+    // whose value is an appearance's name.)
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("Aribeth")))
+        .map(|n| n.rect().center())
+        .expect("the Appearance dropdown");
+    h.hover_at(at);
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(4);
+    shoot(&mut h, &dir, "appearance-list-opened");
 }
 
 /// The model beside the fields, in a window wide enough for both.

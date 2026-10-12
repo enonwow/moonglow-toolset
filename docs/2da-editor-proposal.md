@@ -3,7 +3,7 @@ type: Proposal
 title: 'A 2DA editor and merger: a proposal'
 description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.
 tags: [proposal, 2da, custom-content, haks, editor]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:08:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:54:41Z }
 stale_after: 2027-01-12T00:00:00Z
 sources:
   - id: request
@@ -180,6 +180,11 @@ All four phases, by the recommendations, after 1.21.3 (the manual's
 ![Edit… on a table in the resource browser](images/2da-table-editor-edit-menu.png)
 
 Not as proposed, or not done (each is in the [deferred list](deferred.md)):
+
+- Decision 3 was taken back in part (the owner, 2026-10-12, at a
+  builder's asking): **Delete Row** takes any row away, and the rows
+  after it are each one number lower. Nothing that names them is changed
+  to follow; rows are still not put between others.
 
 - A model's cell has no list of models to choose from, and is not
   checked by the row: the game's own tables name models it never

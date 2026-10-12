@@ -21,6 +21,7 @@ use crate::widgets::{
 use crate::{Action, Moonglow, Tab};
 
 mod creature;
+pub(crate) use creature::with_a_body;
 mod creature_lists;
 mod door;
 pub(crate) mod encounter;
@@ -711,28 +712,62 @@ impl Form<'_> {
         } else {
             choices
         };
+        // Just opened: the list is whole and begins at the one chosen, not
+        // at its top (a long list was searched for it every time).
+        let open_id = filter_id.with("open");
+        let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         let list = combo.show_ui(ui, |ui| {
+            if opened {
+                ui.data_mut(|d| {
+                    d.remove_temp::<String>(filter_id);
+                    d.insert_temp(open_id.with("go"), true);
+                });
+            }
+            // (A popup's first pass only measures it: the list is brought
+            // to the chosen row in the first pass that draws it.)
+            let go = !ui.is_sizing_pass()
+                && ui.data_mut(|d| d.remove_temp::<bool>(open_id.with("go"))).is_some();
             let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+            // (What is typed narrows the list from its top, wherever it
+            // had been scrolled to.)
+            let mut narrowed = false;
             if choices.len() > 30 {
-                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
+                narrowed =
+                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
                 ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
             }
             let filter = filter.to_lowercase();
-            for c in choices
-                .iter()
-                .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
-            {
-                let mut r = ui.selectable_label(c.row as i64 == current, &c.text);
-                if let Some(about) = about {
-                    let app = &mut *self.app;
-                    r = r.on_hover_ui_at_pointer(|ui| about(app, ui, c.row));
+            // (The rows scroll under the Filter field, which stays.)
+            let mut rows = |ui: &mut Ui| {
+                for c in choices
+                    .iter()
+                    .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
+                {
+                    let mut r = ui.selectable_label(c.row as i64 == current, &c.text);
+                    if go && c.row as i64 == current {
+                        r.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if let Some(about) = about {
+                        let app = &mut *self.app;
+                        r = r.on_hover_ui_at_pointer(|ui| about(app, ui, c.row));
+                    }
+                    if r.clicked() {
+                        pick = Some(c.row as i64);
+                        ui.close();
+                    }
                 }
-                if r.clicked() {
-                    pick = Some(c.row as i64);
-                    ui.close();
+            };
+            if choices.len() > 30 {
+                let mut area = egui::ScrollArea::vertical().max_height(170.0);
+                if narrowed {
+                    area = area.vertical_scroll_offset(0.0);
                 }
+                area.show(ui, rows);
+            } else {
+                rows(ui);
             }
         });
+        ui.data_mut(|d| d.insert_temp(open_id, list.inner.is_some()));
         // The arrow keys step through it, as in Aurora (in the order
         // shown).
         let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();

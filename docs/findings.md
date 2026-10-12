@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:37:46Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -592,6 +592,26 @@ its own part is not drawn at all (`mg_preview::compose::without_skins`).
   `a_body_part_s_skin_is_drawn_as_the_game_draws_it`. The compiled
   models were made by `mgv compile`, not the game's own compiler; one
   body part and one item were tried.
+
+### A part-based creature with no body part fields
+
+A creature made with a single model (the game's `nw_bandit001`,
+appearance 269) keeps no `BodyPart_*` field, no `ArmorPart_RFoot` and no
+`Appearance_Head`. Given a part-based appearance (Human, row 6) and
+nothing else, the client draws its head and no body: a field that is not
+there is part 0, which is nothing. An armor's parts cover that while it
+is worn, so it shows when the armor is taken off (a builder's report,
+"unequipping an armor sets all body parts to 0"). Moonglow draws the
+same, and since 1.22.1 sets the parts (1, and no belt or shoulders, as a
+creature new in Aurora has them) in the step that gives such a creature
+a part-based appearance (`blueprint::with_a_body`).
+
+- **Checked:** by eye, in the client's picture beside Moonglow's
+  (2026-10-12; `client_render.rs`'s `creatures_look` with `MG_NO_BODY=1
+  MG_WORN=0 MG_APPEARANCES=6,6`): the creature without the fields beside
+  one with them. The head showed though `Appearance_Head` was gone too;
+  why was not looked into. The step, in
+  `a_part_based_appearance_brings_a_body`.
 
 ### A worn part moves at its wearer's animation scale
 

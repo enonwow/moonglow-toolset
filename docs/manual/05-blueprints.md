@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:37:46Z }
 ---
 
 # Blueprints
@@ -282,7 +282,10 @@ every change, as Aurora does on OK.
   body part may be **0 (none)**, which draws nothing). A body part's
   mesh that is a skin mesh is drawn as the game draws it: not at all
   where the model is compiled, as a plain mesh where it is kept as
-  text (body parts are meant to be plain meshes). **Pop
+  text (body parts are meant to be plain meshes). A creature that had a
+  single model keeps no body parts: given an appearance with a body of
+  parts, it gets them (each 1, no belt or shoulders) in the same step,
+  since the game draws only a head without them. **Pop
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
 - **Feats** shows the feats the creature has beside the list to choose

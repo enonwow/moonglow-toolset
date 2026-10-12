@@ -4059,6 +4059,102 @@ fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     h.run();
 }
 
+/// A long dropdown opens at the one chosen, not at its top, and whole:
+/// what was typed in its Filter field the last time is gone.
+#[test]
+fn a_dropdown_opens_at_what_is_chosen() {
+    let Some((mut h, _)) = blueprint_harness("plc_chest1", "chest_opens_at", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let appearance = |h: &Harness<'_, Moonglow>| {
+        h.query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("Chest")))
+            .map(|n| (n.rect().center(), n.accesskit_node().value().unwrap()))
+            .expect("the Appearance Type dropdown")
+    };
+    let (at, chosen) = appearance(&h);
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run();
+    };
+    open(&mut h);
+    // The chosen row is in the list's window, a little under its Filter
+    // field (the list has hundreds of rows before "Chest").
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let in_sight = |h: &Harness<'_, Moonglow>| {
+        let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
+        let row = h
+            .query_all_by_label(&chosen)
+            .map(|n| n.rect().center().y)
+            .find(|y| *y > top)
+            .expect("the chosen row");
+        assert!(row - top < 260.0, "the chosen row is {} under the Filter field", row - top);
+    };
+    in_sight(&h);
+    // Filtered to something else and left; opened again, it is whole.
+    type_into_hint(&mut h, "Filter", "Armoire");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    if h.query(egui_kittest::kittest::by().predicate(hint)).is_some() {
+        // (Escape went to the field: a click outside closes the list.)
+        let away = egui::pos2(5.0, 5.0);
+        h.hover_at(away);
+        press(&h, away, true, egui::Modifiers::NONE);
+        press(&h, away, false, egui::Modifiers::NONE);
+        h.run();
+    }
+    open(&mut h);
+    in_sight(&h);
+}
+
+/// A creature made with a single model keeps no body parts: given a
+/// part-based appearance it gets them in the same step (the game draws a
+/// head and no body without them), and one that has parts keeps its own.
+#[test]
+fn a_part_based_appearance_brings_a_body() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_body", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("BodyPart_Torso"), None, "the bandit keeps none");
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    // The Appearance dropdown: the one beside Gallery….
+    let line = h.get_by_label("Gallery…").rect().center().y;
+    let at = h
+        .query_all(combo)
+        .map(|n| n.rect().center())
+        .find(|c| (c.y - line).abs() < 6.0)
+        .expect("the Appearance dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    type_into_hint(&mut h, "Filter", "Human");
+    // (Typed in, the list is at its top again: the row is in sight.)
+    let row = h.get_by_label("Human").rect().center();
+    assert!((row.y - line).abs() < 120.0, "the row is at {row:?}");
+    h.hover_at(row);
+    press(&h, row, true, egui::Modifiers::NONE);
+    press(&h, row, false, egui::Modifiers::NONE);
+    h.run();
+    let c = field(&mut h, &key);
+    assert_eq!(c.integer("Appearance_Type"), Some(6));
+    assert_eq!(c.integer("BodyPart_Torso"), Some(1));
+    assert_eq!(c.integer("ArmorPart_RFoot"), Some(1));
+    assert_eq!(c.integer("Appearance_Head"), Some(1));
+    assert_eq!(c.integer("BodyPart_Belt"), Some(0), "a bare body has no belt");
+    // One step: Undo takes the parts away with the appearance.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    let c = field(&mut h, &key);
+    assert_ne!(c.integer("Appearance_Type"), Some(6));
+    assert_eq!(c.integer("BodyPart_Torso"), None);
+}
+
 /// A dropdown with a Filter field stays open while the field is clicked
 /// and typed in, and closes when a choice is made.
 #[test]
@@ -15566,8 +15662,34 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.get_by_label("Add Row").click();
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (3, Some((2, 1))));
+    // Delete Row takes the selected row away (here the last), and Add
+    // Row adds as many as its number says, in one step.
+    h.get_by_label("Delete Row").click();
+    h.run_steps(2);
+    assert_eq!((table_of(&h, id).len(), at(&h)), (2, Some((1, 1))));
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 5;
+    h.run_steps(2);
+    h.get_by_label("Add 5 Rows").click();
+    h.run_steps(2);
+    assert_eq!((table_of(&h, id).len(), at(&h)), (7, Some((2, 1))));
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).len(), 2);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 1;
+    h.run_steps(2);
+    h.get_by_label("Add Row").click();
+    h.run_steps(2);
+    // A row between others: those after it move up, and Undo puts it back.
     h.get_by_label("Cheesey").click();
     h.run_steps(2);
+    h.get_by_label("Delete Row").click();
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(1, "Label")), (2, None), "the added row is row 1 now");
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).len(), 3);
+    // (The row put back is the one selected.)
     h.get_by_label("Empty Row").click();
     h.run_steps(2);
     let t = table_of(&h, id);
