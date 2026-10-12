@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.23.0" date="2026-10-12">
+      <description>
+        <p>A table of your own says what its columns hold, in a file
+        beside it: the 2DA editor shows values by name, offers lists and
+        flags to choose from and marks what is wrong, and mg 2da-check
+        and Verify Module hold tables to it. Several cells are selected,
+        copied and pasted between tables, a column is renamed or
+        removed, and the window asks before it closes.</p>
+      </description>
+    </release>
     <release version="1.22.1" date="2026-10-12">
       <description>
         <p>A long list in a blueprint's page opens at what is chosen. A
