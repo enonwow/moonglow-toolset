@@ -292,13 +292,16 @@ pub struct Pass {
 /// Compiles the scripts that are not as `known` remembers them (`only`:
 /// those named instead, whatever is remembered), storing each `.ncs` in
 /// `module`. Those compiled are remembered as they are after; one that
-/// failed is tried again next time.
+/// failed is tried again next time. With `debug`, each gets its debug
+/// file (`.ndb`) too, and a compiled script that has none is compiled
+/// again for it.
 pub fn compile_changed(
     module: &mut Module,
     resman: &ResMan,
     external: Option<&ExternalCompiler>,
     known: &Remembered,
     only: Option<Vec<ResKey>>,
+    debug: bool,
 ) -> Pass {
     let stamps = script_stamps(module);
     // A nasher project's target may leave some scripts uncompiled.
@@ -309,11 +312,15 @@ pub fn compile_changed(
     let names: Vec<ResKey> = match only {
         Some(names) => names,
         None => (module.keys_of(ResType::NSS))
-            .filter(|k| !skipped(k) && known.stale(module, &stamps, k))
+            .filter(|k| {
+                let made = |t| module.contains(&ResKey::new(k.resref, t));
+                let no_debug_file = debug && made(ResType::NCS) && !made(ResType::NDB);
+                !skipped(k) && (no_debug_file || known.stale(module, &stamps, k))
+            })
             .copied()
             .collect(),
     };
-    let results = compile_named_scripts(module, resman, &names, external);
+    let results = compile_named_with(module, resman, &names, external, debug);
     let mut now = known.clone();
     for r in &results {
         match r.result {

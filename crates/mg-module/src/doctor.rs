@@ -629,8 +629,8 @@ const MODEL_COLUMNS: [(&str, &str); 4] =
 /// page of its table as a line reference, and holds for every row of the
 /// game's own tables (`row_columns_hold_for_the_game_s_tables`); `****`
 /// and a negative number name none. Left out: columns the game's own
-/// tables break (`appearance.FOOTSTEPTYPE`), and the tables a class or a
-/// race names in a column (`cls_feat_*`, `race_feat_*`).
+/// tables break (`appearance.FOOTSTEPTYPE`); the tables a class, a race
+/// or a package names in a column are in [`NAMED_TABLES`].
 pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 61] = [
     ("appearance", "SOUNDAPPTYPE", "appearancesndset"),
     ("baseitems", "ReqFeat0", "feat"),
@@ -695,6 +695,20 @@ pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 61] = [
     ("spells", "FeatID", "feat"),
 ];
 
+/// Tables that a column of another names, and their column that names a
+/// row: the naming table and its column, the usual start of such a
+/// table's name, its column, the table whose row that is. (A class's
+/// feats are in the table its `FeatsTable` names, `cls_feat_*` in the
+/// game's own.)
+pub(crate) const NAMED_TABLES: [(&str, &str, &str, &str, &str); 6] = [
+    ("classes", "FeatsTable", "cls_feat_", "FeatIndex", "feat"),
+    ("classes", "SkillsTable", "cls_skill_", "SkillIndex", "skills"),
+    ("racialtypes", "FeatsTable", "race_feat_", "FeatIndex", "feat"),
+    ("packages", "FeatPref2DA", "packft", "FeatIndex", "feat"),
+    ("packages", "SkillPref2DA", "packsk", "SkillIndex", "skills"),
+    ("packages", "SpellPref2DA", "packsp", "SpellIndex", "spells"),
+];
+
 /// The row a cell of one of [`ROW_COLUMNS`] names; `None`: none. (A
 /// spell's `FeatID` carries a radial spell's place above its low 16
 /// bits.)
@@ -716,7 +730,10 @@ pub enum ColumnKind {
 }
 
 /// The columns of the table `name` (without `.2da`) that the checks know
-/// the kind of: the same tables Verify Module reads them from.
+/// the kind of: the same tables Verify Module reads them from. (A table
+/// that a class, a race or a package names is known here by how the
+/// game's own are named, `cls_feat_*` and the like; Verify Module goes
+/// by the column that names it too.)
 pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
     let of = |list: &'static [(&'static str, &'static str)], kind: ColumnKind| {
         list.iter().filter(|(t, _)| t.eq_ignore_ascii_case(name)).map(move |(_, c)| (*c, kind))
@@ -725,9 +742,15 @@ pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
         .iter()
         .filter(|(t, _, _)| t.eq_ignore_ascii_case(name))
         .map(|(_, c, target)| (*c, ColumnKind::Row(target)));
+    let lower = name.to_ascii_lowercase();
+    let named = NAMED_TABLES
+        .iter()
+        .filter(move |(_, _, start, _, _)| lower.starts_with(start))
+        .map(|(_, _, _, c, target)| (*c, ColumnKind::Row(target)));
     of(&STRREF_COLUMNS, ColumnKind::StrRef)
         .chain(of(&MODEL_COLUMNS, ColumnKind::Model))
         .chain(rows)
+        .chain(named)
         .collect()
 }
 
@@ -851,8 +874,23 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     // Rows of other tables (as the module has them, this hak's and the
     // others' over the game's) that its changed rows name.
     let rows: Vec<usize> = (0..table.len()).filter(|r| changed(*r)).collect();
-    for (t, column, target) in ROW_COLUMNS {
-        if name != t || table.column(column).is_none() {
+    // (Its own columns, and those it has as a table that a class, a race
+    // or a package names: by that column, or by its name as the game's
+    // own are named.)
+    let mut columns: Vec<(&str, &str)> =
+        ROW_COLUMNS.iter().filter(|(t, _, _)| name == *t).map(|(_, c, to)| (*c, *to)).collect();
+    for (naming, by, start, column, target) in NAMED_TABLES {
+        let is_named = name.starts_with(start)
+            || d.table(naming).is_some_and(|t| {
+                (0..t.len()).any(|r| t.get(r, by).is_some_and(|n| n.eq_ignore_ascii_case(&name)))
+            });
+        if is_named && !columns.contains(&(column, target)) {
+            columns.push((column, target));
+        }
+    }
+    for (column, target) in columns {
+        let t = name.as_str();
+        if table.column(column).is_none() {
             continue;
         }
         let Some(length) = d.table(target).map(TwoDa::len) else { continue };
@@ -1131,6 +1169,34 @@ mod tests {
         assert_eq!(f[1].message, "row 7 of spells.2da doesn't exist: it has 3 rows");
         assert_eq!(f[2].message, "row 5 of feat.2da doesn't exist: it has 5 rows");
         assert!(f.iter().all(|x| x.severity == Severity::Warning && x.source == "my.hak"));
+        // A table a class names, whatever its name; and one named as the
+        // game's own are.
+        let mut game = MemContainer::new();
+        game.insert(key("feat", ResType::TWODA), feat("0 Alertness **** ****\n").into_bytes());
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("classes", ResType::TWODA),
+            b"2DA V2.0\n\n   Label FeatsTable\n0 Knight my_knight_feats\n".to_vec(),
+        );
+        let list = b"2DA V2.0\n\n   FeatLabel FeatIndex\n0 Alertness 0\n1 Gone 12\n".to_vec();
+        hak.insert(key("my_knight_feats", ResType::TWODA), list.clone());
+        hak.insert(key("cls_feat_orphan", ResType::TWODA), list.clone());
+        hak.insert(key("other_list", ResType::TWODA), list);
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables { base: 100, custom: None });
+        let mut found: Vec<(String, String)> =
+            f.iter().map(|x| (x.resource.to_string(), x.at.clone())).collect();
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                ("cls_feat_orphan.2da".to_string(), "row 1, FeatIndex".to_string()),
+                ("my_knight_feats.2da".to_string(), "row 1, FeatIndex".to_string()),
+            ]
+        );
+        assert_eq!(column_kinds("CLS_FEAT_WIZ"), [("FeatIndex", ColumnKind::Row("feat"))]);
         // What a table's columns hold, for those who ask.
         let kinds = column_kinds("Feat");
         assert!(kinds.contains(&("FEAT", ColumnKind::StrRef)));

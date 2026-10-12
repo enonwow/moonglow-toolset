@@ -1784,7 +1784,7 @@ impl Moonglow {
         ));
         if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
             let haks = m.haks().unwrap_or_default();
-            match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
+            match game.resman.add_haks(gi, &haks) {
                 Ok(missing) => {
                     for h in missing {
                         self.log.warn(format!("Hak {h} not found"));
@@ -2840,6 +2840,7 @@ impl Moonglow {
             );
         }
         let known = self.script_stamps.clone();
+        let debug = self.settings.debug_info;
         let all = only.is_none();
         let title = if all { "Compile All Scripts" } else { "Compile Scripts" };
         self.start_job(
@@ -2853,9 +2854,11 @@ impl Moonglow {
                     external.as_ref(),
                     &known,
                     only,
+                    debug,
                 );
                 let edits: Vec<mg_edit::Edit> = staged
-                    .keys_of(ResType::NCS)
+                    .keys()
+                    .filter(|k| matches!(k.restype, ResType::NCS | ResType::NDB))
                     .filter(|k| staged.get(k) != job.module.get(k))
                     .map(|k| mg_edit::Edit::SetResource {
                         key: *k,
@@ -3226,7 +3229,7 @@ impl Moonglow {
         for l in old {
             game.resman.remove(&l);
         }
-        match game.resman.add_haks(gi, &listed.iter().map(String::as_str).collect::<Vec<_>>()) {
+        match game.resman.add_haks(gi, &listed) {
             Ok(missing) => {
                 for h in missing {
                     self.log.warn(format!("Hak {h} not found"));

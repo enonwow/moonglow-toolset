@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 ---
 
 # Plugins
@@ -47,8 +47,11 @@ A plugin's code runs in a sandbox. It can:
 - act by itself when a module is opened or saved, if it says so (the
   Plugins window lists what each plugin does by itself). What it does
   then is a change like a command's, which Undo takes back; where it
-  asks for a folder or for leave to write, it asks once in a session of
-  Moonglow, not at every save.
+  asks for a folder or for leave to write, it asks once, not at every
+  save: what you allowed is kept between runs (for that version of the
+  plugin), the Plugins window says how much, and **Forget** there makes
+  it ask again. Disabling, removing or installing the plugin anew
+  forgets it too.
 
 It cannot open files of its own choosing, write any other file, use the
 network, start other programs, or reach anything of Moonglow's beyond
@@ -172,6 +175,7 @@ resource's fields are called (`return ctx.module:gff("guard.utc")`).
 ```text
 mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
+mg plugin run mymodule.mod plugins/tag-conventions saved --event --changed guard.utc
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins

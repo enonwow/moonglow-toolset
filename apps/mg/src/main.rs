@@ -143,6 +143,10 @@ enum Cmd {
         /// Moonglow's data folder, what they compiled).
         #[arg(long, conflicts_with = "uncompiled")]
         all: bool,
+        /// Make each compiled script's debug file (.ndb) too; a compiled
+        /// script that has none is compiled again for it.
+        #[arg(long)]
+        ndb: bool,
     },
     /// Run a module in the game's headless server (nwserver): privately
     /// unless --public, on a scratch user directory unless --dir, its log
@@ -753,8 +757,17 @@ enum PluginCmd {
         module: PathBuf,
         /// The plugin's folder.
         plugin: PathBuf,
-        /// The command's id (`mg plugin list` shows them).
+        /// The command's id (`mg plugin list` shows them); with --event,
+        /// the id of what the plugin does by itself.
         command: String,
+        /// Run what the plugin does by itself when a module is opened or
+        /// saved (its event of this id), as the window would then.
+        #[arg(long)]
+        event: bool,
+        /// With --event, for a module saved: a resource that changed
+        /// (`guard.utc`), as often as needed. None named: all of them.
+        #[arg(long, value_name = "NAME", requires = "event")]
+        changed: Vec<String>,
         /// A form's field, `ID=VALUE` (the others take their defaults).
         #[arg(long)]
         answer: Vec<String>,
@@ -1153,12 +1166,37 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
-            PluginCmd::Run { module, plugin, command, answer, file, hak_dir, yes, dry_run } => {
+            PluginCmd::Run {
+                module,
+                plugin,
+                command,
+                event,
+                changed,
+                answer,
+                file,
+                hak_dir,
+                yes,
+                dry_run,
+            } => {
                 let host = plugins::CliHost::new(answer, file, *yes)?;
                 // (A plugin that reads no game data needs no game.)
                 let gi = install(cli).ok();
                 let hak_dir = hak_dir.as_deref();
-                plugins::run(gi.as_ref(), module, plugin, command, host, hak_dir, *dry_run)?
+                let changed = match event {
+                    true => Some(
+                        changed
+                            .iter()
+                            .map(|n| {
+                                ResKey::from_filename(n).ok_or_else(|| {
+                                    anyhow::anyhow!("{n} is no resource's name (name.ext)")
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    ),
+                    false => None,
+                };
+                let what = plugins::What { id: command, changed };
+                plugins::run(gi.as_ref(), module, plugin, &what, host, hak_dir, *dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
             PluginCmd::Install { file, folder, replace } => {
@@ -1248,15 +1286,22 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("exported {} resources", plan.resources.len()));
             out
         }
-        Cmd::Compile { module, uncompiled, all } => {
+        Cmd::Compile { module, uncompiled, all, ndb } => {
             let mut m = Module::open(module)?;
             let mut out = Output::default();
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
             use mg_module::build;
             if *uncompiled {
-                let results =
-                    build::compile_scripts(&mut m, &rm, build::ScriptSelection::Uncompiled);
+                let names: Vec<ResKey> = (m.keys_of(ResType::NSS))
+                    .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
+                    .filter(|k| {
+                        let target = m.project.as_ref().map(|p| p.target());
+                        !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
+                    })
+                    .copied()
+                    .collect();
+                let results = build::compile_named_with(&mut m, &rm, &names, None, *ndb);
                 out.json = compiled(&mut out, &results);
                 m.save()?;
                 let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
@@ -1271,7 +1316,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 true => build::Remembered { made_with, ..Default::default() },
                 false => build::Remembered::kept(dir.as_deref(), Some(module), made_with),
             };
-            let pass = build::compile_changed(&mut m, &rm, None, &known, None);
+            let pass = build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
             out.json = compiled(&mut out, &pass.results);
             m.save()?;
             if let Some(dir) = &dir
@@ -2453,7 +2498,7 @@ fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let haks = m.haks().unwrap_or_default();
     let Ok(gi) = install(cli) else { return own };
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
-    let _ = rm.add_haks(&gi, &haks.iter().map(String::as_str).collect::<Vec<_>>());
+    let _ = rm.add_haks(&gi, &haks);
     mg_rules::encoding_of(&rm, own)
 }
 
@@ -2467,7 +2512,7 @@ fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     let haks = m.haks()?;
-    for missing in rm.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>())? {
+    for missing in rm.add_haks(gi, &haks)? {
         out.note(format!("warning: hak {missing} not found"));
     }
     rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());

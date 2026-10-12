@@ -23,7 +23,7 @@ fn main() {
     let m = Module::open(std::path::Path::new(module)).unwrap();
     let mut game = GameData::open(&install).unwrap();
     let haks = m.haks().unwrap();
-    game.resman.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    game.resman.add_haks(&install, &haks).unwrap();
     game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
     let area = ResRef::from_str(area).unwrap();
     let gff = |t| Gff::read(&game.resman.get(&ResKey::new(area, t)).unwrap()).unwrap();

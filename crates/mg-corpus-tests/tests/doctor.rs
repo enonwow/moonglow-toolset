@@ -147,4 +147,39 @@ fn row_columns_hold_for_the_game_s_tables() {
     }
     assert_eq!(columns, 61);
     assert!(cells > 5000, "{cells}");
+
+    // The tables a class, a race or a package names: each is known by
+    // its name, has the column, and names rows that are there.
+    let (mut tables, mut cells) = (0, 0);
+    for (naming, by) in [
+        ("classes", "FeatsTable"),
+        ("classes", "SkillsTable"),
+        ("racialtypes", "FeatsTable"),
+        ("packages", "FeatPref2DA"),
+        ("packages", "SkillPref2DA"),
+        ("packages", "SpellPref2DA"),
+    ] {
+        let t = table(naming);
+        let mut names: Vec<String> =
+            (0..t.len()).filter_map(|r| t.get(r, by)).map(str::to_lowercase).collect();
+        names.sort();
+        names.dedup();
+        for name in names {
+            let kinds = column_kinds(&name);
+            let [(column, ColumnKind::Row(target))] = kinds.as_slice() else {
+                panic!("{name}, which {naming}.{by} names: {kinds:?}")
+            };
+            let named = table(&name);
+            assert!(named.column(column).is_some(), "{name}.2da has a column {column}");
+            let length = table(target).len();
+            tables += 1;
+            for row in 0..named.len() {
+                if let Some(v) = named.get_int(row, column).and_then(|v| usize::try_from(v).ok()) {
+                    cells += 1;
+                    assert!(v < length, "{name} row {row}, {column}: {v} of {target}");
+                }
+            }
+        }
+    }
+    assert!(tables > 200 && cells > 20000, "{tables} tables, {cells} cells");
 }

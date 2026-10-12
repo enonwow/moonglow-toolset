@@ -11987,6 +11987,33 @@ fn a_plugin_acts_when_the_module_is_saved() {
     assert!(!h.state().busy());
     save(&mut h);
     assert_eq!(said(&h).len(), 1, "once for a change");
+    // What a plugin's events were allowed is kept in the settings, by
+    // plugin and version, shown in the Plugins window and forgotten from
+    // there, or when the plugin is enabled or disabled. (Another of the
+    // plugins installed: this one's are what its events just did.)
+    let (id, name) = (h.state().plugins.installed.iter())
+        .filter_map(|i| i.plugin.as_ref().ok())
+        .map(|p| (p.manifest.id.clone(), format!("{} {}", p.manifest.id, p.manifest.version)))
+        .find(|(id, _)| id != "example.tag-conventions")
+        .unwrap();
+    let grant = |h: &mut Harness<'_, Moonglow>| {
+        let other = ("other 1.0.0".to_string(), "q".to_string(), "yes".to_string());
+        h.state_mut().settings.plugin_grants =
+            vec![(name.clone(), "q".into(), "yes".into()), other];
+    };
+    grant(&mut h);
+    assert_eq!(h.state().plugin_grants(&id), 1);
+    h.state_mut().plugins.window = true;
+    h.run_steps(3);
+    h.get_by_label("Allowed before, and not asked again: 1").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Forget").click();
+    h.run_steps(3);
+    assert_eq!(h.state().plugin_grants(&id), 0);
+    assert_eq!(h.state().settings.plugin_grants.len(), 1, "another plugin's stay");
+    grant(&mut h);
+    h.state_mut().enable_plugin(&id, true);
+    assert_eq!(h.state().plugin_grants(&id), 0);
 }
 
 fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
@@ -14929,10 +14956,22 @@ fn compile_all_compiles_only_what_changed() {
     let install = h.state().install.clone().unwrap();
     let mut rm = mg_resman::ResMan::for_game(&install).unwrap();
     let haks = mg_module::Module::open(&module).unwrap().haks().unwrap();
-    rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    rm.add_haks(&install, &haks).unwrap();
     let with = mg_module::build::made_with(Some(&module), None, Some(&install.root), &rm);
     let read = mg_module::build::Remembered::kept(Some(&kept), Some(&module), with);
     assert_eq!(read.scripts.len(), 3, "mg compile's memory is the window's");
+    // With Generate Debug Information (Options), the compiled scripts
+    // that have no debug file are compiled again for one, once.
+    h.state_mut().settings.debug_info = true;
+    let debug = compile(&mut h);
+    assert!(debug.starts_with("Compiled 2 scripts: 0 failed, 2 changed"), "{debug}");
+    let has = |h: &Harness<'_, Moonglow>, name: &str| {
+        let key = ResKey::parse(name, ResType::NDB).unwrap();
+        h.state().ws.as_ref().unwrap().module.contains(&key)
+    };
+    assert!(has(&h, "uses_n") && has(&h, "alone") && !has(&h, "inc_n"));
+    let again = compile(&mut h);
+    assert!(again.starts_with("Compiled 0 scripts"), "{again}");
 }
 
 /// In a nasher project the external editor gets the project's own script
@@ -15083,6 +15122,102 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     h.run_steps(3);
     assert_eq!(h.state().tree_object, None);
     assert!(h.query_by_label("Waypoints (2)").is_some());
+}
+
+/// The resource browser's Filter has the side panes' keys (GitHub issue
+/// 12): Ctrl+F goes to it, Escape clears it, Down goes into the list,
+/// where the arrow keys choose and Enter opens.
+#[test]
+fn the_resource_browser_s_filter_and_list_take_the_keys() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-browser-keys");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run_steps(4);
+    let over = h.get_by_label("Refresh").rect().center();
+    h.hover_at(over);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    h.event(egui::Event::Text("zzz".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().browser.filter, "zzz", "typed into the Filter");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(h.state().browser.filter, "", "Escape clears it");
+    h.event(egui::Event::Text("nw_it_gem00".into()));
+    h.run_steps(2);
+    // Down: into the list, at its first row; again, the second.
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().browser.cursor, Some(0));
+    assert_eq!(h.state().browser.filter, "nw_it_gem00", "the arrow is the list's now");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    h.key_press(egui::Key::Home);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().browser.cursor, Some(1));
+    // Enter opens the row the keys are at.
+    let opened = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        (h.state().dock.iter_all_tabs())
+            .filter_map(|(_, t)| match t {
+                Tab::Resource(k) | Tab::Blueprint(k) => Some(k.to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(opened(&h).is_empty());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    let now = opened(&h);
+    assert_eq!(now.len(), 1, "{now:?}");
+    assert!(now[0].starts_with("nw_it_gem00"), "{now:?}");
+}
+
+/// In Open Script, Down and Up choose among the scripts listed while the
+/// name is typed, and Enter opens the one chosen (the first, unmoved).
+#[test]
+fn open_script_s_arrows_choose_among_those_listed() {
+    let Some((mut h, _)) = area_harness("open-script-keys") else { return };
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: hello, data: Some(b"void main() { }\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    h.run_steps(4);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    h.get_by_label("All Resources").click();
+    h.run_steps(2);
+    h.state_mut().script_tools.open_script.as_mut().unwrap().filter = "nw_s0_fire".into();
+    h.run_steps(2);
+    let listed: Vec<ResKey> = {
+        let w = h.state().script_tools.open_script.as_ref().unwrap();
+        assert_eq!(w.filter, "nw_s0_fire");
+        let has = |k: &ResKey| k.resref.to_string().contains("nw_s0_fire");
+        w.scripts.iter().map(|(k, _)| *k).filter(has).collect()
+    };
+    assert!(listed.len() > 2, "{listed:?}");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    assert_eq!(h.state().script_tools.open_script.as_ref().unwrap().cursor, 1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    assert!(h.state().script_tools.open_script.is_none(), "the window closed");
+    assert!(h.state().dock.find_tab(&Tab::Resource(listed[1])).is_some(), "{:?}", listed[1]);
 }
 
 /// A script editor's Open… lists the scripts there are to open, the

@@ -694,6 +694,14 @@ impl AreaView {
     /// shape, so that at a cliff's edge it takes this side's. Some
     /// tilesets build their ground above the tiles' heights, and slopes and
     /// cliffs are not at a corner's.
+    /// A tile-sized square ([`tile_square`]) as it lies on the ground the
+    /// pointer picks, on screen; `None` where a corner is out of view.
+    pub(crate) fn square_on_screen(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
+        let corners = self.on_ground(&tile_square(x, y, z));
+        let screen: Vec<Pos2> = corners.iter().filter_map(|p| self.screen_pos(*p)).collect();
+        (screen.len() == 4).then_some(screen)
+    }
+
     pub(crate) fn on_ground(&self, points: &[Vec3]) -> Vec<Vec3> {
         let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
         points
@@ -2261,6 +2269,13 @@ fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView) {
                  orange, doors blue (in their open or closed state)",
             );
         });
+}
+
+/// The corners of the tile-sized square whose low corner is at tile
+/// (`x`, `y`), at height `z`: round the square, from that corner.
+pub(crate) fn tile_square(x: f32, y: f32, z: f32) -> [Vec3; 4] {
+    [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        .map(|(dx, dy)| Vec3::new((x + dx) * TILE_SIZE, (y + dy) * TILE_SIZE, z))
 }
 
 /// A closed outline over the view, each edge a line of its own. (As one
@@ -4839,12 +4854,9 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let mut open = true;
     let mut done = false;
     let mut cancel = false;
-    egui::Window::new("Create Set")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
+    crate::widgets::dialog(ui.ctx(), "Create Set", &mut open)
         .collapsible(false)
         .resizable(false)
-        .open(crate::widgets::open_unless_escape(ui.ctx(), "Create Set", &mut open))
         .show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("What is the name of the set?");
@@ -4930,10 +4942,7 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
     };
     let mut open = true;
     let mut done = false;
-    egui::Window::new("Resources Used")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .open(crate::widgets::open_unless_escape(ctx, "Resources Used", &mut open))
+    crate::widgets::dialog(ctx, "Resources Used", &mut open)
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {

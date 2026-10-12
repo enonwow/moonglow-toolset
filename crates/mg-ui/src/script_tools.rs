@@ -125,6 +125,9 @@ pub struct OpenScript {
     /// Every script there is to open, by name, read when the window
     /// opens.
     pub scripts: Vec<(ResKey, ScriptFrom)>,
+    /// The row Enter opens, among those listed: the first, until Down
+    /// and Up move it.
+    pub cursor: usize,
 }
 
 /// The editor tools' state (shared by the open script editors).

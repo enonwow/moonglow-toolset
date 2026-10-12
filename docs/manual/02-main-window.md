@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 ---
 
 # The main window
@@ -175,7 +175,8 @@ to the first row in it; Left closes a row that is open, else goes to
 the row it is in. Enter opens the row's area, script, conversation or
 blueprint, goes to a placed object in its area's view, and opens or
 closes a group or a kind. A letter or a digit goes to the next row that begins
-with it (a group's name, or a resource's ResRef). F2 renames and Delete deletes the resource of the row
+with it (a group's name, or a resource's name as its row shows it: an
+area's own name where areas are listed by name, else its ResRef). F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). Ctrl+F goes to the Filter; there, Escape
 clears what is typed, and Escape again, or Down, goes back into the
@@ -271,6 +272,12 @@ Files…** writes all the resources listed into a folder, once a type or
 part of a name narrows the list. Files go out as they are; with
 **Models as text** ticked (shown when models are listed), compiled
 models go out as the text they compile from.
+
+Its **Name** field has the side panes' keys: Ctrl+F, with the pointer
+over the browser, goes to it; Escape clears what is typed, and Escape
+again leaves it; Down goes into the list, where Up and Down (Page Up,
+Page Down, Home, End) choose a row and Enter opens it. A click on a row
+gives the list the keys too.
 
 A 2DA shows the copy the game reads, with its StrRef columns (Name,
 Description, StrRef and the like) as their text; **StrRefs as numbers**

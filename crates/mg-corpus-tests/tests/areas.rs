@@ -42,10 +42,7 @@ fn every_shipped_area_opens_and_renders() {
         let m = Module::open(&path).unwrap();
         let mut game = GameData::open(&install).unwrap();
         let haks = m.haks().unwrap();
-        let missing_haks = game
-            .resman
-            .add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>())
-            .unwrap();
+        let missing_haks = game.resman.add_haks(&install, &haks).unwrap();
         assert!(missing_haks.is_empty(), "{module_name}: haks missing: {missing_haks:?}");
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         if let Some(r) = &mut renderer {

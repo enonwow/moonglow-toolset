@@ -33,6 +33,10 @@ pub struct Browser {
     /// 2DA views: only the rows a layer last changed (its index in the
     /// table's copies).
     pub rows_from: Option<usize>,
+    /// The row the keys are at, among those listed.
+    pub cursor: Option<usize>,
+    /// The cursor moved: the list goes to it.
+    reveal: bool,
 }
 
 impl Browser {
@@ -72,12 +76,17 @@ impl Browser {
                 .map(|(i, _)| i)
                 .collect();
             self.query = Some(query);
+            // (Another list: the keys start at its top.)
+            self.cursor = self.cursor.map(|_| 0);
+            self.reveal = self.cursor.is_some();
         }
         &self.shown
     }
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    use crate::palette_view::{Keys, give_keys, keys_are};
+    let pane = ui.max_rect();
     let Moonglow { browser, game, ws, actions, .. } = app;
     browser.refresh(game.as_ref().map(|g| &g.resman));
     if game.is_none() {
@@ -93,12 +102,55 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
         });
         crate::widgets::field_label(ui, "Name");
-        ui.text_edit_singleline(&mut browser.filter);
+        // The Filter's keys, as the side panes have them (GitHub issue
+        // 12): Ctrl+F with the pointer over the browser goes to it,
+        // Escape clears it and then leaves it, Down goes into the list.
+        let field_id = egui::Id::new("browser-filter-field");
+        let over = ui.ctx().pointer_hover_pos().is_some_and(|p| pane.contains(p));
+        let find = over
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+        let left = crate::widgets::filter_keys(ui, field_id, &mut browser.filter, find);
+        ui.add(egui::TextEdit::singleline(&mut browser.filter).id(field_id));
+        if left == Some(crate::widgets::FilterLeft::Down) {
+            browser.cursor = Some(0);
+            browser.reveal = true;
+            give_keys(ui.ctx(), Keys::Browser);
+        }
         if ui.button("Refresh").clicked() {
             browser.stale = true;
         }
     });
     let count = browser.filtered().len();
+    // The keys in the list, from a click on a row or Down from the
+    // Filter: a row at a time, a page, the ends; Enter opens.
+    let mut entered = false;
+    if keys_are(ui.ctx(), Keys::Browser) && !ui.ctx().egui_wants_keyboard_input() && count > 0 {
+        use egui::Key;
+        let steps = [
+            (Key::ArrowDown, 1),
+            (Key::ArrowUp, -1),
+            (Key::PageDown, 10),
+            (Key::PageUp, -10),
+            (Key::End, isize::MAX / 2),
+            (Key::Home, isize::MIN / 2),
+        ];
+        let pressed = ui.input_mut(|i| {
+            steps.into_iter().find(|(k, _)| i.consume_key(egui::Modifiers::NONE, *k))
+        });
+        if let Some((_, by)) = pressed {
+            let last = count as isize - 1;
+            let at = browser.cursor.map_or(0, |at| (at as isize).saturating_add(by));
+            browser.cursor = Some(at.clamp(0, last) as usize);
+            browser.reveal = true;
+        }
+        entered = browser.cursor.is_some()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            give_keys(ui.ctx(), Keys::Area);
+        }
+    }
+    browser.cursor = browser.cursor.filter(|c| *c < count);
     ui.horizontal(|ui| {
         ui.weak(format!("{count} of {} resources; double-click to open", browser.entries.len()));
         // (Narrowed by a type or a name: not the whole game by a slip.)
@@ -124,54 +176,65 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let in_module = |k: &ResKey| ws.as_ref().is_some_and(|w| w.module.contains(k));
     let shown = &browser.shown;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
-        ui,
-        row_height,
-        count,
-        |ui, range| {
-            for &i in &shown[range] {
-                let (k, layer) = &browser.entries[i];
-                ui.horizontal(|ui| {
-                    let r =
-                        ui.selectable_label(false, egui::RichText::new(k.to_string()).monospace());
-                    ui.weak(layer);
-                    let tab = || match Tab::for_resource(*k) {
-                        Some(t @ Tab::Model(_)) => t,
-                        Some(t) if in_module(k) => t,
-                        _ => Tab::Resource(*k),
-                    };
-                    if r.double_clicked() {
+    let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]);
+    if std::mem::take(&mut browser.reveal)
+        && let Some(at) = browser.cursor
+    {
+        let pitch = row_height + ui.spacing().item_spacing.y;
+        let above = (ui.available_height() / 2.0 - pitch).max(0.0);
+        list = list.vertical_scroll_offset((at as f32 * pitch - above).max(0.0));
+    }
+    let cursor = browser.cursor;
+    let mut clicked = None;
+    let out = list.show_rows(ui, row_height, count, |ui, range| {
+        for (at, &i) in range.clone().zip(&shown[range]) {
+            let (k, layer) = &browser.entries[i];
+            ui.horizontal(|ui| {
+                let at_cursor = cursor == Some(at) && keys_are(ui.ctx(), Keys::Browser);
+                let r =
+                    ui.selectable_label(at_cursor, egui::RichText::new(k.to_string()).monospace());
+                ui.weak(layer);
+                let tab = || match Tab::for_resource(*k) {
+                    Some(t @ Tab::Model(_)) => t,
+                    Some(t) if in_module(k) => t,
+                    _ => Tab::Resource(*k),
+                };
+                if r.clicked() {
+                    clicked = Some(at);
+                }
+                if r.double_clicked() || (entered && cursor == Some(at)) {
+                    actions.push(Action::OpenTab(tab()));
+                }
+                r.context_menu(|ui| {
+                    if ui.button("Open").clicked() {
                         actions.push(Action::OpenTab(tab()));
                     }
-                    r.context_menu(|ui| {
-                        if ui.button("Open").clicked() {
-                            actions.push(Action::OpenTab(tab()));
-                        }
-                        if k.restype != ResType::MDL
-                            && crate::model_view::previewable(k.restype)
-                            && ui
-                                .button("Preview")
-                                .on_hover_text("See it in the 3D viewer")
-                                .clicked()
-                        {
-                            actions.push(Action::OpenTab(Tab::Model(*k)));
-                        }
-                        if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
-                            actions.push(Action::SaveResource(*k));
-                        }
-                        if k.restype == ResType::MDL
-                            && ui
-                                .button("Save As Text…")
-                                .on_hover_text("A compiled model as the text it compiles from")
-                                .clicked()
-                        {
-                            actions.push(Action::SaveModelText(*k));
-                        }
-                    });
+                    if k.restype != ResType::MDL
+                        && crate::model_view::previewable(k.restype)
+                        && ui.button("Preview").on_hover_text("See it in the 3D viewer").clicked()
+                    {
+                        actions.push(Action::OpenTab(Tab::Model(*k)));
+                    }
+                    if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
+                        actions.push(Action::SaveResource(*k));
+                    }
+                    if k.restype == ResType::MDL
+                        && ui
+                            .button("Save As Text…")
+                            .on_hover_text("A compiled model as the text it compiles from")
+                            .clicked()
+                    {
+                        actions.push(Action::SaveModelText(*k));
+                    }
                 });
-            }
-        },
-    );
+            });
+        }
+    });
+    if let Some(at) = clicked {
+        browser.cursor = Some(at);
+        give_keys(ui.ctx(), Keys::Browser);
+    }
+    crate::palette_view::keys_outline(ui, out.inner_rect, Keys::Browser);
 }
 
 /// Save As on a resource of the load order: its bytes to a file; or,

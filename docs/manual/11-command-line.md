@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 ---
 
 # Command-line tools
@@ -66,7 +66,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest |
 | `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands and checks |
 | `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not. A file is a plugin's archive: checked as the installer checks it, and its code as it is in the archive |
-| `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--file PATH` is the file or folder it gets where it asks for one (in the order it asks), `--yes` agrees where it asks, and to the haks it writes (into `--hak-dir DIR`, else the user folder's `hak`); `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing |
+| `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--file PATH` is the file or folder it gets where it asks for one (in the order it asks), `--yes` agrees where it asks, and to the haks it writes (into `--hak-dir DIR`, else the user folder's `hak`); `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing. With `--event`, COMMAND is the id of what the plugin does by itself when a module is opened or saved, run as the window would run it then; `--changed NAME` names a resource the save changed (as often as needed; none named: all of the module's) |
 | `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files left out |
 | `mg plugin install FILE FOLDER` | install a plugin from its archive into a folder of plugins, as Plugins › Install Plugin from File… does: the archive is checked and nothing of it runs. `--replace` installs over the same plugin installed from an archive before |
 | `mg plugin remove ID FOLDER` | remove a plugin that was installed from an archive from a folder of plugins, by its id; one put there by hand is left alone |
@@ -77,7 +77,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
 | `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
-| `mg compile MODULE [--uncompiled] [--all]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version |
+| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version; `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |

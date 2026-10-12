@@ -1104,6 +1104,15 @@ pub(crate) fn open_unless_escape<'a>(
     open
 }
 
+/// A dialog: a window in the middle of the application's, which its
+/// close button or Escape closes (`open`).
+pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> egui::Window<'a> {
+    egui::Window::new(title)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .open(open_unless_escape(ctx, title, open))
+}
+
 /// Escape was pressed with no dialog open (for a window of the dock to
 /// close on it).
 pub(crate) fn escape_past_dialogs(ctx: &egui::Context) -> bool {

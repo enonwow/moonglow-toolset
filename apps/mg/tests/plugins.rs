@@ -98,6 +98,22 @@ fn a_plugin_s_command_runs_on_a_module() {
     assert_eq!(done["resources"], json!(["guard.utc"]));
     assert_eq!(tag(&path), "GATE_GUARD");
 
+    // What the plugin does by itself when a module is saved, run from
+    // here: with the resources named, or all of the module's.
+    let (ok, saved) = mg(&["plugin", "run", m, plugin, "saved", "--event"]);
+    assert!(ok, "{saved}");
+    assert_eq!(saved["log"], json!([{ "level": "info", "text": "module-saved: guard.utc" }]));
+    let event = ["plugin", "run", m, plugin, "saved", "--event", "--changed"];
+    let (ok, other) = mg(&[&event[..], &["module.ifo"]].concat());
+    assert!(ok && other["log"] == json!([]), "{other}");
+    let (ok, wrong) = mg(&[&event[..], &["no name"]].concat());
+    assert!(!ok && wrong["error"].as_str().unwrap().contains("no resource's name"), "{wrong}");
+    // A command is no event, nor an event a command.
+    let (ok, wrong) = mg(&["plugin", "run", m, plugin, "fix-tags", "--event"]);
+    assert!(!ok && wrong["error"].as_str().unwrap().contains("event"), "{wrong}");
+    let (ok, wrong) = mg(&["plugin", "run", m, plugin, "saved"]);
+    assert!(!ok && wrong["error"].as_str().unwrap().contains("command"), "{wrong}");
+
     // A form is answered from the arguments: its defaults, and what is
     // given; a question, with --yes.
     let forms = fixtures().join("forms");

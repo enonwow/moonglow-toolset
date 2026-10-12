@@ -109,7 +109,7 @@ fn locals_agree_with_the_compiler() {
             m.keys_of(ResType::NSS).map(|k| k.resref.to_lowercase().to_string()).collect();
         let mut rm = ResMan::for_game(&install).unwrap();
         let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+        rm.add_haks(&install, &haks).unwrap();
         rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         let label = path.file_name().unwrap().to_string_lossy().into_owned();
         let (c, f) = check(&label, &rm, &names);

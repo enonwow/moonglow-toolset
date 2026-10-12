@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 ---
 
 # Options
@@ -101,7 +101,9 @@ the module is opened again from its file.
   saving the module, compile the scripts whose text they save; so is a
   script another program saved in the module's folder or nasher
   project, when it is read again.
-- **Generate Debug Information When Compiling Scripts** (`.ndb` files).
+- **Generate Debug Information When Compiling Scripts** (`.ndb` files):
+  for the script compiled in its editor, and for Compile All Scripts,
+  which compiles again a script that has no debug file yet.
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
 - **Open scripts in the external editor**: a script opened from the

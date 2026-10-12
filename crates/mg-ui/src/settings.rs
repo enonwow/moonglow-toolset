@@ -73,6 +73,11 @@ pub struct Settings {
     pub window_places: Vec<(String, String)>,
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
+    /// What each plugin's events were allowed, kept between runs: the
+    /// plugin (its id and version), the question as it was asked, and the
+    /// answer (`yes`, or `path:` and the folder chosen). Forgotten when
+    /// the plugin is disabled, removed or installed anew.
+    pub plugin_grants: Vec<(String, String, String)>,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected

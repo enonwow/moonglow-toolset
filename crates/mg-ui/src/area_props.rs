@@ -650,12 +650,9 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     };
     let (mut open, mut edit, mut cancel) = (true, false, false);
-    egui::Window::new("Edit Areas Together")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+    crate::widgets::dialog(ctx, "Edit Areas Together", &mut open)
         .default_size([460.0, 520.0])
         .collapsible(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Edit Areas Together", &mut open))
         .show(ctx, |ui| {
             ui.label(
                 "Tick the areas to edit; their Area Properties open as one, and what you \

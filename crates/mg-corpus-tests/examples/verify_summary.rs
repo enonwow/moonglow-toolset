@@ -15,7 +15,7 @@ fn main() {
         let m = Module::open(&path).unwrap();
         let mut rm = ResMan::for_game(&install).unwrap();
         let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+        rm.add_haks(&install, &haks).unwrap();
         rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         let refs = module_references(&m);
         let miss = missing(&m, &rm);

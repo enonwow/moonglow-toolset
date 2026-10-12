@@ -37,9 +37,7 @@ fn placed_placeables_and_doors_have_their_walkmeshes() {
         let m = Module::open(&path).unwrap();
         let mut game = GameData::open(&install).unwrap();
         let haks = m.haks().unwrap();
-        game.resman
-            .add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>())
-            .unwrap();
+        game.resman.add_haks(&install, &haks).unwrap();
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         let mut walkmeshes = ObjectWalkmeshes::default();
         for area in m.areas().unwrap() {

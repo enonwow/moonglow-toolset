@@ -136,7 +136,7 @@ fn builtin_compiler_matches_nwn_script_comp() {
         }
         let mut rm = ResMan::for_game(&install).unwrap();
         let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+        rm.add_haks(&install, &haks).unwrap();
         rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
         let src = dir.join(format!("m{i}-src"));
         std::fs::create_dir_all(&src).unwrap();

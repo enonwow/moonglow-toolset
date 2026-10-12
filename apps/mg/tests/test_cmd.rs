@@ -91,3 +91,50 @@ fn tests_run_in_the_server_and_report() {
     assert!(!ok && r["compile_errors"].as_array().unwrap().len() == 1, "{r}");
     assert!(r["tests"].as_array().unwrap().is_empty());
 }
+
+/// `--driver none`: a module that runs its tests itself (its own script
+/// at its load, which says when they are done) is run as it is.
+#[test]
+fn a_module_s_own_driver_runs_its_tests() {
+    use mg_core::ResType;
+    use mg_gff::Value as Field;
+    use mg_resman::ResKey;
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("mg-test-own");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    let script = |name: &str| ResKey::parse(name, ResType::NSS).unwrap();
+    m.set(script("mg_test"), mg_module::testing::INCLUDE.as_bytes().to_vec());
+    let own = "#include \"mg_test\"\nvoid main()\n{\n    Pass(\"its own\");\n    \
+               Fail(\"its other\", \"not so\");\n    TestsDone();\n}\n";
+    m.set(script("own_tests"), own.as_bytes().to_vec());
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut gff = m.gff(&ifo).unwrap().unwrap();
+    gff.root.set("Mod_OnModLoad", Field::resref("own_tests".parse().unwrap()));
+    m.set_gff(ifo, &gff).unwrap();
+    m.save().unwrap();
+
+    let served = dir.join("served");
+    let args = [chess.to_str().unwrap(), "--driver", "none", "--dir", served.to_str().unwrap()];
+    let (ok, r) = mg(&root, &user, &args);
+    assert!(!ok && r["done"] == true, "{r}");
+    assert_eq!(
+        (&r["passed"], &r["failed"], &r["errors"]),
+        (&1.into(), &1.into(), &0.into()),
+        "{r}"
+    );
+    let cases: Vec<&Value> = r["tests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|t| t["cases"].as_array().unwrap())
+        .collect();
+    assert_eq!(cases.len(), 2, "{r}");
+    assert_eq!((&cases[1]["name"], &cases[1]["detail"]), (&"its other".into(), &"not so".into()));
+}

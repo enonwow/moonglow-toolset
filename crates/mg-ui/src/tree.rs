@@ -520,16 +520,22 @@ enum Step {
 type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
 
 /// The next row after `at` (round the end) whose name begins with
-/// `letter`: a group's name, or a resource's ResRef. A letter typed in
-/// the tree goes there.
-fn seek(shown: &Shown, at: Option<TreeAt>, letter: char) -> Option<TreeAt> {
+/// `letter`: a group's name, or a resource's name as its row shows it
+/// (`named`: an area's or a blueprint's name where they are listed by
+/// name; else its ResRef). A letter typed in the tree goes there.
+fn seek(
+    shown: &Shown,
+    at: Option<TreeAt>,
+    letter: char,
+    named: &dyn Fn(&ResKey) -> Option<String>,
+) -> Option<TreeAt> {
     let rows: Vec<(TreeAt, String)> = shown
         .iter()
         .flat_map(|(name, open, keys)| {
             let inside = keys
                 .iter()
                 .filter(move |_| *open)
-                .map(|k| (TreeAt::Resource(*k), k.resref.to_string()));
+                .map(|k| (TreeAt::Resource(*k), named(k).unwrap_or_else(|| k.resref.to_string())));
             std::iter::once((TreeAt::Group(name), name.to_string())).chain(inside)
         })
         .collect();
@@ -1017,7 +1023,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             });
             Some(found.1)
         });
-        if let Some(at) = typed.and_then(|c| seek(&shown, app.tree_cursor, c)) {
+        let named = |k: &ResKey| lists.iter().find_map(|(_, names)| names.get(k).cloned());
+        if let Some(at) = typed.and_then(|c| seek(&shown, app.tree_cursor, c, &named)) {
             app.tree_cursor = Some(at);
             app.tree_cursor_moved = true;
             ui.ctx().request_repaint();
@@ -1189,10 +1196,16 @@ mod tests {
         // Enter opens a resource, and opens or closes a group.
         assert_eq!(step(&shown, &outs, at(a), Key::Enter), Step::Open(a));
         // A letter: the next row that begins with it, round the end.
-        assert_eq!(seek(&shown, Some(areas), 's'), Some(scripts));
-        assert_eq!(seek(&shown, Some(scripts), 'A'), Some(areas));
-        assert_eq!(seek(&shown, None, 'c'), Some(TreeAt::Group("Conversations")));
-        assert_eq!(seek(&shown, Some(areas), 'z'), None);
+        let none = |_: &ResKey| None;
+        assert_eq!(seek(&shown, Some(areas), 's', &none), Some(scripts));
+        assert_eq!(seek(&shown, Some(scripts), 'A', &none), Some(areas));
+        assert_eq!(seek(&shown, None, 'c', &none), Some(TreeAt::Group("Conversations")));
+        assert_eq!(seek(&shown, Some(areas), 'z', &none), None);
+        // Listed by name, a row is found by its name's letter, not its
+        // ResRef's.
+        let named = |k: &ResKey| (*k == b).then(|| "Zhentil Keep (b)".to_string());
+        assert_eq!(seek(&shown, Some(areas), 'z', &named), at(b));
+        assert_eq!(seek(&shown, at(a), 'b', &named), None);
         assert_eq!(step(&shown, &outs, Some(scripts), Key::Enter), Step::Fold(scripts, true));
         // A row that is gone (its group closed, a filter typed): the first.
         assert_eq!(step(&shown, &outs, at(c), Key::ArrowDown), Step::To(areas));

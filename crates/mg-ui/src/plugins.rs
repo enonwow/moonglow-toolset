@@ -62,14 +62,65 @@ pub struct Plugins {
     /// The module as it was last saved or opened, to tell what a save
     /// changed.
     saved: Option<mg_module::Module>,
-    /// What each plugin's events were allowed in this session (a folder
-    /// chosen, a yes to writing into it), by plugin id: an event that
-    /// comes again does not ask again.
+    /// What each plugin's events were allowed (a folder chosen, a yes to
+    /// writing into it), by plugin id: an event that comes again does not
+    /// ask again. Kept between runs in the settings (`plugin_grants`).
     granted: std::collections::HashMap<String, Granted>,
 }
 
 /// Answers remembered, by question.
 type Granted = Arc<Mutex<std::collections::HashMap<String, Answer>>>;
+
+/// A plugin as its grants are kept under: another version asks again.
+fn grants_name(m: &mg_plugin::Manifest) -> String {
+    format!("{} {}", m.id, m.version)
+}
+
+/// What the settings keep of what `plugin` ([`grants_name`]) was allowed.
+fn kept_grants(
+    kept: &[(String, String, String)],
+    plugin: &str,
+) -> std::collections::HashMap<String, Answer> {
+    (kept.iter().filter(|(p, _, _)| p == plugin))
+        .filter_map(|(_, question, answer)| {
+            let answer = match answer.strip_prefix("path:") {
+                Some(path) => Answer::Path(path.into()),
+                None if answer == "yes" => Answer::Yes,
+                None => return None,
+            };
+            Some((question.clone(), answer))
+        })
+        .collect()
+}
+
+/// Puts what `plugin` was allowed into the settings' list, in place of
+/// what was there of it; whether the list changed.
+fn keep_grants(
+    kept: &mut Vec<(String, String, String)>,
+    plugin: &str,
+    granted: &std::collections::HashMap<String, Answer>,
+) -> bool {
+    let mut now: Vec<(String, String, String)> = granted
+        .iter()
+        .filter_map(|(question, answer)| {
+            let answer = match answer {
+                Answer::Yes => "yes".to_string(),
+                Answer::Path(p) => format!("path:{}", p.display()),
+                _ => return None,
+            };
+            Some((plugin.to_string(), question.clone(), answer))
+        })
+        .collect();
+    now.sort();
+    let mut before: Vec<_> = kept.iter().filter(|(p, _, _)| p == plugin).cloned().collect();
+    before.sort();
+    if before == now {
+        return false;
+    }
+    kept.retain(|(p, _, _)| p != plugin);
+    kept.extend(now);
+    true
+}
 
 /// An installed plugin waiting for a yes to be removed.
 #[derive(Debug, Clone)]
@@ -289,11 +340,27 @@ impl Moonglow {
 
     /// Enables or disables an installed plugin.
     pub fn enable_plugin(&mut self, id: &str, on: bool) {
+        self.forget_plugin_grants(id);
         self.settings.plugins_enabled.retain(|e| e != id);
         if on {
             self.settings.plugins_enabled.push(id.to_string());
         }
         self.plugins_changed();
+    }
+
+    /// Forgets what a plugin's events were allowed (it asks again): when
+    /// it is enabled or disabled, removed, or installed anew.
+    pub fn forget_plugin_grants(&mut self, id: &str) {
+        self.plugins.granted.remove(id);
+        let of = |p: &str| p.split_once(' ').is_some_and(|(i, _)| i == id);
+        self.settings.plugin_grants.retain(|(p, _, _)| !of(p));
+    }
+
+    /// How many things a plugin's events were allowed and are not asked
+    /// again.
+    pub fn plugin_grants(&self, id: &str) -> usize {
+        let of = |p: &str| p.split_once(' ').is_some_and(|(i, _)| i == id);
+        self.settings.plugin_grants.iter().filter(|(p, _, _)| of(p)).count()
     }
 
     /// The installed plugins that are enabled.
@@ -387,11 +454,27 @@ impl Moonglow {
         if self.busy() || self.ws.is_none() {
             return;
         }
+        // What the last event's job was allowed is kept for the next run.
+        let names: Vec<(String, String)> = (self.plugins.installed.iter())
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .map(|p| (p.manifest.id.clone(), grants_name(&p.manifest)))
+            .collect();
+        for (id, name) in &names {
+            if let Some(granted) = self.plugins.granted.get(id) {
+                let granted = granted.lock().unwrap_or_else(|e| e.into_inner());
+                keep_grants(&mut self.settings.plugin_grants, name, &granted);
+            }
+        }
         let Some((id, event_id, event)) = self.plugins.events.pop_front() else { return };
         let found = self.enabled_plugins().into_iter().find(|p| p.manifest.id == id).cloned();
         let Some(plugin) = found else { return };
         let (name, title) = (plugin.manifest.name.clone(), event.kind.name().to_string());
-        let granted = self.plugins.granted.entry(id).or_default().clone();
+        let kept = &self.settings.plugin_grants;
+        let granted = (self.plugins.granted.entry(id))
+            .or_insert_with(|| {
+                Arc::new(Mutex::new(kept_grants(kept, &grants_name(&plugin.manifest))))
+            })
+            .clone();
         let run = move |input: Input, host: Rc<dyn Host>| {
             mg_plugin::run_event(&plugin, &event_id, &event, input, host)
         };
@@ -442,7 +525,9 @@ impl Moonglow {
         match package.install(&dir, replace) {
             Ok(_) => {
                 // Installing enables nothing: a plugin new here is off,
-                // whatever was enabled under its id once.
+                // whatever was enabled under its id once; and what it
+                // was allowed, another's code now, is asked again.
+                self.forget_plugin_grants(&m.id);
                 if !replace {
                     self.settings.plugins_enabled.retain(|e| e != &m.id);
                 }
@@ -469,6 +554,7 @@ impl Moonglow {
             Ok(()) => {
                 if let Some(id) = &remove.id {
                     self.settings.plugins_enabled.retain(|e| e != id);
+                    self.forget_plugin_grants(id);
                 }
                 self.load_plugins();
                 self.install_said(Level::Info, format!("Removed {}", remove.name));
@@ -822,6 +908,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     let mut remove = None;
+    let mut forgotten = None;
+    let allowed: std::collections::HashMap<String, usize> = (app.plugins.installed.iter())
+        .filter_map(|i| i.plugin.as_ref().ok())
+        .map(|p| (p.manifest.id.clone(), app.plugin_grants(&p.manifest.id)))
+        .collect();
     egui::Window::new("Plugins")
         .open(crate::widgets::open_unless_escape(ctx, "Plugins", &mut open))
         .default_pos([180.0, 90.0])
@@ -949,6 +1040,21 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                     };
                                     ui.label(format!("By itself, when {when}: {}", e.id));
                                 }
+                                let allowed = allowed.get(&m.id).copied().unwrap_or(0);
+                                if allowed > 0 {
+                                    ui.horizontal(|ui| {
+                                        ui.weak(format!(
+                                            "Allowed before, and not asked again: {allowed}"
+                                        ));
+                                        let forget = ui.small_button("Forget").on_hover_text(
+                                            "It asks again for the folder it writes into, \
+                                             and for your leave",
+                                        );
+                                        if forget.clicked() {
+                                            forgotten = Some(m.id.clone());
+                                        }
+                                    });
+                                }
                             });
                         }
                         Err(e) => {
@@ -984,6 +1090,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if let Some((id, on)) = toggle {
         app.enable_plugin(&id, on);
+    }
+    if let Some(id) = forgotten {
+        app.forget_plugin_grants(&id);
     }
     if reload {
         app.plugins.install_note = None;
@@ -1063,5 +1172,37 @@ pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     } else if no || modal.should_close() {
         app.plugins.remove = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_an_event_was_allowed_is_kept_by_plugin_and_version() {
+        let mut kept = vec![("other 1.0.0".to_string(), "q".to_string(), "yes".to_string())];
+        let mut granted = std::collections::HashMap::new();
+        granted.insert("Folder { title: \"Sources\" }".to_string(), Answer::Path("/src".into()));
+        granted.insert("Confirm(\"Write 3 files?\")".to_string(), Answer::Yes);
+        // (A form's values are not for keeping.)
+        granted.insert("Form".to_string(), Answer::Values(Default::default()));
+        assert!(keep_grants(&mut kept, "mine 1.2.0", &granted));
+        assert_eq!(kept.len(), 3);
+        assert!(!keep_grants(&mut kept, "mine 1.2.0", &granted), "as it was: nothing to save");
+        let back = kept_grants(&kept, "mine 1.2.0");
+        assert_eq!(back.len(), 2);
+        assert_eq!(back["Folder { title: \"Sources\" }"], Answer::Path("/src".into()));
+        assert_eq!(back["Confirm(\"Write 3 files?\")"], Answer::Yes);
+        // Another version of the plugin was allowed nothing; nor is an
+        // answer that cannot be read taken for a yes.
+        assert!(kept_grants(&kept, "mine 1.3.0").is_empty());
+        kept.push(("mine 1.2.0".into(), "odd".into(), "maybe".into()));
+        assert_eq!(kept_grants(&kept, "mine 1.2.0").len(), 2);
+        // One taken back is gone from what is kept.
+        granted.remove("Confirm(\"Write 3 files?\")");
+        assert!(keep_grants(&mut kept, "mine 1.2.0", &granted));
+        assert_eq!(kept_grants(&kept, "mine 1.2.0").len(), 1);
+        assert_eq!(kept_grants(&kept, "other 1.0.0").len(), 1);
     }
 }

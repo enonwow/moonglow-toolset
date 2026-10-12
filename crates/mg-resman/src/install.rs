@@ -292,10 +292,11 @@ impl ResMan {
     pub fn add_haks(
         &mut self,
         install: &GameInstall,
-        names: &[&str],
+        names: &[impl AsRef<str>],
     ) -> Result<Vec<String>, ResError> {
         let mut missing = Vec::new();
         for name in names {
+            let name = name.as_ref();
             let file = format!("{name}.hak");
             // (A Workshop item's hak counts as the user's.)
             let user = install

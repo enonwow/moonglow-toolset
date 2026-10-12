@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -88,10 +88,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
   project is read whole again at each change, and looked at by its
   files' sizes and times some twice a second (no file-system
   notifications); a nasher project's default target only; debug files
-  (`.ndb`) are made where `--ndb` asks (the built-in compiler's batch
-  makes them now: `build::compile_named_with`), but `mg compile` and
-  the window's Compile All Scripts have no such choice (the window's
-  Generate Debug Information is for the script in its editor); nothing
+  (`.ndb`) are made where `--ndb` asks (`mg watch`, `mg compile`), and
+  by Compile All Scripts with Generate Debug Information on; `mg
+  build`, `mg pack` and Build Module make none; nothing
   is pushed through NWNX's console; with `--serve`, tests are not run
   again after a change (`mg test` is a run of its own). A test holds
   the `--serve` half on Linux (a change put out, the server started
@@ -102,8 +101,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   running; a test that needs a player in the module has none (no client
   is started); the module's own scripts are compiled only where they
   have no compiled script (run `mg compile` first); `--driver none` (a
-  module that runs its tests itself) is not held by a test, nor tried
-  with NWNX. (S, M, S, S)
+  module that runs its tests itself) is held by a test, but was not
+  tried with NWNX. (S, M, S, S)
 
 - **Choose Character:** Test Module, Choose Character uses the game's
   `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
@@ -293,20 +292,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `src/` tree of folders is chosen one folder at a time); no copy of a
   replaced file is kept; there is one event for a save, with the
   resources changed since the last, not one for each resource, and none
-  for a script's own Save; what an event was allowed is kept for the
-  session only (asked again after a restart, since plugins keep no
-  settings); `mg` fires no events (`mg plugin run` runs commands only);
-  an event's handler that asks a form asks it at every save; that an
-  event's leave is asked once in a session is not held by a test. (S
+  for a script's own Save; what an event was allowed is kept between
+  runs by plugin and version (the settings' `plugin_grants`), but a
+  plugin still keeps no settings of its own; `mg plugin run --event`
+  runs an event by hand, and `mg watch` and `mg build` fire none; an
+  event's handler that asks a form asks it at every save; that an
+  event's leave is asked once, and not again after a restart, is held
+  only for how it is kept (no fixture plugin asks on an event). (S
   each; settings M)
 - **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
   and a talk table as values to change and write; `mg.twoda.kinds`
   says what Verify Module's tables say (ten columns that hold a
   talk-table string, four that name a model, sixty-one that name a row
-  of another table). Not done: the tables a class or a race names in a
-  column (`cls_feat_*`, `cls_skill_*`, `race_feat_*`) and their feat
-  and skill columns are not known, nor `iprp` tables, nor columns the
-  game's own tables break (`appearance.FOOTSTEPTYPE`); a row that is
+  of another table, and the feat, skill and spell lists a class, a race
+  or a package names). Not done: a class's other tables (`cls_pres_*`,
+  whose row depends on the requirement's kind; `cls_bfeat_*`,
+  `cls_spgn_*`), the `iprp` tables, columns the game's own tables
+  break (`appearance.FOOTSTEPTYPE`); that the table a column names is
+  there at all is not checked; `mg.twoda.kinds` knows a named list by
+  its name only (`cls_feat_*`), not by the column that names it; a row that is
   there but blank (a padding row) counts as there; a written 2DA is laid out as the game's are, not with the
   widths of the file it was read from; a talk table's language is
   English and its feminine table is another file. (S each)
@@ -1078,15 +1082,18 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   - F6 between panes. (S)
   - A letter typed goes to the tree only with the pointer over it
     (letters are commands elsewhere), to a group's name or a
-    resource's ResRef: not to an area's name where areas are shown by
-    name, nor to a kind or a placed object. (S)
+    resource's name as its row shows it: not to a kind or a placed
+    object. (S)
   - F2 and Delete are for resources, not for a placed object the keys
     are at. (S)
   - Down from the tree's Filter goes to the first group, not the first
     match. (S)
-  - The other lists with a filter (the resource browser, the script
-    list) do not have these keys; the tileset's palette and the
-    Prefabs list have no arrow keys. (S each)
+  - The resource browser has them (its Name field and its list), and
+    Open Script has Down and Up for Enter. Not done: the hak editor's
+    and the tileset editor's filters, the Appearance Gallery's; the
+    tileset's palette and the Prefabs list have no arrow keys; in Open
+    Script, Escape closes the window at once (it does not clear the
+    name first). (S each)
   - In the Gallery Up and Down go a picture at a time, not a row of
     them; the keys repeat only as the system repeats them. (S)
   - With the keys on a category the blueprint selected stays in hand;
@@ -1206,13 +1213,6 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   for it isn't there; selected, it is no object, so the keys (Q and E,
   the arrows) and Adjust Location don't act on it; a drag stays in its
   area; the pointer doesn't change over it. (S)
-- **Deleting from the module tree:** Delete… removes the resource (an
-  area with its GIT and GIC and its area-list entry, a script with its
-  NCS) and nothing else: transitions, scripts and conversations that name
-  it are left as they are, with no warning of them; one resource at a
-  time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
-  start area; Aurora removes it (after asking twice) and then refuses
-  to save: "A module must have a starting location to be valid." (S)
 - **See-through meshes** are drawn in two parts: what is nearly opaque
   of them (alpha from 0.95) with the depth written, then the rest over
   everything solid, back to front, writing none. (A builder's report:
@@ -1229,9 +1229,6 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   smaller levels made of an uncompressed texture leave transparent
   pixels' colors out; a compressed DDS's own levels are used as stored.
   (S–M)
-- **Edit on a script that doesn't exist** makes it and says so in the
-  log; Aurora shows a message box first ("Resource not found. Creating
-  new script."). A mistyped name makes a script (Undo takes it back). (S)
 - **Custom creatures from the Vault and CEP** (a builder's report,
   [issue 3](https://github.com/jadzziaa/moonglow-toolset/issues/3)),
   fixed against the content itself but none of it compared with the
@@ -1245,6 +1242,28 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   reporter's "stopped animating" (Mindwitness) wasn't seen as such: here
   it animated, with its skin torn by the shifted weights. The model
   viewer's own check of names over 16 characters is as it was. (S)
+- **The camera's height** is each view's and lasts until its tab closes.
+  (Lighting and Sound Ranges are kept: a view opens as they were last
+  left, and one already open keeps its own.) (S)
+- **Minimap pictures for tilesets without them:** Moonglow exports the
+  pictures the tileset has; rendering tiles from above to make them
+  (NeverBlender's minimap tool) isn't offered. (M)
+- **The minimap in Moonglow:** the area view has no map panel of its own,
+  and Area Transition setup picks its target from a list rather than a
+  map. (S–M)
+
+## The main window and its panes
+
+- **Deleting from the module tree:** Delete… removes the resource (an
+  area with its GIT and GIC and its area-list entry, a script with its
+  NCS) and nothing else: transitions, scripts and conversations that name
+  it are left as they are, with no warning of them; one resource at a
+  time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
+  start area; Aurora removes it (after asking twice) and then refuses
+  to save: "A module must have a starting location to be valid." (S)
+- **Edit on a script that doesn't exist** makes it and says so in the
+  log; Aurora shows a message box first ("Resource not found. Creating
+  new script."). A mistyped name makes a script (Undo takes it back). (S)
 - **The debug log** (Options › General) covers actions, tabs and panes,
   an area's view as it loads, the palettes, jobs, the log pane and the
   graphics libraries' warnings. Not in it: the editors' own steps
@@ -1284,6 +1303,14 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   open in the editor with typing not yet applied counts as changed
   here. The area list isn't settled again for areas added outside. Not
   tried against a real `git checkout` of many files. (M)
+- **An area's objects in the module tree:** listed by name, kind by
+  kind, with Go To, Properties, Copy and Delete on each; one at a time
+  (no selecting several there), and the Filter finds them only in areas
+  already opened out. A copy made there stands on the ground where it is
+  pasted (its height above the ground isn't carried). (S)
+
+## Languages, tokens and loading screens
+
 - **The game's text in the language edited:** the install is read as
   that language when its `lang/<code>/data/dialog.tlk` is there (its
   talk table, and the rest of its `lang` folder); a module's custom
@@ -1300,20 +1327,6 @@ The reporter's answers to what 1.20.0 built, and two builders' asks.
   module with its own `pnl_loadscreen` model, or a texture that isn't
   laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
   The picture isn't in the list itself, only on hover. (S)
-- **An area's objects in the module tree:** listed by name, kind by
-  kind, with Go To, Properties, Copy and Delete on each; one at a time
-  (no selecting several there), and the Filter finds them only in areas
-  already opened out. A copy made there stands on the ground where it is
-  pasted (its height above the ground isn't carried). (S)
-- **The camera's height** is each view's and lasts until its tab closes.
-  (Lighting and Sound Ranges are kept: a view opens as they were last
-  left, and one already open keeps its own.) (S)
-- **Minimap pictures for tilesets without them:** Moonglow exports the
-  pictures the tileset has; rendering tiles from above to make them
-  (NeverBlender's minimap tool) isn't offered. (M)
-- **The minimap in Moonglow:** the area view has no map panel of its own,
-  and Area Transition setup picks its target from a list rather than a
-  map. (S–M)
 
 ## The turning ring
 
@@ -1475,20 +1488,16 @@ unless it says so.
   setup and "add what was picked, pasted or dropped" (three pages);
   some 30 `Edit` literals where `creature_lists.rs` has `apply`,
   `insert` and `remove`; an item's cloak list built twice; the PLT layer
-  table in four places; a tile's square outline (seven times across the
-  tile and terrain tools); copy, cut and paste detection (three); the
+  table in four places; copy, cut and paste detection (three); the
   tools' radius by distance (four). (M together)
 - **Written more than once, in the windows:** the text field that sets
   its value when focus leaves (`widgets::commit_text`, Module
-  Properties' own, the GFF editor's); the centered dialog that Escape
-  closes (six, each passing its title twice); New Script, New
+  Properties' own, the GFF editor's); New Script, New
   Conversation and Save Script As; Options' "text field and Browse…" row
   (five). (M together)
 - **Written more than once, in mg and the window:** the game, the
   module's haks and the module stacked into a resource manager three
-  ways in mg, again in the window and in 16 corpus tests;
-  `ResMan::add_haks` takes `&[&str]`, so 16 of its 19 callers convert
-  first; `mg set` and `mg apply` open the module twice and pass the
+  ways in mg, again in the window and in 16 corpus tests; `mg set` and `mg apply` open the module twice and pass the
   codepage through a static; a plugin's archive read and its "the check
   failed" finding are in both. (M)
 - **Written more than once, below:** a loose value made a typed GFF

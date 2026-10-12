@@ -1419,7 +1419,8 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
     }
     scripts.sort_by_key(|(k, _)| k.resref.to_string());
     let shown = app.script_tools.open_script.take().map(|o| o.shown).unwrap_or_default();
-    app.script_tools.open_script = Some(OpenScript { filter: String::new(), shown, scripts });
+    app.script_tools.open_script =
+        Some(OpenScript { filter: String::new(), shown, scripts, cursor: 0 });
 }
 
 /// The Open Script window: a name to find, which scripts to show (as
@@ -1430,20 +1431,36 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.script_tools.open_script.take() else { return };
     let mut open = true;
     let mut chosen = None;
-    egui::Window::new("Open Script")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+    crate::widgets::dialog(ctx, "Open Script", &mut open)
         .default_size([420.0, 440.0])
         .collapsible(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Open Script", &mut open))
         .show(ctx, |ui| {
+            // Down and Up (Page Down and Up) choose among the scripts
+            // listed while the name is typed: Enter opens the one chosen.
+            let mut moved: isize = 0;
+            for (key, by) in [
+                (egui::Key::ArrowDown, 1),
+                (egui::Key::ArrowUp, -1),
+                (egui::Key::PageDown, 10),
+                (egui::Key::PageUp, -10),
+            ] {
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)) {
+                    moved += by;
+                }
+            }
             let field = ui.add(
                 egui::TextEdit::singleline(&mut w.filter)
                     .hint_text("Find by name")
                     .desired_width(f32::INFINITY),
             );
             crate::widgets::autofocus(ui, &field);
-            let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if field.changed() {
+                w.cursor = 0;
+            }
+            // (Enter opens wherever the keys are in the window: after a
+            // click on what to show they are not the name's.)
+            let entered = (field.lost_focus() || !field.has_focus())
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal_wrapped(|ui| {
                 for (shown, label) in [
                     (ScriptsShown::All, "All Resources"),
@@ -1465,30 +1482,36 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 .filter(|(k, _)| needle.is_empty() || k.resref.to_string().contains(&needle))
                 .collect();
             ui.weak(format!("{} scripts", listed.len()));
-            if entered && let Some(first) = listed.first() {
-                chosen = Some(**first);
+            let last = listed.len().saturating_sub(1) as isize;
+            let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
+            w.cursor = cursor;
+            if entered && let Some(at) = listed.get(cursor) {
+                chosen = Some(**at);
             }
             let row = ui.spacing().interact_size.y;
-            egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                ui,
-                row,
-                listed.len(),
-                |ui, range| {
-                    for (key, from) in listed[range].iter().copied() {
-                        ui.horizontal(|ui| {
-                            let r = ui.selectable_label(false, key.resref.to_string());
-                            match from {
-                                ScriptFrom::Module => {}
-                                ScriptFrom::Hak => _ = ui.weak("hak"),
-                                ScriptFrom::Game => _ = ui.weak("game"),
-                            }
-                            if r.clicked() {
-                                chosen = Some((*key, *from));
-                            }
-                        });
-                    }
-                },
-            );
+            let mut list = egui::ScrollArea::vertical().auto_shrink(false);
+            if moved != 0 {
+                let pitch = row + ui.spacing().item_spacing.y;
+                let above = (ui.available_height() / 2.0 - pitch).max(0.0);
+                list = list.vertical_scroll_offset((cursor as f32 * pitch - above).max(0.0));
+            }
+            // (Shown once it has moved: the first is Enter's without it.)
+            let marked = (cursor > 0 || moved != 0).then_some(cursor);
+            list.show_rows(ui, row, listed.len(), |ui, range| {
+                for (at, (key, from)) in range.clone().zip(listed[range].iter().copied()) {
+                    ui.horizontal(|ui| {
+                        let r = ui.selectable_label(marked == Some(at), key.resref.to_string());
+                        match from {
+                            ScriptFrom::Module => {}
+                            ScriptFrom::Hak => _ = ui.weak("hak"),
+                            ScriptFrom::Game => _ = ui.weak("game"),
+                        }
+                        if r.clicked() {
+                            chosen = Some((*key, *from));
+                        }
+                    });
+                }
+            });
         });
     match chosen {
         Some((key, ScriptFrom::Module)) => app.actions.push(Action::OpenTab(Tab::Script(key))),

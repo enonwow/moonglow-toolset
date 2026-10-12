@@ -48,7 +48,7 @@ pub(crate) fn game_for(
         }
     };
     let haks = m.haks().unwrap_or_default();
-    match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
+    match game.resman.add_haks(gi, &haks) {
         Ok(missing) => missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found"))),
         Err(e) => out.note(format!("warning: the module's haks: {e}")),
     }
@@ -393,11 +393,19 @@ pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Outp
 
 /// `mg plugin run`: a plugin's command on a module, its edits applied as
 /// one command and saved (or, with `dry_run`, printed).
+/// What of a plugin to run: a command, or (`changed`) what it does by
+/// itself on an event, with the resources a save changed (none named:
+/// all of the module's).
+pub(crate) struct What<'a> {
+    pub id: &'a str,
+    pub changed: Option<Vec<mg_resman::ResKey>>,
+}
+
 pub(crate) fn run(
     gi: Option<&GameInstall>,
     module: &Path,
     dir: &Path,
-    command: &str,
+    what: &What<'_>,
     host: CliHost,
     hak_dir: Option<&Path>,
     dry_run: bool,
@@ -413,7 +421,24 @@ pub(crate) fn run(
     }
     let host = Rc::new(host);
     let input = Input { module: m.clone(), game };
-    let outcome = mg_plugin::run_command(&plugin, command, input, host.clone());
+    let outcome = match &what.changed {
+        None => mg_plugin::run_command(&plugin, what.id, input, host.clone()),
+        Some(changed) => {
+            let on = plugin.manifest.events.iter().find(|e| e.id == what.id).map(|e| e.on);
+            let mut resources = changed.clone();
+            if resources.is_empty() {
+                resources = m.keys().copied().collect();
+                resources.sort();
+            }
+            // (An event that is not the plugin's is refused below.)
+            let kind = on.unwrap_or(mg_plugin::EventKind::ModuleSaved);
+            if kind == mg_plugin::EventKind::ModuleOpened {
+                resources.clear();
+            }
+            let event = mg_plugin::Event { kind, resources };
+            mg_plugin::run_event(&plugin, what.id, &event, input, host.clone())
+        }
+    };
     let outcome = match outcome {
         Ok(o) => o,
         Err(e) => {

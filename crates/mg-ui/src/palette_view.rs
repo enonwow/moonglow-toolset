@@ -238,6 +238,8 @@ pub(crate) enum Keys {
     List,
     /// The talk table editor's lines.
     Talk,
+    /// The resource browser's list.
+    Browser,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

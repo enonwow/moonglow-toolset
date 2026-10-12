@@ -866,12 +866,7 @@ fn cursor_shapes(
         for (x, y) in drag.marked() {
             let (fx, fy) = (x as f32 + o, y as f32 + o);
             let h = z(x, y) + 0.05;
-            let square = [
-                point(fx, fy, h),
-                point(fx + 1.0, fy, h),
-                point(fx + 1.0, fy + 1.0, h),
-                point(fx, fy + 1.0, h),
-            ];
+            let square = crate::area_view::tile_square(fx, fy, h);
             polygon(&square, Color32::from_rgb(240, 200, 60));
         }
     }
@@ -909,24 +904,14 @@ fn cursor_shapes(
                 } else {
                     0.05
                 };
-                let square = [
-                    point(x, y, h),
-                    point(x + 1.0, y, h),
-                    point(x + 1.0, y + 1.0, h),
-                    point(x, y + 1.0, h),
-                ];
+                let square = crate::area_view::tile_square(x, y, h);
                 polygon(&square, color);
             }
         }
         Brush::Eraser | Brush::Refine => {
             let (x, y) = (s.cell.0 as f32, s.cell.1 as f32);
             let h = z(s.cell.0, s.cell.1) + 0.05;
-            let square = [
-                point(x, y, h),
-                point(x + 1.0, y, h),
-                point(x + 1.0, y + 1.0, h),
-                point(x, y + 1.0, h),
-            ];
+            let square = crate::area_view::tile_square(x, y, h);
             // Refine Tile, and the Eraser with Shift, step the tile through
             // those that fit (in a drag, Shift fills a rectangle).
             let cycle = shift && view.terrain_drag.is_none() || brush.brush == Brush::Refine;

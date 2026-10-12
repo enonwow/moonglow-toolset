@@ -213,50 +213,44 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
     let Some(mut draft) = app.update_draft.take() else { return };
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
-    egui::Window::new("Update Instances")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .collapsible(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Update Instances", &mut open))
-        .show(ctx, |ui| {
-            let names: Vec<String> =
-                draft.blueprints.iter().map(|k| k.resref.to_string()).collect();
-            let shown_names = if names.len() > 6 {
-                format!("{} and {} more", names[..6].join(", "), names.len() - 6)
-            } else {
-                names.join(", ")
-            };
-            ui.label(format!(
-                "Makes each object placed from {shown_names} again from its blueprint, \
+    crate::widgets::dialog(ctx, "Update Instances", &mut open).collapsible(false).show(ctx, |ui| {
+        let names: Vec<String> = draft.blueprints.iter().map(|k| k.resref.to_string()).collect();
+        let shown_names = if names.len() > 6 {
+            format!("{} and {} more", names[..6].join(", "), names.len() - 6)
+        } else {
+            names.join(", ")
+        };
+        ui.label(format!(
+            "Makes each object placed from {shown_names} again from its blueprint, \
                  where it stands: its tag, name, scripts and variables become the blueprint's."
-            ));
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut draft.only, None, "Every area");
-                if let Some(area) = draft.shown {
-                    ui.radio_value(&mut draft.only, Some(area), format!("Only {area}"));
-                }
-            });
-            let in_scope = |o: &Affected, only: Option<ResRef>| only.is_none_or(|a| a == o.area);
-            ui.horizontal(|ui| {
-                if ui.small_button("All").clicked() {
-                    draft.objects.iter_mut().for_each(|o| o.on = true);
-                }
-                if ui.small_button("None").clicked() {
-                    draft.objects.iter_mut().for_each(|o| o.on = false);
-                }
-            });
-            let only = draft.only;
-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                for o in draft.objects.iter_mut().filter(|o| in_scope(o, only)) {
-                    ui.checkbox(&mut o.on, &o.label);
-                }
-            });
-            let n = draft.objects.iter().filter(|o| o.on && in_scope(o, only)).count();
-            ui.horizontal(|ui| {
-                ok = ui.add_enabled(n > 0, egui::Button::new(format!("Update {n}"))).clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+        ));
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut draft.only, None, "Every area");
+            if let Some(area) = draft.shown {
+                ui.radio_value(&mut draft.only, Some(area), format!("Only {area}"));
+            }
         });
+        let in_scope = |o: &Affected, only: Option<ResRef>| only.is_none_or(|a| a == o.area);
+        ui.horizontal(|ui| {
+            if ui.small_button("All").clicked() {
+                draft.objects.iter_mut().for_each(|o| o.on = true);
+            }
+            if ui.small_button("None").clicked() {
+                draft.objects.iter_mut().for_each(|o| o.on = false);
+            }
+        });
+        let only = draft.only;
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            for o in draft.objects.iter_mut().filter(|o| in_scope(o, only)) {
+                ui.checkbox(&mut o.on, &o.label);
+            }
+        });
+        let n = draft.objects.iter().filter(|o| o.on && in_scope(o, only)).count();
+        ui.horizontal(|ui| {
+            ok = ui.add_enabled(n > 0, egui::Button::new(format!("Update {n}"))).clicked();
+            cancel = crate::widgets::cancel(ui);
+        });
+    });
     if ok {
         app.apply_update(&draft);
     } else if open && !cancel {
@@ -370,12 +364,9 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
     }
     let mut open = true;
     let (mut find, mut replace, mut go) = (false, false, None);
-    egui::Window::new("Find and Replace Text")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .default_width(560.0)
-        .open(crate::widgets::open_unless_escape(ctx, "Find and Replace Text", &mut open))
-        .show(ctx, |ui| {
+    crate::widgets::dialog(ctx, "Find and Replace Text", &mut open).default_width(560.0).show(
+        ctx,
+        |ui| {
             ui.weak(
                 "The module's names, descriptions, conversation lines and journal, in every \
                  language they're written in (not the game's talk table).",
@@ -429,7 +420,8 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
             } else if draft.searched.is_some() {
                 ui.weak("Find again for what's asked now.");
             }
-        });
+        },
+    );
     if find && !draft.find.is_empty() {
         app.find_text(&mut draft);
     }

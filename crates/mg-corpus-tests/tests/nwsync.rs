@@ -73,7 +73,7 @@ fn published_as_nwn_nwsync_write_publishes() {
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     let m = Module::open(&path).unwrap();
     let mut rm = ResMan::for_game(&install).unwrap();
-    rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    rm.add_haks(&install, &haks).unwrap();
     rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
 
     for with_module in [false, true] {

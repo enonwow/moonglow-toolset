@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T00:54:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 ---
 
 # Plugin API reference
@@ -156,7 +156,9 @@ hold, where Verify Module checks them: a table by column name, `"strref"`
 model's name: `kinds("placeables").ModelName`) or `"row:"` and a table's
 name (a row's number in that table: `kinds("feat").MASTERFEAT` is
 `"row:masterfeats"`; since Moonglow 1.21.2). A table it knows nothing
-of gives an empty one. A cell that names a row holds `****` or a
+of gives an empty one. The lists a class, a race or a package names are
+known by how the game's own are named (`cls_feat_*`, `cls_skill_*`,
+`race_feat_*`, `packft*`, `packsk*`, `packsp*`). A cell that names a row holds `****` or a
 negative number for none, and a spell's `FeatID` keeps the feat in its
 low 16 bits.
 
