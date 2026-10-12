@@ -45,6 +45,8 @@ pub enum Id {
     Factions,
     Journal,
     TalkTable,
+    /// Tools › 2DA File…: a table anywhere, in the 2DA editor.
+    OpenTable,
     NewScript,
     Palettes,
     PlaceableGallery,
@@ -169,6 +171,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::Factions),
             Do(Id::Journal),
             Do(Id::TalkTable),
+            Do(Id::OpenTable),
             Do(Id::NewScript),
             Separator,
             Do(Id::Palettes),
@@ -312,6 +315,12 @@ impl Id {
                 "talk-table",
                 "Talk Table",
                 "The module's own talk table (text named by StrRef), or a .tlk file",
+            ),
+            Id::OpenTable => (
+                "open-2da",
+                "2DA File…",
+                "Edit a .2da file anywhere (a hak's table: Edit Table in the hak editor; the \
+                 game's or the module's: Edit… in the resource browser)",
             ),
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::Palettes => ("palettes", "Palettes", ""),
@@ -515,6 +524,7 @@ impl Id {
             | Id::OpenTileset
             | Id::NewHak
             | Id::OpenHak
+            | Id::OpenTable
             | Id::BuildHak
             | Id::TalkTable
             | Id::ReloadResources
@@ -658,6 +668,7 @@ impl Id {
             Id::OpenTileset => return crate::tileset_view::open(app),
             Id::NewHak => return crate::hak_view::new_hak(app),
             Id::OpenHak => return crate::hak_view::open_hak(app),
+            Id::OpenTable => return crate::table_view::open_file(app),
             Id::BuildHak => return crate::hak_view::build_from_folder(app),
             Id::BuildModule => {
                 app.build.get_or_insert_with(Default::default);

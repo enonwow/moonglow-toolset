@@ -113,7 +113,7 @@ impl HakDoc {
         self.rows.as_ref().map(|r| r.3.clone()).unwrap_or_default()
     }
 
-    fn changed(&mut self) {
+    pub(crate) fn changed(&mut self) {
         self.revision += 1;
         self.description = None;
         let keys: BTreeSet<ResKey> = self.hak.items().iter().map(|i| i.key).collect();
@@ -284,6 +284,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         Extract(Vec<ResKey>),
         Save(bool),
         View(ResKey),
+        EditTable(ResKey),
         UpdateFromFolder,
         CompileModels,
     }
@@ -494,6 +495,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     if ui.button("View").clicked() {
                         todo = Some(Do::View(item.key));
                     }
+                    if item.key.restype == mg_core::ResType::TWODA
+                        && ui
+                            .button("Edit Table")
+                            .on_hover_text(
+                                "In the 2DA editor: saved into this hak, and written with the \
+                                 hak's own Save",
+                            )
+                            .clicked()
+                    {
+                        todo = Some(Do::EditTable(item.key));
+                    }
                     if ui.button("Rename…").clicked() {
                         doc.rename = Some((item.key, item.key.resref.to_string()));
                     }
@@ -553,6 +565,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             if let Some(dir) = app.dialogs.pick_folder("Add Folder", None) {
                 add(app, i, mg_module::hak_edit::folder_files(&dir));
             }
+        }
+        Some(Do::EditTable(key)) => {
+            let id = app.haks[i].id;
+            crate::table_view::open_in_hak(app, id, key);
         }
         Some(Do::Extract(keys)) => {
             if let Some(dir) = app.dialogs.pick_folder("Extract to", None) {

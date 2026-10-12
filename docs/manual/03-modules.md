@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Modules
-description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
+description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:16:52Z }
 ---
 
 # Modules
@@ -365,6 +365,69 @@ folder's files, subfolders included, to look over and save.
   keeps your changes in a copy.
 
 Closing a hak with unsaved changes asks first.
+
+## The 2DA editor
+
+A 2DA is edited where it lives, and the game's own tables are never
+changed:
+
+- **A hak's table:** in the hak editor, right-click the `.2da` and choose
+  **Edit Table**. Save puts the table into the hak (a step of the hak's
+  own Undo); the hak's own **Save** writes the file.
+- **The module's table, or a copy of any table the game reads:** open the
+  table in the resource browser and choose **Edit…**: the module's own
+  table as it is, or a copy in the module, in a hak open in the hak
+  editor, or in a file. A copy is not there until it is saved.
+- **A file anywhere** (an `override` or `development` folder, a
+  repository): **Tools › 2DA File…**
+
+The table is a grid: the column names stay at the top and the rows'
+numbers at the left as it scrolls.
+
+- **A click** selects a cell; a double click, Enter or F2 types into it
+  (Enter keeps what was typed and goes to the row below, Escape leaves
+  the cell as it was); Delete empties it (`****`). The arrow keys, Tab,
+  Page Up and Down, Home and End move from cell to cell.
+- **Ctrl+C** copies the cell and **Ctrl+V** pastes cells from there on:
+  text with a line for each row and tabs between cells, as a spreadsheet
+  copies them. Rows are added at the end where the paste runs past it.
+- **Add Row** puts an empty row at the end. **Empty Row** empties the
+  selected row, which stays. No row is put between others or taken out:
+  a row's number is what characters, areas and scripts know it by, and
+  the rows after it would all change theirs.
+- **Add Column…** adds one at the end.
+- **Find** narrows the rows to those with the text in any cell (Ctrl+F
+  goes to it, Escape clears it); **Go to** takes a row's number.
+- **Undo** and **Redo** are the table's own, step by step (Ctrl+Z and
+  Ctrl+Y with the pointer over the table).
+
+**Cells are checked as you type**, as Verify Module checks a hak's
+tables: a cell that names a row of another table which isn't there (a
+feat's required feat, a spell's feat, a package's class, and the like),
+or a talk-table string that isn't, is outlined in red and says why
+under the pointer; the count above the grid goes to each in turn. Under
+the grid, the selected cell is shown by what its column holds: a
+talk-table string as its text (**Strings as text** shows them so in the
+grid too), a row of another table as that row's name, with a list to
+choose another from.
+
+**Find References to Row** lists the cells, in every table the game
+reads, of the columns known to name a row of this table: who would be
+left pointing at nothing if the row were emptied.
+
+**Take Rows…** is for a table that hides another copy of itself (your
+hak's `appearance.2da` over another hak's, or over the game's). It lists
+the rows the other copy has and yours lacks, and those it has
+differently; against a copy that has one below it, it tells the rows
+only the other changed from those you both changed. Tick rows one by
+one, or all of a kind with the **New** (those yours lacks) and
+**Differ** (those it has differently) boxes; **Clear Selections**
+unticks them all. **Take** brings each ticked row in whole, as one
+step.
+
+Saving lays the table out as the game's own files are (columns in line,
+rows numbered from 0). An empty row at the very end is not written: a
+table has no empty rows after its last.
 
 ## Import and export
 

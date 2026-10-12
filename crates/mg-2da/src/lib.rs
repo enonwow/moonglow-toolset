@@ -204,6 +204,50 @@ impl TwoDa {
         self.get(row, column).and_then(parse_int)
     }
 
+    /// Sets the cell at (`row`, `column`): `None`, or `****`, empties it.
+    /// An error for a value a 2DA cannot hold (a double quote); nothing
+    /// for a cell the table does not have.
+    pub fn set(
+        &mut self,
+        row: usize,
+        column: usize,
+        value: Option<String>,
+    ) -> Result<(), TwoDaError> {
+        let value = value.filter(|v| v != "****");
+        if value.as_ref().is_some_and(|v| v.contains('"')) {
+            return Err(TwoDaError::Unquotable);
+        }
+        if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(column)) {
+            *cell = value;
+        }
+        Ok(())
+    }
+
+    /// Adds a row of empty cells at the end; its number.
+    pub fn add_row(&mut self) -> usize {
+        self.rows.push(vec![None; self.columns.len()]);
+        self.rows.len() - 1
+    }
+
+    /// Adds a column at the end, its cells empty.
+    pub fn add_column(&mut self, name: &str) -> Result<(), TwoDaError> {
+        let mut columns = self.columns.clone();
+        columns.push(name.to_string());
+        self.set_columns(columns)?;
+        for row in &mut self.rows {
+            row.push(None);
+        }
+        Ok(())
+    }
+
+    /// Empties every cell of a row, which stays (the rows after it keep
+    /// their numbers: a row is never taken out of a table).
+    pub fn clear_row(&mut self, row: usize) {
+        if let Some(r) = self.rows.get_mut(row) {
+            r.iter_mut().for_each(|c| *c = None);
+        }
+    }
+
     /// A cell as a float, parsed as the game does (see [`parse_float`]).
     pub fn get_float(&self, row: usize, column: &str) -> Option<f32> {
         self.get(row, column).and_then(parse_float)
@@ -383,5 +427,31 @@ mod tests {
         let t = b"2DA V2.0\n\n   LABEL Model\n0  a     m_a\n1  b     m_b 2 c m_c\n2  \"d e\" m_d\n";
         assert_eq!(overlong_rows(t, Codepage::default()), [(1, 5)]);
         assert!(overlong_rows(b"nope", Codepage::default()).is_empty());
+    }
+
+    #[test]
+    fn cells_rows_and_columns_are_changed_in_place() {
+        let mut t =
+            TwoDa::parse(b"2DA V2.0\n\n  Label Cost\n0 a 1\n1 b 2\n", Codepage::default()).unwrap();
+        t.set(1, 1, Some("5".into())).unwrap();
+        t.set(0, 0, Some("****".into())).unwrap();
+        assert_eq!((t.get(1, "Cost"), t.get(0, "Label")), (Some("5"), None));
+        assert_eq!(t.set(0, 0, Some("a \"b\"".into())), Err(TwoDaError::Unquotable));
+        // (A cell that is not there: nothing.)
+        t.set(9, 0, Some("x".into())).unwrap();
+        assert_eq!(t.add_row(), 2);
+        t.set(2, 0, Some("two words".into())).unwrap();
+        t.add_column("Name").unwrap();
+        assert_eq!(t.add_column("name"), Err(TwoDaError::DuplicateColumn("name".into())));
+        t.set(2, 2, Some("7".into())).unwrap();
+        t.clear_row(1);
+        assert_eq!(t.len(), 3, "a cleared row stays");
+        let text = String::from_utf8(t.to_bytes(Codepage::default()).unwrap()).unwrap();
+        let rows: Vec<&str> = text.lines().skip(3).map(str::trim).collect();
+        assert_eq!(
+            rows,
+            ["0  ****        1    ****", "1  ****        **** ****", "2  \"two words\" **** 7"]
+        );
+        assert_eq!(TwoDa::parse(text.as_bytes(), Codepage::default()).unwrap(), t);
     }
 }

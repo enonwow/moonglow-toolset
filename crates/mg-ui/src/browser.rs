@@ -237,6 +237,52 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     crate::palette_view::keys_outline(ui, out.inner_rect, Keys::Browser);
 }
 
+/// Where a table shown in the browser is to be edited.
+enum EditTable {
+    InModule,
+    Copy(crate::table_view::Home),
+    CopyInFile,
+}
+
+/// A 2DA's Edit menu: the module's own table as it is, or a copy of the
+/// one the game reads, in the module, in a hak open in the hak editor,
+/// or in a file. (The game's own tables are never changed.)
+fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
+    use crate::table_view::Home;
+    let mut out = None;
+    let in_module = app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
+    ui.menu_button("Edit…", |ui| {
+        if in_module {
+            if ui.button("The Module's Table").clicked() {
+                out = Some(EditTable::InModule);
+            }
+        } else if app.ws.is_some()
+            && ui
+                .button("A Copy in the Module")
+                .on_hover_text("The module's own table from then on, over the haks'")
+                .clicked()
+        {
+            out = Some(EditTable::Copy(Home::Module));
+        }
+        for doc in &app.haks {
+            let name = doc.title();
+            let name = name.trim_end_matches(" *");
+            let has = doc.hak.items().iter().any(|i| i.key == key);
+            let label = match has {
+                true => format!("A Copy in {name} (in place of its own)"),
+                false => format!("A Copy in {name}"),
+            };
+            if ui.button(label).on_hover_text("A hak open in the hak editor").clicked() {
+                out = Some(EditTable::Copy(Home::Hak(doc.id)));
+            }
+        }
+        if ui.button("A Copy in a File…").clicked() {
+            out = Some(EditTable::CopyInFile);
+        }
+    });
+    out
+}
+
 /// Save As on a resource of the load order: its bytes to a file; or,
 /// `as_text`, a compiled model as its text (one that is text already is
 /// saved as it is).
@@ -408,14 +454,24 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     };
     let mut copy = false;
     let mut save = false;
+    let mut edit_table = None;
     ui.horizontal(|ui| {
         ui.strong(key.to_string());
         ui.weak(format!("from {}, {} bytes", viewed.origin, viewed.data.len()));
         let can_copy = app.ws.as_ref().is_some_and(|w| !w.module.contains(&key));
         copy = ui.add_enabled(can_copy, egui::Button::new("Copy to Module")).clicked();
         save = ui.button("Save As…").clicked();
+        if key.restype == ResType::TWODA {
+            edit_table = table_menu(app, ui, key);
+        }
     });
     ui.separator();
+    match edit_table {
+        Some(EditTable::InModule) => _ = crate::table_view::open_in_module(app, key),
+        Some(EditTable::Copy(home)) => _ = crate::table_view::edit_copy(app, key, home),
+        Some(EditTable::CopyInFile) => crate::table_view::edit_copy_in_file(app, key),
+        None => {}
+    }
     if copy {
         app.actions.push(Action::Apply(Command::new(
             format!("Copy {key} to the module"),

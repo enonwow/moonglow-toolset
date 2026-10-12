@@ -48,6 +48,7 @@ mod script_view;
 pub mod script_wizard;
 pub mod settings;
 pub mod store_wizard;
+pub mod table_view;
 mod tabs;
 pub mod talk_view;
 pub mod terrain_mode;
@@ -359,6 +360,11 @@ pub struct Moonglow {
     keymap_from: std::collections::BTreeMap<String, Vec<String>>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
+    /// The 2DAs open in the table editor.
+    pub tables: Vec<table_view::TableDoc>,
+    pub(crate) next_table: u32,
+    /// A table whose tab was asked to close with unsaved changes.
+    pub(crate) table_closing: Option<u32>,
     pub(crate) next_hak: u32,
     /// A hak whose tab is being closed with unsaved changes.
     pub(crate) hak_closing: Option<u32>,
@@ -656,6 +662,9 @@ impl Moonglow {
             keymap_from: Default::default(),
             haks: Vec::new(),
             next_hak: 0,
+            tables: Vec::new(),
+            next_table: 0,
+            table_closing: None,
             hak_closing: None,
             hak_list: Default::default(),
             suggested_hak: None,
@@ -1025,6 +1034,7 @@ impl Moonglow {
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
+        table_view::closing_window(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
@@ -1250,6 +1260,13 @@ impl Moonglow {
             }
             self.haks.retain(|d| d.id != id);
         }
+        if let Tab::Table(id) = *tab {
+            if self.tables.iter().any(|d| d.id == id && d.edit.is_dirty()) {
+                self.table_closing = Some(id);
+                return false;
+            }
+            self.tables.retain(|d| d.id != id);
+        }
         if let Tab::Tileset(id) = *tab {
             if self.tilesets.iter().any(|d| d.id == id && d.is_dirty()) {
                 self.tileset_closing = Some(id);
@@ -1264,7 +1281,10 @@ impl Moonglow {
     /// resource or a tool of the module, not a hak's or a tileset's own
     /// editor (closed, it has let its file go).
     pub(crate) fn closed(&mut self, tab: &Tab) {
-        if matches!(tab, Tab::Hak(_) | Tab::Tileset(_) | Tab::Options | Tab::TileProperties) {
+        if matches!(
+            tab,
+            Tab::Hak(_) | Tab::Table(_) | Tab::Tileset(_) | Tab::Options | Tab::TileProperties
+        ) {
             return;
         }
         // (The palettes' pane closed is the palettes folded away: View

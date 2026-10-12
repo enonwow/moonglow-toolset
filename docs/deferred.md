@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:42:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:08:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -609,13 +609,34 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   would need every reference to the row changed too); a talk table's
   merge takes a line whole (its text, sound and length together); a
   feminine table is compared as a file of its own. (M, M, S, S)
-- **No 2DA editor:** 2DAs are shown in a read-only view (it shows which
-  hak each row comes from), and `mg 2da-diff --base` merges two tables
-  against the one both were made from, from a terminal. Editing rows in
-  the window and taking rows from another hak's copy is proposed, with
-  the decisions it needs and four phases:
-  [the proposal](2da-editor-proposal.md). (L; awaits the owner's
-  rulings)
+- **The 2DA editor** ([its proposal](2da-editor-proposal.md), built
+  after 1.21.3: a table's cells in the module, a hak or a file, checked
+  as typed, with rows taken from another copy). Not done:
+  - A model's cell has no list to choose from and is not checked by the
+    row; a talk-table string's cell offers the talk table, not a new
+    line in it. (S each)
+  - Find References to Row looks in the tables' known columns, not in
+    blueprints, areas or scripts. (M)
+  - A row both copies changed is taken whole or left: its cells are not
+    chosen one by one. (S)
+  - A table saved is laid out anew (the file's own widths and its row
+    labels are not kept: rows are numbered), and an empty row at the
+    end is not written. (S)
+  - A table open in the editor is not read again when what it was read
+    from changes under it (the module's Undo taking its save back, the
+    hak's table replaced, the file changed outside). (S)
+  - Large tables were not timed while edited (a persistent world's
+    `appearance.2da`); Find looks through every cell at each frame
+    (Take Rows reads the copies once, and works the rows out once for
+    a copy). (S)
+  - No row is put between others or taken out, by decision; no sorting,
+    no column removed or renamed, no `DEFAULT:` edited. (—)
+  - The keys: no Shift-selection of several cells, no Ctrl+X; a letter
+    typed does not begin typing in the cell (Enter, F2 or a double
+    click does). (S each)
+  - The hak editor's Edit Table and the Take Rows window against two
+    haks' copies were tried through the functions under them and with
+    the game's copy, not by their own buttons. (S)
 - **Talk tables in a hak or the module** are read-only: Moonglow edits
   only tables in the `tlk` folder. A table kept in the module could be
   edited and saved with it. (S)
@@ -1250,8 +1271,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   for the row under the pointer, else the cursor's; both panes' filter
   fields have Ctrl+F, Escape (clear, then leave) and Down. Not done:
   - F6 and Shift+F6 give the keys to the next pane (the module tree,
-    the middle, the palettes). Not done: the log, a talk table's lines
-    and the resource browser's list are not among them; the palettes'
+    the middle, the palettes). Not done: the log, a talk table's lines,
+    the resource browser's list and the 2DA editor's cells are not
+    among them; the palettes'
     cursor starts at no row until an arrow is pressed; a command a
     builder already gave F6 to is now in conflict with Next Pane
     (Options › Keyboard lists it; the pane's wins until one is

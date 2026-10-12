@@ -15475,3 +15475,282 @@ fn look_palette_in_language() {
     let game = h.state().game.as_deref().unwrap();
     eprintln!("LANG {:?} sample {:?}", game.language, game.string(mg_core::StrRef(6686)));
 }
+
+const SMALL_TABLE: &[u8] = b"2DA V2.0\r\n\r\n   Label   Cost\r\n0  Bread   1\r\n1  Cheese  2\r\n";
+
+fn table_of(h: &Harness<'_, Moonglow>, id: u32) -> mg_2da::TwoDa {
+    h.state().tables.iter().find(|d| d.id == id).unwrap().edit.table().clone()
+}
+
+/// The 2DA editor on a table of the module's: a cell typed in, rows
+/// added and emptied, each a step of the table's own to take back; Save
+/// is one step of the module's.
+#[test]
+fn a_module_s_table_is_edited_cell_by_cell() {
+    let dir = mg_testkit::scratch_dir("ui-table-module");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
+    h.get_by_label("mystore.2da");
+    // A click selects a cell and F2 (or Enter, or a double click) types
+    // into it; Enter keeps what is typed.
+    h.get_by_label("Cheese").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("y".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
+    h.get_by_label("(unsaved)");
+    // The keys are the grid's: Up and Right to Bread's cost, Delete
+    // empties it; Escape while typing leaves a cell as it was.
+    let key_ = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(2);
+    };
+    let at = |h: &Harness<'_, Moonglow>| h.state().tables[0].selected;
+    key_(&mut h, egui::Key::ArrowUp);
+    key_(&mut h, egui::Key::ArrowRight);
+    assert_eq!(at(&h), Some((0, 1)));
+    key_(&mut h, egui::Key::Delete);
+    assert_eq!(table_of(&h, id).get(0, "Cost"), None);
+    key_(&mut h, egui::Key::F2);
+    h.event(egui::Event::Text("77".into()));
+    h.run_steps(2);
+    key_(&mut h, egui::Key::Escape);
+    assert_eq!(table_of(&h, id).get(0, "Cost"), None, "Escape: not kept");
+    // Add Row puts one at the end; Empty Row empties the selected one,
+    // which stays.
+    h.get_by_label("Add Row").click();
+    h.run_steps(2);
+    assert_eq!((table_of(&h, id).len(), at(&h)), (3, Some((2, 1))));
+    h.get_by_label("Cheesey").click();
+    h.run_steps(2);
+    h.get_by_label("Empty Row").click();
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(1, "Label"), t.get(1, "Cost")), (3, None, None));
+    // Undo is the table's own, step by step.
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
+    // Save: the module's table is as edited, in one step of the module's.
+    let stored = |h: &mut Harness<'_, Moonglow>| {
+        let data = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
+    };
+    assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"));
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    // (The empty row at the end is not in the file: a table read has no
+    // empty rows after its last.)
+    assert_eq!(stored(&mut h).rows[..], table_of(&h, id).rows[..2]);
+    assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"), "the module's Undo takes the save");
+}
+
+/// A table of a hak open in the hak editor is saved into the hak (a step
+/// of the hak's, written by its own Save); one of a file, to the file.
+#[test]
+fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
+    use mg_module::hak_edit::{Hak, Source};
+    let dir = mg_testkit::scratch_dir("ui-table-hak");
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    let hak_path = dir.join("stuff.hak");
+    let mut hak = Hak::new();
+    hak.add_sources(vec![(key, Source::Bytes(SMALL_TABLE.to_vec().into()))]).unwrap();
+    hak.save(Some(&hak_path)).unwrap();
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, SMALL_TABLE).unwrap();
+    let dialogs = NoDialogs { open: vec![file.clone(), hak_path.clone()], ..Default::default() };
+    let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(dialogs)),
+    );
+    h.run_steps(2);
+    mg_ui::hak_view::open_hak(h.state_mut());
+    h.run_steps(3);
+    let hak_id = h.state().haks[0].id;
+    let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
+    h.run_steps(3);
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        assert_eq!(doc.home, mg_ui::table_view::Home::Hak(hak_id));
+        doc.edit.set(0, 1, Some("9".into())).unwrap();
+    }
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    let in_hak = |h: &Harness<'_, Moonglow>| {
+        let data = h.state().haks[0].hak.data(key).unwrap();
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
+    };
+    assert_eq!(in_hak(&h).get(0, "Cost"), Some("9"));
+    assert!(h.state().haks[0].hak.is_dirty(), "the hak's own Save writes its file");
+    assert!(!h.state().tables[0].edit.is_dirty());
+    h.state_mut().haks[0].hak.undo();
+    assert_eq!(in_hak(&h).get(0, "Cost"), Some("1"), "a step of the hak's");
+
+    // Tools › 2DA File…: a file anywhere.
+    mg_ui::table_view::open_file(h.state_mut());
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.name() == "loose").unwrap();
+    let loose = doc.id;
+    doc.edit.add_rows(1);
+    doc.edit.set(2, 0, Some("Two Words".into())).unwrap();
+    assert!(mg_ui::table_view::save(h.state_mut(), loose));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.ends_with("2  \"Two Words\" ****\r\n"), "{text:?}");
+    // A cell a 2DA cannot hold is refused, and said.
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == loose).unwrap();
+    assert!(doc.edit.set(0, 0, Some("a \"b\"".into())).is_err());
+    // Closing a table with unsaved changes asks first.
+    doc.edit.set(0, 0, Some("Loaf".into())).unwrap();
+    h.run_steps(2);
+    let tab = h.state().dock.find_tab(&Tab::Table(loose)).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(loose)]));
+    h.run_steps(3);
+    let _ = tab;
+    h.get_by_label("loose.2da has unsaved changes.");
+    h.get_by_label("Discard").click();
+    h.run_steps(3);
+    assert!(h.state().tables.iter().all(|d| d.id != loose));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("Bread"), "discarded");
+}
+
+/// With the game's data: a cell is checked by what its column holds as
+/// it is typed, a row of another table is chosen by name, where a row is
+/// named is found, and rows are taken from the game's copy.
+#[test]
+fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-kinds");
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut t = (*game.table("feat").unwrap()).clone();
+    let whole = t.len();
+    let (prereq, label) = (t.column("PREREQFEAT1").unwrap(), t.column("LABEL").unwrap());
+    t.rows.truncate(whole - 25);
+    t.set(5, label, Some("MyOwnShot".into())).unwrap();
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    assert!(h.query_by_label_contains("wrong").is_none(), "the game's own table is sound");
+    // A feat that is not there: said, and gone to.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(3, prereq, Some("4000".into())).unwrap();
+        doc.go_to(0, 0);
+    }
+    // (The table changed under the window: as an edit there would say.)
+    h.get_by_label("Add Row").click();
+    h.run_steps(3);
+    h.get_by_label("1 cell is wrong").click();
+    h.run_steps(4);
+    assert_eq!(h.state().tables[0].selected, Some((3, prereq)));
+    h.get_by_label_contains("row 4000 of feat.2da doesn't exist");
+    // Where row 3 (Armor Proficiency, Heavy) is named: other feats
+    // require it.
+    let own = table_of(&h, id);
+    let found = mg_ui::table_view::references(h.state(), "feat", &own, 3);
+    assert!(found.iter().any(|r| r.table == "feat" && r.column == "PREREQFEAT1"), "{found:?}");
+    assert!(found.len() > 3, "{found:?}");
+    // Take Rows: the game's copy has the 25 rows this one lacks, and two
+    // it has differently (this is the lowest copy: whose change, untold).
+    h.get_by_label("Take Rows…").click();
+    h.run_steps(4);
+    h.get_by_label_contains("25 new, 2 that differ");
+    // (The Differ box ticks the two that differ; Clear Selections unticks;
+    // New, the 25; both boxes, all 27, and a box unticked takes its own away.)
+    h.get_by_label("Differ").click();
+    h.run_steps(2);
+    h.get_by_label("Take 2 Rows");
+    h.get_by_label("Clear Selections").click();
+    h.run_steps(2);
+    h.get_by_label("New").click();
+    h.run_steps(2);
+    h.get_by_label("Differ").click();
+    h.run_steps(2);
+    h.get_by_label("Take 27 Rows");
+    h.get_by_label("Differ").click();
+    h.run_steps(2);
+    h.get_by_label("Take 25 Rows").click();
+    h.run_steps(3);
+    let now = table_of(&h, id);
+    assert_eq!(now.len(), whole);
+    assert_eq!(now.get(whole - 1, "LABEL"), game.table("feat").unwrap().get(whole - 1, "LABEL"));
+    assert_eq!(now.get(5, "LABEL"), Some("MyOwnShot"), "what was not chosen is as it was");
+    assert!(h.state().tables[0].taking.is_none(), "the window closed");
+    // One step to take back (and the row added above, another).
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).len(), whole - 24);
+}
+
+/// The game's own tables are not changed: Edit… in the resource browser
+/// makes a copy to edit, in a file, a hak or the module, which is not
+/// there until it is saved.
+#[test]
+fn a_game_table_is_edited_as_a_copy() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-copy");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let file = dir.join("skills.2da");
+    let dialogs = NoDialogs { save: vec![file.clone()], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let key = ResKey::parse("skills", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(4);
+    h.get_by_label("Edit…").click();
+    h.run_steps(2);
+    h.get_by_label("A Copy in the Module");
+    h.get_by_label("A Copy in a File…").click();
+    h.run_steps(4);
+    let doc = &h.state().tables[0];
+    assert_eq!(doc.home, mg_ui::table_view::Home::File(file.clone()));
+    assert!(doc.edit.is_dirty(), "a copy: not there until saved");
+    assert!(!file.exists());
+    let rows = doc.edit.table().len();
+    assert!(rows > 20);
+    let id = doc.id;
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    let written =
+        mg_2da::TwoDa::parse(&std::fs::read(&file).unwrap(), mg_core::Codepage::default());
+    assert_eq!(written.unwrap().len(), rows);
+    // In the module: one step of the module's at Save, the module's own
+    // table from then on.
+    let id =
+        mg_ui::table_view::edit_copy(h.state_mut(), key, mg_ui::table_view::Home::Module).unwrap();
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key));
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    h.run_steps(3);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
+}

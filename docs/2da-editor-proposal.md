@@ -1,10 +1,9 @@
 ---
 type: Proposal
 title: 'A 2DA editor and merger: a proposal'
-description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, and what is not known yet.
+description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.
 tags: [proposal, 2da, custom-content, haks, editor]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:34:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T08:08:37Z }
 stale_after: 2027-01-12T00:00:00Z
 sources:
   - id: request
@@ -29,8 +28,9 @@ research that set the first scope left the editor to Eos Toolset
 ("revisit when asked");[^pain] the deferred list has carried it as its
 largest open piece since.[^deferred] This is the asking.[^request]
 
-Nothing here is built. The proposal says what exists, what has to be
-decided, and the order it could be built in.
+The owner took the recommendations as they stand (2026-10-12), and the
+editor was built by them: see [What was built](#what-was-built). The
+rest of this page is the proposal as it was made, for the reasons.
 
 ## What the editor is for
 
@@ -156,6 +156,41 @@ its own.
   sight, and an editor has to keep to that. Not measured with editing.
 - **What Eos does that builders would miss.** Its editor was not looked
   at for this proposal.
+
+## What was built
+
+All four phases, by the recommendations, after 1.21.3 (the manual's
+[2DA editor](manual/03-modules.md#the-2da-editor) says how it is used):
+
+| Phase | Built | Held by |
+| --- | --- | --- |
+| 1 | `TwoDa::set`, `add_row`, `add_column`, `clear_row` (the plugin host calls them); `mg_module::table_edit::Editing` (every change a step); the editor's tab on a module's table: cells, rows added and emptied, columns added, Find, Go to, copy and paste | `mg-2da` and `table_edit` unit tests; `a_module_s_table_is_edited_cell_by_cell`; `engine_reads_a_table_the_editor_wrote` (the server reads the written table cell for cell) |
+| 2 | A hak's table (Edit Table in the hak editor, saved as a step of the hak's), a file anywhere (Tools › 2DA File…), and Edit… in the resource browser: the module's table, or a copy of the one the game reads in the module, a hak or a file | `a_hak_s_table_and_a_file_s_are_saved_where_they_live`, `a_game_table_is_edited_as_a_copy` |
+| 3 | Cells checked as typed (`doctor::table_faults`: a row of another table, a talk-table string), a talk-table string shown as its text, a row of another table chosen by name, Find References to Row | `a_table_s_cells_are_checked_and_rows_taken_from_another_copy`; `the_game_s_own_tables_have_one_cell_fault` (every game table is sound by the same check, but for one row of the game's own) |
+| 4 | Take Rows from Another Copy: new rows, rows that differ, and against a lower copy the rows only the other changed apart from those both did | `rows_are_offered_and_taken_from_another_copy`; the same UI test |
+
+![The editor on a copy of feat.2da: a cell that names a feat that is not there](images/2da-table-editor.png)
+
+![Typing in a cell](images/2da-table-editor-typing.png)
+
+![Take Rows from Another Copy](images/2da-table-editor-take-rows.png)
+
+![Find References to a row](images/2da-table-editor-references.png)
+
+![Edit… on a table in the resource browser](images/2da-table-editor-edit-menu.png)
+
+Not as proposed, or not done (each is in the [deferred list](deferred.md)):
+
+- A model's cell has no list of models to choose from, and is not
+  checked by the row: the game's own tables name models it never
+  shipped, and an appearance's is a letter for a body of parts.
+- A talk-table string's cell offers the talk table, not a new line in it.
+- Find References looks in the tables' known columns, not in blueprints,
+  areas or scripts.
+- A row both copies changed is taken whole or not at all: its cells are
+  shown side by side, not chosen one by one.
+- None of the unknowns below was settled first: the order of the save
+  paths is as recommended, not as builders said.
 
 ## What it would not be
 

@@ -34,6 +34,7 @@ pub mod rename;
 pub mod script_set;
 pub mod script_wizard;
 pub mod store_setup;
+pub mod table_edit;
 pub mod table_layers;
 pub mod talk;
 pub mod testing;

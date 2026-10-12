@@ -183,3 +183,42 @@ fn row_columns_hold_for_the_game_s_tables() {
     }
     assert!(tables > 200 && cells > 20000, "{tables} tables, {cells} cells");
 }
+
+#[test]
+fn the_game_s_own_tables_have_one_cell_fault() {
+    // What the 2DA editor marks wrong as a table is typed must find
+    // nothing in the game's own tables.
+    use mg_module::doctor::{TalkTables, column_kinds_as_named, table_faults};
+    let root = corpus!();
+    let gi = GameInstall::new(&root, None, "en");
+    let rm = ResMan::for_game(&gi).unwrap();
+    let base =
+        mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).unwrap()).unwrap().entries.len();
+    let read = |name: &str| {
+        let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA)?;
+        let t = mg_2da::TwoDa::parse(&rm.get(&key).ok()?, mg_core::Codepage::default()).ok()?;
+        Some(std::sync::Arc::new(t))
+    };
+    let mut wrong = Vec::new();
+    let mut checked = 0;
+    for name in rm.list(mg_core::ResType::TWODA) {
+        let name = name.to_string().to_lowercase();
+        let kinds = column_kinds_as_named(&name, &read);
+        if kinds.is_empty() {
+            continue;
+        }
+        let Some(t) = read(&name) else { continue };
+        checked += 1;
+        let rows_of = |n: &str| read(n).map(|t| t.len());
+        let tlk = TalkTables { base, custom: None };
+        for f in table_faults(&name, &t, &kinds, &rows_of, tlk) {
+            wrong.push(format!("{name} row {}, {}: {}", f.row, t.columns()[f.column], f.message));
+        }
+    }
+    assert!(checked > 200, "{checked}");
+    // (The game's one: a bard's spell preferences name spell 2544 of 840.)
+    assert_eq!(
+        wrong,
+        ["packspbar2 row 40, SpellIndex: row 2544 of spells.2da doesn't exist: it has 840 rows"]
+    );
+}

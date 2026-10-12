@@ -240,6 +240,8 @@ pub(crate) enum Keys {
     Talk,
     /// The resource browser's list.
     Browser,
+    /// A table's cells, in the 2DA editor.
+    Table,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

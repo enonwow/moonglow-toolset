@@ -110,6 +110,76 @@ fn module_properties_haks() {
     shoot(&mut h, &dir, "module-properties-haks");
 }
 
+/// The 2DA editor on a copy of the game's feat.2da kept as a file: a
+/// cell that names a feat that is not there, selected; and Take Rows,
+/// with the game's copy to take from.
+#[test]
+#[ignore]
+fn table_editor() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-table");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    // The game's table with a feat changed, one wrong, and its last rows
+    // not there.
+    let mut t = (*game.table("feat").unwrap()).clone();
+    let (prereq, label) = (t.column("PREREQFEAT1").unwrap(), t.column("LABEL").unwrap());
+    t.rows.truncate(t.len() - 25);
+    t.set(3, prereq, Some("4000".into())).unwrap();
+    t.set(5, label, Some("MyOwnDodge".into())).unwrap();
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.go_to(3, prereq);
+    }
+    h.run_steps(6);
+    shoot(&mut h, &dir, "table-editor");
+    // Typing in a cell.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.go_to(5, label);
+        doc.typing = Some("MyOwnDodge".into());
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-editor-typing");
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.typing = None;
+        doc.taking = Some(Default::default());
+    }
+    h.run_steps(6);
+    h.get_by_label("New").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-editor-take-rows");
+    // Where a row is named, and a row of another table to choose from.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.taking = None;
+        doc.go_to(3, prereq);
+    }
+    h.run_steps(4);
+    h.get_by_label("Find References to Row 3").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-editor-references");
+    // The resource browser's Edit… on a table of the game's.
+    let key = ResKey::parse("skills", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run_steps(5);
+    h.get_by_label("Edit…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-editor-edit-menu");
+}
+
 /// The Talk Table editor on a line with a long text: plain, and with a
 /// feminine table.
 #[test]

@@ -69,12 +69,7 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>) -> mlua::Result<Table> {
             if row >= t.len() {
                 return fail(format!("the table has no row {row} (add_row adds one)"));
             }
-            let value = cell(&value)?;
-            if value.as_ref().is_some_and(|v| v.contains('"')) {
-                return fail("a cell can't hold a double quote");
-            }
-            t.rows[row][at] = value;
-            Ok(())
+            t.set(row, at, cell(&value)?).or_else(|_| fail("a cell can't hold a double quote"))
         })?,
     )?;
     let t = shared.clone();
@@ -83,20 +78,26 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>) -> mlua::Result<Table> {
         lua.create_function(move |_, (this, cells): (Table, Option<Table>)| {
             let mut t = t.borrow_mut();
             let t = Arc::make_mut(&mut t);
-            let mut row = vec![None; t.columns().len()];
+            // (All of the row or none: a cell refused leaves the table
+            // as it was.)
+            let mut row = Vec::new();
             for pair in cells.iter().flat_map(|c| c.pairs::<String, LuaValue>()) {
                 let (column, value) = pair?;
                 let Some(at) = t.column(&column) else {
                     return fail(format!("the table has no column {column}"));
                 };
-                row[at] = cell(&value)?;
-                if row[at].as_ref().is_some_and(|v| v.contains('"')) {
+                let value = cell(&value)?;
+                if value.as_ref().is_some_and(|v| v.contains('"')) {
                     return fail("a cell can't hold a double quote");
                 }
+                row.push((at, value));
             }
-            t.rows.push(row);
+            let at = t.add_row();
+            for (column, value) in row {
+                t.set(at, column, value).or_else(|_| fail("a cell can't hold a double quote"))?;
+            }
             this.set("rows", t.len())?;
-            Ok(t.len() - 1)
+            Ok(at)
         })?,
     )?;
     let t = shared.clone();
@@ -108,12 +109,7 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>) -> mlua::Result<Table> {
             if t.column(&name).is_some() {
                 return fail(format!("the table has a column {name}"));
             }
-            let mut columns = t.columns().to_vec();
-            columns.push(name);
-            t.set_columns(columns).or_else(fail)?;
-            for row in &mut t.rows {
-                row.push(None);
-            }
+            t.add_column(&name).or_else(fail)?;
             this.set("columns", t.columns().to_vec())
         })?,
     )?;

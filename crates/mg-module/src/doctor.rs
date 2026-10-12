@@ -754,6 +754,101 @@ pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
         .collect()
 }
 
+/// Why a talk-table string's number names no string, if it names none.
+fn strref_problem(v: u32, tlk: TalkTables) -> Option<String> {
+    if v >= 0x0100_0000 {
+        match tlk.custom {
+            None => Some("the module has no custom talk table".to_string()),
+            Some(n) if (v - 0x0100_0000) as usize >= n => {
+                Some(format!("the custom talk table has {n} strings"))
+            }
+            Some(_) => None,
+        }
+    } else if tlk.base > 0 && v as usize >= tlk.base {
+        Some(format!("dialog.tlk has {} strings", tlk.base))
+    } else {
+        None
+    }
+}
+
+/// [`column_kinds`], and for a table that a class, a race or a package
+/// names in a column (`table` reads a table as the game has it), whatever
+/// its own name, the columns such a table has.
+pub fn column_kinds_as_named(
+    name: &str,
+    table: &dyn Fn(&str) -> Option<std::sync::Arc<TwoDa>>,
+) -> Vec<(&'static str, ColumnKind)> {
+    let mut kinds = column_kinds(name);
+    for (naming, by, _, column, target) in NAMED_TABLES {
+        let named = table(naming).is_some_and(|t| {
+            (0..t.len()).any(|r| t.get(r, by).is_some_and(|n| n.eq_ignore_ascii_case(name)))
+        });
+        if named && !kinds.contains(&(column, ColumnKind::Row(target))) {
+            kinds.push((column, ColumnKind::Row(target)));
+        }
+    }
+    kinds
+}
+
+/// A cell of a table that is wrong as it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellFault {
+    pub row: usize,
+    /// The column's place in the table.
+    pub column: usize,
+    pub message: String,
+}
+
+/// What is wrong in the cells of the table `name` (without `.2da`), every
+/// row of it, by what its columns hold (`kinds`): a row of another table
+/// that is not there (`rows_of`: how many rows a table has, as the module
+/// sees it; the table itself is asked of itself), a talk-table string
+/// that is not there. A table being edited is checked by this as it is
+/// typed.
+pub fn table_faults(
+    name: &str,
+    t: &TwoDa,
+    kinds: &[(&'static str, ColumnKind)],
+    rows_of: &dyn Fn(&str) -> Option<usize>,
+    tlk: TalkTables,
+) -> Vec<CellFault> {
+    let mut out = Vec::new();
+    for (column, kind) in kinds {
+        let Some(at) = t.column(column) else { continue };
+        let length = match kind {
+            ColumnKind::Row(target) if target.eq_ignore_ascii_case(name) => Some(t.len()),
+            ColumnKind::Row(target) => rows_of(target),
+            _ => None,
+        };
+        for row in 0..t.len() {
+            let Some(text) = t.cell(row, at) else { continue };
+            let message = match kind {
+                ColumnKind::StrRef => mg_2da::parse_int(text)
+                    .and_then(|v| u32::try_from(v).ok())
+                    .and_then(|v| strref_problem(v, tlk).map(|p| (v, p)))
+                    .map(|(v, p)| format!("string {v} doesn't exist: {p}")),
+                // (Not by the row: the game's own tables name models it
+                // never shipped, and an appearance's is a letter for a
+                // body of parts. A row's model matters when something
+                // uses the row, which Verify Module looks at.)
+                ColumnKind::Model => None,
+                ColumnKind::Row(target) => mg_2da::parse_int(text)
+                    .and_then(|v| row_named(name, column, v))
+                    .zip(length)
+                    .filter(|(named, length)| named >= length)
+                    .map(|(named, length)| {
+                        format!("row {named} of {target}.2da doesn't exist: it has {length} rows")
+                    }),
+            };
+            if let Some(message) = message {
+                out.push(CellFault { row, column: at, message });
+            }
+        }
+    }
+    out.sort_by_key(|f| (f.row, f.column));
+    out
+}
+
 /// Rows past which Aurora fails, by table.
 const AURORA_ROW_LIMITS: [(&str, usize, &str); 2] = [
     ("baseitems", 256, "Aurora fails with an access violation"),
@@ -846,20 +941,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
             }
             let Some(v) = table.get_int(row, column) else { continue };
             let Ok(v) = u32::try_from(v) else { continue };
-            let problem = if v >= 0x0100_0000 {
-                match d.tlk.custom {
-                    None => Some("the module has no custom talk table".to_string()),
-                    Some(n) if (v - 0x0100_0000) as usize >= n => {
-                        Some(format!("the custom talk table has {n} strings"))
-                    }
-                    Some(_) => None,
-                }
-            } else if d.tlk.base > 0 && v as usize >= d.tlk.base {
-                Some(format!("dialog.tlk has {} strings", d.tlk.base))
-            } else {
-                None
-            };
-            if let Some(p) = problem {
+            if let Some(p) = strref_problem(v, d.tlk) {
                 d.push(
                     Error,
                     Check::TwoDaStrRef,
@@ -1187,6 +1269,30 @@ mod tests {
             ]
         );
         assert_eq!(column_kinds("CLS_FEAT_WIZ"), [("FeatIndex", ColumnKind::Row("feat"))]);
+        // The same, of a table as it is edited: every row of it, its own
+        // rows counted as they are now.
+        let t =
+            TwoDa::parse(feat("0 a 1 ****\n1 b 7 9\n2 c -1 0\n").as_bytes(), Codepage::default())
+                .unwrap();
+        let read = |name: &str| {
+            let key = ResKey::parse(name, ResType::TWODA)?;
+            let t = TwoDa::parse(&rm.get(&key).ok()?, Codepage::default()).ok()?;
+            Some(std::sync::Arc::new(t))
+        };
+        assert_eq!(
+            column_kinds_as_named("my_knight_feats", &read),
+            [("FeatIndex", ColumnKind::Row("feat"))]
+        );
+        let found = table_faults(
+            "feat",
+            &t,
+            &column_kinds("feat"),
+            &|name| (name == "spells").then_some(3),
+            TalkTables { base: 100, custom: None },
+        );
+        let at: Vec<(usize, usize)> = found.iter().map(|f| (f.row, f.column)).collect();
+        assert_eq!(at, [(1, 1), (1, 2)], "{found:?}");
+        assert_eq!(found[0].message, "row 7 of feat.2da doesn't exist: it has 3 rows");
         // What a table's columns hold, for those who ask.
         let kinds = column_kinds("Feat");
         assert!(kinds.contains(&("FEAT", ColumnKind::StrRef)));
