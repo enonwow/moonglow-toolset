@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.22.0" date="2026-10-12">
+      <description>
+        <p>A 2DA editor: a table of the module, of a hak or in a file is
+        edited cell by cell, checked as it is typed, and takes rows from
+        another copy of itself. F6 goes from pane to pane, tabs can be
+        stepped through by most recent, mg build makes debug files, a
+        character past level 20 has the saves the game gives it, and Go
+        to Start Location on the toolbar opens the area the module
+        starts in.</p>
+      </description>
+    </release>
     <release version="1.21.3" date="2026-10-12">
       <description>
         <p>Verify Module checks the feat, skill and spell lists a class,
