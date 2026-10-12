@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.24.0" date="2026-10-12">
+      <description>
+        <p>Scripts open as tabs of one window. In the 2DA editor Ctrl+Z
+        takes back the table's own changes and a column is moved by
+        dragging its name. A pasted conversation line keeps the script
+        that says when it appears, and a script's parameters have room
+        to be read.</p>
+      </description>
+    </release>
     <release version="1.23.1" date="2026-10-12">
       <description>
         <p>mg serve compiles the scripts of a module folder or a nasher
