@@ -12,7 +12,8 @@ autotests = false
 # module of one): a binary per file was 80 links of the whole stack for 129
 # tests, run one binary at a time. The client's tests keep theirs; they are
 # run by hand (all ignored), so `cargo test` builds them only when named
-# (`--test client_render`).
+# (`--test client_render`), and clippy checks them only when named (as CI
+# does).
 [[test]]
 name = "areas"
 path = "tests/groups/areas.rs"

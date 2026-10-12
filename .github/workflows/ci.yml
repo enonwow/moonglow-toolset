@@ -45,10 +45,15 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy (the tests run by hand)
+        # `test = false` in their manifests: --all-targets leaves them out.
+        run: |
+          cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf -- -D warnings
+          cargo clippy -p mg-corpus-tests --test client_render --test client_minimap -- -D warnings
       - name: Test
         # Corpus, differential and engine tests skip without a game install.
         # Not the examples (developer tools; a plain `cargo test` links all
-        # 22 of them, and clippy has checked them above).
+        # 22 of them; clippy has checked them above).
         run: cargo test --workspace --lib --bins --tests
       - name: Documentation tests
         run: cargo test --workspace --doc

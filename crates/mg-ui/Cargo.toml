@@ -49,7 +49,8 @@ workspace = true
 
 # Run by hand (every test in them is ignored: pictures and timings), so
 # `cargo test` does not link them; `cargo test -p mg-ui --test screens`
-# builds one as before, and clippy checks them all.
+# builds one as before. Clippy's --all-targets leaves them out too: CI and
+# CLAUDE.md name them to it.
 [[test]]
 name = "screens"
 path = "tests/screens.rs"

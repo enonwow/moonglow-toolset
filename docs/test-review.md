@@ -4,7 +4,7 @@ title: 'Review: test necessity, test speed and codebase cleanliness'
 description: Where the time between a finished change and a release goes (test binaries linked, sweeps repeated, CI runs per release, a 917 GB target directory), what was changed on the branch worktree-test-review with its measurements, and what is left for a decision.
 tags: [tests, build, ci, release, review, cleanliness]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:02:54Z }
 stale_after: 2027-01-01T00:00:00Z
 sources:
   - id: logs
@@ -89,7 +89,7 @@ rewrite of test logic that deserves its own look.
 | --- | --- |
 | `mg-corpus-tests`: 80 test binaries become 6 (`areas`, `aurora`, `engine`, `formats`, `models`, `scripts`); the files stay where they are and are modules of `tests/groups/<name>.rs` | 74 fewer links per profile; tests of different files run side by side |
 | `apps/mg`: 23 test binaries become 1 (`cli`) | 22 fewer links; 35 tests in 14.6 s[^runs] |
-| Hand-run targets are `test = false`: `screens`, the four `*_perf` (mg-ui), `client_render`, `client_minimap` | 7 fewer links per run; `--test screens` and the documented commands work as before; clippy still checks them |
+| Hand-run targets are `test = false`: `screens`, the four `*_perf` (mg-ui), `client_render`, `client_minimap` | 7 fewer links per run; `--test screens` and the documented commands work as before; clippy's `--all-targets` leaves them out as well, so CI and `CLAUDE.md` name them to it |
 | `mg_testkit::engine::run_server` runs at most four servers at once per binary; `one_at_a_time()` for the three command-line tests that wait on `mg serve` by the clock | what made merging the engine tests safe |
 | `mg_testkit::ungrouped_tests` and a test in each grouped crate | a new test file left out of its group fails a test instead of silently not running |
 | `[profile.dev] debug = "line-tables-only"` in `Cargo.toml` (CI's two variables removed) | `app` 637 MB → 185 MB; backtraces keep file and line |
@@ -130,6 +130,10 @@ Things to know when merging:
   command-line tests (`--test engine engine_tlk`); test names gain the
   file's name as a prefix.
 - A new test file in those two crates is added to its group file.
+- `small_formats.rs` has the suite's one wall-clock assertion (tilesets
+  with absurd door counts parse within 20 s; it guards against a loop
+  of a billion turns). It now shares its binary with the sound and
+  texture sweeps; it passed on a loaded machine, and is kept.
 
 ## Cleanliness
 
