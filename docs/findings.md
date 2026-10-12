@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T23:26:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:41Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -180,6 +180,33 @@ least 1. Epic Toughness is not included (the game adds it).
 - **Moonglow:** `crates/mg-rules/src/creatures.rs` (`creature_stats`).
 - **Wiki:** the Creature JSON page says only "HitPoints + Constitution
   bonuses/penalties".
+
+### Saving throws past level 20, and the Great ability feats
+
+A creature's base saves come from its classes' tables for its first 20
+levels, taken in the order of its classes (the first class's levels,
+then the next's, until 20 are counted); every two levels past 20 add a
+point to each save, whatever the classes. A fighter 20 / wizard 20 has
+the fighter's saves at 20 and ten more on each, not the two tables'
+rows added. A single class past 20 comes to the same either way (its
+table's epic rows are that rule). Aurora adds each class's table at its
+full level (nwn-issues 816), and so did Moonglow through 1.21.3.
+
+The epic Great Strength, Dexterity, Constitution, Intelligence, Wisdom
+and Charisma feats (feat.2da rows 764 to 823, ten of each) each add a
+point to the ability's score itself: `GetAbilityScore` with the base
+asked for has them, and so the modifiers and the saves.
+
+- **Checked:** in the game's server, `engine_saves.rs`
+  `saving_throws_match_the_engine`: thirteen creatures of the Creature
+  Wizard's making, of one to three classes and 10 to 40 levels, each
+  save equal to the Statistics page's.
+- **Moonglow:** `crates/mg-rules/src/creatures.rs` (`creature_stats`).
+  The stored maximum hit points stay Aurora's (the Constitution the
+  blueprint has, without the Great Constitution feats); whether the
+  game adds those feats' hit points itself, as it adds Epic
+  Toughness's, was not measured.
+- **Wiki:** missing.
 
 ### Aurora's Levelup Wizard
 

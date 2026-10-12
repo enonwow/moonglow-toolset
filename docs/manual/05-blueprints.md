@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:41Z }
 ---
 
 # Blueprints
@@ -263,7 +263,9 @@ Shared parts:
 
 Basic (name, race, gender, portrait, appearance, faction, conversation),
 **Statistics** (abilities, saves, armor class, hit points, speed; the
-arrows after a number make it one more or one less, as Aurora's do),
+arrows after a number make it one more or one less, as Aurora's do; the
+saves are the game's, also past level 20 with several classes, where
+Aurora's are not, and the abilities count the epic Great feats),
 **Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
 (classes and levels, a cleric's domains and a wizard's school, the
 familiar and animal companion; **Levelup Wizard…** levels the creature up

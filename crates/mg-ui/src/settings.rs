@@ -60,6 +60,9 @@ pub struct Settings {
     pub hak_folders: Vec<(PathBuf, PathBuf)>,
     /// Options > General: Open a module on the area opened last is off.
     pub no_last_area: bool,
+    /// Options > General: Next Tab and Previous Tab (Ctrl+Tab) go through
+    /// a pane's tabs in the order they were last used, not as they lie.
+    pub tabs_by_recent: bool,
     /// Options > General: Write a debug log (`trace`) is off. (It is
     /// written unless switched off: what was done before a crash is there
     /// to send without having asked for it beforehand.)

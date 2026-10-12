@@ -47,6 +47,8 @@ mod engine_rename;
 mod engine_resman;
 #[path = "../engine_rules.rs"]
 mod engine_rules;
+#[path = "../engine_saves.rs"]
+mod engine_saves;
 #[path = "../engine_special_abilities.rs"]
 mod engine_special_abilities;
 #[path = "../engine_terrain.rs"]

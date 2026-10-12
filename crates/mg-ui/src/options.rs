@@ -38,6 +38,7 @@ pub struct OptionsDraft {
     pub mod_beside_folder: bool,
     pub area_names: bool,
     pub last_area: bool,
+    pub tabs_by_recent: bool,
     pub debug_log: bool,
     pub name_resrefs: bool,
     pub palette_cr: bool,
@@ -119,6 +120,7 @@ impl OptionsDraft {
             mod_beside_folder: !s.no_mod_beside_folder,
             area_names: s.area_names,
             last_area: !s.no_last_area,
+            tabs_by_recent: s.tabs_by_recent,
             debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
@@ -176,6 +178,7 @@ impl OptionsDraft {
             no_mod_beside_folder: !self.mod_beside_folder,
             area_names: self.area_names,
             no_last_area: !self.last_area,
+            tabs_by_recent: self.tabs_by_recent,
             no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
@@ -431,6 +434,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_hover_text(
                                 "The first time, on the first area the module tree lists",
+                            );
+                            ui.checkbox(
+                                &mut draft.tabs_by_recent,
+                                "Ctrl+Tab goes to the tab used last",
+                            )
+                            .on_hover_text(
+                                "Next Tab and Previous Tab go through a pane's tabs in the \
+                                 order they were last used, for as long as Ctrl is held; off, \
+                                 to the next tab as they lie",
                             );
                             let log = crate::trace::path()
                                 .map(|p| p.display().to_string())

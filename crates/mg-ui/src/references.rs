@@ -122,11 +122,19 @@ impl Moonglow {
         if !report.recompile.is_empty() {
             match &self.game {
                 Some(game) => {
-                    let results = mg_module::build::compile_scripts(
+                    // (Those that had a debug file get one again.)
+                    let mut results = mg_module::build::compile_named_with(
+                        &mut staged,
+                        &game.resman,
+                        &report.debug,
+                        None,
+                        true,
+                    );
+                    results.extend(mg_module::build::compile_scripts(
                         &mut staged,
                         &game.resman,
                         mg_module::build::ScriptSelection::Uncompiled,
-                    );
+                    ));
                     for r in &results {
                         if let Err(e) = &r.result
                             && report

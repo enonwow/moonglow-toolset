@@ -555,6 +555,10 @@ pub struct RenameReport {
     /// Scripts whose source changed; their compiled code was removed, to be
     /// compiled again.
     pub recompile: Vec<ResKey>,
+    /// Those of them that had a debug file (`.ndb`): to be compiled with
+    /// one again. A renamed script that had one is among them, changed or
+    /// not: its debug file names it as it was.
+    pub debug: Vec<ResKey>,
 }
 
 /// Renames `from` (with its family: a script's `.ncs` and `.ndb`, an area's
@@ -665,6 +669,17 @@ pub fn rename(
     // differently too.
     let more = crate::refs::includers(module, &report.recompile);
     report.recompile.extend(more);
+    let renamed = ResKey::new(to, ResType::NSS);
+    if from.restype == ResType::NSS
+        && module.contains(&ResKey::new(to, ResType::NDB))
+        && !report.recompile.contains(&renamed)
+    {
+        report.recompile.push(renamed);
+    }
+    report.debug = (report.recompile.iter())
+        .filter(|k| module.contains(&ResKey::new(k.resref, ResType::NDB)))
+        .copied()
+        .collect();
     for key in &report.recompile {
         for t in [ResType::NCS, ResType::NDB] {
             module.remove(&ResKey::new(key.resref, t));
@@ -876,6 +891,25 @@ mod tests {
         index.refresh(&m);
         assert_eq!(index.read, 0);
         same(&index, &m);
+    }
+
+    #[test]
+    fn scripts_that_had_a_debug_file_are_to_get_one_again() {
+        // A script renamed and nothing else changed: it is compiled
+        // again all the same, its debug file naming it as it was.
+        let mut m = Module::new();
+        m.set(key("lone", ResType::NSS), b"void main() { }\n".to_vec());
+        m.set(key("lone", ResType::NCS), b"NCS V1.0".to_vec());
+        m.set(key("lone", ResType::NDB), b"NDB V1.0".to_vec());
+        m.set(key("plain", ResType::NSS), b"void main() { ExecuteScript(\"lone\"); }\n".to_vec());
+        m.set(key("plain", ResType::NCS), b"NCS V1.0".to_vec());
+        let r = rename(&mut m, key("lone", ResType::NSS), rr("alone"), true).unwrap();
+        assert_eq!(r.recompile, [key("alone", ResType::NSS), key("plain", ResType::NSS)]);
+        // (The one that names it had no debug file, and gets none.)
+        assert_eq!(r.debug, [key("alone", ResType::NSS)]);
+        assert!(
+            !m.contains(&key("alone", ResType::NDB)) && !m.contains(&key("lone", ResType::NDB))
+        );
     }
 
     #[test]

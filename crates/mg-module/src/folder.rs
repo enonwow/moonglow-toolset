@@ -27,6 +27,9 @@ pub struct FolderFiles {
     /// Each file's time and size when it was last looked at and found as
     /// it was read: a file with the same is not read again.
     stamps: HashMap<PathBuf, Stamp>,
+    /// What there is to say of the folder as it was read (a resource
+    /// under two spellings): for whoever opened it to show, and take.
+    pub warnings: Vec<String>,
 }
 
 impl FolderFiles {

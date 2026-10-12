@@ -16,6 +16,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Proposal
 
+* [A 2DA editor and merger: a proposal](2da-editor-proposal.md) - Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, and what is not known yet. (draft)
 * [Lights placed on the fly: a proposal](lights-proposal.md) - Placing a light in an area without making a custom placeable by hand first - what the game offers for lights, what was built and measured (the stock light placeables from the area's right-click menu, their reach in the client), and the open proposal - lights of any color and reach by generated content, scripted light effects, and two questions not yet measured.
 * [Plugins: a proposal](plugin-proposal.md) - The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 * [Proposed corrections to nwn.wiki](wiki-proposal.md) - Proposed corrections to fifteen nwn.wiki pages that say something the game or Aurora does differently - for each, what the page says, what it should say and how that was checked - in order of how much trouble the current text causes.

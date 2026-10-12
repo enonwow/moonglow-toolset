@@ -3384,6 +3384,19 @@ fn tabs_by_the_keyboard() {
     assert_eq!(front(&h), area("third"));
     key(&mut h, ctrl, egui::Key::Num2);
     assert_eq!(front(&h), area("start"));
+    // With the option (Options › General), Ctrl+Tab goes to the tab used
+    // last, and again back: third was in front before start.
+    h.state_mut().settings.tabs_by_recent = true;
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("third"));
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("start"));
+    // (The other way round the same order: the one used longest ago.)
+    key(&mut h, ctrl | shift, egui::Key::Tab);
+    assert_eq!(front(&h), Tab::ModuleProperties);
+    h.state_mut().settings.tabs_by_recent = false;
+    key(&mut h, ctrl, egui::Key::Num2);
+    assert_eq!(front(&h), area("start"));
 
     // Ctrl+W closes the one in front; Ctrl+Shift+T opens it again.
     key(&mut h, ctrl, egui::Key::W);
@@ -3518,6 +3531,24 @@ fn the_module_tree_by_the_keyboard() {
     h.get_by_label("start").hover();
     key(&mut h, egui::Key::ArrowDown);
     assert_eq!(at(&h), None);
+    // F6 gives them to the tree without one, at its first row; again, on
+    // to the middle (no palettes here), and Shift+F6 back.
+    key(&mut h, egui::Key::F6);
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)));
+    key(&mut h, egui::Key::F6);
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "the keys are the middle's");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F6);
+    h.run();
+    h.run();
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    h.state_mut().tree_cursor = None;
+    key(&mut h, egui::Key::F6);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), None, "handed on again");
     h.get_by_label("start").click();
     h.run();
     assert_eq!(at(&h), Some(TreeAt::Resource(start)));
@@ -12170,16 +12201,16 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.state_mut().options.as_mut().unwrap().recording =
         Some("example.tag-conventions/fix-tags".to_string());
     h.run();
-    h.key_press(egui::Key::F6);
+    h.key_press(egui::Key::F8);
     h.run();
     h.get_by_label("OK").click();
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
     assert_eq!(tag_of(&mut h, &key), "gate_guard");
-    h.key_press(egui::Key::F6);
+    h.key_press(egui::Key::F8);
     h.run();
-    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD", "F6 runs the plugin's command");
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD", "F8 runs the plugin's command");
 
     // Disabled again: its commands are gone.
     h.state_mut().enable_plugin("example.tag-conventions", false);
@@ -14405,6 +14436,40 @@ fn an_item_s_appearance_page_shows_its_model() {
     assert!(h.query_by_label_contains("No game data").is_none());
     // Each of the sword's parts as pictures.
     assert!(h.query_all_by_label_contains("Top ").count() > 1);
+}
+
+/// A placeable's and a door's Basic page show the model in the page, as
+/// Aurora's dialogs have a 3D preview.
+#[test]
+fn a_placeable_s_and_a_door_s_page_show_the_model() {
+    let Some((mut h, _area)) = area_harness("situated-model") else { return };
+    for (name, restype) in [("plc_chest1", ResType::UTP), ("nw_door_ttr_01", ResType::UTD)] {
+        let key = ResKey::parse(name, restype).unwrap();
+        {
+            let app = h.state_mut();
+            let data = app.game.as_ref().unwrap().resman.get(&key).unwrap();
+            app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
+            app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Basic");
+            // (As a tab of the middle: as wide as the window lets it be.)
+            let kind = if restype == ResType::UTP { "placeable" } else { "door" };
+            app.settings.window_places = vec![(kind.to_string(), "middle".to_string())];
+            app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        }
+        // Too narrow for the fields and the model: a Preview button.
+        h.set_size(egui::vec2(900.0, 800.0));
+        h.run_steps(10);
+        assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
+        assert!(h.query_by_label("Preview").is_some(), "{key}");
+        // Wide enough: the viewer beside the fields.
+        h.set_size(egui::vec2(1900.0, 1000.0));
+        h.run_steps(10);
+        assert!(h.query_by_label("Pop Out").is_some(), "{key}: the viewer is in the page");
+        assert!(h.query_by_label_contains("No game data").is_none(), "{key}");
+        let tab = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+        h.state_mut().dock.remove_tab(tab);
+        h.run_steps(3);
+        assert!(h.query_by_label("Pop Out").is_none(), "{key}: closed again");
+    }
 }
 
 /// Properties on an item in a placed object's inventory opens that item's

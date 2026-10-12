@@ -1735,11 +1735,14 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut compile = json!(null);
             if !report.recompile.is_empty() {
                 let rm = module_resman(&install(cli)?, &m, &mut out)?;
-                let results = mg_module::build::compile_scripts(
+                // (Those that had a debug file get one again.)
+                let mut results =
+                    mg_module::build::compile_named_with(&mut m, &rm, &report.debug, None, true);
+                results.extend(mg_module::build::compile_scripts(
                     &mut m,
                     &rm,
                     mg_module::build::ScriptSelection::Uncompiled,
-                );
+                ));
                 compile = compiled(&mut out, &results);
             }
             m.save()?;

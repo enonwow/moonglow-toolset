@@ -186,19 +186,35 @@ impl Module {
         files.sort();
         // Two files of one resource (`x.UTI` as Aurora names a new one,
         // `x.uti` as Moonglow does): the one changed last is the resource.
-        let mut changed = std::collections::HashMap::<ResKey, SystemTime>::new();
+        let mut changed = std::collections::HashMap::<ResKey, (SystemTime, String)>::new();
         let mut read = folder::FolderFiles::new(path);
+        let mut twice: Vec<(ResKey, Vec<String>)> = Vec::new();
         for f in files.iter().filter(|f| f.is_file()) {
-            let Some(key) = f.file_name().and_then(|n| n.to_str()).and_then(folder_key) else {
+            let Some(name) = f.file_name().and_then(|n| n.to_str()) else { continue };
+            let Some(key) = folder_key(name) else {
                 continue; // not a resource (notes, editor files, ...)
             };
             let at = f.metadata().and_then(|d| d.modified()).unwrap_or(std::time::UNIX_EPOCH);
-            if changed.get(&key).is_none_or(|had| at > *had) {
+            if let Some((_, other)) = changed.get(&key) {
+                match twice.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, names)) => names.push(name.to_string()),
+                    None => twice.push((key, vec![other.clone(), name.to_string()])),
+                }
+            }
+            if changed.get(&key).is_none_or(|(had, _)| at > *had) {
                 let bytes: Arc<[u8]> = Arc::from(std::fs::read(f).map_err(io(f))?);
                 read.note(key, f.clone(), bytes.clone());
                 m.resources.insert(key, bytes);
-                changed.insert(key, at);
+                changed.insert(key, (at, name.to_string()));
             }
+        }
+        for (key, names) in twice {
+            let taken = changed.get(&key).map(|(_, n)| n.clone()).unwrap_or_default();
+            read.warnings.push(format!(
+                "{key} is in the folder as {}: {taken}, changed last, is the one read, and at \
+                 the next save it alone is left, as {key}",
+                names.join(" and "),
+            ));
         }
         m.folder = Some(Box::new(read));
         m.location = Some(ModuleLocation::Folder(path.into()));
@@ -836,6 +852,9 @@ mod tests {
             f.set_modified(later).unwrap();
             let mut m = Module::open(&folder).unwrap();
             assert_eq!(m.get(&key("bread", ResType::UTI)), Some(&b"newer"[..]));
+            let said = &m.folder.as_ref().unwrap().warnings;
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(said[0].contains("bread.UTI, changed last, is the one read"), "{said:?}");
             m.set(key("other", ResType::NSS), &b"y"[..]);
             m.save().unwrap();
             assert_eq!(names(&folder), ["bread.uti"]);

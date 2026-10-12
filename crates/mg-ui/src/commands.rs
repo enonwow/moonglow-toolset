@@ -81,6 +81,9 @@ pub enum Id {
     NextTab,
     PreviousTab,
     ReopenTab,
+    /// The arrow keys given to the next pane, or the one before.
+    NextPane,
+    PreviousPane,
     /// View: the panes beside the middle shown or folded away.
     ViewTree,
     ViewPalettes,
@@ -241,6 +244,7 @@ impl Id {
         }
         out.extend([Id::PreviewWindow, Id::FullScreen]);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
+        out.extend([Id::NextPane, Id::PreviousPane]);
         out
     }
 
@@ -379,6 +383,14 @@ impl Id {
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
             Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),
+            Id::NextPane => (
+                "next-pane",
+                "Next Pane",
+                "The arrow keys to the next of the module tree, the middle and the palettes",
+            ),
+            Id::PreviousPane => {
+                ("previous-pane", "Previous Pane", "The arrow keys to the pane before")
+            }
             Id::ViewTree => ("view-tree", "Module Tree", "Show the module tree, or fold it away"),
             Id::ViewPalettes => {
                 ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
@@ -432,6 +444,8 @@ impl Id {
             Id::NextTab => Cmd::NextTab,
             Id::PreviousTab => Cmd::PreviousTab,
             Id::ReopenTab => Cmd::ReopenTab,
+            Id::NextPane => Cmd::NextPane,
+            Id::PreviousPane => Cmd::PreviousPane,
             Id::ViewTree => Cmd::ToggleTree,
             Id::ViewPalettes => Cmd::TogglePalettes,
             Id::ViewLog => Cmd::ToggleLog,
@@ -513,6 +527,7 @@ impl Id {
             | Id::FullScreen
             | Id::NextTab
             | Id::PreviousTab => true,
+            Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
@@ -682,6 +697,8 @@ impl Id {
             Id::NextTab => return app.step_tab(1),
             Id::PreviousTab => return app.step_tab(-1),
             Id::ReopenTab => return app.reopen_tab(),
+            Id::NextPane => return app.step_pane(ctx, 1),
+            Id::PreviousPane => return app.step_pane(ctx, -1),
             Id::ViewTree | Id::ViewPalettes | Id::ViewLog => {
                 let shown = app.panel_shown(self);
                 return app.show_panel(self, !shown);

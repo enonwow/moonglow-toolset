@@ -516,6 +516,11 @@ enum Step {
     None,
 }
 
+/// The tree's first row, where the keys begin.
+pub(crate) fn first_row() -> TreeAt {
+    TreeAt::Group(GROUPS[0].0)
+}
+
 /// The rows shown: each group, whether it is open, and its resources.
 type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
 

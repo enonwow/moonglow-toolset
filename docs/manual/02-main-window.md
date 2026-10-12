@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:41Z }
 ---
 
 # The main window
@@ -77,6 +77,7 @@ changes them; the menus show the current keys.
 | Ctrl+Tab, Ctrl+Page Down | Next tab |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
+| F6, Shift+F6 | The arrow keys to the next pane (the module tree, the middle, the palettes), or the one before |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
@@ -210,7 +211,10 @@ the module's area list), and its tab with it.
 one tab, else on the main pane's: Ctrl+W (or Ctrl+F4) closes the tab in
 front (File › Close, which closes the module, has no key until you give
 it one in the Options: in Aurora it is Ctrl+F4),
-Ctrl+Tab and Ctrl+Shift+Tab go round them, and Ctrl+Shift+T opens the tab
+Ctrl+Tab and Ctrl+Shift+Tab go round them (with **Ctrl+Tab goes to the
+tab used last** on, in Options › General, in the order they were last
+used for as long as Ctrl is held: one press goes back to the tab before,
+and again returns), and Ctrl+Shift+T opens the tab
 closed last again (the last twenty are kept; one whose area or script is
 gone from the module is passed over). A middle click on a tab closes it.
 A hak or a tileset with unsaved changes asks first, as its close button

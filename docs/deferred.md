@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:51:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:42:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -177,8 +177,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
   spelling than Moonglow's (lower case) is renamed at the next save;
   where both files are there (a folder that sets capitals apart), the
   one changed last is the resource when the folder opens, and the save
-  leaves the one file. Nothing is said in the log, and a nasher
-  project's sources are not looked at this way. (S)
+  leaves the one file; the log says which was read. A nasher project
+  takes the first of two it finds and says so, where a folder takes
+  the one changed last: the two are not alike. (S)
   (from builders' reports after 1.19.1)
 - **A module's files changed outside** (a nasher project's sources, a
   module folder's files; a `.mod` file changed outside isn't noticed)
@@ -226,9 +227,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   notifications); a nasher project's default target only; debug files
   (`.ndb`) are made where `--ndb` asks (`mg watch`, `mg compile`), and
   by Compile All Scripts and Build Module with Generate Debug
-  Information on, and `mg build --ndb`; `mg rename` compiles the
-  scripts it changed without one, so a renamed script's debug file is
-  the old one's until it is compiled again; nothing
+  Information on, and `mg build --ndb`; `mg rename` and the window's Rename give a script that had one a
+  new one; nothing
   is pushed through NWNX's console; with `--serve`, tests are not run
   again after a change (`mg test` is a run of its own). A test holds
   the `--serve` half on Linux (a change put out, the server started
@@ -356,17 +356,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **Three reported Aurora faults not checked in Moonglow:** an item
-  appearance with MinRange of 100 or more in the appearance pickers
-  (nwn-issues 658), the saves of an epic multiclass creature (816), and
-  the spells of a custom caster class (566). (S each)
-  (`research/community_pain_points.md` §4; the documentation audit of
-  2026-10-12)
-- **Creature Properties' overlapping elements:** reported, not
-  reproduced: every page is checked for widgets drawn over each other at
-  four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)
-  and none are. A screenshot, or the page and the interface size, would
-  find it. (S) (a senior builder's review, October 2026)
 - **The model in other editors' pages:** a placeable's and a door's
   Basic page show it beside their fields where the window is wide enough
   for both; narrower, Preview shows it. An item's Appearance page has it
@@ -374,6 +363,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   creature's Appearance page stacks them instead). The viewer frames an
   item as any model: a sword lying flat is small in it until turned. (S)
   (a senior builder's review, October 2026)
+- **Aurora's faults Moonglow was checked for:** an epic creature of
+  several classes had Aurora's wrong saves (nwn-issues 816) and has the
+  game's now, measured in the server ([findings](findings.md)); the
+  abilities count the Great feats. Not done: whether the game adds the
+  Great Constitution feats' hit points itself was not measured (the
+  stored maximum stays Aurora's); an item appearance of 100 or more
+  (nwn-issues 658) is listed by what models there are (three digits),
+  with no base item's range read, and was not tried with such a model;
+  a custom caster class's spells (566) are offered by `classes.2da`'s
+  `SpellCaster` and `SpellTableColumn` alone, and were not tried with a
+  custom class. (S each)
 - **Number fields' limits against Aurora:** measured in Aurora
   (v89.8193.37) by typing past them: a creature's save bonuses 250 (and,
   it seems, no lower than 0: Moonglow keeps -100, for the penalties files
@@ -612,8 +612,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **No 2DA editor:** 2DAs are shown in a read-only view (it shows which
   hak each row comes from), and `mg 2da-diff --base` merges two tables
   against the one both were made from, from a terminal. Editing rows in
-  the window and merging several haks' copies into one is Eos's ground,
-  left for when it's asked for. (L)
+  the window and taking rows from another hak's copy is proposed, with
+  the decisions it needs and four phases:
+  [the proposal](2da-editor-proposal.md). (L; awaits the owner's
+  rulings)
 - **Talk tables in a hak or the module** are read-only: Moonglow edits
   only tables in the `tlk` folder. A table kept in the module could be
   edited and saved with it. (S)
@@ -679,20 +681,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   not in the hak folders flagged; the talk table in a section of its
   own. Not done: a drag does not scroll a list longer than its frame.
   (S) (from builders' reports after 1.19.1)
-- **A hak's 2DA not seen until a restart** (a builder: a creature
-  showed "appearance.2da has no row 8241", from a hak above CEP's whose
-  table has more rows; gone after restarting Moonglow): not reproduced.
-  Haks and folders that change on disk are read again every few seconds
-  and their tables forgotten, which a test holds for the override
-  folder. Suspected and not shown: `reload_resources` and `sync_haks`
-  give up without a word while anything else holds the game data (a
-  job), and try again later; on Windows a hak Moonglow has open cannot
-  be replaced by another program at all, so a hak tool may have failed
-  to write it. If it comes back: the log around it, and whether Tools ›
-  Reload Resources cures it. While
-  something else holds the game data, the look is put off and the
-  debug log says so ("the game data is held"), which would show this.
-  (S–M) (from builders' reports after 1.19.1)
 
 ## Raw fields
 
@@ -779,10 +767,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Editing in the area view
 
-- **A drag on a number field moving objects in the area behind:**
-  reported, not reproduced
-  (`a_drag_in_a_window_over_the_area_moves_nothing_there`). (needs the
-  steps) (a second builder's review, October 2026)
 - **Alt for the camera and the selection:** Alt + right drag turns the
   selection and Alt + middle drag moves the camera (they were Shift's,
   which now leaves the camera alone while the handles show). Aurora
@@ -1230,7 +1214,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   bookmarks are Ctrl and a digit); a middle click closes a tab; Close
   Others, Close Tabs to the Right and Close All on a tab's menu. Ctrl+F4
   closes the tab too, as the issue asks, and no longer the module as in
-  Aurora (the user's choice): File › Close has no key at first. Not done: Ctrl+Tab in most-recently-used order; one question
+  Aurora (the user's choice): File › Close has no key at first. Ctrl+Tab goes by when the tabs were last used where Options › General
+  says so. Not done: that order with Ctrl held over several presses is
+  not held by a test (one press and back is), and it is kept for the
+  pane the keys work on, not for a window's own tabs (which go as they
+  lie); one question
   listing every tab with unsaved work (only a hak's and a tileset's
   editors have work of their own to lose, and each asks for itself);
   the keys work on the focused pane or the main one, not across
@@ -1261,7 +1249,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   editor, a category), Escape hands the keys back; F2 and Delete are
   for the row under the pointer, else the cursor's; both panes' filter
   fields have Ctrl+F, Escape (clear, then leave) and Down. Not done:
-  - F6 between panes. (S)
+  - F6 and Shift+F6 give the keys to the next pane (the module tree,
+    the middle, the palettes). Not done: the log, a talk table's lines
+    and the resource browser's list are not among them; the palettes'
+    cursor starts at no row until an arrow is pressed; a command a
+    builder already gave F6 to is now in conflict with Next Pane
+    (Options › Keyboard lists it; the pane's wins until one is
+    changed). (S)
   - A letter typed goes to the tree only with the pointer over it
     (letters are commands elsewhere), to a group's name or a
     resource's name as its row shows it: not to a kind or a placed
@@ -1295,11 +1289,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   is); Expand All and Collapse All have no keys, and an area opened out
   to its objects, and the kinds under it, keep their own state. (S
   each) (from builders' reports and the owner's notes after 1.21.0)
-- **Ctrl+V refused on Windows** (a builder's debug log: "arboard paste
-  error … the clipboard is empty"): the key reaches Moonglow only as the
-  system's paste, which Windows doesn't send with no text to paste.
-  Copying objects, tiles or a conversation's lines now leaves a line of
-  text there. Not tried on Windows.
 
 ## Languages, tokens and loading screens
 
@@ -1532,25 +1521,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The install, starting and crashes
 
-- **Moonglow seeming to start twice on Windows** (a builder's video: a
-  blank white window, gone again, then the real one): his window was
-  last left maximized. eframe creates its window hidden until the first
-  frame is drawn, and winit on Windows shows a window created hidden
-  and maximized all the same. A window left maximized is now created
-  unmaximized there and maximized after its first frame. Not tried on
-  Windows: nothing here runs it; told by the video, eframe's source and
-  the fix's own test of what it asks for. (?)
-  (from builders' reports after 1.10.1)
-- **"It kept randomly exiting"** on a persistent world's module (ten
-  times before it stayed open), reported without a log. One cause was
-  found and fixed: the compiler walks a script by recursion, and a very
-  long `else if` chain or expression overflowed the stack of the thread
-  it ran on, which ends the program at once and leaves no crash report
-  (a 60,000-link chain did it on Linux; Windows' main thread has an
-  eighth of that stack). Compiles run on a stack of their own now.
-  Whether that was the reporter's crash isn't known: asked for the debug
-  log (Options › General) and what was being done. (needs the log)
-  (from builders' reports after 1.14.1)
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `hak` and `tlk`
   folders searched. Which of two items' overrides wins in the game isn't
@@ -1604,8 +1574,7 @@ document; the entries here that name the audit are that list in short.
   `docs/plugins` declare no event). (S each)
   (the documentation audit of 2026-10-12)
 - **The parity checklists:** the main menus are not compared with
-  Aurora's item by item; the door and placeable editors' model in the
-  page is held by a test for an item's page only; "eight tests not in
+  Aurora's item by item; "eight tests not in
   `app.rs` named without their file" is as the audit found it. (S
   each) (the documentation audit of 2026-10-12)
 
@@ -1654,11 +1623,6 @@ unless it says so.
   tree printed); the talk table's and the GFF reader's own table
   checks, which `Reader::table` (the key and archive readers') does not
   fit as written. (S each, if at all)
-- **Made every frame, or never read, in the renderer:**
-  `LightGrid::new` makes five lists a frame, and the light count, the
-  fog's end and the skinned flag are put in uniforms no shader reads
-  (taking them out changes the uniforms' layout in every shader). (M;
-  through CI on the three systems)
 - **Never used, or never otherwise:** the second half of
   `ModelView::frame` (the model is there exactly when the composed
   preview is); arguments that are always the same
@@ -1682,6 +1646,43 @@ unless it says so.
 
 ## Questions asked, unanswered
 
+Each waits on its reporter: with no word by 2026-11-12 (a month from
+the owner's ruling of 2026-10-12) it is dropped, and said so in the
+log.
+
+- **Creature Properties' overlapping elements:** reported, not
+  reproduced: every page is checked for widgets drawn over each other at
+  four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)
+  and none are. A screenshot, or the page and the interface size, would
+  find it. (S) (a senior builder's review, October 2026)
+- **A drag on a number field moving objects in the area behind:**
+  reported, not reproduced
+  (`a_drag_in_a_window_over_the_area_moves_nothing_there`). (needs the
+  steps) (a second builder's review, October 2026)
+- **"It kept randomly exiting"** on a persistent world's module (ten
+  times before it stayed open), reported without a log. One cause was
+  found and fixed: the compiler walks a script by recursion, and a very
+  long `else if` chain or expression overflowed the stack of the thread
+  it ran on, which ends the program at once and leaves no crash report
+  (a 60,000-link chain did it on Linux; Windows' main thread has an
+  eighth of that stack). Compiles run on a stack of their own now.
+  Whether that was the reporter's crash isn't known: asked for the debug
+  log (Options › General) and what was being done. (needs the log)
+  (from builders' reports after 1.14.1)
+- **A hak's 2DA not seen until a restart** (a builder: a creature
+  showed "appearance.2da has no row 8241", from a hak above CEP's whose
+  table has more rows; gone after restarting Moonglow): not reproduced.
+  Haks and folders that change on disk are read again every few seconds
+  and their tables forgotten, which a test holds for the override
+  folder. Suspected and not shown: `reload_resources` and `sync_haks`
+  give up without a word while anything else holds the game data (a
+  job), and try again later; on Windows a hak Moonglow has open cannot
+  be replaced by another program at all, so a hak tool may have failed
+  to write it. If it comes back: the log around it, and whether Tools ›
+  Reload Resources cures it. While
+  something else holds the game data, the look is put off and the
+  debug log says so ("the game data is held"), which would show this.
+  (S–M) (from builders' reports after 1.19.1)
 - **"Area transitions can't be selected visually":** not understood;
   asked.
 

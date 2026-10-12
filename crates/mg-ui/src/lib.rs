@@ -315,6 +315,11 @@ pub struct Moonglow {
     pub(crate) laid_out: HashMap<ResKey, Option<script_view::LaidOut>>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
+    /// The tabs by when each was last in front, the latest first.
+    tabs_recent: Vec<Tab>,
+    /// Next Tab going through the tabs by when they were last used: the
+    /// order it began with, and where it is in it.
+    tab_cycle: Option<(Vec<Tab>, usize)>,
     pub wizard: Option<Wizard>,
     /// An open blueprint wizard.
     pub blueprint_wizard: Option<blueprint_wizard::BlueprintWizard>,
@@ -622,6 +627,8 @@ impl Moonglow {
             scripts: HashMap::new(),
             laid_out: HashMap::new(),
             buffers: HashMap::new(),
+            tabs_recent: Vec::new(),
+            tab_cycle: None,
             wizard: None,
             blueprint_wizard: None,
             settings: Settings::default(),
@@ -982,6 +989,7 @@ impl Moonglow {
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
         self.remember_window_places();
+        self.note_recent_tabs(ui.ctx());
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -1315,8 +1323,74 @@ impl Moonglow {
         if n < 2 {
             return;
         }
-        let next = (leaf.active.0 as isize + by).rem_euclid(n) as usize;
-        self.show_tab(leaf.tabs[next].clone());
+        if !self.settings.tabs_by_recent {
+            let next = (leaf.active.0 as isize + by).rem_euclid(n) as usize;
+            self.show_tab(leaf.tabs[next].clone());
+            return;
+        }
+        // By when they were last used (Options › General): the order as
+        // it was when the keys began, gone through for as long as Ctrl is
+        // held ([`Moonglow::note_recent_tabs`] ends it).
+        let (order, at) = self.tab_cycle.take().unwrap_or_else(|| {
+            let mut order: Vec<Tab> =
+                self.tabs_recent.iter().filter(|t| leaf.tabs.contains(t)).cloned().collect();
+            order.extend(leaf.tabs.iter().filter(|t| !self.tabs_recent.contains(t)).cloned());
+            let at = leaf.tabs.get(leaf.active.0).and_then(|t| order.iter().position(|o| o == t));
+            (order, at.unwrap_or(0))
+        });
+        let at = (at as isize + by).rem_euclid(order.len() as isize) as usize;
+        let tab = order[at].clone();
+        self.tab_cycle = Some((order, at));
+        self.show_tab(tab);
+    }
+
+    /// Next Pane and Previous Pane (F6): the arrow keys given to the next
+    /// of the panes shown, round from the last: the module tree (at the
+    /// row they were at, else its first), the middle (an area's view has
+    /// them, as after a click in it), the palettes.
+    pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
+        use palette_view::Keys;
+        let mut panes = Vec::new();
+        if self.ws.is_some() && !self.settings.hide_tree {
+            panes.push(Keys::Tree);
+        }
+        panes.push(Keys::Area);
+        if self.dock.find_tab(&Tab::Palette).is_some() {
+            panes.push(Keys::Palette);
+        }
+        let now = panes.iter().position(|p| palette_view::keys_are(ctx, *p));
+        // (The keys anywhere else, a talk table's lines: as the middle's.)
+        let now = now.or_else(|| panes.iter().position(|p| *p == Keys::Area)).unwrap_or(0);
+        let next = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
+        palette_view::give_keys(ctx, next);
+        if next == Keys::Tree && self.tree_cursor.is_none() {
+            self.tree_cursor = Some(tree::first_row());
+            self.tree_cursor_moved = true;
+        }
+    }
+
+    /// Notes the tab in front as the one used last, each frame; not while
+    /// Next Tab is going through the tabs with Ctrl held, which ends when
+    /// it is let go (the tab arrived at is then the one used last).
+    fn note_recent_tabs(&mut self, ctx: &egui::Context) {
+        if self.tab_cycle.is_some() {
+            if ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
+                return;
+            }
+            self.tab_cycle = None;
+        }
+        let front = (self.tab_pane())
+            .and_then(|pane| self.dock.leaf(pane).ok())
+            .and_then(|leaf| leaf.tabs.get(leaf.active.0))
+            .cloned();
+        let Some(front) = front else { return };
+        if self.tabs_recent.first() != Some(&front) {
+            self.tabs_recent.retain(|t| *t != front);
+            self.tabs_recent.insert(0, front);
+            // (Closed ones go as the list is looked through; not kept
+            // without end.)
+            self.tabs_recent.truncate(64);
+        }
     }
 
     /// The middle's tab of a number (from 1; 9: its last), brought to the
@@ -2641,6 +2715,12 @@ impl Moonglow {
     /// Logs (and clears) what the open nasher project has to say.
     fn take_project_warnings(&mut self) {
         let Some(ws) = &mut self.ws else { return };
+        // (And a module folder's: a resource there under two spellings.)
+        if let Some(folder) = ws.module.folder.as_mut() {
+            for w in std::mem::take(&mut folder.warnings) {
+                self.log.warn(w);
+            }
+        }
         let Some(project) = ws.module.project.as_mut() else { return };
         for w in std::mem::take(&mut project.warnings) {
             self.log.warn(w);
