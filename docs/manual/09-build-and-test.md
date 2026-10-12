@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
 ---
 
 # Build, verify and test
@@ -13,7 +13,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
 **Build › Build Module…** prepares the module for play and checks it, as
 Aurora's Build does:
 
-- **Compile**: the **Scripts**, recalculated **Creature CR** (challenge
+- **Compile**: the **Scripts** (with their debug files, where **Generate
+  Debug Information** is on in Options), recalculated **Creature CR** (challenge
   ratings), **Encounters** (each encounter's creature list updated with
   its creatures' challenge ratings and appearances; creatures that no
   longer exist are removed) and **Palettes** (the custom palettes rebuilt

@@ -175,24 +175,13 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
         let item = creature_entry(f.app, r);
         f.app.actions.push(Action::Apply(Command::new(
             "Add creature",
-            vec![Edit::InsertItem {
-                key,
-                path: path.clone(),
-                list: "CreatureList".into(),
-                index: list.len(),
-                item,
-            }],
+            vec![Edit::insert_item(key, path.clone(), "CreatureList", list.len(), item)],
         )));
     }
     if let Some(i) = remove {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove creature",
-            vec![Edit::RemoveItem {
-                key,
-                path: path.clone(),
-                list: "CreatureList".into(),
-                index: i,
-            }],
+            vec![Edit::remove_item(key, path.clone(), "CreatureList", i)],
         )));
     }
     if let Some((i, v)) = unique {

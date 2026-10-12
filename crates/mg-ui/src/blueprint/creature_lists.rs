@@ -28,11 +28,11 @@ fn apply(f: &mut Form<'_>, what: &str, edits: Vec<Edit>) {
 }
 
 fn insert(key: ResKey, path: GffPath, list: &str, index: usize, item: Struct) -> Edit {
-    Edit::InsertItem { key, path, list: list.into(), index, item }
+    Edit::insert_item(key, path, list, index, item)
 }
 
 fn remove(key: ResKey, path: GffPath, list: &str, index: usize) -> Edit {
-    Edit::RemoveItem { key, path, list: list.into(), index }
+    Edit::remove_item(key, path, list, index)
 }
 
 /// A text filter kept per page.

@@ -2821,15 +2821,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
     // Copy, cut and paste (egui's events, or the keys where it sends none).
     let typing = ui.ctx().memory(|m| m.focused().is_some());
-    let (copy, cut, pasted) = ui.input(|i| {
-        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
-        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
-        (
-            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
-            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
-            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
-        )
-    });
+    let (copy, cut, pasted) = crate::widgets::copy_cut_paste(ui);
     if hovered && !typing {
         if (copy || cut) && !view.selection.is_empty() {
             app.object_clip = copy_selection(app, view);
@@ -3931,7 +3923,7 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
                     list: list.clone(),
                     index,
                 });
-                edits.push(mg_edit::Edit::InsertItem { key: git, path, list, index, item });
+                edits.push(mg_edit::Edit::insert_item(git, path, list, index, item));
             }
             Ok(None) => {}
             Err(e) => {
@@ -4736,13 +4728,7 @@ fn add_spawn_point(app: &mut Moonglow, view: &AreaView, index: usize, at: Vec3) 
     for (label, v) in [("X", at.x), ("Y", at.y), ("Z", at.z), ("Orientation", 0.0)] {
         point.set(label, Value::Float(v));
     }
-    let edit = mg_edit::Edit::InsertItem {
-        key: view.git(),
-        path,
-        list: "SpawnPointList".into(),
-        index: count,
-        item: point,
-    };
+    let edit = mg_edit::Edit::insert_item(view.git(), path, "SpawnPointList", count, point);
     app.actions.push(Action::Apply(Command::new("Add spawn point", vec![edit])));
 }
 

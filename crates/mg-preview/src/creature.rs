@@ -40,17 +40,9 @@ const ROBE: usize = 18;
 
 /// `colors` (by PLT layer) with armor part `part`'s own colors over them.
 fn part_colors(armor: &Struct, part: usize, mut colors: [u8; 10]) -> [u8; 10] {
-    use mg_rules::items::ArmorChannel as C;
-    for (layer, channel) in [
-        (2, C::Metal1),
-        (3, C::Metal2),
-        (4, C::Cloth1),
-        (5, C::Cloth2),
-        (6, C::Leather1),
-        (7, C::Leather2),
-    ] {
+    for channel in mg_rules::items::ArmorChannel::ALL {
         if let Some(c) = mg_rules::items::armor_part_color(armor, part, channel) {
-            colors[layer] = c;
+            colors[channel.plt_layer()] = c;
         }
     }
     colors

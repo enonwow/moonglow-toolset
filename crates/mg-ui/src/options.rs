@@ -252,6 +252,17 @@ enum Browse {
     Scratch,
 }
 
+/// A row for a folder or a program: its path to type, and Browse… to
+/// choose it (`which`, noted in `browse` for after the page is drawn).
+fn path_row(ui: &mut Ui, text: &mut String, browse: &mut Option<Browse>, which: Browse) {
+    ui.horizontal(|ui| {
+        ui.add(egui::TextEdit::singleline(text).desired_width(300.0));
+        if ui.button("Browse…").clicked() {
+            *browse = Some(which);
+        }
+    });
+}
+
 /// The Options tab: the buttons along the bottom, the pages listed beside,
 /// and the page scrolling in what is left. What is set is a draft until OK.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -321,15 +332,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         OptionsPage::Keyboard => keyboard(ui, draft),
                         OptionsPage::Folders => {
                             crate::widgets::field_label(ui, "Neverwinter Nights installation");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.game_root)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Game);
-                                }
-                            });
+                            path_row(ui, &mut draft.game_root, &mut browse, Browse::Game);
                             match path(&draft.game_root) {
                                 Some(p) if GameInstall::is_install(&p) => {
                                     ui.weak("A game installation.")
@@ -353,15 +356,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ui,
                                 "NWN user folder (haks, override, modules)",
                             );
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.user_dir)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::User);
-                                }
-                            });
+                            path_row(ui, &mut draft.user_dir, &mut browse, Browse::User);
                             if path(&draft.user_dir).is_none() {
                                 match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
                                     Some(u) => ui.weak(format!("Empty: {}", u.display())),
@@ -370,15 +365,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                             ui.add_space(6.0);
                             crate::widgets::field_label(ui, "Scratch folder (To Scratch)");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.scratch_dir)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Scratch);
-                                }
-                            });
+                            path_row(ui, &mut draft.scratch_dir, &mut browse, Browse::Scratch);
                             ui.weak(
                                 "Where To Scratch copies a script (with its compiled script) or \
                                  an area as loose files: a development folder, a server's, or \
@@ -692,15 +679,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                         OptionsPage::ScriptEditor => {
                             crate::widgets::field_label(ui, "Code Templates Directory");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.script_templates)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Templates);
-                                }
-                            });
+                            path_row(
+                                ui,
+                                &mut draft.script_templates,
+                                &mut browse,
+                                Browse::Templates,
+                            );
                             ui.weak("Listed with the game's (data/scr) and scripttemplates.");
                             ui.checkbox(
                                 &mut draft.auto_compile,
@@ -712,15 +696,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_hover_text("Store a .ndb with each compiled script, for debuggers");
                             crate::widgets::field_label(ui, "External Script Editor");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.external_editor)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Editor);
-                                }
-                            });
+                            path_row(ui, &mut draft.external_editor, &mut browse, Browse::Editor);
                             ui.add_enabled(
                                 !draft.external_editor.trim().is_empty(),
                                 egui::Checkbox::new(

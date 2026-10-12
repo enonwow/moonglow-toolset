@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
 ---
 
 # Scripts
@@ -140,7 +140,7 @@ doesn't count) isn't compiled on its own: it is compiled into the
 scripts that include it, and may lean on what they bring. (Aurora's
 build compiles include files too, and reports an error for one that
 doesn't compile alone.)
-Compile in its editor says so. **Generate Debug
+Compile, in an include file's own editor, says that it is one. **Generate Debug
 Information** (Options › Script Editor) also stores a `.ndb` with each
 compiled script, for script debuggers.
 

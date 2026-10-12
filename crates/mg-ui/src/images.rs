@@ -57,19 +57,12 @@ const ARMOR_ICON: [(&str, &str); 6] = [
 /// The PLT layers' colours an item gives (metal, cloth and leather; skin,
 /// hair and tattoos the first colour).
 pub(crate) fn item_colors(item: &Struct) -> [u8; 10] {
-    let c = |l: &str| item.integer(l).unwrap_or(0).clamp(0, 255) as u8;
-    [
-        0,
-        0,
-        c("Metal1Color"),
-        c("Metal2Color"),
-        c("Cloth1Color"),
-        c("Cloth2Color"),
-        c("Leather1Color"),
-        c("Leather2Color"),
-        0,
-        0,
-    ]
+    let mut colors = [0; 10];
+    for channel in mg_rules::items::ArmorChannel::ALL {
+        colors[channel.plt_layer()] =
+            item.integer(channel.field()).unwrap_or(0).clamp(0, 255) as u8;
+    }
+    colors
 }
 
 /// A model or part number: the EE twin (`xModelPart1`) where there is one.

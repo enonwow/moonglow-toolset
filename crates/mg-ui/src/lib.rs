@@ -1787,19 +1787,16 @@ impl Moonglow {
             if self.install.is_some() { "known" } else { "none" },
         ));
         if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
-            let haks = m.haks().unwrap_or_default();
-            match game.resman.add_haks(gi, &haks) {
-                Ok(missing) => {
-                    for h in missing {
-                        self.log.warn(format!("Hak {h} not found"));
-                    }
-                }
-                Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),
+            let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
+            for h in missing {
+                self.log.warn(format!("Hak {h} not found"));
             }
-            game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+            if let Some(e) = wrong {
+                self.log.error(format!("Could not open the module's haks: {e}"));
+            }
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
-            self.haks_layered = haks;
+            self.haks_layered = m.haks().unwrap_or_default();
         } else if self.game.is_some() && self.install.is_some() {
             // (Something still reads the game data: said, rather than a
             // module opened without its haks and nothing to show why.)
@@ -2692,6 +2689,7 @@ impl Moonglow {
     /// holds none).
     fn compile_uncompiled(&mut self) {
         let external = self.external_compiler();
+        let debug = self.settings.debug_info;
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
         let Ok(results) = ws.derive(|module| {
             mg_module::build::compile_scripts_with(
@@ -2699,6 +2697,7 @@ impl Moonglow {
                 &game.resman,
                 mg_module::build::ScriptSelection::Uncompiled,
                 external.as_ref(),
+                debug,
             )
         }) else {
             return;

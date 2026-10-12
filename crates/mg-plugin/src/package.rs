@@ -113,6 +113,16 @@ fn parts(name: &str) -> Result<Option<Vec<String>>, String> {
 }
 
 impl Package {
+    /// Reads the archive in the file at `path` ([`Package::read`]), which
+    /// is not read whole if it is larger than an archive may be.
+    pub fn open(path: &std::path::Path) -> Result<Package, PluginError> {
+        let io = |e: std::io::Error| PluginError::Package(e.to_string());
+        if std::fs::metadata(path).map_err(io)?.len() > MAX_ARCHIVE {
+            return fault(format!("it is over {} MB", MAX_ARCHIVE >> 20));
+        }
+        Package::read(&std::fs::read(path).map_err(io)?)
+    }
+
     /// Reads a plugin's archive: a zip with `plugin.cfg` at its top, or
     /// in the one folder at its top that has one (as zipping a folder, or
     /// a repository's download, makes it). What is outside the plugin's

@@ -1729,6 +1729,26 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.get_by_label("mg_ui_test.2da").click();
     h.run();
     assert_eq!(h.state().haks[0].selected.len(), 1);
+    // The Find field's keys (GitHub issue 12): Ctrl+F with the pointer
+    // over the editor goes to it, Escape clears it and then leaves it.
+    let over = h.get_by_label("mg_ui_test.2da").rect().center();
+    h.hover_at(over);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.event(egui::Event::Text("other".into()));
+    h.run();
+    assert_eq!(h.state().haks[0].filter, "other");
+    assert!(h.query_by_label("mg_ui_test.2da").is_none(), "the list is narrowed");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().haks[0].filter, "");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.event(egui::Event::Text("x".into()));
+    h.run();
+    assert_eq!(h.state().haks[0].filter, "", "left: what is typed is not the field's");
+    assert!(h.state().dock.find_tab(&Tab::Hak(id)).is_some(), "and the editor is open still");
     h.get_by_label("Save").click();
     h.run();
     assert!(hak.is_file(), "{:?}", log(&h));
@@ -12026,6 +12046,55 @@ fn a_plugin_acts_when_the_module_is_saved() {
     assert_eq!(h.state().plugin_grants(&id), 0);
 }
 
+/// A plugin that asks before it acts on a save asks once: what it was
+/// allowed is kept in the settings, so it is not asked again at the next
+/// save nor after a restart, until it is forgotten.
+#[test]
+fn a_plugin_s_event_asks_once_and_not_after_a_restart() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-asks", false) else { return };
+    h.run();
+    h.state_mut().enable_plugin("test.asks", true);
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+        log.filter(|m| m.starts_with("Asks: ")).collect()
+    };
+    let mut n = 0;
+    let mut save_changed = |h: &mut Harness<'_, Moonglow>| {
+        n += 1;
+        let mut guard = Gff::new(*b"UTC ");
+        guard.root.set("Tag", mg_gff::Value::String(format!("guard_{n}").into_bytes()));
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "A guard",
+            vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+        )));
+        h.run_steps(2);
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(6);
+    };
+    // Asked, and answered yes.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Yes));
+    save_changed(&mut h);
+    assert_eq!(said(&h), ["Asks: noted"]);
+    assert!(h.state().plugins.answers.is_empty(), "the question was asked");
+    // The next save: not asked (there is no answer to give), and done.
+    save_changed(&mut h);
+    assert_eq!(said(&h).len(), 2, "{:?}", h.state().log.entries);
+    assert!(!h.state().busy());
+    assert_eq!(h.state().plugin_grants("test.asks"), 1, "kept in the settings");
+    // After a restart (what this run holds is gone): still not asked.
+    h.state_mut().forget_plugin_session();
+    save_changed(&mut h);
+    assert_eq!(said(&h), ["Asks: noted"; 3]);
+    assert!(!h.state().busy());
+    // Forgotten: asked again, and a no this time is a no.
+    h.state_mut().forget_plugin_grants("test.asks");
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_changed(&mut h);
+    assert_eq!(said(&h).last().unwrap(), "Asks: not noted");
+    assert!(h.state().plugins.answers.is_empty());
+    assert_eq!(h.state().plugin_grants("test.asks"), 0, "a no is not kept");
+}
+
 fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
     String::from_utf8(field(h, key).string("Tag").unwrap().to_vec()).unwrap()
 }
@@ -12035,7 +12104,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     let Some((mut h, key)) = plugin_harness("ui-plugins", false) else { return };
     h.run();
     // Installed, none enabled: the Plugins menu has only its manager.
-    assert_eq!(h.state().plugins.installed.len(), 4);
+    assert_eq!(h.state().plugins.installed.len(), 5);
     assert!(h.state().plugin_commands().is_empty());
     h.get_by_label("Plugins").click();
     h.run();

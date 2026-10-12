@@ -76,31 +76,15 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
         if let Some(r) = f.app.take_pick(pick_id).filter(|r| !r.is_empty()) {
             f.app.actions.push(edit(
                 "Add sound",
-                vec![Edit::InsertItem {
-                    key,
-                    path: base.clone(),
-                    list: "Sounds".into(),
-                    index: sounds.len(),
-                    item: item(r),
-                }],
+                vec![Edit::insert_item(key, base.clone(), "Sounds", sounds.len(), item(r))],
             ));
         }
         if ui.button("Add Sounds…").clicked() {
             f.app.open_picker(pick_id, "Add a sound", &[ResType::WAV]);
         }
-        let remove = |i: usize| Edit::RemoveItem {
-            key,
-            path: base.clone(),
-            list: "Sounds".into(),
-            index: i,
-        };
-        let insert = |i: usize, r: ResRef| Edit::InsertItem {
-            key,
-            path: base.clone(),
-            list: "Sounds".into(),
-            index: i,
-            item: item(r),
-        };
+        let remove = |i: usize| Edit::remove_item(key, base.clone(), "Sounds", i);
+        let insert =
+            |i: usize, r: ResRef| Edit::insert_item(key, base.clone(), "Sounds", i, item(r));
         if ui.add_enabled(selected.is_some(), egui::Button::new("Remove")).clicked()
             && let Some(i) = selected
         {

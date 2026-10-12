@@ -39,16 +39,18 @@ pub fn compile_scripts(
     resman: &ResMan,
     selection: ScriptSelection,
 ) -> Vec<ScriptResult> {
-    compile_scripts_with(module, resman, selection, None)
+    compile_scripts_with(module, resman, selection, None, false)
 }
 
 /// [`compile_scripts`], by an external compiler when one is given (Options
-/// › Script Editor) in place of the built-in one.
+/// › Script Editor) in place of the built-in one; with `debug`, each
+/// script's debug file (`.ndb`) is made too.
 pub fn compile_scripts_with(
     module: &mut Module,
     resman: &ResMan,
     selection: ScriptSelection,
     external: Option<&ExternalCompiler>,
+    debug: bool,
 ) -> Vec<ScriptResult> {
     // A nasher project's target may leave some scripts uncompiled.
     let skipped = |k: &ResKey| {
@@ -63,7 +65,7 @@ pub fn compile_scripts_with(
         .filter(|k| !skipped(k))
         .copied()
         .collect();
-    compile_named_scripts(module, resman, &names, external)
+    compile_named_with(module, resman, &names, external, debug)
 }
 
 /// What a script compiles from, as one number: its source and the sources

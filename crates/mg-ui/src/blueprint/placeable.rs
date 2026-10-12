@@ -169,13 +169,13 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         let mut together = taken;
         for r in adds {
             let item = f.inventory_item(&held, r);
-            together.push(Edit::InsertItem {
+            together.push(Edit::insert_item(
                 key,
-                path: base.clone(),
-                list: "ItemList".into(),
-                index: held.len(),
-                item: item.clone(),
-            });
+                base.clone(),
+                "ItemList",
+                held.len(),
+                item.clone(),
+            ));
             held.push(item);
         }
         f.app.actions.push(Action::Apply(Command::new("Add item", together)));

@@ -20,7 +20,7 @@ use mg_core::{Codepage, ResType, StrRef};
 use mg_erf::{Erf, ErfWriter};
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, ResKey, ResMan};
 
 #[derive(Parser)]
 #[command(name = "mg", version, about = "Moonglow Toolset command-line tools")]
@@ -548,6 +548,10 @@ enum Cmd {
         /// Pack even if scripts fail to compile (as nasher does by default).
         #[arg(long)]
         keep_going: bool,
+        /// Make each compiled script's debug file (.ndb) too, packed with
+        /// it.
+        #[arg(long)]
+        ndb: bool,
     },
     /// Put a module into a nasher project: its resources as source files
     /// (GFF as JSON), with a nasher.cfg like `nasher init` writes unless the
@@ -2097,7 +2101,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("updated {total} objects from {} blueprints", wanted.len()));
             out
         }
-        Cmd::Build { project, target, output, keep_going } => {
+        Cmd::Build { project, target, output, keep_going, ndb } => {
             let mut m = Module::open_project(project, target.as_deref())?;
             let mut out = Output::default();
             if let Some(p) = &m.project {
@@ -2106,10 +2110,12 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             let rm = module_resman(&install(cli)?, &m, &mut out)?;
-            let results = mg_module::build::compile_scripts(
+            let results = mg_module::build::compile_scripts_with(
                 &mut m,
                 &rm,
                 mg_module::build::ScriptSelection::All,
+                None,
+                *ndb,
             );
             let compile = compiled(&mut out, &results);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
@@ -2511,11 +2517,16 @@ fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
 /// The resman for a module: the game, the module's haks and the module.
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
-    let haks = m.haks()?;
-    for missing in rm.add_haks(gi, &haks)? {
+    // (A module whose hak list can't be read, or a hak that can't be
+    // opened, stops the command.)
+    m.haks()?;
+    let (missing, wrong) = m.stack_onto(&mut rm, gi);
+    if let Some(e) = wrong {
+        return Err(e.into());
+    }
+    for missing in missing {
         out.note(format!("warning: hak {missing} not found"));
     }
-    rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
     Ok(rm)
 }
 

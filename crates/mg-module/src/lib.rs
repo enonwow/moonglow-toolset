@@ -349,6 +349,29 @@ impl Module {
         Ok(Some(name).filter(|n| !n.is_empty()))
     }
 
+    /// Puts the module over a game's resources as the game has them: its
+    /// haks (the user's, else the install's), then the module itself.
+    /// The haks found nowhere, and what went wrong opening the others, if
+    /// anything did: the module is put over what there is either way.
+    pub fn stack_onto(
+        &self,
+        resman: &mut mg_resman::ResMan,
+        install: &mg_resman::GameInstall,
+    ) -> (Vec<String>, Option<mg_resman::ResError>) {
+        let haks = self.haks().unwrap_or_default();
+        let (missing, wrong) = match resman.add_haks(install, &haks) {
+            Ok(missing) => (missing, None),
+            Err(e) => (Vec::new(), Some(e)),
+        };
+        resman.add(
+            mg_resman::priority::MODULE,
+            "module",
+            mg_resman::LayerClass::Erf,
+            self.container(),
+        );
+        (missing, wrong)
+    }
+
     /// A snapshot of the resources as a resman container (cheap: the data
     /// is shared).
     pub fn container(&self) -> MemContainer {

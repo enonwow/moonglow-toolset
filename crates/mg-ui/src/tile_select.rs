@@ -151,15 +151,7 @@ pub(crate) fn input(
         delete(app, view);
     }
     // Copy, cut and paste (egui's events, or the keys where it sends none).
-    let (copy, cut, paste) = ui.input(|i| {
-        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
-        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
-        (
-            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
-            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
-            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
-        )
-    });
+    let (copy, cut, paste) = crate::widgets::copy_cut_paste(ui);
     if response.hovered() && !typing {
         if (copy || cut) && !view.tile_selection.is_empty() {
             app.tile_clip = copy_tiles(app, view);

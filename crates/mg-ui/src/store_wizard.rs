@@ -323,13 +323,7 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
         edits.push(set(faction_field(w.list), Value::Dword(w.faction)));
     }
     let (list, _) = git_list(ResType::UTM).expect("stores have a list");
-    edits.push(Edit::InsertItem {
-        key: git,
-        path: GffPath::root(),
-        list: list.into(),
-        index: count,
-        item: placed,
-    });
+    edits.push(Edit::insert_item(git, GffPath::root(), list, count, placed));
     Ok(edits)
 }
 

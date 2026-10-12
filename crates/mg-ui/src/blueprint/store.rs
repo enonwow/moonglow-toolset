@@ -143,23 +143,13 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
     let mut item = f.inventory_item(&items, resref);
     item.set("Infinite", Value::Byte(0));
     let edit = match index {
-        Some(i) => Edit::InsertItem {
-            key: f.key,
-            path: base.item("StoreList", i),
-            list: "ItemList".into(),
-            index: items.len(),
-            item,
-        },
+        Some(i) => {
+            Edit::insert_item(f.key, base.item("StoreList", i), "ItemList", items.len(), item)
+        }
         None => {
             let mut p = Struct::new(page);
             p.set("ItemList", Value::List(vec![item]));
-            Edit::InsertItem {
-                key: f.key,
-                path: base,
-                list: "StoreList".into(),
-                index: pages.len(),
-                item: p,
-            }
+            Edit::insert_item(f.key, base, "StoreList", pages.len(), p)
         }
     };
     f.app.actions.push(Action::Apply(Command::new("Add store item", vec![edit])));
@@ -386,20 +376,14 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         s.set("BaseItem", Value::Int(row as i32));
         f.app.actions.push(Action::Apply(Command::new(
             "Add restricted item",
-            vec![Edit::InsertItem {
-                key,
-                path: base.clone(),
-                list: label.into(),
-                index: current.len(),
-                item: s,
-            }],
+            vec![Edit::insert_item(key, base.clone(), label, current.len(), s)],
         )));
         left = None;
     }
     if let Some(i) = remove.and_then(|row| current.iter().position(|&r| r == row)) {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove restricted item",
-            vec![Edit::RemoveItem { key, path: base, list: label.into(), index: i }],
+            vec![Edit::remove_item(key, base, label, i)],
         )));
         right = None;
     }

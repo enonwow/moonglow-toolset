@@ -870,12 +870,24 @@ pub(crate) fn commit_text(
     multiline: bool,
     width: f32,
 ) -> Option<String> {
+    commit_text_in(&mut app.buffers, ui, id, current, multiline.then_some(6), width)
+}
+
+/// [`commit_text`] with the buffers what is typed is kept in until then:
+/// several lines (`rows` of them shown) or one, `width` wide.
+pub(crate) fn commit_text_in(
+    buffers: &mut std::collections::HashMap<egui::Id, String>,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    rows: Option<usize>,
+    width: f32,
+) -> Option<String> {
     let (shown, crlf) = to_editor(current);
-    let buf = app.buffers.entry(id).or_insert_with(|| shown.clone());
-    let edit = if multiline {
-        egui::TextEdit::multiline(buf).desired_rows(6)
-    } else {
-        egui::TextEdit::singleline(buf)
+    let buf = buffers.entry(id).or_insert_with(|| shown.clone());
+    let edit = match rows {
+        Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
+        None => egui::TextEdit::singleline(buf),
     };
     let r = ui.add(edit.id(id).desired_width(width));
     if !r.has_focus() && !r.lost_focus() && *buf != shown {
@@ -1000,6 +1012,21 @@ pub(crate) fn filter_keys(
     None
 }
 
+/// [`filter_keys`] for the filter field of a tab or a window that has no
+/// keys of its own for its list: Ctrl+F goes to the field while the
+/// pointer is over the tab (what of it shows: `ui`'s clip), and Escape
+/// clears it, then leaves it.
+pub(crate) fn pane_filter_keys(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    text: &mut String,
+) -> Option<FilterLeft> {
+    let find = ui.rect_contains_pointer(ui.clip_rect())
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    filter_keys(ui, id, text, find)
+}
+
 /// Two columns side by side where each gets at least `min` points, else one
 /// above the other (in a narrow tab or window, half the width would squeeze
 /// fixed-width fields into the other column): `add(ui, 0)` fills the first,
@@ -1102,6 +1129,89 @@ pub(crate) fn open_unless_escape<'a>(
         *open = false;
     }
     open
+}
+
+/// Whether copy, cut and paste were asked for this frame: egui's events,
+/// or Ctrl (Cmd) with C, X and V where it sends none.
+pub(crate) fn copy_cut_paste(ui: &egui::Ui) -> (bool, bool, bool) {
+    ui.input(|i| {
+        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
+        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
+        (
+            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
+            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
+            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
+        )
+    })
+}
+
+/// A window that asks for a new resource's name (New Script, New
+/// Conversation, Save Script As).
+pub(crate) struct NameWindow<'a> {
+    pub title: &'a str,
+    pub label: &'a str,
+    pub restype: mg_core::ResType,
+    /// What to say where the module has a resource of the name already.
+    pub taken: &'a str,
+    /// One of the name is replaced (said as a warning), not refused.
+    pub replaces: bool,
+    /// The button that takes the name ("Create", "Save").
+    pub button: &'a str,
+}
+
+/// What a [`NameWindow`] came to this frame.
+pub(crate) enum Named {
+    Open,
+    Cancelled,
+    Chosen(ResKey),
+}
+
+impl NameWindow<'_> {
+    /// Shows the window with `name` to type in: the name chosen (the
+    /// button, or Enter), or that it was cancelled.
+    pub(crate) fn show(
+        &self,
+        ctx: &egui::Context,
+        module: Option<&mg_module::Module>,
+        name: &mut String,
+    ) -> Named {
+        let mut out = Named::Open;
+        egui::Window::new(self.title)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(self.label);
+                let field = ui.add(egui::TextEdit::singleline(name).char_limit(16));
+                autofocus(ui, &field);
+                let key = mg_core::ResRef::from_str(name.trim())
+                    .ok()
+                    .filter(|r| !r.is_empty())
+                    .map(|r| ResKey::new(r, self.restype));
+                let exists = key.is_some_and(|k| module.is_some_and(|m| m.contains(&k)));
+                if exists {
+                    let color = match self.replaces {
+                        true => ui.visuals().warn_fg_color,
+                        false => ui.visuals().error_fg_color,
+                    };
+                    ui.colored_label(color, self.taken);
+                }
+                let may = key.is_some() && (self.replaces || !exists);
+                ui.horizontal(|ui| {
+                    if (ui.add_enabled(may, egui::Button::new(self.button)).clicked()
+                        || (may && enter(ui)))
+                        && let Some(k) = key
+                    {
+                        out = Named::Chosen(k);
+                    }
+                    if cancel(ui) {
+                        out = Named::Cancelled;
+                    }
+                });
+            });
+        out
+    }
 }
 
 /// A dialog: a window in the middle of the application's, which its

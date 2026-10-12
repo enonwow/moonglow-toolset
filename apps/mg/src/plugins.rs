@@ -14,7 +14,7 @@ use mg_edit::{Command, Workspace};
 use mg_module::Module;
 use mg_module::doctor::{Finding, Severity};
 use mg_plugin::{Answer, FieldKind, Host, Input, Level, Plugin, PluginError, Question};
-use mg_resman::{GameInstall, LayerClass, priority};
+use mg_resman::GameInstall;
 use mg_rules::GameData;
 use serde_json::json;
 
@@ -47,12 +47,11 @@ pub(crate) fn game_for(
             return None;
         }
     };
-    let haks = m.haks().unwrap_or_default();
-    match game.resman.add_haks(gi, &haks) {
-        Ok(missing) => missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found"))),
-        Err(e) => out.note(format!("warning: the module's haks: {e}")),
+    let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
+    missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found")));
+    if let Some(e) = wrong {
+        out.note(format!("warning: the module's haks: {e}"));
     }
-    game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
     if let Some(name) = m.custom_tlk().ok().flatten()
         && let Some(found) = mg_module::talk::find(&game.resman, &gi.tlk_dirs(), &name)
         && let Ok(tlk) = mg_tlk::Tlk::read(&found.data)
@@ -340,11 +339,7 @@ pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
 
 /// A plugin's archive read from a file, as the installer reads it.
 fn archive(file: &Path) -> Result<mg_plugin::Package> {
-    let size = std::fs::metadata(file)?.len();
-    if size > mg_plugin::MAX_ARCHIVE {
-        bail!("it is over {} MB", mg_plugin::MAX_ARCHIVE >> 20);
-    }
-    mg_plugin::Package::read(&std::fs::read(file)?).map_err(|e| anyhow!("{e}"))
+    mg_plugin::Package::open(file).map_err(|e| anyhow!("{e}"))
 }
 
 /// `mg plugin remove`: a plugin installed from an archive taken out of a
@@ -507,17 +502,7 @@ pub(crate) fn findings(
                 let input = Input { module: m.clone(), game: game.clone() };
                 match mg_plugin::run_check(&plugin, &check.id, input, host.clone()) {
                     Ok(found) => all.extend(found),
-                    Err(e) => all.push(Finding {
-                        severity: Severity::Error,
-                        check: plugin.check_id(&check.id).into(),
-                        source: "plugin".into(),
-                        resource: mg_resman::ResKey::new(
-                            mg_core::ResRef::from_str("module").expect("valid"),
-                            mg_core::ResType::IFO,
-                        ),
-                        at: String::new(),
-                        message: format!("the check failed: {e}"),
-                    }),
+                    Err(e) => all.push(plugin.check_failed(&check.id, &e)),
                 }
                 for (_, text) in host.log.borrow().iter() {
                     out.note(format!("{}: {text}", plugin.manifest.name));

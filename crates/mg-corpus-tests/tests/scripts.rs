@@ -182,7 +182,8 @@ fn an_external_compiler_compiles_a_module_s_scripts() {
         user: Some(scratch_dir("external-compiler-user")),
         ..Default::default()
     };
-    let results = compile_scripts_with(&mut external, &rm, ScriptSelection::All, Some(&compiler));
+    let results =
+        compile_scripts_with(&mut external, &rm, ScriptSelection::All, Some(&compiler), false);
     let said = |name: &str| {
         let r = results.iter().find(|r| r.script == key(name, ResType::NSS)).unwrap();
         r.result.clone()

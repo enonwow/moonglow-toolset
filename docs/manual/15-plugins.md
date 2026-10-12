@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
 ---
 
 # Plugins
@@ -16,9 +16,10 @@ plugin is a folder with a few text files; anyone can write one
 
 **Plugins are experimental.** They are new in Moonglow 1.0, and the
 plugin API (version 0.3) may change in a later release as the people who
-write plugins try it. A plugin written for one version of the API is not
-run by a Moonglow that has another: Manage Plugins says so, and the
-plugin needs its author's update. What you build with plugins, and what
+write plugins try it. A plugin written for an earlier version of the API still
+runs (0.2 and 0.3 only added to it); one written for a version this
+Moonglow doesn't have is not run: Manage Plugins says so, and Moonglow,
+or the plugin, needs an update. What you build with plugins, and what
 you miss, is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).
 
@@ -175,7 +176,7 @@ resource's fields are called (`return ctx.module:gff("guard.utc")`).
 ```text
 mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
-mg plugin run mymodule.mod plugins/tag-conventions saved --event --changed guard.utc
+mg plugin run mymodule.mod plugins/my-plugin on-save --event --changed guard.utc
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins

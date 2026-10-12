@@ -289,7 +289,7 @@ impl Dragged {
             Dragged::Listed { source, index, .. } => ("ItemList", source, *index),
             Dragged::Equipped { source, index, .. } => ("Equip_ItemList", source, *index),
         };
-        Some(Edit::RemoveItem { key: *key, path: path.clone(), list: list.into(), index })
+        Some(Edit::remove_item(*key, path.clone(), list, index))
     }
 }
 
@@ -455,12 +455,7 @@ pub(super) fn item_list(
                     if ui.small_button("Remove").clicked() {
                         edits.push((
                             "Remove item",
-                            Edit::RemoveItem {
-                                key,
-                                path: path.clone(),
-                                list: "ItemList".into(),
-                                index: i,
-                            },
+                            Edit::remove_item(key, path.clone(), "ItemList", i),
                         ));
                     }
                     if infinite {
@@ -532,12 +527,7 @@ pub(super) fn item_list(
                         if ui.button("Remove").clicked() {
                             edits.push((
                                 "Remove item",
-                                Edit::RemoveItem {
-                                    key,
-                                    path: path.clone(),
-                                    list: "ItemList".into(),
-                                    index: i,
-                                },
+                                Edit::remove_item(key, path.clone(), "ItemList", i),
                             ));
                             ui.close();
                         }
@@ -553,14 +543,8 @@ pub(super) fn item_list(
         egui::DragAndDrop::clear_payload(ui.ctx());
         let at = if from < to { to - 1 } else { to };
         moved = vec![
-            Edit::RemoveItem { key, path: path.clone(), list: "ItemList".into(), index: from },
-            Edit::InsertItem {
-                key,
-                path: path.clone(),
-                list: "ItemList".into(),
-                index: at,
-                item: item.clone(),
-            },
+            Edit::remove_item(key, path.clone(), "ItemList", from),
+            Edit::insert_item(key, path.clone(), "ItemList", at, item.clone()),
         ];
     }
     // Ctrl+C on the row under the pointer (else the one selected), Ctrl+V

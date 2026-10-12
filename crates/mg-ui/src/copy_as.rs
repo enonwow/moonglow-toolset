@@ -114,13 +114,13 @@ impl Moonglow {
         {
             let mut item = Struct::new(6);
             item.set("Area_Name", Value::resref(to));
-            edits.push(Edit::InsertItem {
-                key: ifo,
-                path: mg_edit::GffPath::root(),
-                list: "Mod_Area_list".into(),
-                index: info.root.list("Mod_Area_list").map_or(0, <[Struct]>::len),
+            edits.push(Edit::insert_item(
+                ifo,
+                mg_edit::GffPath::root(),
+                "Mod_Area_list",
+                info.root.list("Mod_Area_list").map_or(0, <[Struct]>::len),
                 item,
-            });
+            ));
         }
         match self.apply(Command::new(format!("Copy {} as {new}", draft.from), edits)) {
             Ok(()) => {

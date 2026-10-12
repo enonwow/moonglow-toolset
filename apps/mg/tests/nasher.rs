@@ -48,4 +48,13 @@ fn init_then_build_gives_the_module_back() {
     want.sort();
     have.sort();
     assert_eq!(have, want, "the built module has the original's resources, scripts compiled");
+    // --ndb: each compiled script's debug file is packed with it.
+    let debug = dir.join("debug.mod");
+    let (r, p, d) = (root.to_str().unwrap(), project.to_str().unwrap(), debug.to_str().unwrap());
+    run(&["--root", r, "--no-user-dir", "build", p, "-o", d, "--ndb"]);
+    let with = Module::open(&debug).unwrap();
+    let count = |m: &Module, t| m.keys_of(t).count();
+    assert_eq!(count(&built, ResType::NDB), 0);
+    assert!(count(&with, ResType::NDB) > 10);
+    assert_eq!(count(&with, ResType::NDB), count(&with, ResType::NCS));
 }

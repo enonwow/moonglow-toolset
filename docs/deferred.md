@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:35:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:14:12Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -225,8 +225,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
   files' sizes and times some twice a second (no file-system
   notifications); a nasher project's default target only; debug files
   (`.ndb`) are made where `--ndb` asks (`mg watch`, `mg compile`), and
-  by Compile All Scripts with Generate Debug Information on; `mg
-  build`, `mg pack` and Build Module make none; nothing
+  by Compile All Scripts and Build Module with Generate Debug
+  Information on, and `mg build --ndb`; `mg rename` compiles the
+  scripts it changed without one, so a renamed script's debug file is
+  the old one's until it is compiled again; nothing
   is pushed through NWNX's console; with `--serve`, tests are not run
   again after a change (`mg test` is a run of its own). A test holds
   the `--serve` half on Linux (a change put out, the server started
@@ -1269,9 +1271,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - Down from the tree's Filter goes to the first group, not the first
     match. (S)
   - The resource browser has them (its Name field and its list), and
-    Open Script has Down and Up for Enter. Not done: the hak editor's
-    and the tileset editor's filters, the Appearance Gallery's; the
-    tileset's palette and the Prefabs list have no arrow keys; in Open
+    Open Script has Down and Up for Enter; the hak editor's, the
+    tileset editor's and the Appearance Gallery's Find fields have
+    Ctrl+F and Escape. Not done: Down from those three into their
+    lists (which have no keys of their own); the tileset's palette and
+    the Prefabs list have no arrow keys; in Open
     Script, Escape closes the window at once (it does not clear the
     name first). (S each)
   - In the Gallery Up and Down go a picture at a time, not a row of
@@ -1465,10 +1469,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   runs by plugin and version (the settings' `plugin_grants`), but a
   plugin still keeps no settings of its own; `mg plugin run --event`
   runs an event by hand, and `mg watch` and `mg build` fire none; an
-  event's handler that asks a form asks it at every save; that an
-  event's leave is asked once, and not again after a restart, is held
-  only for how it is kept (no fixture plugin asks on an event). (S
-  each; settings M)
+  event's handler that asks a form asks it at every save. (S each;
+  settings M)
 - **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
   and a talk table as values to change and write; `mg.twoda.kinds`
   says what Verify Module's tables say (ten columns that hold a
@@ -1579,11 +1581,6 @@ document; the entries here that name the audit are that list in short.
   §I.2, `notes_tilesets.md` §B.4 and §I, `notes_shaders.md` §M,
   `notes_gff_changelog.md` §G. (S each)
   (the documentation audit of 2026-10-12)
-- **`notes_doctor.md` lists 16 of the 20 checks**, and its calibration
-  list is behind the test's. (S) (the documentation audit of 2026-10-12)
-- **The parity checklists:** rows marked ◐ whose reason is gone, and no
-  rows for the Plot Wizard, the item generators or the main menus. (S)
-  (the documentation audit of 2026-10-12)
 - **The Aurora UI inventory's hand-made parts:** its inputs are made
   from the installed game now (`tools/aurora/uiinv/inputs.py`), but
   twelve StrRef table offsets and the mappings in `mapping.py` were
@@ -1593,17 +1590,24 @@ document; the entries here that name the audit are that list in short.
 - **The plan's "Held by" lists were chosen by reading:** the record of
   the phases names files and tests for each phase from their names and
   headers, not from a run. (S) (the documentation audit of 2026-10-12)
-- **The manual:** chapter 15's sentence on API versions is wrong (older
-  plugins do run) and its `--event` example names a plugin with no
-  event; chapter 07 has a sentence without a subject; chapter 01 omits
-  Scoop; chapter 12 says spell checking is left out while Build Module
-  shows it as "Not yet". (S) (the documentation audit of 2026-10-12)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
 - **Not audited:** nothing was run, so no measurement in any document
   was re-made; parts of four research notes were not read (the audit
   lists them). (the documentation audit of 2026-10-12)
+- **The manual, what the audit named and is not put right:** GOG's
+  folder is not looked for on macOS (chapter 1 does not say so);
+  chapter 14 says "There's no OK or Cancel", which is true of property
+  editors only, and repeats chapter 12 in "Habits to change"; chapter
+  15's `--event` example names a plugin of no one's (the examples in
+  `docs/plugins` declare no event). (S each)
+  (the documentation audit of 2026-10-12)
+- **The parity checklists:** the main menus are not compared with
+  Aurora's item by item; the door and placeable editors' model in the
+  page is held by a test for an item's page only; "eight tests not in
+  `app.rs` named without their file" is as the audit found it. (S
+  each) (the documentation audit of 2026-10-12)
 
 ## The code itself (the code review of October 2026)
 
@@ -1631,20 +1635,18 @@ unless it says so.
   still call `choices`, which copies it. (S)
 - **Written more than once, in the editors:** the inventory pages' list
   setup and "add what was picked, pasted or dropped" (three pages);
-  some 30 `Edit` literals where `creature_lists.rs` has `apply`,
-  `insert` and `remove`; an item's cloak list built twice; the PLT layer
-  table in four places; copy, cut and paste detection (three); the
-  tools' radius by distance (four). (M together)
-- **Written more than once, in the windows:** the text field that sets
-  its value when focus leaves (`widgets::commit_text`, Module
-  Properties' own, the GFF editor's); New Script, New
-  Conversation and Save Script As; Options' "text field and Browse…" row
-  (five). (M together)
-- **Written more than once, in mg and the window:** the game, the
-  module's haks and the module stacked into a resource manager three
-  ways in mg, again in the window and in 16 corpus tests; `mg set` and `mg apply` open the module twice and pass the
-  codepage through a static; a plugin's archive read and its "the check
-  failed" finding are in both. (M)
+  thirteen `Edit::InsertItem` and `RemoveItem` literals that
+  `Edit::insert_item` and `remove_item` did not fit as written (a
+  comment inside, a list's name computed); an item's cloak list built
+  twice; the tools' radius by distance (not found where the review saw
+  four: two sites in `area_view.rs` and one in `model_view.rs` scale by
+  the camera's distance, each its own way). (M together)
+- **Written more than once, in mg and the window:** `mg set` and `mg
+  apply` open the module twice and pass the codepage through a static
+  (a value set once for a command's run; threading it through the edit
+  file's readers touches every one of them); some corpus tests still
+  stack the game, a module's haks and the module by hand, where
+  `Module::stack_onto` does it for mg and the window. (M)
 - **Written more than once, below:** a loose value made a typed GFF
   value (mg, the plugin host, the JSON reader: the integer ranges by
   type); "check the table is there, then a cursor at it" seven times

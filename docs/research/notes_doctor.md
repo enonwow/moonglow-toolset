@@ -3,7 +3,7 @@ type: Research Note
 title: 'The content doctor: what it checks, and how it was calibrated'
 description: What Moonglow's content doctor checks in a module's custom content, where each check comes from, and how the checks were calibrated on shipped content.
 tags: [doctor, custom-content, checks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T01:44:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
 ---
 
 # The content doctor: what it checks, and how it was calibrated
@@ -22,6 +22,7 @@ summarized in `community_pain_points.md`. Each check names the source
 
 | Check | Finding | Severity |
 | --- | --- | --- |
+| `custom-tlk` | the custom talk table the module names is not in its haks, the module or the `tlk` folder (or is named with `.tlk`, or in another case on Linux) | error |
 | `set-read` | a tileset that doesn't parse (a section its counts name is missing) | error |
 | `set-count` | `[TILEn]`/`[GROUPn]` sections past the `Count` (Aurora's Range Check Error) | error |
 | `set-model` | a tile whose model exists nowhere | error |
@@ -30,8 +31,11 @@ summarized in `community_pain_points.md`. Each check names the source
 | `set-door` | a tile door type that isn't a `doortypes.2da` row with a model, one finding per type | warning |
 | `set-data` | `mg-set`'s parse warnings (undeclared terrains, missing door sections) | warning |
 | `tile-faces` | a custom tile model over 10,000 faces | warning |
+| `mdl-read` | a tile's custom model that can't be read | error |
+| `mdl-text` | a custom model kept as text with something the game refuses, misreads or crashes on (the linter's errors, and its first five warnings a model) | as the linter says |
 | `mtr-name` | a material's texture name over 16 characters ("Pure virtual function called") | error |
 | `2da-row` | a row with more cells than columns, in a table the game also has | error |
+| `2da-read` | a custom 2DA that can't be read | error |
 | `2da-limit` | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 (Aurora only) | warning |
 | `2da-strref` | a StrRef past the end of `dialog.tlk` or the custom TLK, in a changed or added row of a known column | error |
 | `2da-ref` | a row number past the end of the table it names (`feat.PREREQFEAT1`, `spells.FeatID`, `racialtypes.Appearance`…: `ROW_COLUMNS`; the lists a class, a race or a package names: `NAMED_TABLES`), in a changed or added row | warning |
@@ -60,7 +64,19 @@ hand. What remains are real defects in the shipped content:
 - **Doom of Icewind Dale** places an object on a reserved
   `placeables.2da` row (model `USER`).
 - **Wyvern Crown of Cormyr** places trees, benches and braziers on
-  `placeables.2da` rows 500–700, which its hak's copy leaves empty.
+  `placeables.2da` rows 500–700, which its hak's copy leaves empty; two
+  spells of its `spells.2da` (rows 807 and 809) name feats 3000 and
+  2589 of a `feat.2da` of 1,607 rows (`2da-ref`).
+- **Tyrants of the Moonsea:** a blueprint for appearance 15028, past
+  its hak's `appearance.2da`, and two of `mg-set`'s warnings on a
+  tileset of the hak (`set-data`).
+- **Models kept as text** (`mdl-text`, all warnings: a second node of
+  a name, a robe with more than four bones on a vertex): 13 and 8 in
+  Darkness over Daggerford's two haks, 5 in Pirates of the Sword
+  Coast's, one each in Doom of Icewind Dale's and Tyrants of the
+  Moonsea's.
+
+The test's `KNOWN` list is the record: this is that list in words.
 
 `engine_doctor.rs` checks the shadowed-row verdicts in `nwserver`. With
 each campaign's haks loaded, `Get2DAString` returns empty for the cells

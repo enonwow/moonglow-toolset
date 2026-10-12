@@ -405,8 +405,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     }
     ui.horizontal(|ui| {
         ui.label("Find");
+        let field = ui.id().with("hak-filter-field");
+        crate::widgets::pane_filter_keys(ui, field, &mut doc.filter);
         ui.add(
             egui::TextEdit::singleline(&mut doc.filter)
+                .id(field)
                 .desired_width(200.0)
                 .hint_text("name or .type"),
         );

@@ -576,12 +576,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
             if ui.add_enabled(list.len() > 1, egui::Button::new("Remove").small()).clicked() {
                 edits.push((
                     "Remove class",
-                    vec![Edit::RemoveItem {
-                        key,
-                        path: base.clone(),
-                        list: "ClassList".into(),
-                        index: i,
-                    }],
+                    vec![Edit::remove_item(key, base.clone(), "ClassList", i)],
                 ));
             }
             // A cleric's domains, a wizard's school (classes.2da PickDomains,
@@ -622,13 +617,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         s.set("ClassLevel", Value::Short(1));
         edits.push((
             "Add class",
-            vec![Edit::InsertItem {
-                key,
-                path: base.clone(),
-                list: "ClassList".into(),
-                index: list.len(),
-                item: s,
-            }],
+            vec![Edit::insert_item(key, base.clone(), "ClassList", list.len(), s)],
         ));
     }
     if ui
@@ -776,13 +765,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
             .map(|i| {
                 let mut s = Struct::new(mg_schema::utc::SKILL_LIST.item_id);
                 s.set("Rank", Value::Byte(0));
-                Edit::InsertItem {
-                    key,
-                    path: base.clone(),
-                    list: "SkillList".into(),
-                    index: i,
-                    item: s,
-                }
+                Edit::insert_item(key, base.clone(), "SkillList", i, s)
             })
             .collect();
         edits.push(set(key, &base.item("SkillList", row), "Rank", Value::Byte(v as u8)));

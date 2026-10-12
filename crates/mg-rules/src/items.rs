@@ -299,6 +299,30 @@ impl ArmorChannel {
         }
     }
 
+    /// The layer of a PLT texture this channel colors (0 and 1 are skin
+    /// and hair, 8 and 9 the tattoos).
+    pub fn plt_layer(self) -> usize {
+        match self {
+            ArmorChannel::Metal1 => 2,
+            ArmorChannel::Metal2 => 3,
+            ArmorChannel::Cloth1 => 4,
+            ArmorChannel::Cloth2 => 5,
+            ArmorChannel::Leather1 => 6,
+            ArmorChannel::Leather2 => 7,
+        }
+    }
+
+    /// The palette (a texture's name) the channel's colors are chosen
+    /// from.
+    pub fn palette(self) -> &'static str {
+        match self {
+            ArmorChannel::Cloth1 | ArmorChannel::Cloth2 => "pal_cloth01",
+            ArmorChannel::Leather1 | ArmorChannel::Leather2 => "pal_leath01",
+            ArmorChannel::Metal1 => "pal_armor01",
+            ArmorChannel::Metal2 => "pal_armor02",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             ArmorChannel::Leather1 => "Leather 1",

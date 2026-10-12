@@ -361,20 +361,12 @@ const LOWER_PARTS: [(&str, &[&str], &str); 3] = [
     ("Robe", &["ArmorPart_Robe"], "parts_robe"),
 ];
 
-/// The colours of layered items and armor, and their palettes.
-const COLORS: [(&str, &str, &str); 6] = [
-    ("Cloth 1", "Cloth1Color", "pal_cloth01"),
-    ("Cloth 2", "Cloth2Color", "pal_cloth01"),
-    ("Leather 1", "Leather1Color", "pal_leath01"),
-    ("Leather 2", "Leather2Color", "pal_leath01"),
-    ("Metal 1", "Metal1Color", "pal_armor01"),
-    ("Metal 2", "Metal2Color", "pal_armor02"),
-];
-
 fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-colors", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-        for (i, (text, label, palette)) in COLORS.iter().enumerate() {
-            crate::widgets::field_label(ui, *text);
+        // The colors of layered items and armor, and their palettes.
+        for (i, channel) in mg_rules::items::ArmorChannel::ALL.into_iter().enumerate() {
+            let (text, label, palette) = (channel.name(), channel.field(), channel.palette());
+            crate::widgets::field_label(ui, text);
             f.palette_color(ui, Some(game), text, label, palette);
             if i % 2 == 1 {
                 ui.end_row();
@@ -412,7 +404,8 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-part-colors", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
         ui,
         |ui| {
-            for (channel, (_, _, palette)) in ArmorChannel::ALL.into_iter().zip(COLORS) {
+            for channel in ArmorChannel::ALL {
+                let palette = channel.palette();
                 let what = format!("{} {}", PARTS[part].1, channel.name());
                 let label = armor_part_color_label(part, channel);
                 let color = armor_part_color(&f.root, part, channel);
@@ -869,20 +862,20 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         }
         f.app.actions.push(Action::Apply(Command::new(
             "Add property",
-            vec![Edit::InsertItem {
+            vec![Edit::insert_item(
                 key,
-                path: here.clone(),
-                list: "PropertiesList".into(),
-                index: assigned.len(),
-                item: property_struct(&p),
-            }],
+                here.clone(),
+                "PropertiesList",
+                assigned.len(),
+                property_struct(&p),
+            )],
         )));
         selected = Some(assigned.len());
     }
     if let Some(i) = remove {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove property",
-            vec![Edit::RemoveItem { key, path: here, list: "PropertiesList".into(), index: i }],
+            vec![Edit::remove_item(key, here, "PropertiesList", i)],
         )));
         selected = None;
     }

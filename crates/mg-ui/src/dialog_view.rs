@@ -236,19 +236,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     );
     let (key_find, key_find_next) =
         (pressed(crate::keys::Cmd::DialogFind), pressed(crate::keys::Cmd::DialogFindNext));
-    let (key_copy, key_cut, key_paste) = if here {
-        ui.input(|i| {
-            let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
-            let ctrl = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
-            (
-                event(|e| matches!(e, egui::Event::Copy)) || ctrl(egui::Key::C),
-                event(|e| matches!(e, egui::Event::Cut)) || ctrl(egui::Key::X),
-                event(|e| matches!(e, egui::Event::Paste(_))) || ctrl(egui::Key::V),
-            )
-        })
-    } else {
-        (false, false, false)
-    };
+    let (key_copy, key_cut, key_paste) =
+        if here { crate::widgets::copy_cut_paste(ui) } else { (false, false, false) };
     let (key_copy, key_cut, key_paste) = (
         key_copy || asked == Some(Asked::Copy),
         key_cut || asked == Some(Asked::Cut),
@@ -1339,47 +1328,29 @@ pub(crate) fn new_file() -> Vec<u8> {
 
 /// The New Conversation window.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
+    use crate::widgets::{NameWindow, Named};
     let Some(mut name) = app.new_dialog.clone() else { return };
-    let mut close = false;
-    egui::Window::new("New Conversation")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
-        .collapsible(false)
-        .resizable(false)
-        .show(ui.ctx(), |ui| {
-            ui.label("Name (up to 16 characters)");
-            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
-            crate::widgets::autofocus(ui, &field);
-            let key = ResRef::from_str(name.trim())
-                .ok()
-                .filter(|r| !r.is_empty())
-                .map(|r| ResKey::new(r, ResType::DLG));
-            let exists =
-                key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
-            if exists {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    "The module already has a conversation of this name.",
-                );
-            }
-            ui.horizontal(|ui| {
-                if (ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
-                    || (key.is_some() && !exists && crate::widgets::enter(ui)))
-                    && let Some(k) = key
-                {
-                    app.actions.push(Action::Apply(Command::new(
-                        format!("New conversation {k}"),
-                        vec![Edit::SetResource { key: k, data: Some(new_file()) }],
-                    )));
-                    app.actions.push(Action::OpenTab(Tab::Dialog(k)));
-                    close = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
-            });
-        });
-    app.new_dialog = if close { None } else { Some(name) };
+    let window = NameWindow {
+        title: "New Conversation",
+        label: "Name (up to 16 characters)",
+        restype: ResType::DLG,
+        taken: "The module already has a conversation of this name.",
+        replaces: false,
+        button: "Create",
+    };
+    let module = app.ws.as_ref().map(|w| &w.module);
+    app.new_dialog = match window.show(ui.ctx(), module, &mut name) {
+        Named::Open => Some(name),
+        Named::Cancelled => None,
+        Named::Chosen(k) => {
+            app.actions.push(Action::Apply(Command::new(
+                format!("New conversation {k}"),
+                vec![Edit::SetResource { key: k, data: Some(new_file()) }],
+            )));
+            app.actions.push(Action::OpenTab(Tab::Dialog(k)));
+            None
+        }
+    };
 }
 
 fn matches(text: &str, find: &str, s: &DialogSearch) -> bool {

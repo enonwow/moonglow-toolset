@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:48:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:05Z }
 ---
 
 # The main window
@@ -280,7 +280,9 @@ Its **Name** field has the side panes' keys: Ctrl+F, with the pointer
 over the browser, goes to it; Escape clears what is typed, and Escape
 again leaves it; Down goes into the list, where Up and Down (Page Up,
 Page Down, Home, End) choose a row and Enter opens it. A click on a row
-gives the list the keys too.
+gives the list the keys too. The **Find** fields of the hak editor, the
+tileset editor and the Appearance Gallery take Ctrl+F and Escape the
+same way.
 
 A 2DA shows the copy the game reads, with its StrRef columns (Name,
 Description, StrRef and the like) as their text; **StrRefs as numbers**

@@ -103,7 +103,10 @@ fn plugins_are_found_by_their_manifests() {
         .iter()
         .map(|p| p.as_ref().map(|p| p.manifest.id.clone()).unwrap_or_else(|e| e.to_string()))
         .collect();
-    assert_eq!(ids, ["test.broken", "test.forms", "test.hostile", "example.tag-conventions"]);
+    assert_eq!(
+        ids,
+        ["test.asks", "test.broken", "test.forms", "test.hostile", "example.tag-conventions"]
+    );
     let p = plugin("tag-conventions");
     assert_eq!(p.manifest.commands.len(), 2);
     assert_eq!(p.check_id("tag-case"), "example.tag-conventions/tag-case");

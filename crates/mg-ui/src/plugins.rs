@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use mg_edit::Command;
-use mg_module::doctor::{Finding, Severity};
+use mg_module::doctor::Finding;
 use mg_plugin::{
     Answer, Existing, FieldKind, Host, Input, Outcome, Package, Plugin, PluginError, Question,
 };
@@ -287,17 +287,7 @@ pub(crate) fn check_findings(
             match mg_plugin::run_check(plugin, &check.id, input, host) {
                 Ok(found) => findings.extend(found),
                 Err(PluginError::Canceled(_)) => return (findings, said),
-                Err(e) => findings.push(Finding {
-                    severity: Severity::Error,
-                    check: plugin.check_id(&check.id).into(),
-                    source: "plugin".into(),
-                    resource: mg_resman::ResKey::new(
-                        mg_core::ResRef::from_str("module").expect("valid"),
-                        mg_core::ResType::IFO,
-                    ),
-                    at: String::new(),
-                    message: format!("the check failed: {e}"),
-                }),
+                Err(e) => findings.push(plugin.check_failed(&check.id, &e)),
             }
             let logged = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
             let name = &plugin.manifest.name;
@@ -354,6 +344,14 @@ impl Moonglow {
         self.plugins.granted.remove(id);
         let of = |p: &str| p.split_once(' ').is_some_and(|(i, _)| i == id);
         self.settings.plugin_grants.retain(|(p, _, _)| !of(p));
+    }
+
+    /// Forgets what this run of Moonglow holds of what plugins' events
+    /// were allowed, as a new start has it: what the settings keep is
+    /// read again.
+    pub fn forget_plugin_session(&mut self) {
+        self.next_plugin_event();
+        self.plugins.granted.clear();
     }
 
     /// How many things a plugin's events were allowed and are not asked
@@ -498,14 +496,7 @@ impl Moonglow {
         let Some(dir) = self.plugin_dir.clone() else { return };
         self.plugins.window = true;
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let read = || -> Result<Package, String> {
-            let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-            if size > mg_plugin::MAX_ARCHIVE {
-                return Err(format!("it is over {} MB", mg_plugin::MAX_ARCHIVE >> 20));
-            }
-            let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-            Package::read(&bytes).map_err(|e| e.to_string())
-        };
+        let read = || Package::open(path).map_err(|e| e.to_string());
         match read() {
             Err(e) => self.install_said(Level::Error, format!("{file} was not installed: {e}")),
             Ok(package) => match package.existing(&dir) {
