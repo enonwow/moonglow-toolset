@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T22:17:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T03:15:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -361,6 +361,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
+- **Text typed and its field gone before the keyboard left it:** a
+  text field that sets its text when the keyboard leaves it gives the
+  keyboard up at a press of the pointer anywhere else, while it is still
+  drawn (it did so at the click's end, by when another page's tab or
+  the window's close button had taken the field away, and what was
+  typed with it). In a blueprint's or an object's Properties the text
+  is set too where the field goes with no press at all (the tab closed
+  by a key). Not so: in the other windows a key that closes the tab or
+  goes to another (Ctrl+W, Ctrl+Tab) with a field typed in and not
+  left; and fields that set their text in a way of their own (the hak
+  editor's description, the talk table's line, Find References' and
+  the bulk editor's) were not looked at. (S) (a builder's report,
+  October 2026)
 - **The model in other editors' pages:** a placeable's and a door's
   Basic page show it beside their fields where the window is wide enough
   for both; narrower, Preview shows it. An item's Appearance page has it

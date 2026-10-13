@@ -4059,6 +4059,100 @@ fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     h.run();
 }
 
+/// Text typed in a Properties field is kept when the field is left by a
+/// click on another page, or by closing the window: the field is gone
+/// before the keyboard leaves it, and what was typed was lost.
+#[test]
+fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_typed", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let input = |h: &Harness<'_, Moonglow>, value: &str| {
+        let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
+        };
+        h.get(egui_kittest::kittest::by().predicate(is)).rect().center()
+    };
+    let tag = field(&mut h, &key).string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    let tag = tag.unwrap_or_default();
+    // The Tag, typed in, and another page clicked.
+    let at = input(&h, &tag);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_X".into()));
+    h.run_steps(2);
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(tag.as_bytes()), "not set while typed");
+    h.get_by_label("Lock").click();
+    h.run_steps(4);
+    let now = format!("{tag}_X");
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tag"));
+    // The description, typed in, and the window closed.
+    h.get_by_label("Description").click();
+    h.run_steps(3);
+    let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    let at = h.get(memo).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("Sturdy. ".into()));
+    h.run_steps(2);
+    close_tab(h.state_mut(), &Tab::Blueprint(key));
+    h.run_steps(4);
+    let description = field(&mut h, &key).locstring("Description").cloned().unwrap();
+    let text: Vec<String> =
+        description.strings.iter().map(|(_, t)| String::from_utf8_lossy(t).into_owned()).collect();
+    assert!(text.iter().any(|t| t.contains("Sturdy. ")), "{text:?}");
+    // A field left with nothing typed sets nothing.
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Description"));
+}
+
+/// The same in the other windows: Module Properties' description, typed
+/// in, is kept when another of its pages is clicked.
+#[test]
+fn text_typed_in_module_properties_is_kept_when_its_page_is_left() {
+    let dir = mg_testkit::scratch_dir("ui-ifo-typed");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Description").click();
+    h.run_steps(3);
+    let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    let at = h.get(memo.clone()).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("A quiet valley. ".into()));
+    h.run_steps(2);
+    let described = |h: &mut Harness<'_, Moonglow>| {
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+        let root = h.state_mut().ws.as_mut().unwrap().doc(&ifo).unwrap().root.clone();
+        let text = root.locstring("Mod_Description").cloned().unwrap_or_default();
+        text.strings.iter().any(|(_, t)| String::from_utf8_lossy(t).contains("A quiet valley. "))
+    };
+    assert!(!described(&mut h), "not set while it is typed");
+    // (A click as the pointer makes one: pressed, then let go a frame on.)
+    let basic = h.get_by_label("Basic").rect().center();
+    h.hover_at(basic);
+    press(&h, basic, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    press(&h, basic, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    assert!(h.query(memo).is_none(), "the other page is shown");
+    assert!(described(&mut h), "what was typed is kept");
+}
+
 /// A long dropdown opens at the one chosen, not at its top, and whole:
 /// what was typed in its Filter field the last time is gone.
 #[test]
@@ -15946,6 +16040,43 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
         assert_eq!(said, 1, "{:?}", h.state().log.entries);
         assert_eq!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), tab_opens, "{module:?}");
     }
+}
+
+/// Enter in the script editor begins the new line as far in as the line
+/// it is started from, as Aurora does.
+#[test]
+fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
+    let dir = mg_testkit::scratch_dir("ui-script-indent");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let key = ResKey::parse("indented", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int n;\n}\n";
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run_steps(4);
+    // The cursor after "int n;", and Enter, then a letter.
+    let at = text.find("int n;").unwrap() + "int n;".len();
+    let id = egui::Id::new(("script", key));
+    let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+    let cursor = egui::text::CCursor::new(at);
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(cursor)));
+    state.store(&h.ctx, id);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(3);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    h.event(egui::Event::Text("x".into()));
+    h.run_steps(3);
+    let now = h.state().script_text(key).unwrap();
+    assert_eq!(now, "void main()\n{\n    int n;\n    x\n}\n");
 }
 
 /// Scripts open as tabs of one window (the window a script is open in

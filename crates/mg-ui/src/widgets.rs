@@ -890,11 +890,47 @@ pub(crate) fn commit_text_in(
         None => egui::TextEdit::singleline(buf),
     };
     let r = ui.add(edit.id(id).desired_width(width));
+    leaves_at_a_press(ui.ctx(), &r);
     if !r.has_focus() && !r.lost_focus() && *buf != shown {
         // Changed underneath (undo, another selection): show the value.
         *buf = shown.clone();
     }
     (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
+}
+
+fn press_leaves_id() -> egui::Id {
+    egui::Id::new("moonglow-text-left-at-a-press")
+}
+
+/// Says of a text field that sets its text when the keyboard leaves it
+/// (`r`, as drawn) that a press of the pointer anywhere else is to take
+/// the keyboard from it at once ([`text_begin`]).
+pub(crate) fn leaves_at_a_press(ctx: &egui::Context, r: &egui::Response) {
+    if r.has_focus() {
+        ctx.data_mut(|d| d.insert_temp(press_leaves_id(), (r.id, r.rect)));
+    }
+}
+
+/// Once a frame, before anything is drawn: a press of the pointer outside
+/// the text field that has the keyboard takes the keyboard from it now,
+/// while it is still drawn, so that it sets what was typed. The field
+/// alone would give the keyboard up at the click's end, by when what was
+/// clicked (another page's tab, its window's close button) may have taken
+/// the field away, and what was typed with it.
+pub(crate) fn text_begin(ctx: &egui::Context) {
+    let Some((id, rect)) = ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(press_leaves_id()))
+    else {
+        return;
+    };
+    if !ctx.memory(|m| m.has_focus(id)) {
+        return;
+    }
+    let pressed_elsewhere = ctx.input(|i| {
+        i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !rect.contains(p))
+    });
+    if pressed_elsewhere {
+        ctx.memory_mut(|m| m.surrender_focus(id));
+    }
 }
 
 /// A number field committed when it changes (a drag: when released). A

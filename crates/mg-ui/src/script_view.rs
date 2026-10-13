@@ -834,6 +834,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             buf.text = text;
             set_cursor(&ctx, key, from, to);
         }
+        // Enter begins the new line as far in as the line it is started
+        // from (Aurora does; the field alone begins it at the margin).
+        if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            let start = format!("\n{}", tools::new_line_indent(&buf.text, a));
+            insert(buf, &ctx, key, a, b, &start);
+            script_tools.scroll = Some(key);
+        }
     }
     let pending = script_tools.jump.take_if(|(k, _)| *k == key).or(jump).map(|(_, at)| at);
     if let Some(at) = pending {

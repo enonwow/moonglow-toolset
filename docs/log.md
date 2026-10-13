@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-13
+* **Update**: [Scripts](manual/07-scripts.md) and [the deferred list](deferred.md): Enter in the script editor begins the new line as far in as the line it is started from, as Aurora does. Text typed in a Properties field (a name, a tag, a description, a comment) is set when another page is chosen or the window is closed: it was lost, the field being gone before the keyboard left it. The same kind of field in the other windows (Module Properties, the journal, a conversation, the raw fields, a tileset) gives the keyboard up at a press of the pointer elsewhere, while it is still drawn, and so sets its text before its page or window goes.
+
 ## 2026-10-12
 * **Update**: [Command-line tools](manual/11-command-line.md): `mg tlk-export --base` writes a CSV's lines numbered from 0, for the game's own `dialog.tlk`; the help says a CSV's StrRefs are otherwise a custom table's (found by the Domains of Dread session, which read 16777347 for line 131).
 * **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): a 2DA's column is moved by a drag of its name or from its menu, with its cells, as a step to take back (a builder's ask).

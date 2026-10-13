@@ -315,6 +315,12 @@ impl Form<'_> {
 
     /// Sets a field, or removes it (`None`).
     pub(crate) fn set_opt(&mut self, what: &str, label: &str, value: Option<Value>) {
+        let command = self.setting(what, label, value);
+        self.app.actions.push(Action::Apply(command));
+    }
+
+    /// The command that sets a field, or removes it.
+    fn setting(&self, what: &str, label: &str, value: Option<Value>) -> Command {
         let edits = self
             .targets()
             .map(|(key, path)| Edit::SetField {
@@ -324,7 +330,35 @@ impl Form<'_> {
                 value: value.clone(),
             })
             .collect();
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        Command::new(what, edits)
+    }
+
+    /// Holds a text field's typing while it has the keyboard, after the
+    /// field is drawn: `shown` is the field's value as it is stored, and
+    /// `value` what the text typed would be set as. Should the field be
+    /// gone before the keyboard leaves it, that is set
+    /// ([`Moonglow::held_text`]).
+    fn hold_text(
+        &mut self,
+        ui: &Ui,
+        what: &str,
+        label: &str,
+        shown: &str,
+        value: impl Fn(String) -> Value,
+    ) {
+        let id = self.id(label);
+        if !ui.memory(|m| m.has_focus(id)) {
+            if self.app.held_text.as_ref().is_some_and(|(held, ..)| *held == id) {
+                self.app.held_text = None;
+            }
+            return;
+        }
+        let (shown, crlf) = crate::text::to_editor(shown);
+        let typed = (self.app.buffers.get(&id))
+            .filter(|buf| **buf != shown)
+            .map(|buf| crate::text::from_editor(buf, crlf));
+        let command = typed.map(|text| self.setting(what, label, Some(value(text))));
+        self.app.held_text = Some((id, ui.ctx().cumulative_pass_nr(), command));
     }
 
     /// Sets an integer field, keeping its stored type (for a field the
@@ -347,6 +381,7 @@ impl Form<'_> {
         let (shown, _) = crate::text::to_editor(&current);
         let buf = self.app.buffers.entry(id).or_insert_with(|| shown.clone());
         let r = ui.add(egui::TextEdit::singleline(buf).id(id).char_limit(max).desired_width(240.0));
+        crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !r.has_focus() && !r.lost_focus() && *buf != shown {
             *buf = shown.clone();
         }
@@ -354,6 +389,7 @@ impl Form<'_> {
             let v = buf.clone();
             self.set(what, label, Value::String(encode(&v)));
         }
+        self.hold_text(ui, what, label, &current, |text| Value::String(encode(&text)));
     }
 
     /// A multi-line text field (`CExoString`), line ends kept.
@@ -363,6 +399,7 @@ impl Form<'_> {
         if let Some(v) = commit_text(self.app, ui, id, &current, true, f32::INFINITY) {
             self.set(what, label, Value::String(encode(&v)));
         }
+        self.hold_text(ui, what, label, &current, |text| Value::String(encode(&text)));
     }
 
     /// A localized name: the English text, and `…` for every language.
@@ -372,6 +409,11 @@ impl Form<'_> {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
                 self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
             }
+            let shown = crate::widgets::loc_shown(self.app, &current).0;
+            let held = current.clone();
+            self.hold_text(ui, what, label, &shown, move |text| {
+                Value::LocString(with_english(held.clone(), &text))
+            });
             if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
@@ -389,8 +431,12 @@ impl Form<'_> {
             }
         });
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
-            self.set(what, label, Value::LocString(with_english(current, &v)));
+            self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
         }
+        let shown = crate::widgets::loc_shown(self.app, &current).0;
+        self.hold_text(ui, what, label, &shown, move |text| {
+            Value::LocString(with_english(current.clone(), &text))
+        });
     }
 
     /// Sets several fields in one command.
@@ -996,6 +1042,7 @@ impl Form<'_> {
         let r = ui
             .add(egui::TextEdit::singleline(buf).id(id).char_limit(16).desired_width(160.0))
             .on_hover_text("Edit the Blueprint ResRef");
+        crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !r.has_focus() && !r.lost_focus() && *buf != current.to_string() {
             *buf = current.to_string();
         }
