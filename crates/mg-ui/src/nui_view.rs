@@ -1471,6 +1471,25 @@ fn describe_path(doc: &Value, path: &str) -> (Option<String>, String) {
     (None, what.into())
 }
 
+/// What a NUI window (`key`, a JUI) has beside it in the module: its
+/// settings, its opener include and its event script, source and compiled.
+/// None where the text of its name is not its settings: the scripts are
+/// then not known to be its own.
+pub(crate) fn companions(module: &mg_module::Module, key: ResKey) -> Vec<ResKey> {
+    let settings = ResKey::new(key.resref, ResType::TXT);
+    if key.restype != ResType::JUI
+        || module.get(&settings).is_none_or(|b| Settings::parse(b).is_err())
+    {
+        return Vec::new();
+    }
+    let scripts = ["_o", "_e"].into_iter().flat_map(|suffix| {
+        [ResType::NSS, ResType::NCS, ResType::NDB]
+            .into_iter()
+            .filter_map(move |ty| ResKey::parse(&format!("{}{suffix}", key.resref), ty))
+    });
+    std::iter::once(settings).chain(scripts).filter(|k| module.contains(k)).collect()
+}
+
 /// The module's NUI windows whose scripts are older than their design: the
 /// game would run what was last built.
 pub(crate) fn stale_windows(module: &mg_module::Module) -> Vec<String> {
@@ -2886,6 +2905,33 @@ mod tests {
         assert_eq!(keyboard_document(&h), resized);
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         assert_eq!(keyboard_document(&h), doc);
+    }
+
+    /// Deleting a window takes its settings and its scripts with it, as one
+    /// step; a text of the same name that is not its settings stays.
+    #[test]
+    fn nui_delete_takes_the_windows_companions() {
+        let mut app = app();
+        app.run(Action::NewNui("gone".into()));
+        let key = mg_nui::key("gone", ResType::JUI);
+        let script = mg_nui::key("gone_e", ResType::NSS);
+        let module = |app: &Moonglow| app.ws.as_ref().unwrap().module.keys().count();
+        let before = module(&app);
+        app.ws.as_mut().unwrap().module.set(script, b"void main() {}".to_vec());
+        app.delete_resource(key);
+        let left = &app.ws.as_ref().unwrap().module;
+        assert!(!left.contains(&key) && !left.contains(&script));
+        assert!(!left.contains(&mg_nui::key("gone", ResType::TXT)));
+        assert_eq!(module(&app), before - 2);
+        app.ws.as_mut().unwrap().undo().unwrap();
+        assert!(app.ws.as_ref().unwrap().module.contains(&script));
+
+        let notes = mg_nui::key("notes", ResType::TXT);
+        let module = &mut app.ws.as_mut().unwrap().module;
+        module.set(mg_nui::key("notes", ResType::JUI), b"{}".to_vec());
+        module.set(notes, b"not settings".to_vec());
+        app.delete_resource(mg_nui::key("notes", ResType::JUI));
+        assert!(app.ws.as_ref().unwrap().module.contains(&notes));
     }
 
     /// Cancel under the editor sets the window back to what it was when the

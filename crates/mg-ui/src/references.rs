@@ -277,7 +277,8 @@ impl Moonglow {
 
     /// Deletes `key` from the module, as one command: an area with its
     /// objects (its GIT and GIC) and its entry in the module's area list,
-    /// a script with its compiled one. Its tabs close.
+    /// a script with its compiled one, a NUI window with its settings and
+    /// its two scripts. Its tabs close.
     pub(crate) fn delete_resource(&mut self, key: ResKey) {
         if let Some(why) = self.undeletable(key) {
             self.log.warn(why);
@@ -300,9 +301,12 @@ impl Moonglow {
         {
             edits.push(Edit::remove_item(ifo, mg_edit::GffPath::root(), "Mod_Area_list", index));
         }
+        // A NUI window's settings, opener and event script go with it.
+        let companions = crate::nui_view::companions(&ws.module, key);
         edits.extend(
             std::iter::once(key)
                 .chain(with.iter().map(|t| ResKey::new(key.resref, *t)))
+                .chain(companions.iter().copied())
                 .filter(|k| ws.module.contains(k))
                 .map(|k| Edit::SetResource { key: k, data: None }),
         );
@@ -313,7 +317,9 @@ impl Moonglow {
         let area = (key.restype == ResType::ARE).then_some(key.resref);
         self.dock.retain_tabs(|t| match t {
             Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
-                *k != key && !(area == Some(k.resref) && with.contains(&k.restype))
+                *k != key
+                    && !(area == Some(k.resref) && with.contains(&k.restype))
+                    && !companions.contains(k)
             }
             Tab::Nui(Some(k)) => *k != key,
             Tab::Area(r) | Tab::AreaProperties(r) => area != Some(*r),
