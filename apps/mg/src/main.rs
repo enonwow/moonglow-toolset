@@ -451,8 +451,19 @@ enum Cmd {
     /// Write a talk table (a .tlk file) as JSON, as nwn_tlk writes it, or as
     /// CSV (a row a line: StrRef, text, the feminine table's text if a
     /// table named with an added `f` lies beside it, sound, its length),
-    /// by the output's extension (.json, .csv).
-    TlkExport { table: PathBuf, output: PathBuf },
+    /// by the output's extension (.json, .csv). A CSV's StrRefs are a
+    /// custom table's, as a module's files name its lines: 16777216 and
+    /// up (line 131 is 16777347). For the game's own dialog.tlk, --base
+    /// writes each line's own number. (JSON has the line's number either
+    /// way, as nwn_tlk does.)
+    TlkExport {
+        table: PathBuf,
+        output: PathBuf,
+        /// CSV: number the lines from 0, as the game's dialog.tlk's are
+        /// named, not as a custom table's (`mg tlk-import` reads both)
+        #[arg(long)]
+        base: bool,
+    },
     /// Read a .json or .csv file of talk-table lines into a talk table (a
     /// .tlk file, made if it isn't there) and save it: the lines the file
     /// has are set, the others stay. Nothing is written unless every line
@@ -1815,11 +1826,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
         }
-        Cmd::TlkExport { table, output } => {
+        Cmd::TlkExport { table, output, base } => {
             let t = talk_table(table, false)?;
             let (text, format) = match extension(output).as_str() {
                 "json" => (t.to_json(), "json"),
-                "csv" => (t.to_csv(), "csv"),
+                "csv" => (t.to_csv_as(!*base), "csv"),
                 _ => anyhow::bail!("the output must end .json or .csv"),
             };
             std::fs::write(output, text)?;
@@ -1829,6 +1840,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "format": format,
                 "lines": t.len(),
                 "feminine": t.feminine.is_some(),
+                "strrefs": if format == "csv" && !*base { "custom" } else { "line" },
             }))
         }
         Cmd::TlkImport { table, file, dry_run } => {

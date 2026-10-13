@@ -380,6 +380,14 @@ impl Table {
     /// then a row for each line: its StrRef, its text (and the feminine
     /// table's, when there is one), its sound and the sound's length.
     pub fn to_csv(&self) -> String {
+        self.to_csv_as(true)
+    }
+
+    /// [`to_csv`](Self::to_csv), its lines numbered as a custom table's
+    /// are named (`custom`: 16777216 and up, the StrRef a module's files
+    /// hold), or by their place in the table, as the game's own
+    /// `dialog.tlk`'s are named.
+    pub fn to_csv_as(&self, custom: bool) -> String {
         use crate::dialog_io::csv_field;
         let feminine = self.feminine.is_some();
         let mut out = String::from(if feminine {
@@ -389,7 +397,8 @@ impl Table {
         });
         for row in 0..self.len() {
             let line = self.line(row);
-            let mut cells = vec![Table::strref(row).0.to_string(), csv_field(&line.text)];
+            let number = if custom { Table::strref(row).0 as usize } else { row };
+            let mut cells = vec![number.to_string(), csv_field(&line.text)];
             if feminine {
                 cells.push(csv_field(line.feminine.as_deref().unwrap_or_default()));
             }

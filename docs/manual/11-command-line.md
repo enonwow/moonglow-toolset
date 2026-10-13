@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T13:23:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T02:30:52Z }
 ---
 
 # Command-line tools
@@ -46,7 +46,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg cat NAME.EXT` | print a resource to standard output; `--text` prints a compiled model (`.mdl`) as the text it compiles from |
 | `mg layers` | the load order's layers and their sizes |
 | `mg tlk STRREF…` | talk-table strings by number |
-| `mg tlk-export TABLE.tlk OUT` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it |
+| `mg tlk-export TABLE.tlk OUT` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it. A CSV's StrRefs are a custom table's, as a module's files name its lines (16777216 and up: line 131 is 16777347); `--base` numbers the lines from 0, as the game's own `dialog.tlk`'s are named. `mg tlk-import` reads either |
 | `mg tlk-import TABLE.tlk FILE` | read a `.json` or `.csv` file of lines into a talk table (made if it isn't there, as an English table) and save it: the lines the file has are set, the others stay; `--dry-run` says what would change |
 | `mg 2da-check FOLDER` | hold your own tables to their descriptions: every `name.2da` under the folder that has a `name.2da.toml` beside it ([what a description says](03-modules.md#a-tables-description): a number's range, a list or flags, read from a script's constants if you like, a row of another table, a cell that must be filled) is checked, and each wrong cell printed with its row and why. It fails if any is, so a build can run it. `mg 2da-check TABLE.2da` checks one. Scripts and tables a description names are found in the folder (for one table, its repository or nasher project; or `--beside FOLDER`), else in the game |
 | `mg 2da-diff A.2da B.2da` | what differs between two tables, by row number and column name (not by layout, case or column order): columns and rows added and removed, and each cell that differs. `--edits FILE` writes an edit file for `mg apply` that sets the table in a module to B |
