@@ -156,5 +156,5 @@ the name of a new script into an event and click Edit. A conversation's
 
 ## NUI Creator
 
-**Tools › NUI Creator…** designs Enhanced Edition UI windows and writes their
-scripts: see [NUI Creator](18-nui-creator.md).
+The NUI Creator designs Enhanced Edition UI windows and writes their scripts
+(**Tools › New NUI Window…**): see [NUI Creator](18-nui-creator.md).

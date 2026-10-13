@@ -18,13 +18,19 @@ sources:
 
 # NUI Creator
 
-**Tools › NUI Creator…** creates an Enhanced Edition UI window. Choose a
-unique resource name of 1–14 lowercase ASCII letters, digits or underscores.
-Existing windows open from **NUI windows** in the module tree. One JUI resource
-represents one window. Opening a document replaces the start page in the same
-creator workspace. **New NUI…** in the document header creates another document
-with a validated resource name. **Load NUI…** searches and opens NUI resources
-from the current module. Additional documents share that workspace as tabs.
+**Tools › New NUI Window…** (or **New** on **NUI windows** in the module
+tree) creates an Enhanced Edition UI window: it asks for a name of 1–14
+lowercase ASCII letters, digits or underscores, which leaves room for the
+suffixes of the window's two scripts. Existing windows open from **NUI
+windows** in the module tree. One JUI resource is one window; the windows
+you open share one editor window as tabs.
+
+A field you type in changes the window when you leave it or press Enter, a
+dragged number when you let go: each is one step for Undo, and the preview
+shows what you are typing meanwhile. **OK** under the editor closes it;
+**Cancel** closes it and sets the window and its settings back to what they
+were when you opened it, as one step that Undo takes back. Deleting a window
+in the module tree deletes its settings and its two scripts with it.
 
 ## Design
 
@@ -172,7 +178,8 @@ resolutions and enables title dragging to author window position. A geometry
 bind remains a bind. Position and resize gestures commit on release; Esc cancels.
 The layout selector offers the full editor, preview alone, or preview beside
 editable JUI source. While editing a variant, split source shows the companion
-settings JSON. Incomplete drafts still participate in Undo and recovery.
+settings JSON. The source is written to the module when you leave the field, an incomplete
+draft too: it is kept, and Undo takes it back.
 
 ## Keys
 
@@ -212,8 +219,8 @@ the regular tooltip off; remove the tooltip property when no tooltip is wanted.
 
 In **Design**, select a control and use **Property binding** at the top of its
 Properties panel. Choose the property, then **+ New bind for property**.
-The suggested name and initial value come from the control; **Create & connect**
-creates and connects the value in one Undo step. **Cancel bind** leaves the module
+The suggested name and initial value come from the control; **Create**
+creates and connects the value in one Undo step. **Cancel** leaves the module
 unchanged. The source dropdown offers compatible existing binds, or **Constant
 (no bind)** to detach while keeping the initial value (the first row for a list).
 Other controls using the same bind are unaffected by detaching.
