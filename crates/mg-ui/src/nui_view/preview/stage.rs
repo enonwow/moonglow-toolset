@@ -172,17 +172,20 @@ fn session(v: &Value, s: &Settings, state: &mut State) -> Option<interaction::Se
 
 /// A resize or a move of the window ends when the pointer lets go: one edit.
 fn release_gestures(ui: &Ui, authored: &mut Value, state: &mut State) {
-    if state.resize.is_some() && ui.input(|i| i.pointer.any_released()) {
-        let resize = state.resize.take().unwrap();
-        if resize.source == *authored && resize.size != resize.initial {
-            resize.apply(authored);
-        }
+    let released = ui.input(|i| i.pointer.any_released());
+    if released
+        && let Some(resize) = state.resize.take()
+        && resize.source == *authored
+        && resize.size != resize.initial
+    {
+        resize.apply(authored);
     }
-    if state.window_move.is_some() && ui.input(|i| i.pointer.any_released()) {
-        let m = state.window_move.take().unwrap();
-        if m.source == *authored && m.position != m.initial {
-            m.apply(authored);
-        }
+    if released
+        && let Some(m) = state.window_move.take()
+        && m.source == *authored
+        && m.position != m.initial
+    {
+        m.apply(authored);
     }
 }
 

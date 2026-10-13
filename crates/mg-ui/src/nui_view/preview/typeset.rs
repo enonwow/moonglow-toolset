@@ -220,7 +220,7 @@ pub(super) fn native_wrap(paragraph: &str, advances: &[f32], width: f32) -> Stri
         let mut used = 0.0;
         let mut after_space = None;
         while used < width && end < chars.len() {
-            used += advances[end];
+            used += advances.get(end).copied().unwrap_or(0.0);
             if chars[end] == ' ' {
                 after_space = Some(end + 1);
             }

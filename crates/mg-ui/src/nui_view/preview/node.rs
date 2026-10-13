@@ -115,7 +115,13 @@ impl Renderer<'_> {
         row: Option<usize>,
         depth: usize,
     ) {
-        if depth > 32 || !outer.is_positive() || !outer.intersects(ui.clip_rect()) {
+        // (A rectangle that is not finite comes of sizes no window has, such
+        // as an aspect of 1e-40.)
+        if depth > 32
+            || !outer.is_finite()
+            || !outer.is_positive()
+            || !outer.intersects(ui.clip_rect())
+        {
             return;
         }
         let source_path = path;

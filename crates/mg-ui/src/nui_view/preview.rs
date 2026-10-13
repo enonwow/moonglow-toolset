@@ -37,9 +37,19 @@ pub(super) fn val<'a>(v: &'a Value, s: &'a Settings, row: Option<usize>) -> &'a 
     }
     out
 }
+/// A number of the window, within ±`HUGE`.
 pub(super) fn num(v: &Value, s: &Settings, row: Option<usize>, default: f32) -> f32 {
-    val(v, s, row).as_f64().filter(|n| n.is_finite()).map_or(default, |n| n as f32)
+    val(v, s, row)
+        .as_f64()
+        .filter(|n| n.is_finite())
+        .map_or(default, |n| n.clamp(-HUGE, HUGE) as f32)
 }
+
+/// Past any size or value a window has, and short enough of what an `f32`
+/// holds that sums and products of two stay finite: a number written larger
+/// (1e308) would be infinite as an `f32`, and a rectangle made of it not a
+/// number at all.
+const HUGE: f64 = 1e18;
 pub(super) fn flag(v: &Value, s: &Settings, row: Option<usize>, default: bool) -> bool {
     val(v, s, row).as_bool().unwrap_or(default)
 }
@@ -64,11 +74,10 @@ fn format_string(
     let mut text = match resolved {
         Value::String(s) => s.clone(),
         Value::Null => String::new(),
-        v if v.get("strref").is_some_and(Value::is_i64) => {
-            let id = v["strref"].as_i64().unwrap();
-            assets.map_or_else(|| format!("[Missing StrRef {id}]"), |a| a.string(id))
-        }
-        v => v.to_string(),
+        v => match v.get("strref").and_then(Value::as_i64) {
+            Some(id) => assets.map_or_else(|| format!("[Missing StrRef {id}]"), |a| a.string(id)),
+            None => v.to_string(),
+        },
     };
     if v["bind"].is_string() {
         if let Some(n) = resolved.as_i64() {
@@ -189,3 +198,6 @@ mod tests {
 #[cfg(test)]
 #[path = "native_preview_tests.rs"]
 mod native_tests;
+
+#[cfg(test)]
+mod hostile_tests;
