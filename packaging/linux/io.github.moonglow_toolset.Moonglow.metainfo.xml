@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.24.1" date="2026-10-12">
+      <description>
+        <p>mg tlk-export --base writes a talk table's lines numbered
+        from 0, for the game's own dialog.tlk.</p>
+      </description>
+    </release>
     <release version="1.24.0" date="2026-10-12">
       <description>
         <p>Scripts open as tabs of one window. In the 2DA editor Ctrl+Z
