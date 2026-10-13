@@ -7,12 +7,12 @@ use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
 use mg_core::ResType;
 use mg_edit::{Command, Workspace};
-use mg_module::Module;
+use mg_module::{Module, build};
 use mg_nui::Severity;
 use mg_resman::ResKey;
 use serde_json::json;
 
-use crate::{Cli, Output, install, module_resman, path_text};
+use crate::{Cli, Output, compiled, install, module_resman, path_text};
 
 /// `mg nui`'s commands.
 #[derive(Subcommand)]
@@ -44,9 +44,11 @@ pub(crate) enum NuiCmd {
     /// in the NUI Creator: the include that opens it (NAME_o.nss) and its
     /// event script (NAME_e.nss, compiled; the code written into it is
     /// kept), and the module's scripts that include the opener compiled
-    /// again. All of it or nothing: a window with errors, an opener or
-    /// event script edited by hand, or one that does not compile, changes
-    /// nothing.
+    /// again, all as `mg compile` compiles. The window's scripts are all
+    /// or nothing: a window with errors, an opener or event script edited
+    /// by hand, or one that does not compile, changes nothing. A script of
+    /// yours that includes the opener and does not compile is printed and
+    /// keeps the compiled script it had.
     Generate {
         /// A module archive, folder or nasher project.
         module: PathBuf,
@@ -63,21 +65,36 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
     match cmd {
         NuiCmd::New { module, name, dry_run } => {
             let ws = Workspace::new(Module::open(module)?);
-            let made = mg_nui::create(&ws.module, name)
-                .map_err(anyhow::Error::msg)
-                .with_context(|| window_text(module, name))?;
+            let made =
+                mg_nui::create(&ws.module, name).with_context(|| window_text(module, name))?;
             write(ws, made, module, name, *dry_run, Output::default())
         }
         NuiCmd::Generate { module, name, dry_run } => {
             let ws = Workspace::new(Module::open(module)?);
             let mut out = Output::default();
-            let rm = module_resman(&install(cli)?, &ws.module, &mut out)?;
-            let made = mg_nui::generate(&ws.module, name, |n, t| {
-                rm.get_named(n, t).ok().map(|b| b.into_owned())
-            })
-            .map_err(anyhow::Error::msg)
-            .with_context(|| window_text(module, name))?;
-            write(ws, made, module, name, *dry_run, out)
+            let gi = install(cli)?;
+            let rm = module_resman(&gi, &ws.module, &mut out)?;
+            // What `mg compile` and the window remember of the scripts
+            // they compiled is kept in one place: these are noted there.
+            let dir = build::compiled_dir();
+            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
+            let known = build::Remembered::kept(dir.as_deref(), Some(module), made_with);
+            let how = mg_nui::Build { known: Some(&known), ..mg_nui::Build::new(&rm) };
+            let made = mg_nui::generate(&ws.module, name, &how)
+                .with_context(|| window_text(module, name))?;
+            // (A script of the module's that includes the opener and does
+            // not compile: said as `mg compile` says it.)
+            let failed = compiled(&mut out, &made.failed);
+            let mut out = write(ws, made.command, module, name, *dry_run, out)?;
+            out.json["failed"] = failed["failed"].clone();
+            out.json["errors"] = failed["errors"].clone();
+            if out.json["saved"] == true
+                && let Some(dir) = &dir
+                && let Err(e) = made.remembered.write(&build::Remembered::file(dir, module))
+            {
+                out.note(format!("warning: what was compiled is not remembered: {e}"));
+            }
+            Ok(out)
         }
         NuiCmd::Validate { module, name } => validate(module, name),
     }
@@ -135,15 +152,12 @@ fn validate(module: &Path, name: &str) -> Result<Output> {
     };
     let jui = key(ResType::JUI)?;
     let data = m.get(&jui).with_context(|| format!("{jui} is not in the module"))?;
-    let window = mg_nui::parse(data)
-        .map_err(anyhow::Error::msg)
-        .with_context(|| format!("{}: {jui}", path_text(module)))?;
+    let window = mg_nui::parse(data).with_context(|| format!("{}: {jui}", path_text(module)))?;
     let txt = key(ResType::TXT)?;
     let settings = m
         .get(&txt)
         .map(mg_nui::Settings::parse)
         .transpose()
-        .map_err(anyhow::Error::msg)
         .with_context(|| format!("{}: {txt}", path_text(module)))?
         .unwrap_or_default();
     let findings = mg_nui::validate(&window, &settings);

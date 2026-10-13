@@ -241,6 +241,7 @@ fn nui_native_geometry_actions_obey_bound_limits_without_editing_source() {
                 bind: "bounds".into(),
                 value: json!({"x":-1.0,"y":-1.0,"w":w,"h":height}),
             },
+            extra: Default::default(),
         });
     }
     let mut h = harness(

@@ -29,10 +29,7 @@ pub(super) fn edit(state: &mut State, view: Option<String>) {
 // Editor metadata associates a newly authored variant with its intended host.
 // It does not create a runtime action; the user must save an explicit event.
 fn remember_target(s: &mut Settings, view: &str, group: &str) {
-    let targets = s.extra.entry("view_targets".into()).or_insert_with(|| json!({}));
-    if let Some(targets) = targets.as_object_mut() {
-        targets.insert(view.into(), json!(group));
-    }
+    s.view_targets.insert(view.into(), group.into());
 }
 
 pub(super) fn target_for(s: &Settings, view: &str) -> Option<String> {
@@ -52,7 +49,7 @@ pub(super) fn target_for(s: &Settings, view: &str) -> Option<String> {
     if targets.len() == 1 {
         return targets.into_iter().next();
     }
-    s.extra.get("view_targets")?.get(view)?.as_str().map(str::to_owned)
+    s.view_targets.get(view).cloned()
 }
 
 fn group_mut<'a>(v: &'a mut Value, id: &str) -> Option<&'a mut Value> {
@@ -82,11 +79,7 @@ pub(super) fn variants(s: &Settings, group: &str) -> Vec<String> {
 pub(super) fn is_swap(s: &Settings, node: &Value) -> bool {
     node["type"] == "group"
         && node["id"].as_str().is_some_and(|id| {
-            !variants(s, id).is_empty()
-                || s.extra
-                    .get("swap_hosts")
-                    .and_then(Value::as_array)
-                    .is_some_and(|hosts| hosts.iter().any(|host| host == id))
+            !variants(s, id).is_empty() || s.swap_hosts.iter().any(|host| host == id)
         })
 }
 
@@ -102,10 +95,7 @@ pub(super) fn finish_insert(doc: &Value, s: &mut Settings, state: &mut State) {
         && node["type"] == "group"
         && let Some(id) = node["id"].as_str()
     {
-        let hosts = s.extra.entry("swap_hosts".into()).or_insert_with(|| json!([]));
-        if let Some(hosts) = hosts.as_array_mut() {
-            hosts.push(json!(id));
-        }
+        s.swap_hosts.push(id.into());
     }
 }
 
@@ -221,10 +211,7 @@ fn make_group(doc: &mut Value, s: &mut Settings, path: &str) -> Option<String> {
         }
         *old = group;
     }
-    let hosts = s.extra.entry("swap_hosts".into()).or_insert_with(|| json!([]));
-    if let Some(hosts) = hosts.as_array_mut() {
-        hosts.push(json!(id));
-    }
+    s.swap_hosts.push(id.clone());
     Some(id)
 }
 
@@ -414,11 +401,14 @@ mod tests {
         let ws = app.ws.as_mut().unwrap();
         let mut doc = mg_nui::window();
         doc["root"]["children"][0] = json!({"type":"group","height":100.0,"children":[{"type":"col","children":[{"type":"label","value":"Original content"}]}]});
-        ws.module.set(mg_nui::key("swap_test", ResType::JUI), serde_json::to_vec(&doc).unwrap());
-        ws.module.set(mg_nui::key("swap_test", ResType::TXT), settings.bytes());
+        ws.module.set(
+            ResKey::parse("swap_test", ResType::JUI).unwrap(),
+            serde_json::to_vec(&doc).unwrap(),
+        );
+        ws.module.set(ResKey::parse("swap_test", ResType::TXT).unwrap(), settings.bytes());
         Harness::builder().with_size(egui::vec2(1300.0, 1200.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::super::ui(app, ui, Some(mg_nui::key("swap_test", ResType::JUI)));
+                super::super::ui(app, ui, Some(ResKey::parse("swap_test", ResType::JUI).unwrap()));
                 app.run_actions();
             },
             app,
@@ -428,8 +418,12 @@ mod tests {
     fn read(h: &Harness<'_, Moonglow>) -> (Value, Settings) {
         let module = &h.state().ws.as_ref().unwrap().module;
         (
-            mg_nui::parse(module.get(&mg_nui::key("swap_test", ResType::JUI)).unwrap()).unwrap(),
-            Settings::parse(module.get(&mg_nui::key("swap_test", ResType::TXT)).unwrap()).unwrap(),
+            mg_nui::parse(module.get(&ResKey::parse("swap_test", ResType::JUI).unwrap()).unwrap())
+                .unwrap(),
+            Settings::parse(
+                module.get(&ResKey::parse("swap_test", ResType::TXT).unwrap()).unwrap(),
+            )
+            .unwrap(),
         )
     }
 
@@ -531,12 +525,10 @@ mod tests {
             {"type":"group","id":"content","height":100.0,"children":[{"type":"col","children":[]}]},
             {"type":"label","value":"Fixed footer"}
         ]);
-        h.state_mut()
-            .ws
-            .as_mut()
-            .unwrap()
-            .module
-            .set(mg_nui::key("swap_test", ResType::JUI), serde_json::to_vec(&doc).unwrap());
+        h.state_mut().ws.as_mut().unwrap().module.set(
+            ResKey::parse("swap_test", ResType::JUI).unwrap(),
+            serde_json::to_vec(&doc).unwrap(),
+        );
         h.run();
         let original = read(&h);
         h.get_by_label("Variant · details").click();
@@ -581,12 +573,10 @@ mod tests {
             {"type":"group","id":"content","width":360.0,"height":100.0,
                 "children":[{"type":"col","children":[{"type":"label","value":"Initial"}]}]},
             {"type":"label","value":"Footer","height":30.0}]);
-        h.state_mut()
-            .ws
-            .as_mut()
-            .unwrap()
-            .module
-            .set(mg_nui::key("swap_test", ResType::JUI), serde_json::to_vec(&doc).unwrap());
+        h.state_mut().ws.as_mut().unwrap().module.set(
+            ResKey::parse("swap_test", ResType::JUI).unwrap(),
+            serde_json::to_vec(&doc).unwrap(),
+        );
         h.run();
         let original = read(&h);
         h.get_by_label("Swap layout · content");

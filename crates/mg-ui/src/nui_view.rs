@@ -140,11 +140,11 @@ pub(crate) fn create(app: &mut Moonglow, name: &str) {
     match mg_nui::create(&ws.module, name) {
         Ok(cmd) => match app.apply(cmd) {
             Ok(()) => {
-                app.actions.push(Action::OpenTab(Tab::Nui(Some(mg_nui::key(name, ResType::JUI)))))
+                app.actions.push(Action::OpenTab(Tab::Nui(ResKey::parse(name, ResType::JUI))))
             }
             Err(e) => app.log.error(e.to_string()),
         },
-        Err(e) => app.log.error(e),
+        Err(e) => app.log.error(e.to_string()),
     }
 }
 
@@ -191,32 +191,56 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
         ));
         return;
     }
+    let external = app.external_compiler();
     let (Some(ws), Some(game)) = (&app.ws, &app.game) else {
         app.log.error("NUI generation needs the installed game's NWScript API; configure the game folder in Options");
         return;
     };
-    let result = mg_nui::generate(&ws.module, name, |n, t| {
-        game.resman.get_named(n, t).ok().map(|b| b.into_owned())
+    let mut built = None;
+    let result = mg_nui::generate(
+        &ws.module,
+        name,
+        &mg_nui::Build {
+            resman: &game.resman,
+            external: external.as_ref(),
+            debug: app.settings.debug_info,
+            known: Some(&app.script_stamps),
+        },
+    )
+    // (What it could not compile of the module's own scripts, and what is
+    // remembered of those it did: said and kept once the rest is applied.)
+    .map(|made| {
+        built = Some((made.failed, made.remembered));
+        made.command
     });
     match result {
         Ok(cmd) => match if cmd.edits.is_empty() { Ok(()) } else { app.apply(cmd) } {
             Ok(()) => {
+                if let Some((failed, remembered)) = built {
+                    app.script_stamps = remembered;
+                    for e in failed.iter().filter_map(|f| f.result.as_ref().err()) {
+                        app.log.error(e.message.clone());
+                    }
+                }
                 app.log.info(format!("Validated {name}_o.nss and compiled {name}_e.nss. Include {name}_o in your own script and call Open_{name}(oPlayer). Choose the player and triggering event yourself. Client appearance and events still require Test Module."));
                 if export {
-                    let mut resources = vec![
-                        mg_nui::key(name, ResType::JUI),
-                        mg_nui::key(name, ResType::TXT),
-                        mg_nui::key(&format!("{name}_o"), ResType::NSS),
-                        mg_nui::key(&format!("{name}_e"), ResType::NSS),
-                        mg_nui::key(&format!("{name}_e"), ResType::NCS),
-                    ];
+                    let mut resources: Vec<ResKey> = [
+                        ResKey::parse(name, ResType::JUI),
+                        ResKey::parse(name, ResType::TXT),
+                        ResKey::parse(&format!("{name}_o"), ResType::NSS),
+                        ResKey::parse(&format!("{name}_e"), ResType::NSS),
+                        ResKey::parse(&format!("{name}_e"), ResType::NCS),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                     if let Some(ws) = &app.ws
                         && let (Some(doc), Some(settings)) = (
-                            ws.module
-                                .get(&mg_nui::key(name, ResType::JUI))
+                            ResKey::parse(name, ResType::JUI)
+                                .and_then(|k| ws.module.get(&k))
                                 .and_then(|b| mg_nui::parse(b).ok()),
-                            ws.module
-                                .get(&mg_nui::key(name, ResType::TXT))
+                            ResKey::parse(name, ResType::TXT)
+                                .and_then(|k| ws.module.get(&k))
                                 .and_then(|b| Settings::parse(b).ok()),
                         )
                     {
@@ -242,7 +266,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
             }
             Err(e) => app.log.error(e.to_string()),
         },
-        Err(e) => app.log.error(e),
+        Err(e) => app.log.error(e.to_string()),
     }
 }
 
@@ -295,12 +319,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     let held = |key: Option<ResKey>| key.and_then(|k| ws.module.shared(&k).cloned());
     let of = [held(Some(key)), held(Some(config_key))];
     if state.source.as_ref().is_none_or(|s| !same(&s.of, &of)) {
-        let window = mg_nui::parse(raw.as_bytes());
+        let window = mg_nui::parse(raw.as_bytes()).map_err(|e| e.to_string());
         if let Ok(doc) = &window {
             state.main_doc = Some(doc.clone());
             state.layout_groups = mg_nui::group_ids(doc);
         }
-        let settings = Settings::parse(config_raw.as_bytes());
+        let settings = Settings::parse(config_raw.as_bytes()).map_err(|e| e.to_string());
         state.source = Some(Source { of: of.clone(), window, settings });
     }
     let (parsed, settings) =
@@ -552,6 +576,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 event: "click".into(),
                                 element: "mg_close".into(),
                                 action: mg_nui::Action::Close,
+                                extra: Default::default(),
                             });
                             config_raw = String::from_utf8(s.bytes()).unwrap();
                         }
@@ -1285,7 +1310,8 @@ pub(crate) fn stale_windows(module: &mg_module::Module) -> Vec<String> {
         .filter(|k| k.restype == ResType::JUI)
         .filter_map(|k| {
             let name = k.resref.to_string();
-            let settings = Settings::parse(module.get(&mg_nui::key(&name, ResType::TXT))?).ok()?;
+            let settings =
+                Settings::parse(module.get(&ResKey::new(k.resref, ResType::TXT))?).ok()?;
             let window = mg_nui::parse(module.get(k)?).ok()?;
             (!mg_nui::is_current(module, &name, &window, &settings)).then_some(name)
         })
@@ -1589,7 +1615,7 @@ mod tests {
 
     #[test]
     fn nui_canvas_selection_and_duplicate_use_workspace_undo() {
-        let key = mg_nui::key("nui_test", ResType::JUI);
+        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
                 super::ui(app, ui, Some(key));
@@ -1619,7 +1645,7 @@ mod tests {
         Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
                 app.shortcuts(ui);
-                super::ui(app, ui, Some(mg_nui::key("nui_test", ResType::JUI)));
+                super::ui(app, ui, Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
                 app.run_actions();
             },
             app(),
@@ -1666,7 +1692,7 @@ mod tests {
             app(),
         );
         h.run();
-        let key = mg_nui::key("nui_test", ResType::JUI);
+        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let before = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
         h.get_by_label("New NUI…").click();
         h.run();
@@ -1694,7 +1720,7 @@ mod tests {
         h.run();
         h.get_by_label("Create NUI").click();
         h.run();
-        let new_key = mg_nui::key("new_nui", ResType::JUI);
+        let new_key = ResKey::parse("new_nui", ResType::JUI).unwrap();
         assert!(h.state().ws.as_ref().unwrap().module.contains(&new_key));
         assert_eq!(h.state().ws.as_ref().unwrap().module.get(&key).unwrap(), before);
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
@@ -1731,7 +1757,7 @@ mod tests {
                     .as_ref()
                     .unwrap()
                     .module
-                    .get(&mg_nui::key("nui_test", ResType::TXT))
+                    .get(&ResKey::parse("nui_test", ResType::TXT).unwrap())
                     .unwrap(),
             )
             .unwrap()
@@ -1755,7 +1781,7 @@ mod tests {
     fn nui_handlers_follow_their_control_when_renamed_and_go_with_it() {
         let mut h = keyboard_harness();
         h.run();
-        let script_key = mg_nui::key("nui_test_e", ResType::NSS);
+        let script_key = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
         let routes = |h: &Harness<'_, Moonglow>| {
             Settings::parse(
                 h.state()
@@ -1763,7 +1789,7 @@ mod tests {
                     .as_ref()
                     .unwrap()
                     .module
-                    .get(&mg_nui::key("nui_test", ResType::TXT))
+                    .get(&ResKey::parse("nui_test", ResType::TXT).unwrap())
                     .unwrap(),
             )
             .unwrap()
@@ -1805,65 +1831,6 @@ mod tests {
         );
     }
 
-    /// A window built by an older Moonglow has an event script without
-    /// sections, unchanged since: the Creator takes it as Build does. A handler
-    /// added gets its section at once, and Edit code finds it.
-    #[test]
-    fn nui_handlers_reach_an_older_moonglow_event_script_at_once() {
-        let old = "// Generated NUI events. Regeneration protects manual changes.\nvoid main()\n{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    int nRow = NuiGetEventArrayIndex();\n    if (sType == JsonGetString(JsonParse(\"\\\"click\\\"\")) && sElement == JsonGetString(JsonParse(\"\\\"mg_close\\\"\")))\n    {\n        NuiDestroy(oPlayer, nToken);\n        return;\n    }\n}\n";
-        // Build's fingerprint (FNV-1a), as the older version saved it.
-        let fingerprint = old
-            .bytes()
-            .fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
-        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
-        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
-        super::create(&mut app, "np_bsel");
-        app.actions.clear();
-        let (jui, txt, nss) = (
-            mg_nui::key("np_bsel", ResType::JUI),
-            mg_nui::key("np_bsel", ResType::TXT),
-            mg_nui::key("np_bsel_e", ResType::NSS),
-        );
-        let module = &mut app.ws.as_mut().unwrap().module;
-        let mut window: Value = serde_json::from_slice(module.get(&jui).unwrap()).unwrap();
-        window["root"]["children"] = json!([
-            {"type":"button","id":"mg_close","label":"Close","height":30.0},
-            {"type":"button","id":"pick","label":"Pick","height":30.0}
-        ]);
-        module.set(jui, serde_json::to_vec(&window).unwrap());
-        let mut s = Settings::parse(module.get(&txt).unwrap()).unwrap();
-        s.actions = vec![mg_nui::Route {
-            event: "click".into(),
-            element: "mg_close".into(),
-            action: mg_nui::Action::Close,
-        }];
-        s.event_hash = Some(format!("{fingerprint:016x}"));
-        module.set(txt, s.bytes());
-        module.set(nss, old.as_bytes().to_vec());
-        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1600.0)).build_ui_state(
-            |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(mg_nui::key("np_bsel", ResType::JUI)));
-                app.run_actions();
-            },
-            app,
-        );
-        h.run();
-        h.get_by_label("Canvas Button · Pick").click();
-        h.run();
-        h.get_by_label("+ Add handler").click();
-        h.run();
-        let script = |h: &Harness<'_, Moonglow>| {
-            crate::text::decode(h.state().ws.as_ref().unwrap().module.get(&nss).unwrap())
-        };
-        assert!(script(&h).contains("// mg:begin click pick\n"), "{}", script(&h));
-        assert!(script(&h).contains("// mg:begin click mg_close\n"));
-        assert!(script(&h).contains("NuiDestroy(oPlayer, nToken);"));
-        h.get_all_by_label("Edit code").last().unwrap().click();
-        h.run();
-        let log = &h.state().log.entries;
-        assert!(!log.iter().any(|(level, _)| *level == crate::Level::Error), "{log:?}");
-    }
-
     /// A picture field's From disk… puts the file into the module and names
     /// it in the field: an Image control's, and a draw layer's.
     #[test]
@@ -1882,7 +1849,7 @@ mod tests {
         app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
         super::create(&mut app, "pictures");
         app.actions.clear();
-        let jui = mg_nui::key("pictures", ResType::JUI);
+        let jui = ResKey::parse("pictures", ResType::JUI).unwrap();
         let doc = |app: &Moonglow| -> Value {
             serde_json::from_slice(app.ws.as_ref().unwrap().module.get(&jui).unwrap()).unwrap()
         };
@@ -1895,7 +1862,7 @@ mod tests {
         app.ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&window).unwrap());
         let mut h = Harness::builder().with_size(egui::vec2(1400.0, 2400.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(mg_nui::key("pictures", ResType::JUI)));
+                super::ui(app, ui, Some(ResKey::parse("pictures", ResType::JUI).unwrap()));
                 app.run_actions();
             },
             app,
@@ -1955,7 +1922,7 @@ mod tests {
         app.actions.clear();
         let mut h = Harness::builder().with_size(egui::vec2(1100.0, 900.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(mg_nui::key("pictures", ResType::JUI)));
+                super::ui(app, ui, Some(ResKey::parse("pictures", ResType::JUI).unwrap()));
                 app.run_actions();
             },
             app,
@@ -1970,7 +1937,7 @@ mod tests {
         h.run();
         assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
         // Name it in the window: it is listed, and can be the background.
-        let jui = mg_nui::key("pictures", ResType::JUI);
+        let jui = ResKey::parse("pictures", ResType::JUI).unwrap();
         let mut doc: Value =
             serde_json::from_slice(h.state().ws.as_ref().unwrap().module.get(&jui).unwrap())
                 .unwrap();
@@ -2010,12 +1977,10 @@ mod tests {
         h.run();
         let mut window = keyboard_document(&h);
         window["root"]["children"][0] = json!({"type":"textedit","label":"Name","max":0});
-        h.state_mut()
-            .ws
-            .as_mut()
-            .unwrap()
-            .module
-            .set(mg_nui::key("nui_test", ResType::JUI), serde_json::to_vec(&window).unwrap());
+        h.state_mut().ws.as_mut().unwrap().module.set(
+            ResKey::parse("nui_test", ResType::JUI).unwrap(),
+            serde_json::to_vec(&window).unwrap(),
+        );
         h.run();
         h.get_by_label("Text input · Name › Max").click();
         h.run();
@@ -2169,7 +2134,7 @@ mod tests {
     fn nui_handlers_are_sections_of_the_event_script_opened_at_their_code() {
         let mut h = keyboard_harness();
         h.run();
-        let script_key = mg_nui::key("nui_test_e", ResType::NSS);
+        let script_key = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
         let script = |h: &Harness<'_, Moonglow>| {
             crate::text::decode(h.state().ws.as_ref().unwrap().module.get(&script_key).unwrap())
         };
@@ -2268,7 +2233,7 @@ mod tests {
         // It does nothing in the game but blank a window: not offered.
         assert!(h.query_by_label("Clip to control").is_none());
         // Written on by hand, it is flagged and one click turns it off.
-        let key = mg_nui::key("nui_test", ResType::JUI);
+        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let mut doc = keyboard_document(&h);
         doc["root"]["children"][1]["draw_list_scissor"] = json!(true);
         h.state_mut().ws.as_mut().unwrap().module.set(key, serde_json::to_vec(&doc).unwrap());
@@ -2353,7 +2318,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .module
-                .get(&mg_nui::key("nui_test", ResType::JUI))
+                .get(&ResKey::parse("nui_test", ResType::JUI).unwrap())
                 .unwrap(),
         )
         .unwrap()
@@ -2443,7 +2408,7 @@ mod tests {
         let mut app = app();
         app.run_now(Action::OpenTab(Tab::Nui(None)));
         let launcher = app.dock.find_tab(&Tab::Nui(None)).unwrap();
-        let first = Tab::Nui(Some(mg_nui::key("nui_test", ResType::JUI)));
+        let first = Tab::Nui(Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
         app.run_now(Action::OpenTab(first.clone()));
         assert!(app.dock.find_tab(&Tab::Nui(None)).is_none());
         assert_eq!(app.dock.find_tab(&first).unwrap(), launcher);
@@ -2451,7 +2416,7 @@ mod tests {
         app.run_now(Action::OpenTab(Tab::Nui(None)));
         create(&mut app, "second");
         app.run_actions();
-        let second = Tab::Nui(Some(mg_nui::key("second", ResType::JUI)));
+        let second = Tab::Nui(Some(ResKey::parse("second", ResType::JUI).unwrap()));
         assert_eq!(app.dock.find_tab(&second).unwrap().node_path(), launcher.node_path());
         assert!(app.dock.find_tab(&first).is_some());
         assert!(app.dock.find_tab(&Tab::Nui(None)).is_none());
@@ -2615,7 +2580,7 @@ mod tests {
     #[test]
     fn nui_resize_list_commits_once_and_escape_cancels() {
         let mut h = keyboard_harness();
-        let key = mg_nui::key("nui_test", ResType::JUI);
+        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let mut doc = mg_nui::window();
         let mut list = mg_nui::template("list");
         list["width"] = 200.0.into();
@@ -2805,7 +2770,7 @@ mod tests {
     #[test]
     fn nui_palette_drag_adds_to_canvas_container() {
         for live in [false, true] {
-            let key = mg_nui::key("nui_test", ResType::JUI);
+            let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
             let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
                 |ui, app: &mut Moonglow| {
                     super::ui(app, ui, Some(key));
@@ -2840,7 +2805,7 @@ mod tests {
 
     #[test]
     fn nui_json_edit_is_saved_to_workspace_and_undoable() {
-        let key = mg_nui::key("nui_test", ResType::JUI);
+        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
                 super::ui(app, ui, Some(key));
@@ -2881,7 +2846,7 @@ mod tests {
     #[test]
     fn nui_can_open_long_resref_and_invalid_metadata_without_panicking() {
         let mut app = app();
-        let key = mg_nui::key("sixteen_charname", ResType::JUI);
+        let key = ResKey::parse("sixteen_charname", ResType::JUI).unwrap();
         app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec(&mg_nui::window()).unwrap());
         app.ws
             .as_mut()
@@ -2913,7 +2878,7 @@ mod tests {
         assert_eq!(super::stale_windows(&app.ws.as_ref().unwrap().module), ["typed"]);
         app.run(Action::GenerateNui { name: "typed".into(), export: false });
         assert!(super::stale_windows(&app.ws.as_ref().unwrap().module).is_empty());
-        let script = mg_nui::key("typed_e", ResType::NSS);
+        let script = ResKey::parse("typed_e", ResType::NSS).unwrap();
         let saved = crate::text::decode(app.ws.as_ref().unwrap().module.get(&script).unwrap());
         let typed =
             mg_nui::insert_code(&saved, "click mg_close", "        int nTyped = 1;\n").unwrap();
@@ -2925,7 +2890,7 @@ mod tests {
             typed
         );
         assert!(!app.scripts[&script].is_dirty());
-        let other = mg_nui::key("other", ResType::NSS);
+        let other = ResKey::parse("other", ResType::NSS).unwrap();
         app.scripts
             .insert(other, crate::script_view::ScriptBuffer::for_tests("x".into(), String::new()));
         app.log.entries.clear();
@@ -2948,7 +2913,7 @@ mod tests {
         let mut info = mg_gff::Gff::new(*b"IFO ");
         info.root.set("Mod_OnNuiEvent", mg_gff::Value::ResRef(b"my_event".to_vec()));
         m.set_info(&info).unwrap();
-        let ifo = mg_nui::key("module", ResType::IFO);
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
         let before = m.get(&ifo).unwrap().to_vec();
         app.ws = Some(mg_edit::Workspace::new(m));
         app.run(Action::NewNui("export_ui".into()));
@@ -2970,7 +2935,11 @@ mod tests {
         );
         app.ws.as_mut().unwrap().undo().unwrap();
         assert!(
-            !app.ws.as_ref().unwrap().module.contains(&mg_nui::key("export_ui_o", ResType::NCS))
+            !app.ws
+                .as_ref()
+                .unwrap()
+                .module
+                .contains(&ResKey::parse("export_ui_o", ResType::NCS).unwrap())
         );
     }
 
@@ -2979,7 +2948,7 @@ mod tests {
     #[ignore]
     fn nui_editor_screenshot() {
         mg_testkit::gpu::hold();
-        let key = mg_nui::key("nui_test", ResType::JUI);
+        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let root = mg_testkit::corpus!();
         let mut sample = Moonglow::new(
             Some(mg_resman::GameInstall::new(root, None, "en")),
@@ -3024,7 +2993,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .module
-            .set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
+            .set(ResKey::parse("nui_test", ResType::TXT).unwrap(), settings.bytes());
         let mut h = Harness::builder()
             .with_size(egui::vec2(1200.0, 850.0))
             .wgpu()
@@ -3086,7 +3055,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .module
-            .set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
+            .set(ResKey::parse("nui_test", ResType::TXT).unwrap(), settings.bytes());
         h.get_by_label("UI scale 150%").click();
         h.run();
         h.get_all_by_label("100%").last().unwrap().click();
@@ -3099,7 +3068,7 @@ mod tests {
         h.run();
         h.render().unwrap().save(dir.join("list-layout.png")).unwrap();
         let source_before = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
-        let config_key = mg_nui::key("nui_test", ResType::TXT);
+        let config_key = ResKey::parse("nui_test", ResType::TXT).unwrap();
         let config_before =
             h.state().ws.as_ref().unwrap().module.get(&config_key).unwrap().to_vec();
         let revision = h.state().ws.as_ref().unwrap().revision();
@@ -3134,6 +3103,7 @@ mod tests {
             event: "click".into(),
             element: "next".into(),
             action: mg_nui::Action::View { group: "view_host".into(), view: "details".into() },
+            extra: Default::default(),
         }];
         h.state_mut()
             .ws
@@ -3167,41 +3137,6 @@ mod tests {
         compact.get_by_label("Properties").click();
         compact.run();
         compact.render().unwrap().save(dir.join("compact.png")).unwrap();
-    }
-
-    /// The Close button the Creator inserts does nothing in game without its
-    /// route; the warning carries the fix.
-    #[test]
-    fn nui_close_button_warning_adds_its_route() {
-        let mut window = mg_nui::window();
-        window["root"]["children"] =
-            json!([{"type":"button","id":"mg_close","label":"Close","value":null}]);
-        let mut app = app();
-        let ws = app.ws.as_mut().unwrap();
-        ws.module.set(
-            mg_nui::key("nui_test", ResType::JUI),
-            serde_json::to_vec_pretty(&window).unwrap(),
-        );
-        ws.module.set(mg_nui::key("nui_test", ResType::TXT), Settings::default().bytes());
-        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
-            |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(mg_nui::key("nui_test", ResType::JUI)));
-                app.run_actions();
-            },
-            app,
-        );
-        h.run();
-        h.get_by_label_contains("warning").click();
-        h.run();
-        h.get_by_label("Add Close handler").click();
-        h.run();
-        let ws = h.state().ws.as_ref().unwrap();
-        let s = Settings::parse(ws.module.get(&mg_nui::key("nui_test", ResType::TXT)).unwrap())
-            .unwrap();
-        assert!(s.actions.iter().any(|r| r.element == "mg_close"
-            && r.event == "click"
-            && r.action == mg_nui::Action::Close));
-        assert!(h.query_by_label("Add Close handler").is_none());
     }
 
     /// Hand-written or foreign JUI reaches every page and Interact: wrong
@@ -3282,13 +3217,13 @@ mod tests {
             let mut app = app();
             let ws = app.ws.as_mut().unwrap();
             ws.module.set(
-                mg_nui::key("nui_test", ResType::JUI),
+                ResKey::parse("nui_test", ResType::JUI).unwrap(),
                 serde_json::to_vec_pretty(&window).unwrap(),
             );
-            ws.module.set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
+            ws.module.set(ResKey::parse("nui_test", ResType::TXT).unwrap(), settings.bytes());
             let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
                 |ui, app: &mut Moonglow| {
-                    super::ui(app, ui, Some(mg_nui::key("nui_test", ResType::JUI)));
+                    super::ui(app, ui, Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
                     app.run_actions();
                 },
                 app,

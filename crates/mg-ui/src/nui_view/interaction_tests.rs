@@ -140,6 +140,7 @@ fn nui_whole_window_view_changes_only_root_and_reset_restores_it() {
         event: "click".into(),
         element: "details_button".into(),
         action: mg_nui::Action::View { group: "_window_".into(), view: "details".into() },
+        extra: Default::default(),
     });
     let doc = mg_nui::window();
     let mut session = interaction::Session::new(&doc, &settings);
@@ -161,21 +162,24 @@ fn nui_declarative_preview_switches_views_watches_and_resets_without_authoring_c
     s.bindings.insert("caption".into(), Binding { value: json!("Before"), ..Default::default() });
     s.views.insert("details".into(), json!({"type":"label","value":{"bind":"caption"}}));
     s.actions = vec![
-        Route { event: "click".into(), element: "mg_close".into(), action: NuiAction::Close },
+        Route::new("click", "mg_close", NuiAction::Close),
         Route {
             event: "click".into(),
             element: "next".into(),
             action: NuiAction::View { group: "host".into(), view: "details".into() },
+            extra: Default::default(),
         },
         Route {
             event: "click".into(),
             element: "toggle".into(),
             action: NuiAction::Toggle { bind: "flag".into() },
+            extra: Default::default(),
         },
         Route {
             event: "watch".into(),
             element: "flag".into(),
             action: NuiAction::Set { bind: "caption".into(), value: json!("After") },
+            extra: Default::default(),
         },
     ];
     let mut h = harness(
@@ -1164,6 +1168,7 @@ fn nui_close_button_requires_explicit_action_and_removal_stops_closing() {
         event: "click".into(),
         element: "mg_close".into(),
         action: mg_nui::Action::Close,
+        extra: Default::default(),
     });
     h.run();
     h.get_by_label("Canvas Button · Close").click();
@@ -1491,6 +1496,7 @@ fn nui_native_dropdown_corrects_missing_selection_without_clicking_or_editing_so
             event: "click".into(),
             element: "dropdown".into(),
             action: mg_nui::Action::Close,
+            extra: Default::default(),
         });
         let mut h = harness(
             json!([{

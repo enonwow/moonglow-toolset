@@ -112,7 +112,7 @@ pub(super) fn document_actions(
         if !state.name.is_empty()
             && let Err(error) = &validation
         {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            ui.colored_label(ui.visuals().error_fg_color, error.to_string());
         }
         let valid = validation.is_ok();
         ui.horizontal(|ui| {
@@ -193,7 +193,7 @@ pub(super) fn landing(
                     if !state.name.is_empty()
                         && let Err(error) = &validation
                     {
-                        ui.colored_label(ui.visuals().error_fg_color, error);
+                        ui.colored_label(ui.visuals().error_fg_color, error.to_string());
                     }
                     ui.add_space(14.0);
                     let valid = validation.is_ok();

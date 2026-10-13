@@ -7,13 +7,17 @@ fn harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
     super::super::create(&mut app, "workflow");
     app.actions.clear();
     let settings = Settings {
-        actions: vec![mg_nui::Route { event: "click".into(), element: "mg_close".into(), action }],
+        actions: vec![mg_nui::Route::new("click", "mg_close", action)],
         ..Default::default()
     };
-    app.ws.as_mut().unwrap().module.set(mg_nui::key("workflow", ResType::TXT), settings.bytes());
+    app.ws
+        .as_mut()
+        .unwrap()
+        .module
+        .set(ResKey::parse("workflow", ResType::TXT).unwrap(), settings.bytes());
     let mut h = Harness::builder().with_size(egui::vec2(1100.0, 1100.0)).build_ui_state(
         |ui, app: &mut Moonglow| {
-            super::super::ui(app, ui, Some(mg_nui::key("workflow", ResType::JUI)));
+            super::super::ui(app, ui, Some(ResKey::parse("workflow", ResType::JUI).unwrap()));
             app.run_actions();
         },
         app,
@@ -26,7 +30,13 @@ fn harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
 
 fn settings(h: &Harness<'_, Moonglow>) -> Settings {
     Settings::parse(
-        h.state().ws.as_ref().unwrap().module.get(&mg_nui::key("workflow", ResType::TXT)).unwrap(),
+        h.state()
+            .ws
+            .as_ref()
+            .unwrap()
+            .module
+            .get(&ResKey::parse("workflow", ResType::TXT).unwrap())
+            .unwrap(),
     )
     .unwrap()
 }
@@ -99,7 +109,11 @@ fn nui_body_drag_does_not_move_floating_window() {
                 .default_pos(egui::pos2(80.0, 60.0))
                 .default_size(egui::vec2(1100.0, 800.0))
                 .show(ui.ctx(), |ui| {
-                    super::super::ui(app, ui, Some(mg_nui::key("workflow", ResType::JUI)))
+                    super::super::ui(
+                        app,
+                        ui,
+                        Some(ResKey::parse("workflow", ResType::JUI).unwrap()),
+                    )
                 });
             *rect = shown.unwrap().response.rect;
             app.run_actions();

@@ -48,7 +48,9 @@ fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
 /// (logged by the caller).
 fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<String, String> {
     let bytes = current.map(crate::text::encode);
-    mg_nui::rebuild_events(name, settings, bytes.as_deref()).map(|b| crate::text::decode(&b))
+    mg_nui::rebuild_events(name, settings, bytes.as_deref())
+        .map(|b| crate::text::decode(&b))
+        .map_err(|e| e.to_string())
 }
 
 /// The event script follows the handlers as they are added and removed, so
@@ -547,6 +549,7 @@ pub(super) fn editor(
                         event: (*e).into(),
                         element,
                         action: mg_nui::Action::Code,
+                        extra: Default::default(),
                     });
                     !s.actions.iter().any(|r| mg_nui::handler_key(r) == key)
                 })
@@ -569,7 +572,7 @@ pub(super) fn editor(
                 });
             if ui.button("+ Add handler").on_hover_text(explanation(&event)).clicked() {
                 let element = element(t, &event, doc, s, state);
-                s.actions.push(mg_nui::Route { event: event.clone(), element, action: mg_nui::Action::Code });
+                s.actions.push(mg_nui::Route::new(event.clone(), element, mg_nui::Action::Code));
             }
         });
         if scope.as_ref().is_some_and(|t| matches!(t, Target::Control(_)))
