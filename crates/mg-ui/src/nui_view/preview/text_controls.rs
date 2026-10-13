@@ -85,8 +85,10 @@ impl Renderer<'_> {
         let value = localized_string(&node["value"], s, row, a);
         let (font_id, spacing) = a.font(p.ctx(), font, scale);
         let pitch = (a.font_height(font) + 4.0) * scale;
-        let layout =
-            |width: f32| native_text_layout(p, &value, &font_id, spacing, pitch, fg, width);
+        let layout = |width: f32| {
+            let face = Face { id: &font_id, spacing, color: fg };
+            native_text_layout(p.ctx(), a, &value, face, pitch, width)
+        };
         let mut content = Rect::from_min_max(
             body.min + vec2(5.0, 6.0) * scale,
             view.max - vec2(18.0, 2.0) * scale,

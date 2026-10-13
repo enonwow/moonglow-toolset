@@ -37,6 +37,163 @@ fn pixel_height_to_em(bytes: &[u8]) -> Option<f32> {
     (height > 0.0 && em > 0.0).then_some(em / height)
 }
 
+/// What a laid-out text was made from. `width` is where it wraps or is cut
+/// (infinite when neither), `shape` which of the preview's layouts it is.
+#[derive(Clone, Copy)]
+pub(super) struct TextKey<'a> {
+    pub text: &'a str,
+    pub font: &'a FontId,
+    pub spacing: f32,
+    pub color: Color32,
+    pub line_height: Option<f32>,
+    pub width: f32,
+    pub shape: u8,
+}
+
+impl TextKey<'_> {
+    fn hash(&self) -> u64 {
+        egui::util::hash((
+            self.text,
+            self.font,
+            self.spacing.to_bits(),
+            self.color,
+            self.line_height.map(f32::to_bits),
+            self.width.to_bits(),
+            self.shape,
+        ))
+    }
+}
+
+struct KeptText {
+    text: Box<str>,
+    font: FontId,
+    spacing: f32,
+    color: Color32,
+    line_height: Option<f32>,
+    width: f32,
+    shape: u8,
+    galley: Arc<egui::Galley>,
+    /// The pass it was last drawn in.
+    used: u32,
+}
+
+impl KeptText {
+    fn is(&self, key: &TextKey<'_>) -> bool {
+        self.shape == key.shape
+            && self.width.to_bits() == key.width.to_bits()
+            && self.spacing.to_bits() == key.spacing.to_bits()
+            && self.line_height.map(f32::to_bits) == key.line_height.map(f32::to_bits)
+            && self.color == key.color
+            && self.font == *key.font
+            && *self.text == *key.text
+    }
+}
+
+/// The preview's texts as they were laid out, kept from one pass to the next:
+/// laying one out anew costs a section a glyph (`preview::native_job`).
+///
+/// A galley holds positions in egui's font atlas, and is garbage once egui
+/// builds that atlas again: for new or added fonts, changed text options or
+/// an atlas that filled up, always at the start of a pass, and each time it
+/// empties its own cache of galleys (`epaint::Fonts::begin_pass`; a change
+/// of pixels per point makes its galleys new ones too). So a mark is laid
+/// out in every pass: egui keeps what was laid out in the pass before, and
+/// while it hands the same mark back, its atlas is the one these galleys
+/// were made for. When it is another (also after a pass that drew no
+/// preview), everything kept goes.
+#[derive(Default)]
+struct TextCache {
+    pass: Option<u64>,
+    mark: Option<Arc<egui::Galley>>,
+    generation: u32,
+    kept: std::collections::HashMap<u64, KeptText>,
+}
+
+impl TextCache {
+    /// Once a pass: drops everything if egui's atlas is not the same one,
+    /// and otherwise what the pass before did not draw.
+    fn begin_pass(&mut self, ctx: &egui::Context) {
+        let pass = ctx.cumulative_pass_nr();
+        if self.pass == Some(pass) {
+            return;
+        }
+        self.pass = Some(pass);
+        let mark = ctx.fonts_mut(|f| {
+            f.layout_job(egui::text::LayoutJob::simple_singleline(
+                "nui".into(),
+                FontId::default(),
+                Color32::PLACEHOLDER,
+            ))
+        });
+        if self.mark.as_ref().is_some_and(|kept| Arc::ptr_eq(kept, &mark)) {
+            let generation = self.generation;
+            self.kept.retain(|_, t| t.used == generation);
+        } else {
+            self.kept.clear();
+        }
+        self.mark = Some(mark);
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    fn get(
+        &mut self,
+        ctx: &egui::Context,
+        key: &TextKey<'_>,
+        hash: u64,
+    ) -> Option<Arc<egui::Galley>> {
+        self.begin_pass(ctx);
+        let kept = self.kept.get_mut(&hash).filter(|t| t.is(key))?;
+        kept.used = self.generation;
+        Some(kept.galley.clone())
+    }
+
+    fn keep(&mut self, key: &TextKey<'_>, hash: u64, galley: Arc<egui::Galley>) {
+        self.kept.insert(
+            hash,
+            KeptText {
+                text: key.text.into(),
+                font: key.font.clone(),
+                spacing: key.spacing,
+                color: key.color,
+                line_height: key.line_height,
+                width: key.width,
+                shape: key.shape,
+                galley,
+                used: self.generation,
+            },
+        );
+    }
+}
+
+/// A value of the skin, read once: as a number, or as a string that is a
+/// color or names a picture (the key of `Assets::pictures`).
+struct Leaf {
+    number: Option<f32>,
+    color: Option<Color32>,
+    picture: Option<String>,
+}
+
+/// The values under `table`, by their dotted paths. A key with a dot in it
+/// is one no path leads to.
+fn leaves(prefix: &str, table: &toml::Table, out: &mut std::collections::HashMap<String, Leaf>) {
+    for (key, value) in table.iter().filter(|(key, _)| !key.contains('.')) {
+        let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        if let toml::Value::Table(table) = value {
+            leaves(&path, table, out);
+            continue;
+        }
+        let text = value.as_str();
+        out.insert(
+            path,
+            Leaf {
+                number: toml_number(value),
+                color: text.and_then(color),
+                picture: text.map(str::to_lowercase),
+            },
+        );
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Assets {
     dirty: bool,
@@ -56,9 +213,13 @@ pub(crate) struct Assets {
     pub(super) catalog: Vec<String>,
     requested: BTreeSet<String>,
     style: toml::Table,
+    /// `style` by dotted path ("button.normal"), as the preview asks for it
+    /// with every control it paints.
+    leaves: std::collections::HashMap<String, Leaf>,
     pictures: BTreeMap<String, Picture>,
     fonts: BTreeMap<String, Font>,
     default_font: String,
+    text: std::cell::RefCell<TextCache>,
     strings: BTreeMap<i64, String>,
     pub(super) origins: BTreeMap<String, String>,
     pub(super) issues: Vec<String>,
@@ -300,7 +461,11 @@ impl Assets {
         self.issues.clear();
         self.origins.clear();
         self.fonts.clear();
+        // (egui builds its atlas again for the fonts added below, which
+        // `TextCache` sees for itself; these are only no longer wanted.)
+        self.text.get_mut().kept.clear();
         self.style.clear();
+        self.leaves.clear();
         self.loaded = false;
         let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         if let Some((b, origin)) = resource(rm, module, key) {
@@ -309,6 +474,7 @@ impl Assets {
                 .and_then(|t| t.parse::<toml::Table>().map_err(|e| e.to_string()))
             {
                 Ok(style) => {
+                    leaves("", &style, &mut self.leaves);
                     self.style = style;
                     self.loaded = true;
                     self.origins.insert(key.to_string(), origin);
@@ -425,25 +591,22 @@ impl Assets {
         ctx.request_repaint();
     }
 
-    fn value(&self, path: &str) -> Option<&toml::Value> {
-        let mut parts = path.split('.');
-        let mut v = self.style.get(parts.next()?)?;
-        for p in parts {
-            v = v.get(p)?;
-        }
-        Some(v)
-    }
     pub(super) fn number(&self, path: &str, default: f32) -> f32 {
-        self.value(path).and_then(toml_number).unwrap_or(default)
+        self.leaves.get(path).and_then(|v| v.number).unwrap_or(default)
     }
     pub(super) fn color(&self, path: &str, default: Color32) -> Color32 {
-        self.value(path).and_then(toml::Value::as_str).and_then(color).unwrap_or(default)
+        self.leaves.get(path).and_then(|v| v.color).unwrap_or(default)
     }
     pub(super) fn picture(&self, name: &str) -> Option<&Picture> {
-        self.pictures.get(&name.to_lowercase())
+        // Pictures are kept by lowercase name, which most names already are.
+        if name.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
+            self.pictures.get(name)
+        } else {
+            self.pictures.get(&name.to_lowercase())
+        }
     }
     pub(super) fn style_picture(&self, path: &str) -> Option<&Picture> {
-        self.picture(self.value(path)?.as_str()?)
+        self.pictures.get(self.leaves.get(path)?.picture.as_ref()?)
     }
     pub(super) fn font(&self, ctx: &egui::Context, name: &str, scale: f32) -> (FontId, f32) {
         let f = self.fonts.get(if name.is_empty() { self.default_font.as_str() } else { name });
@@ -454,6 +617,23 @@ impl Assets {
         }
         (FontId::proportional(17.0 * scale), 0.0)
     }
+    /// The galley for `key`: the one kept if it was drawn in the pass
+    /// before or in this one, and otherwise what `lay_out` makes of it.
+    pub(super) fn galley(
+        &self,
+        ctx: &egui::Context,
+        key: &TextKey<'_>,
+        lay_out: impl FnOnce() -> Arc<egui::Galley>,
+    ) -> Arc<egui::Galley> {
+        let hash = key.hash();
+        if let Some(galley) = self.text.borrow_mut().get(ctx, key, hash) {
+            return galley;
+        }
+        let galley = lay_out();
+        self.text.borrow_mut().keep(key, hash, galley.clone());
+        galley
+    }
+
     pub(super) fn font_height(&self, name: &str) -> f32 {
         self.fonts
             .get(if name.is_empty() { self.default_font.as_str() } else { name })
@@ -468,14 +648,14 @@ impl Assets {
         sliced: bool,
         tint: Color32,
     ) -> bool {
-        let Some(value) = self.value(path).and_then(toml::Value::as_str) else {
+        let Some(value) = self.leaves.get(path) else {
             return false;
         };
-        if let Some(c) = color(value) {
+        if let Some(c) = value.color {
             p.rect_filled(rect, 0, c * tint);
             return true;
         }
-        let Some(image) = self.picture(value) else {
+        let Some(image) = value.picture.as_ref().and_then(|name| self.pictures.get(name)) else {
             return false;
         };
         if sliced {
@@ -503,9 +683,7 @@ impl Assets {
         horizontal: bool,
         tint: Color32,
     ) -> bool {
-        let Some(image) =
-            self.value(path).and_then(toml::Value::as_str).and_then(|v| self.picture(v))
-        else {
+        let Some(image) = self.style_picture(path) else {
             return self.paint(p, path, rect, scale, true, tint);
         };
         let axis = usize::from(!horizontal);
@@ -630,6 +808,41 @@ mod tests {
         assets.prepare_strings(None, &doc, &settings);
         assert_eq!(localized_string(&doc["title"], &settings, None, &assets), "[Missing StrRef 0]");
         assert_eq!((doc, settings), original);
+    }
+
+    #[test]
+    fn the_skin_is_read_by_dotted_path() {
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        module.set(
+            ResKey::parse("nui_skin", ResType::TML).unwrap(),
+            b"[window]\nscrollbar_size_x = 20\nbackground = \"#102030ff\"\n\
+              [window.header]\nnormal = \"Test_Image\"\nratio = 1.5\n\
+              [odd]\n\"a.b\" = 7\n[odd.a]\nb = 8\n"
+                .to_vec(),
+        );
+        module.set(ResKey::parse("test_image", ResType::TGA).unwrap(), tga(true));
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &mg_nui::window(), &Settings::default());
+        assert!(assets.loaded, "{:?}", assets.issues);
+        assert_eq!(assets.number("window.scrollbar_size_x", 18.0), 20.0);
+        assert_eq!(assets.number("window.header.ratio", 0.0), 1.5);
+        assert_eq!(assets.number("window.scrollbar_size_y", 18.0), 18.0);
+        // A table, a string and a path through a value are no numbers.
+        assert_eq!(assets.number("window.header", 3.0), 3.0);
+        assert_eq!(assets.number("window.background", 3.0), 3.0);
+        assert_eq!(assets.number("window.background.x", 3.0), 3.0);
+        assert_eq!(
+            assets.color("window.background", Color32::RED),
+            Color32::from_rgba_unmultiplied(0x10, 0x20, 0x30, 0xff)
+        );
+        assert_eq!(assets.color("window.header.normal", Color32::RED), Color32::RED);
+        // A picture is found whatever the case the skin names it in.
+        assert!(assets.style_picture("window.header.normal").is_some());
+        assert!(assets.style_picture("window.background").is_none());
+        assert!(assets.picture("TEST_image").is_some());
+        // A path's dots only ever separate tables.
+        assert_eq!(assets.number("odd.a.b", 0.0), 8.0);
     }
 
     #[test]

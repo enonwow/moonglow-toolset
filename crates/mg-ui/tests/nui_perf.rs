@@ -2,7 +2,8 @@
 //! long text and a list). Timing only; run with
 //! `cargo test --release -p mg-ui --test nui_perf -- --ignored --nocapture`.
 //! `FRAME_COUNT=<n>` sets the frames timed, `NUI_PHASE=idle|edit|elsewhere`
-//! times one of the three (to sample its stacks).
+//! times one of the large window's three (to sample its stacks);
+//! `a_window_of_text` is a window that is mostly text.
 
 use std::time::{Duration, Instant};
 
@@ -58,21 +59,23 @@ fn report(what: &str, mut frames: Vec<Duration>) {
     println!("{what}: median {:?}, worst {:?}", frames[frames.len() / 2], frames.last().unwrap());
 }
 
-#[test]
-#[ignore]
-fn a_large_window() {
-    let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("nui-perf");
+/// The app with `window` open in the NUI Creator, and a frame of it timed.
+fn open(
+    root: &std::path::Path,
+    name: &str,
+    window: &Value,
+) -> (Moonglow, ResKey, impl Fn(&mut Moonglow) -> Duration + use<>) {
+    let dir = mg_testkit::scratch_dir(&format!("nui-perf-{name}"));
     let mut m = Module::new();
     m.set_info(&Gff::new(*b"IFO ")).unwrap();
-    let key = ResKey::parse("big", ResType::JUI).unwrap();
-    m.set(key, serde_json::to_vec_pretty(&window(12, 120.0)).unwrap());
-    m.set(ResKey::parse("big", ResType::TXT).unwrap(), mg_nui::Settings::default().bytes());
+    let key = ResKey::parse(name, ResType::JUI).unwrap();
+    m.set(key, serde_json::to_vec_pretty(window).unwrap());
+    m.set(ResKey::parse(name, ResType::TXT).unwrap(), mg_nui::Settings::default().bytes());
     let path = dir.join("perf.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
     let mut app =
-        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+        Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&path);
     app.actions.push(Action::OpenTab(Tab::Nui(Some(key))));
 
@@ -83,12 +86,58 @@ fn a_large_window() {
         screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0))),
         ..Default::default()
     };
-    let frame = |app: &mut Moonglow| {
+    let frame = move |app: &mut Moonglow| {
         let t = Instant::now();
         let out = ctx.run_ui(input(), |ui| app.ui(ui));
         let _ = ctx.tessellate(out.shapes, out.pixels_per_point);
         t.elapsed()
     };
+    (app, key, frame)
+}
+
+/// A window of text: `labels` rows of four labels of a sentence each and a
+/// text block of `paragraphs` sentences, some 4,000 characters in all.
+fn text_window(labels: usize, paragraphs: usize) -> Value {
+    let mut window = mg_nui::window();
+    window["geometry"] = json!({"x": -1.0, "y": -1.0, "w": 1100.0, "h": 760.0});
+    let mut children = Vec::new();
+    for r in 0..labels {
+        let mut row = mg_nui::template("row");
+        let cells: Vec<Value> = (0..4)
+            .map(|c| {
+                let mut v = mg_nui::template("label");
+                v["value"] = format!("Żółć {r}.{c}: the quick brown fox jumps").into();
+                v
+            })
+            .collect();
+        row["children"] = cells.into();
+        row["height"] = json!(22.0);
+        children.push(row);
+    }
+    let mut text = mg_nui::template("text");
+    text["value"] = "The quick brown fox jumps over the lazy dog.\n".repeat(paragraphs).into();
+    text["height"] = json!(300.0);
+    children.push(text);
+    window["root"]["children"] = children.into();
+    window
+}
+
+#[test]
+#[ignore]
+fn a_window_of_text() {
+    let root = mg_testkit::corpus!();
+    let (mut app, _, frame) = open(&root, "texty", &text_window(16, 40));
+    let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
+    let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    println!("text opening: {opening:?}");
+    report("text-heavy idle frame", (0..count).map(|_| frame(&mut app)).collect());
+}
+
+#[test]
+#[ignore]
+fn a_large_window() {
+    let root = mg_testkit::corpus!();
+    let (mut app, key, frame) = open(&root, "big", &window(12, 120.0));
     let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
     let phase = std::env::var("NUI_PHASE").ok();
     let timed = |name: &str| phase.as_deref().is_none_or(|p| p == name);

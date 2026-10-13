@@ -1,5 +1,6 @@
 //! The canvas: its toolbar, the window's chrome and the window's body.
 use super::*;
+use std::borrow::Cow;
 
 pub(in crate::nui_view) fn canvas(
     ui: &mut Ui,
@@ -14,33 +15,37 @@ pub(in crate::nui_view) fn canvas(
     toolbar(ui, state, assets);
     track_gestures(ui, v, state);
     let mut runtime = session(v, s, state);
-    let (mut shown, shown_settings) = if state.preview_interactive {
-        let r = runtime.as_ref().unwrap();
-        (r.doc.clone(), &r.settings)
-    } else {
-        (v.clone(), s)
+    // What is shown in the window's place: a simulation's window, the window
+    // as a gesture under way leaves it, or a variant inside its window.
+    // Otherwise it is the window itself, and nothing is copied.
+    let (mut other, shown_settings) = match &runtime {
+        Some(r) if state.preview_interactive => (Some(Cow::Borrowed(&r.doc)), &r.settings),
+        _ => (None, s),
     };
-    if let Some(resize) = &state.resize {
-        resize.apply(&mut shown);
+    if state.resize.is_some() || state.draw_drag.is_some() || state.window_move.is_some() {
+        let mut shown = other.map_or_else(|| v.clone(), Cow::into_owned);
+        if let Some(resize) = &state.resize {
+            resize.apply(&mut shown);
+        }
+        if let Some(drag) = &state.draw_drag {
+            drag.apply(&mut shown);
+        }
+        if let Some(m) = &state.window_move {
+            m.apply(&mut shown);
+        }
+        other = Some(Cow::Owned(shown));
     }
-    if let Some(drag) = &state.draw_drag {
-        drag.apply(&mut shown);
-    }
-    if let Some(m) = &state.window_move {
-        m.apply(&mut shown);
-    }
-    let context_prefix =
-        layouts::canvas_context(&shown, shown_settings, state).map(|(context, prefix)| {
-            shown = context;
-            prefix
-        });
+    let context = layouts::canvas_context(other.as_deref().unwrap_or(v), shown_settings, state);
+    let context_prefix = context.map(|(context, prefix)| {
+        other = Some(Cow::Owned(context));
+        prefix
+    });
     let empty_rows = Default::default();
     let row_values = runtime.as_ref().map_or(&empty_rows, |r| &r.row_values);
     let closed = state.preview_interactive && runtime.as_ref().is_some_and(|r| r.closed);
     let authored = v;
-    let v = &shown;
     let s = shown_settings;
-    let size = window_size(v, s);
+    let size = window_size(other.as_deref().unwrap_or(authored), s);
     let available = (ui.available_size() - vec2(0.0, 28.0)).max(vec2(80.0, 80.0));
     if state.screen_size.x <= 0.0 {
         state.screen_size = vec2(1920.0, 1080.0);
@@ -64,7 +69,7 @@ pub(in crate::nui_view) fn canvas(
     let scale = state.resize.as_ref().map_or(zoom * ui_scale, |r| r.scale);
     let mut stage = Stage {
         authored: &mut *authored,
-        v,
+        shown: other.as_deref(),
         s,
         assets,
         state: &mut *state,
@@ -294,7 +299,8 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
 /// gathers (clicks in a simulation, a control dropped, the selection's place).
 pub(super) struct Stage<'a> {
     authored: &'a mut Value,
-    v: &'a Value,
+    /// What is shown when it is not the window itself.
+    shown: Option<&'a Value>,
     s: &'a Settings,
     assets: &'a skin::Assets,
     state: &'a mut State,
@@ -361,8 +367,10 @@ impl Stage<'_> {
     /// The window: its background and border, its title bar, its body and
     /// the handles of what is selected.
     fn window(&mut self, ui: &mut Ui, p: &Painter, space: Rect, screen: Rect) {
-        let (v, s, assets, scale, size, extent) =
-            (self.v, self.s, self.assets, self.scale, self.size, self.extent);
+        let (s, assets, scale, size, extent) =
+            (self.s, self.assets, self.scale, self.size, self.extent);
+        let v: &Value = self.shown.unwrap_or(&*self.authored);
+        let resizable = flag(&v["resizable"], s, None, true);
         let geometry = resolved(&v["geometry"], s);
         let collapsed = flag(&v["collapsed"], s, None, false);
         let collapsible = self.authored["collapsed"].as_bool() != Some(false);
@@ -429,7 +437,7 @@ impl Stage<'_> {
             rect.right_bottom() - vec2(8.0, 8.0) * scale,
         );
         self.body(ui, inner, &font);
-        if !collapsed && flag(&v["resizable"], s, None, true) {
+        if !collapsed && resizable {
             let corner = rect.right_bottom();
             p.add(egui::Shape::convex_polygon(
                 vec![corner - vec2(16.0 * scale, 0.0), corner, corner - vec2(0.0, 16.0 * scale)],
@@ -438,7 +446,7 @@ impl Stage<'_> {
             ));
         }
         if self.context_prefix.is_none() && self.state.selected.is_empty() {
-            self.selected_bounds = (!flag(&v["collapsed"], s, None, false)).then_some(rect);
+            self.selected_bounds = (!collapsed).then_some(rect);
         }
         interaction::resize_handles(
             ui,
@@ -564,7 +572,8 @@ impl Stage<'_> {
 
     /// The window's controls, inside its 8-point inset.
     fn body(&mut self, ui: &mut Ui, inner: Rect, font: &str) {
-        let (v, s, scale) = (self.v, self.s, self.scale);
+        let (s, scale) = (self.s, self.scale);
+        let v: &Value = self.shown.unwrap_or(&*self.authored);
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
             ui.set_clip_rect(inner.intersect(ui.clip_rect()));
             let mut renderer = Renderer {
