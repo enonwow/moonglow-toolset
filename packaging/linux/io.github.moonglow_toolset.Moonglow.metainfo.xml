@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.25.0" date="2026-10-13">
+      <description>
+        <p>A trigger's outline is drawn as a rectangle by two clicks,
+        with Alt held for the second. The ring that turns a trigger is
+        where the trigger is, and goes round with it.</p>
+      </description>
+    </release>
     <release version="1.24.3" date="2026-10-13">
       <description>
         <p>Save, Close Tab and the other commands by their keys keep
