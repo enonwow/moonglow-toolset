@@ -52,9 +52,8 @@ egui_kittest = "0.36"
 encoding_rs = "0.8"
 fastrand = "2"
 glam = { version = "0.30", features = ["bytemuck"] }
-# (The NUI preview's pictures: JPEG and BMP, which mg-image does not read,
-# and PNG and TGA as the client's NUI reads them.)
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "tga"] }
+# (The NUI preview's JPEG and BMP pictures, which nothing else here reads.)
+image = { version = "0.25", default-features = false, features = ["jpeg", "bmp"] }
 indexmap = "2"
 memmap2 = "0.9"
 mlua = { version = "0.12", features = ["luau", "serde"] }

@@ -277,32 +277,107 @@ fn image_resource(
         .map(|(ty, (bytes, origin))| (ty, bytes, origin))
 }
 
+/// The longest side a picture of a window may have.
+const MAX_SIDE: u32 = 4096;
+
 fn image(bytes: &[u8], ty: ResType) -> Result<egui::ColorImage, String> {
     if bytes.len() > 64 * 1024 * 1024 {
         return Err("image exceeds 64 MiB".into());
     }
-    if ty == ResType::DDS {
-        let t = mg_image::read(ty, bytes).map_err(|e| e.to_string())?;
-        if u64::from(t.width) * u64::from(t.height) > 16_777_216 {
-            return Err("image exceeds 16 megapixels".into());
+    match ty {
+        ResType::DDS => {
+            let t = mg_image::read(ty, bytes).map_err(|e| e.to_string())?;
+            if u64::from(t.width) * u64::from(t.height) > 16_777_216 {
+                return Err("image exceeds 16 megapixels".into());
+            }
+            let rgba = t.to_rgba().top_down();
+            Ok(egui::ColorImage::from_rgba_unmultiplied(
+                [rgba.width as usize, rgba.height as usize],
+                &rgba.data,
+            ))
         }
-        let rgba = t.to_rgba().top_down();
-        return Ok(egui::ColorImage::from_rgba_unmultiplied(
-            [rgba.width as usize, rgba.height as usize],
-            &rgba.data,
-        ));
+        ResType::TGA => read_tga(bytes),
+        ResType::PNG => read_png(bytes),
+        ResType::JPG => other(bytes, image::ImageFormat::Jpeg),
+        ResType::BMP => other(bytes, image::ImageFormat::Bmp),
+        _ => Err(format!("Unsupported NUI image: {ty}")),
     }
-    let format = match ty {
-        ResType::TGA => image::ImageFormat::Tga,
-        ResType::PNG => image::ImageFormat::Png,
-        ResType::JPG => image::ImageFormat::Jpeg,
-        ResType::BMP => image::ImageFormat::Bmp,
-        _ => return Err(format!("Unsupported NUI image: {ty}")),
+}
+
+/// A TGA, through the workspace's reader. That one keeps rows and columns
+/// as they are stored, which is how the game takes a texture for a model;
+/// a window's picture is drawn by the origin its file declares.
+fn read_tga(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+    let t = mg_image::read(ResType::TGA, bytes).map_err(|e| e.to_string())?;
+    if t.width > MAX_SIDE || t.height > MAX_SIDE {
+        return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
+    }
+    let descriptor = bytes.get(17).copied().unwrap_or(0);
+    let mut rgba = t.to_rgba();
+    if descriptor & 0x20 == 0 {
+        rgba = rgba.top_down();
+    }
+    if descriptor & 0x10 != 0 {
+        for row in rgba.data.chunks_exact_mut(rgba.width as usize * 4) {
+            let (pixels, _) = row.as_chunks_mut::<4>();
+            pixels.reverse();
+        }
+    }
+    Ok(egui::ColorImage::from_rgba_unmultiplied(
+        [rgba.width as usize, rgba.height as usize],
+        &rgba.data,
+    ))
+}
+
+/// A PNG of any color type and depth as RGBA8: 16-bit samples rounded to
+/// the nearest 8-bit one.
+fn read_png(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+    let limits = png::Limits { bytes: 128 * 1024 * 1024 };
+    let mut decoder = png::Decoder::new_with_limits(std::io::Cursor::new(bytes), limits);
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let (width, height) = (reader.info().width, reader.info().height);
+    if width > MAX_SIDE || height > MAX_SIDE {
+        return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
+    }
+    let size = reader.output_buffer_size().ok_or("image is too large")?;
+    let mut buffer = vec![0; size];
+    let info = reader.next_frame(&mut buffer).map_err(|e| e.to_string())?;
+    let data = buffer.get(..info.buffer_size()).ok_or("image is cut short")?;
+    // The samples of a pixel, each as 8 bits.
+    let samples: Vec<u8> = match info.bit_depth {
+        png::BitDepth::Sixteen => data
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|s| ((u32::from(u16::from_be_bytes(*s)) + 128) / 257) as u8)
+            .collect(),
+        _ => data.to_vec(),
     };
+    let rgba: Vec<u8> = match info.color_type {
+        png::ColorType::Grayscale => samples.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+        png::ColorType::GrayscaleAlpha => {
+            samples.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
+        }
+        png::ColorType::Rgb => {
+            samples.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect()
+        }
+        png::ColorType::Rgba => samples,
+        png::ColorType::Indexed => return Err("the image's palette was not unpacked".into()),
+    };
+    let size = [width as usize, height as usize];
+    if rgba.len() != size[0] * size[1] * 4 {
+        return Err("image is cut short".into());
+    }
+    Ok(egui::ColorImage::from_rgba_unmultiplied(size, &rgba))
+}
+
+/// A JPEG or BMP.
+fn other(bytes: &[u8], format: image::ImageFormat) -> Result<egui::ColorImage, String> {
     let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(4096);
-    limits.max_image_height = Some(4096);
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
     limits.max_alloc = Some(128 * 1024 * 1024);
     reader.limits(limits);
     let rgba = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
@@ -1031,6 +1106,132 @@ mod tests {
             assert!(uv.windows(2).all(|w| w[1] >= w[0]));
             assert_eq!(x[3], 7.0 + target);
         }
+    }
+
+    /// A TGA header: no ID, no color map.
+    fn tga_header(kind: u8, width: u16, height: u16, bits: u8, descriptor: u8) -> Vec<u8> {
+        let mut b = vec![0, 0, kind, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        b.extend(width.to_le_bytes());
+        b.extend(height.to_le_bytes());
+        b.extend([bits, descriptor]);
+        b
+    }
+
+    /// The workspace's TGA reader keeps rows and columns as stored; a
+    /// window's picture is the one its file's origin declares, as the
+    /// `image` crate read it (compared pixel for pixel when the reader was
+    /// changed: 8-bit gray, 24- and 32-bit and color-mapped, plain and
+    /// run-length encoded, from all four corners).
+    #[test]
+    fn nui_tga_is_read_from_the_corner_it_declares() {
+        let [red, green, blue, white] = [[0, 0, 255], [0, 255, 0], [255, 0, 0], [255, 255, 255]];
+        let want = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::WHITE];
+        // The same picture (red, green over blue, white) stored from each corner.
+        for (descriptor, stored) in [
+            (0x20, [red, green, blue, white]),
+            (0x00, [blue, white, red, green]),
+            (0x30, [green, red, white, blue]),
+            (0x10, [white, blue, green, red]),
+        ] {
+            let mut plain = tga_header(2, 2, 2, 24, descriptor);
+            plain.extend(stored.as_flattened());
+            assert_eq!(image(&plain, ResType::TGA).unwrap().pixels, want, "{descriptor:#x}");
+            // Run-length encoded, with alpha: a raw packet of three, a run of one.
+            let mut packed = tga_header(10, 2, 2, 32, descriptor | 8);
+            packed.push(2);
+            for pixel in &stored[..3] {
+                packed.extend(pixel);
+                packed.push(255);
+            }
+            packed.push(0x80);
+            packed.extend(stored[3]);
+            packed.push(255);
+            assert_eq!(image(&packed, ResType::TGA).unwrap().pixels, want, "{descriptor:#x}");
+        }
+        let mut gray = tga_header(3, 2, 1, 8, 0x20);
+        gray.extend([0, 200]);
+        let gray = image(&gray, ResType::TGA).unwrap();
+        assert_eq!(gray.pixels, [Color32::BLACK, Color32::from_gray(200)]);
+        let mut translucent = tga_header(2, 1, 1, 32, 8);
+        translucent.extend([10, 20, 30, 128]);
+        assert_eq!(
+            image(&translucent, ResType::TGA).unwrap().pixels,
+            [Color32::from_rgba_unmultiplied(30, 20, 10, 128)]
+        );
+        // Bad input is an issue to show, never a panic.
+        assert!(image(&tga_header(2, 4097, 1, 24, 0), ResType::TGA).is_err());
+        assert!(image(&plain_tga_cut_short(), ResType::TGA).is_err());
+        assert!(image(b"", ResType::TGA).is_err());
+    }
+
+    fn plain_tga_cut_short() -> Vec<u8> {
+        let mut b = tga_header(2, 2, 2, 24, 0);
+        b.extend([1, 2, 3]);
+        b
+    }
+
+    fn png_of(
+        color: png::ColorType,
+        depth: png::BitDepth,
+        palette: Option<(&[u8], &[u8])>,
+        data: &[u8],
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, 2, 1);
+        encoder.set_color(color);
+        encoder.set_depth(depth);
+        if let Some((palette, alpha)) = palette {
+            encoder.set_palette(palette.to_vec());
+            encoder.set_trns(alpha.to_vec());
+        }
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(data).unwrap();
+        drop(writer);
+        out
+    }
+
+    /// PNGs of every color type become RGBA8 as the `image` crate made them
+    /// (compared pixel for pixel when the reader was changed): 16-bit
+    /// samples rounded, palettes and their transparency unpacked.
+    #[test]
+    fn nui_png_of_any_kind_is_read_as_rgba() {
+        use png::{BitDepth, ColorType};
+        // (As the picture holds them: a color multiplied by its alpha.)
+        let pixels = |bytes: &[u8]| {
+            let image = image(bytes, ResType::PNG).unwrap();
+            assert_eq!(image.size, [2, 1]);
+            image.pixels
+        };
+        let colors = |c: [[u8; 4]; 2]| {
+            c.map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a)).to_vec()
+        };
+        let rgb = png_of(ColorType::Rgb, BitDepth::Eight, None, &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(pixels(&rgb), colors([[1, 2, 3, 255], [4, 5, 6, 255]]));
+        let rgba = png_of(ColorType::Rgba, BitDepth::Eight, None, &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(pixels(&rgba), colors([[1, 2, 3, 4], [5, 6, 7, 8]]));
+        let gray = png_of(ColorType::Grayscale, BitDepth::One, None, &[0b0100_0000]);
+        assert_eq!(pixels(&gray), colors([[0, 0, 0, 255], [255, 255, 255, 255]]));
+        let gray_alpha = png_of(ColorType::GrayscaleAlpha, BitDepth::Eight, None, &[9, 8, 7, 6]);
+        assert_eq!(pixels(&gray_alpha), colors([[9, 9, 9, 8], [7, 7, 7, 6]]));
+        // 0x0080 is nearer 0 than 1, 0x0081 nearer 1; 0xff7f is 254.5 and a bit.
+        let deep = png_of(ColorType::Grayscale, BitDepth::Sixteen, None, &[0, 0x80, 0, 0x81]);
+        assert_eq!(pixels(&deep), colors([[0, 0, 0, 255], [1, 1, 1, 255]]));
+        let deep = png_of(
+            ColorType::Rgba,
+            BitDepth::Sixteen,
+            None,
+            &[0xff, 0x7f, 0x80, 0, 0x12, 0x34, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0],
+        );
+        assert_eq!(pixels(&deep), colors([[255, 128, 18, 255], [0, 0, 0, 0]]));
+        let indexed = png_of(
+            ColorType::Indexed,
+            BitDepth::Eight,
+            Some((&[10, 20, 30, 40, 50, 60], &[77])),
+            &[1, 0],
+        );
+        assert_eq!(pixels(&indexed), colors([[40, 50, 60, 255], [10, 20, 30, 77]]));
+        assert!(image(&rgb[..rgb.len() / 2], ResType::PNG).is_err());
+        assert!(image(b"not a picture", ResType::PNG).is_err());
     }
 
     #[test]
