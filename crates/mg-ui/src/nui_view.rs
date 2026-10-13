@@ -3087,7 +3087,7 @@ mod tests {
             .unwrap()
             .module
             .set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
-        h.get_by_label("UI scale 100%").click();
+        h.get_by_label("UI scale 150%").click();
         h.run();
         h.get_all_by_label("100%").last().unwrap().click();
         h.run();
