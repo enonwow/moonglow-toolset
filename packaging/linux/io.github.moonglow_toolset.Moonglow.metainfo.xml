@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.25.1" date="2026-10-13">
+      <description>
+        <p>A rectangular trigger painted with the right Alt key held is
+        placed (it showed and was not).</p>
+      </description>
+    </release>
     <release version="1.25.0" date="2026-10-13">
       <description>
         <p>A trigger's outline is drawn as a rectangle by two clicks,
