@@ -232,26 +232,26 @@ fn make_group(doc: &mut Value, s: &mut Settings, path: &str) -> Option<String> {
 fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String> {
     let id = ui.make_persistent_id("new-layout-draft");
     let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(id));
-    if draft.is_none() {
-        ui.horizontal_wrapped(|ui| {
-            let empty = ui.button("+ Add variant").clicked();
-            let copied = copy.filter(|_| ui.button("Copy initial contents").clicked()).cloned();
-            if empty || copied.is_some() {
-                draft = Some(Draft {
-                    name: unique("variant", |n| s.views.contains_key(n)),
-                    root: copied.unwrap_or_else(|| mg_nui::template("col")),
-                });
-            }
-        });
-    }
+    ui.horizontal_wrapped(|ui| {
+        let empty = ui.button("+ Add variant").clicked();
+        let copied = copy.filter(|_| ui.button("Copy initial contents").clicked()).cloned();
+        if draft.is_none() && (empty || copied.is_some()) {
+            draft = Some(Draft {
+                name: unique("variant", |n| s.views.contains_key(n)),
+                root: copied.unwrap_or_else(|| mg_nui::template("col")),
+            });
+        }
+    });
     let mut result = None;
     let mut finish = false;
     if let Some(draft) = draft.as_mut() {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.strong("New variant");
-            let name = ui.label("Variant name");
-            ui.add(egui::TextEdit::singleline(&mut draft.name).desired_width(ui.available_width()))
-                .labelled_by(name.id);
+        let mut open = true;
+        let window =
+            widgets::dialog(ui.ctx(), "New Variant", &mut open).collapsible(false).resizable(false);
+        window.show(ui.ctx(), |ui| {
+            let name = widgets::field_label(ui, "Variant name");
+            let field = ui.add(egui::TextEdit::singleline(&mut draft.name)).labelled_by(name.id);
+            widgets::autofocus(ui, &field);
             if matches!(draft.root["type"].as_str(), Some("col" | "row")) {
                 let mut horizontal = draft.root["type"] == "row";
                 ui.horizontal_wrapped(|ui| {
@@ -263,19 +263,22 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
             let name = draft.name.trim();
             let valid = !name.is_empty() && !name.contains('\0') && !s.views.contains_key(name);
             if !valid {
-                ui.weak("Use a nonempty, unique variant name.");
+                ui.weak("The variant needs a name no other variant has.");
             }
-            ui.horizontal_wrapped(|ui| {
-                if ui.add_enabled(valid, egui::Button::new("Create variant")).clicked() {
+            ui.horizontal(|ui| {
+                if ui.add_enabled(valid, egui::Button::new("Create")).clicked()
+                    || (valid && widgets::enter(ui))
+                {
                     s.views.insert(name.into(), draft.root.clone());
                     result = Some(name.to_owned());
                     finish = true;
                 }
-                if ui.button("Cancel variant").clicked() {
+                if widgets::cancel(ui) {
                     finish = true;
                 }
             });
         });
+        finish |= !open;
     }
     ui.ctx().data_mut(|d| {
         if finish {
@@ -322,10 +325,10 @@ pub(super) fn bar(ui: &mut Ui, s: &Settings, state: &mut State) {
                     select_host(state, s, &target);
                 }
                 ui.label("/");
-                ui.strong(format!("Editing variant: {name}"));
+                widgets::field_label(ui, format!("Editing variant: {name}"));
                 ui.weak("Editing this area only");
             } else {
-                ui.strong(format!("Editing variant: {name}"));
+                widgets::field_label(ui, format!("Editing variant: {name}"));
                 ui.weak(if target.is_empty() { "No target assigned" } else { "Whole window" });
             }
             if ui.button("Back to main window").clicked() {
@@ -340,7 +343,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     if path == "/root"
         && let Some(name) = state.edit_view.clone()
     {
-        ui.strong(format!("Editing variant: {name}"));
+        widgets::table_heading(ui, format!("Editing variant: {name}"));
         if let Some(target) = target_for(s, &name) {
             ui.label(format!("Belongs to Swap layout · {target}"));
             if ui.button("Swap layout properties").clicked() {
@@ -478,14 +481,14 @@ mod tests {
         assert!(is_swap(&initial.1, slot));
         h.get_by_label("+ Add variant").click();
         h.run();
-        h.get_by_label("Cancel variant").click();
+        h.get_by_label("Cancel").click();
         h.run();
         assert_eq!(read(&h), initial);
         h.get_by_label("+ Add variant").click();
         h.run();
         h.get_by_label("Horizontal").click();
         h.run();
-        h.get_by_label("Create variant").click();
+        h.get_by_label("Create").click();
         h.run();
         let authored = read(&h);
         assert_eq!(authored.0, initial.0);
@@ -729,7 +732,7 @@ mod tests {
         assert!(is_swap(&wrapped.1, &wrapped.0["root"]["children"][1]));
         h.get_by_label("Copy initial contents").click();
         h.run();
-        h.get_by_label("Create variant").click();
+        h.get_by_label("Create").click();
         h.run();
         let authored = read(&h);
         assert!(authored.1.actions.is_empty());
@@ -758,12 +761,12 @@ mod tests {
         let converted = read(&h);
         h.get_by_label("Copy initial contents").click();
         h.run();
-        h.get_by_label("Cancel variant").click();
+        h.get_by_label("Cancel").click();
         h.run();
         assert_eq!(read(&h), converted);
         h.get_by_label("Copy initial contents").click();
         h.run();
-        h.get_by_label("Create variant").click();
+        h.get_by_label("Create").click();
         h.run();
         let (doc, settings) = read(&h);
         assert_eq!(settings.views["variant"], before.0["root"]["children"][0]["children"][0]);

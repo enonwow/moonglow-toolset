@@ -460,7 +460,7 @@ pub(super) fn editor(
 ) {
     ui.push_id(("events", format!("{:?}", scope), &state.edit_view.clone()), |ui| {
         if scope.is_none() {
-            ui.heading("Events");
+            widgets::section_heading(ui, "Events");
             ui.weak(
                 "Each event handled is a section of the event script, where its code is written.",
             );
@@ -481,7 +481,7 @@ pub(super) fn editor(
         for (i, route) in s.actions.clone().iter().enumerate().filter(|(_, r)| shown(r, doc)) {
             ui.push_id(i, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.strong(label(&route.event));
+                    widgets::field_label(ui, label(&route.event));
                     if scope.is_none() || route.event == "watch" {
                         ui.weak(target_name(&route_target(route), doc));
                     }
@@ -526,7 +526,7 @@ pub(super) fn editor(
             target = scope.clone();
         }
         ui.horizontal_wrapped(|ui| {
-            ui.label("Add:");
+            widgets::field_label(ui, "Add");
             if scope.is_none() {
                 egui::ComboBox::from_id_salt("event-target")
                     .selected_text(

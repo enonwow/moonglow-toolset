@@ -60,7 +60,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
     }
     egui::CollapsingHeader::new("Property binding").default_open(true).show(ui, |ui| {
         ui.weak("A bound property takes its value from a bind, which a script can change.");
-        ui.label("Property");
+        let property = widgets::field_label(ui, "Property");
         egui::ComboBox::from_id_salt("bind-property")
             .selected_text(label(&state.binding_property, &ty))
             .width(ui.available_width().max(0.0))
@@ -68,7 +68,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 for key in &keys {
                     ui.selectable_value(&mut state.binding_property, key.clone(), label(key, &ty));
                 }
-            });
+            })
+            .response
+            .labelled_by(property.id);
         let key = state.binding_property.clone();
         let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
         let bound = current["bind"].as_str().map(str::to_owned);
@@ -77,7 +79,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             let draft_id = ui.make_persistent_id("property-bind-draft");
             let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
             let mut chosen = bound.clone().unwrap_or_default();
-            ui.label("Value from");
+            widgets::field_label(ui, "Value from");
             egui::ComboBox::from_id_salt("property-bind-source")
                 .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
                 .width(ui.available_width().max(0.0))
@@ -158,15 +160,16 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             }
             let mut finish = false;
             if let Some(draft) = draft.as_mut() {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.strong("New property bind");
-                    let heading = ui.label("Bind name");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft.name)
-                            .desired_width(ui.available_width().max(0.0)),
-                    )
-                    .labelled_by(heading.id);
-                    ui.label("Initial value");
+                let mut open = true;
+                let window = widgets::dialog(ui.ctx(), "New Bind for a Property", &mut open)
+                    .collapsible(false)
+                    .resizable(false);
+                window.show(ui.ctx(), |ui| {
+                    let heading = widgets::field_label(ui, "Bind name");
+                    let field =
+                        ui.add(egui::TextEdit::singleline(&mut draft.name)).labelled_by(heading.id);
+                    widgets::autofocus(ui, &field);
+                    widgets::field_label(ui, "Initial value");
                     if rows.is_some() {
                         ui.weak("One value per list row.");
                     }
@@ -184,10 +187,12 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     if let Some(error) = error {
                         ui.weak(error);
                     }
-                    ui.horizontal_wrapped(|ui| {
+                    ui.horizontal(|ui| {
                         if ui
-                            .add_enabled(error.is_none(), egui::Button::new("Create & connect"))
+                            .add_enabled(error.is_none(), egui::Button::new("Create"))
+                            .on_hover_text("Makes the bind and binds the property to it")
                             .clicked()
+                            || (error.is_none() && widgets::enter(ui))
                         {
                             settings.bindings.insert(
                                 name.into(),
@@ -198,11 +203,12 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                             }
                             finish = true;
                         }
-                        if ui.button("Cancel bind").clicked() {
+                        if widgets::cancel(ui) {
                             finish = true;
                         }
                     });
                 });
+                finish |= !open;
             }
             ui.ctx().data_mut(|d| {
                 if finish {
@@ -220,7 +226,8 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 doc.pointer(&path).and_then(|n| n[&key]["bind"].as_str()).map(str::to_owned)
             {
                 if let Some(binding) = settings.bindings.get_mut(&name) {
-                    ui.weak("Initial value · shared by controls using this bind");
+                    widgets::field_label(ui, "Initial value");
+                    ui.weak("Shared by the controls that use this bind.");
                     fields::value(ui, &mut binding.value, 0);
                 } else {
                     ui.colored_label(

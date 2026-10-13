@@ -3,7 +3,7 @@
 //! Undo step each (`fields`); a source page's text likewise, and one that
 //! doesn't read as JSON is kept in the module as typed, where it is
 //! recoverable. No lossy fallback widgets.
-use crate::{Action, Moonglow, Tab};
+use crate::{Action, Moonglow, Tab, widgets};
 use egui::Ui;
 use mg_core::ResType;
 use mg_edit::{Command, Edit};
@@ -389,14 +389,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         + usize::from(parsed.is_err())
         + usize::from(settings.is_err());
     let warnings = findings.iter().filter(|d| d.severity == Severity::Warning).count();
-    ui.spacing_mut().button_padding = egui::vec2(10.0, 5.0);
     // Narrow, the build controls take a row of their own: right-aligned they
     // would be drawn over the ones on the left.
     let wide = ui.available_width() >= 900.0;
     ui.horizontal_wrapped(|ui| {
-        ui.heading("NUI Creator");
-        ui.weak("/");
-        ui.strong(&name);
         design::document_actions(ui, &mut state, &ws.module, &mut app.actions);
         let layout = if wide {
             egui::Layout::right_to_left(egui::Align::Center)
@@ -454,13 +450,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             });
         });
     });
-    ui.add_space(6.0);
     egui::ScrollArea::horizontal().id_salt("nui-navigation").auto_shrink([false, true]).show(
         ui,
         |ui| {
             ui.horizontal(|ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                ui.spacing_mut().interact_size.y = 28.0;
                 ui.selectable_value(&mut state.page, Page::Design, "Design");
                 ui.selectable_value(&mut state.page, Page::Bindings, "Bindings");
                 ui.selectable_value(&mut state.page, Page::Events, "Events & variants");
@@ -677,7 +671,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         }
         Page::JuiSource | Page::BindingJson => {
             let is_jui = state.page == Page::JuiSource;
-            ui.strong(if is_jui { "JUI source" } else { "Binding JSON" });
+            widgets::section_heading(ui, if is_jui { "JUI source" } else { "Binding JSON" });
             ui.weak(
                 "What is typed is set when the field is left. Text that doesn't read as JSON is \
                  kept in the module as typed, and Undo takes it back.",
@@ -780,7 +774,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 "JUI source",
                             )
                         };
-                        columns[1].strong(title);
+                        widgets::section_heading(&mut columns[1], title);
                         egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
                             split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
                         });
@@ -1049,6 +1043,10 @@ fn assign_ids(node: &mut Value, document: &Value) {
     assign(node, &mut used);
 }
 
+/// The room under a property: its label is over its field, so one property
+/// stands apart from the next by more than a label from its field.
+const FIELD_GAP: f32 = 8.0;
+
 fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     let Some(obj) = node.as_object_mut() else {
         ui.weak("Edit this value in Advanced › JUI source.");
@@ -1167,7 +1165,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                         let (label, fixed) =
                             if *key == "width" { ("Width", 150.0) } else { ("Height", 30.0) };
                         ui.horizontal(|ui| {
-                            ui.label(label);
+                            widgets::field_label(ui, label);
                             // It has none: the layout decides; the button gives it one.
                             ui.weak("Automatic");
                             if ui
@@ -1178,7 +1176,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                                 obj.insert((*key).into(), json!(fitting_size(obj, key, fixed)));
                             }
                         });
-                        ui.add_space(8.0);
+                        ui.add_space(FIELD_GAP);
                         continue;
                     }
                     if let Some(value) = obj.get_mut(*key)
@@ -1190,7 +1188,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                     {
                         let field = ui.push_id(*key, |ui| {
                             property(ui, key, &ty, value, s, &mut remove);
-                            ui.add_space(8.0);
+                            ui.add_space(FIELD_GAP);
                         });
                         if reveal.as_deref() == Some(*key) {
                             field.response.scroll_to_me(Some(egui::Align::Center));
@@ -1199,7 +1197,6 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                 }
             });
     }
-    ui.add_space(8.0);
     let (fit_width, fit_height) =
         (fitting_size(obj, "width", 150.0), fitting_size(obj, "height", 30.0));
     ui.menu_button("+ Add property", |ui| {
@@ -1268,7 +1265,6 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         })
         .collect();
     if !advanced_keys.is_empty() {
-        ui.add_space(8.0);
         egui::CollapsingHeader::new("Advanced properties").show(ui, |ui| {
             for key in &advanced_keys {
                 let Some(value) = obj.get_mut(key) else { continue };
@@ -1487,7 +1483,7 @@ fn property(
             let heading = if let Value::Bool(flag) = value {
                 ui.checkbox(flag, &label)
             } else {
-                ui.label(&label)
+                widgets::field_label(ui, &label)
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button("…", |ui| {
@@ -1565,7 +1561,7 @@ fn property(
             egui::RichText::new(format!("Dynamic · {name}")).color(ui.visuals().selection.bg_fill),
         );
         if let Some(binding) = s.bindings.get_mut(&name) {
-            ui.weak("Initial value");
+            widgets::field_label(ui, "Initial value");
             fields::value(ui, &mut binding.value, 0);
         } else {
             ui.weak("Add an initial value in Bindings.");
@@ -1577,7 +1573,7 @@ fn property(
         }
     } else if let Some(id) = value.get_mut("strref") {
         ui.horizontal(|ui| {
-            ui.label("TLK StrRef");
+            widgets::field_label(ui, "TLK StrRef");
             scalar(ui, id);
         });
     } else if key == "elements"
@@ -1592,8 +1588,10 @@ fn property(
             ("h", "Maximum height"),
         ] {
             ui.horizontal(|ui| {
-                ui.label(label);
-                scalar(ui, &mut value[field]);
+                let label = widgets::field_label(ui, label);
+                if let Some(field) = scalar(ui, &mut value[field]) {
+                    field.labelled_by(label.id);
+                }
             });
         }
         ui.weak("0 leaves that limit unrestricted.");
@@ -1665,17 +1663,20 @@ fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
         Value::Object(o) if o.len() <= 4 && o.values().all(Value::is_number) => {
             egui::Grid::new(ui.id().with("numbers")).num_columns(2).show(ui, |ui| {
                 for (k, v) in o {
-                    ui.label(match k.as_str() {
-                        "w" => "Width",
-                        "h" => "Height",
-                        "x" => "X",
-                        "y" => "Y",
-                        "r" => "Red",
-                        "g" => "Green",
-                        "b" => "Blue",
-                        "a" => "Alpha",
-                        _ => k,
-                    });
+                    widgets::field_label(
+                        ui,
+                        match k.as_str() {
+                            "w" => "Width",
+                            "h" => "Height",
+                            "x" => "X",
+                            "y" => "Y",
+                            "r" => "Red",
+                            "g" => "Green",
+                            "b" => "Blue",
+                            "a" => "Alpha",
+                            _ => k,
+                        },
+                    );
                     scalar(ui, v);
                     ui.end_row();
                 }
@@ -1876,12 +1877,12 @@ mod tests {
         let before = keyboard_document(&h);
         h.get_by_label("+ New bind for property").click();
         h.run();
-        h.get_by_label("Cancel bind").click();
+        h.get_by_label("Cancel").click();
         h.run();
         assert_eq!(keyboard_document(&h), before);
         h.get_by_label("+ New bind for property").click();
         h.run();
-        h.get_by_label("Create & connect").click();
+        h.get_by_label("Create").click();
         h.run();
         assert_eq!(
             keyboard_document(&h)["root"]["children"][0]["value"],

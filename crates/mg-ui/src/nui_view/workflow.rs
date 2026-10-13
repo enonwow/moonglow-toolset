@@ -94,38 +94,36 @@ pub(super) fn create_bind(
     ui.push_id("create-bind", |ui| {
         let id = ui.make_persistent_id("create-bind-draft");
         let mut draft = ui.ctx().data_mut(|d| d.get_temp::<BindDraft>(id));
-        let opened = draft.is_none() && ui.button("+ Create bind").clicked();
-        if opened {
+        if ui.button("+ Create bind").clicked() && draft.is_none() {
             draft = Some(BindDraft::new());
         }
         let mut finish = false;
         if let Some(draft) = draft.as_mut() {
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.strong("New bind");
-                let name = ui.label("Bind name");
+            let mut open = true;
+            let window = widgets::dialog(ui.ctx(), "New Bind", &mut open)
+                .collapsible(false)
+                .resizable(false);
+            window.show(ui.ctx(), |ui| {
+                let name = widgets::field_label(ui, "Bind name");
                 let name_edit = ui
-                    .add(
-                        egui::TextEdit::singleline(&mut draft.name)
-                            .hint_text("e.g. is_open")
-                            .desired_width(ui.available_width().clamp(0.0, 220.0)),
-                    )
+                    .add(egui::TextEdit::singleline(&mut draft.name).hint_text("e.g. is_open"))
                     .labelled_by(name.id);
-                if opened {
-                    name_edit.request_focus();
-                }
+                widgets::autofocus(ui, &name_edit);
                 let before = draft.kind;
-                egui::ComboBox::from_label("Type").selected_text(draft.kind.label()).show_ui(
-                    ui,
-                    |ui| {
+                let kind = widgets::field_label(ui, "Type");
+                egui::ComboBox::from_id_salt("bind-type")
+                    .selected_text(draft.kind.label())
+                    .show_ui(ui, |ui| {
                         for kind in BindType::ALL {
                             ui.selectable_value(&mut draft.kind, kind, kind.label());
                         }
-                    },
-                );
+                    })
+                    .response
+                    .labelled_by(kind.id);
                 if before != draft.kind {
                     draft.value = draft.kind.value();
                 }
-                ui.label("Initial value");
+                widgets::field_label(ui, "Initial value");
                 fields::value(ui, &mut draft.value, 0);
                 ui.checkbox(&mut draft.rows, "List row array").on_hover_text(
                     "A value for each row of a list, starting with one row. Bindings and Row \
@@ -135,9 +133,9 @@ pub(super) fn create_bind(
                     ui.weak(error);
                 }
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(draft.error(bindings).is_none(), egui::Button::new("Create"))
-                        .clicked()
+                    let ok = draft.error(bindings).is_none();
+                    if ui.add_enabled(ok, egui::Button::new("Create")).clicked()
+                        || (ok && widgets::enter(ui))
                     {
                         let name = draft.name.trim().to_owned();
                         let value = if draft.rows {
@@ -149,11 +147,12 @@ pub(super) fn create_bind(
                         created = Some(name);
                         finish = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if widgets::cancel(ui) {
                         finish = true;
                     }
                 });
             });
+            finish |= !open;
         }
         ui.ctx().data_mut(|d| {
             if finish {
@@ -175,7 +174,7 @@ pub(super) fn ui(
     script: Option<&str>,
 ) {
     egui::ScrollArea::vertical().id_salt("nui-workflow").show(ui, |ui| {
-        ui.heading("Swap layout variants");
+        widgets::section_heading(ui, "Swap layout variants");
         ui.label(
             "A Swap layout is added in Design; its variants are made and edited in Properties \
              or Layers.",
@@ -183,7 +182,7 @@ pub(super) fn ui(
         let (mut remove, mut rename) = (None, None);
         for name in s.views.keys() {
             ui.horizontal(|ui| {
-                ui.strong(name);
+                widgets::field_label(ui, name);
                 let target = layouts::target_for(s, name);
                 ui.weak(match target.as_deref() {
                     Some("_window_") => "Whole window".into(),
@@ -199,7 +198,7 @@ pub(super) fn ui(
                     let id = ui.make_persistent_id(("rename-variant", name));
                     let mut to: String =
                         ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());
-                    let label = ui.label("Name");
+                    let label = widgets::field_label(ui, "Name");
                     ui.text_edit_singleline(&mut to).labelled_by(label.id);
                     let taken = to != *name && s.views.contains_key(&to);
                     let ok = to != *name && !to.is_empty() && mg_nui::plain_name(&to) && !taken;
@@ -290,8 +289,12 @@ pub(super) fn images(
         }
     }
     ui.collapsing("Choose image", |ui| {
+        let filter = ui.id().with("nui-image-filter");
+        widgets::filter_keys(ui, filter, &mut state.asset_search, false);
         ui.add(
-            egui::TextEdit::singleline(&mut state.asset_search).hint_text("Find image resource…"),
+            egui::TextEdit::singleline(&mut state.asset_search)
+                .id(filter)
+                .hint_text("Find a picture…"),
         );
         let query = state.asset_search.to_lowercase();
         let names: Vec<_> =

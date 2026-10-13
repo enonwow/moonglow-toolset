@@ -108,7 +108,7 @@ fn nui_body_drag_does_not_move_floating_window() {
     );
     h.run();
     let before = h.state().1.min;
-    let from = h.get_by_label("NUI Creator").rect().center();
+    let from = h.get_by_label("Swap layout variants").rect().center();
     h.hover_at(from);
     h.run();
     h.drag_at(from);

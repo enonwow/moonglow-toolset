@@ -220,14 +220,13 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
             }
             ui.horizontal_wrapped(|ui| {
                 if let Some(n) = element.get_mut(1) {
-                    ui.weak("Value");
+                    widgets::field_label(ui, "Value");
                     scalar(ui, n);
                 }
                 if ui.small_button("Remove").on_hover_text("Remove option").clicked() {
                     remove = Some(i);
                 }
             });
-            ui.add_space(4.0);
         });
     }
     if let Some(i) = remove {
@@ -307,7 +306,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                     if item.is_array() || item.is_object() {
                         egui::CollapsingHeader::new(key).show(ui, |ui| value(ui, item, depth + 1));
                     } else {
-                        ui.label(key);
+                        widgets::field_label(ui, key);
                         value(ui, item, depth + 1);
                     }
                 });
@@ -351,7 +350,7 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         let mut remove = None;
         for (i, slot) in slots.iter_mut().enumerate() {
             ui.push_id(i, |ui| {
-                ui.strong(format!("Series {}", i + 1));
+                widgets::table_heading(ui, format!("Series {}", i + 1));
                 let before = slot["type"].as_i64().unwrap_or(0);
                 let mut kind = before;
                 ui.horizontal(|ui| {
@@ -391,7 +390,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
     {
         egui::CollapsingHeader::new("List cell").default_open(true).show(ui, |ui| {
             if let Some(width) = cell.get_mut(1) {
-                ui.label("Cell width");
+                widgets::field_label(ui, "Cell width");
                 scalar(ui, width);
             }
             if let Some(variable) = cell.get(2).and_then(Value::as_bool) {
@@ -437,7 +436,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
                 |ui| {
                     for name in &arrays {
                         ui.push_id(name, |ui| {
-                            ui.label(name);
+                            widgets::field_label(ui, name);
                             let Some(a) =
                                 s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
                             else {
@@ -539,9 +538,9 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
             }
         }
         ui.horizontal_wrapped(|ui| {
-            ui.label("Decimal places");
+            widgets::field_label(ui, "Decimal places");
             let places = v["number_precision"].as_i64().unwrap_or(0);
-            let set = crate::widgets::drag_number(ui, places, |d| {
+            let set = widgets::drag_number(ui, places, |d| {
                 d.range(0..=i64::from(i32::MAX)).update_while_editing(false)
             });
             if let Some(places) = set {

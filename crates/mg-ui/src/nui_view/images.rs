@@ -261,12 +261,11 @@ pub(super) fn page(
         .filter(|n| !names.contains(n))
         .collect();
     egui::ScrollArea::vertical().id_salt("nui-images-page").show(ui, |ui| {
-        ui.heading("Images");
+        widgets::section_heading(ui, "Images");
         ui.label(
             "The pictures this window shows and where the game finds each. Pictures from disk go \
              into the module while you work; players get them from a hak the module uses.",
         );
-        ui.add_space(6.0);
         if names.is_empty() && unused.is_empty() {
             ui.weak(
                 "No pictures yet: an Image, an Image button or a draw layer's Image names one.",
@@ -279,8 +278,8 @@ pub(super) fn page(
             ui,
             |ui| {
                 if !names.is_empty() || !unused.is_empty() {
-                    ui.strong("Picture");
-                    ui.strong("Found in");
+                    widgets::table_heading(ui, "Picture");
+                    widgets::table_heading(ui, "Found in");
                     ui.label("");
                     ui.end_row();
                 }
@@ -323,7 +322,6 @@ pub(super) fn page(
                 }
             },
         );
-        ui.add_space(8.0);
         if ui
             .button("Add images from disk…")
             .on_hover_text("Into the module, named as their files")
@@ -343,7 +341,7 @@ pub(super) fn page(
         ui.horizontal_wrapped(|ui| {
             // Only a module with haks has a choice to make.
             if !haks.is_empty() {
-                let label = ui.label("Into");
+                let label = widgets::field_label(ui, "Into");
                 egui::ComboBox::from_id_salt("nui-images-hak")
                     .selected_text(&target)
                     .show_ui(ui, |ui| {

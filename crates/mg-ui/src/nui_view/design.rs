@@ -363,14 +363,16 @@ pub(super) fn editor(
         .resizable(true)
         .frame(egui::Frame::NONE.inner_margin(10).fill(ui.visuals().panel_fill))
         .show(ui, |ui| {
-            ui.strong("Components");
-            ui.add_space(6.0);
+            widgets::section_heading(ui, "Components");
+            // (Ctrl+F with the pointer over the pane goes to it.)
+            let field = ui.id().with("nui-palette-filter");
+            widgets::pane_filter_keys(ui, field, &mut state.search);
             ui.add(
                 egui::TextEdit::singleline(&mut state.search)
+                    .id(field)
                     .hint_text("Find a control…")
                     .desired_width(f32::INFINITY),
             );
-            ui.add_space(6.0);
             egui::ScrollArea::vertical()
                 .id_salt("nui-palette-scroll")
                 .max_height((ui.available_height() * 0.48).max(120.0))
@@ -378,10 +380,9 @@ pub(super) fn editor(
                 .show(ui, |ui| {
                     palette(ui, v, s, state);
                 });
-            ui.add_space(8.0);
             ui.separator();
             ui.horizontal(|ui| {
-                ui.strong("Layers");
+                widgets::table_heading(ui, "Layers");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("…", |ui| {
                         edit_actions(ui, v, s, state, keymap);
@@ -443,14 +444,13 @@ fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
         if matches.is_empty() {
             continue;
         }
-        ui.add_space(8.0);
-        ui.label(RichText::new(*category).small().color(ui.visuals().weak_text_color()));
+        widgets::table_heading(ui, *category);
         for (ty, name, description) in matches {
             let response = ui
                 .add_enabled(
                     can_add,
                     egui::Button::new(*name)
-                        .min_size(vec2(ui.available_width(), 28.0))
+                        .min_size(vec2(ui.available_width(), ui.spacing().interact_size.y))
                         .sense(Sense::click_and_drag()),
                 )
                 .on_hover_text(format!(
@@ -529,8 +529,11 @@ fn edit_actions(
 }
 
 fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
+    let field = ui.id().with("nui-layers-filter");
+    widgets::filter_keys(ui, field, &mut state.layer_search, false);
     ui.add(
         egui::TextEdit::singleline(&mut state.layer_search)
+            .id(field)
             .hint_text("Find a layer or ID…")
             .desired_width(ui.available_width()),
     );
@@ -841,14 +844,14 @@ fn inspector(
     let Some(node) = v.pointer(&state.selected) else { return };
     fields::of(ui.ctx(), egui::Id::new((&state.edit_view, &state.selected)));
     let swap = layouts::is_swap(s, node);
-    ui.heading(if state.selected.is_empty() {
+    let name = if state.selected.is_empty() {
         "Window".into()
     } else if swap {
         format!("Swap layout · {}", node["id"].as_str().unwrap_or_default())
     } else {
         node_name(node)
-    });
-    ui.add_space(8.0);
+    };
+    widgets::section_heading(ui, name);
     // What the selection is first: a swap layout's variants, any control's
     // own properties; then how it changes (binds, events, drawing).
     if swap {
@@ -874,7 +877,6 @@ fn inspector(
         ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
     }
     if !state.selected.is_empty() {
-        ui.add_space(12.0);
         ui.separator();
         ui.add_enabled_ui(state.resize.is_none(), |ui| {
             ui.menu_button("Element actions", |ui| {
@@ -891,12 +893,10 @@ pub(super) fn bindings(
     state: &mut State,
 ) {
     egui::ScrollArea::vertical().id_salt("nui-bindings").show(ui, |ui| {
-        ui.add_space(10.0);
-        ui.heading("Bindings");
-        ui.label("Bind a property to a value your event script can change.");
-        ui.weak("Create a named value here, then choose it for a control property in Design.");
+        widgets::section_heading(ui, "Bindings");
+        ui.label("A bind is a named value the event script can change.");
+        ui.weak("Made here, it is chosen for a control's property in Design.");
         workflow::create_bind(ui, &mut s.bindings);
-        ui.add_space(16.0);
         let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
         for view in s.views.values() {
             used.extend(mg_nui::bind_names(view));
@@ -922,9 +922,7 @@ pub(super) fn bindings(
                 .id_salt(("bind", &name))
                 .default_open(true)
                 .show(ui, |ui| bind(ui, &name, in_use, &doc, s, v.as_deref_mut(), state));
-            ui.add_space(8.0);
         }
-        ui.add_space(16.0);
         egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
             ui.checkbox(&mut s.from_resref, "Load JUI from the client by resource name");
             ui.weak(
@@ -960,7 +958,7 @@ fn bind(
     state: &mut State,
 ) {
     let Some(binding) = s.bindings.get_mut(name) else { return };
-    ui.label("Initial value");
+    widgets::field_label(ui, "Initial value");
     fields::value(ui, &mut binding.value, 0);
     if !in_use {
         ui.weak("Not used by any property yet: choose it on a property in Design.");
@@ -970,7 +968,7 @@ fn bind(
         let draft_id = ui.make_persistent_id(("rename-bind", name));
         let mut to: String =
             ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.to_owned());
-        let label = ui.label("Name");
+        let label = widgets::field_label(ui, "Name");
         ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
             .labelled_by(label.id)
             .on_hover_text("A new name for this bind");
