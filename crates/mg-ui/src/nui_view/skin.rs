@@ -308,10 +308,15 @@ fn image(bytes: &[u8], ty: ResType) -> Result<egui::ColorImage, String> {
 /// as they are stored, which is how the game takes a texture for a model;
 /// a window's picture is drawn by the origin its file declares.
 fn read_tga(bytes: &[u8]) -> Result<egui::ColorImage, String> {
-    let t = mg_image::read(ResType::TGA, bytes).map_err(|e| e.to_string())?;
-    if t.width > MAX_SIDE || t.height > MAX_SIDE {
+    // The size its header declares, before anything is read by it: the
+    // reader takes textures up to 16,384 a side, and a run-length encoded
+    // file of a few bytes may declare that.
+    let side =
+        |at: usize| bytes.get(at..at + 2).map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])));
+    if side(12).is_some_and(|w| w > MAX_SIDE) || side(14).is_some_and(|h| h > MAX_SIDE) {
         return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
     }
+    let t = mg_image::read(ResType::TGA, bytes).map_err(|e| e.to_string())?;
     let descriptor = bytes.get(17).copied().unwrap_or(0);
     let mut rgba = t.to_rgba();
     if descriptor & 0x20 == 0 {
@@ -1160,6 +1165,12 @@ mod tests {
         );
         // Bad input is an issue to show, never a panic.
         assert!(image(&tga_header(2, 4097, 1, 24, 0), ResType::TGA).is_err());
+        // A few bytes that declare a gigabyte of pixels are refused by their
+        // header, not unpacked.
+        let mut bomb = tga_header(10, 16_384, 16_384, 32, 8);
+        bomb.extend([0xff, 1, 2, 3, 4].repeat(4));
+        let refused = image(&bomb, ResType::TGA).unwrap_err();
+        assert!(refused.contains("4096 pixels a side"), "{refused}");
         assert!(image(&plain_tga_cut_short(), ResType::TGA).is_err());
         assert!(image(b"", ResType::TGA).is_err());
     }
