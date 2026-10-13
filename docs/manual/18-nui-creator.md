@@ -278,9 +278,8 @@ control sends in the game are offered: **Clicked** for buttons, **Focus
 gained** and **lost** for text inputs, **Visible range changed** for lists,
 **Value changed** for a control whose value is bound, and the mouse for any
 control; the window has **Window opened** and **Window closed**. A control
-without an ID gets one. Its section is in the event script at once (one an
-older Moonglow wrote, unchanged since, is rebuilt with sections, as Build
-does). **Events & variants** lists every handler, with a
+without an ID gets one. Its section is in the event script at once.
+**Events & variants** lists every handler, with a
 selector for whose event to add. Renaming a control's ID, a bind or a variant
 renames its handlers' sections, and the name where your code quotes it.
 
@@ -305,7 +304,9 @@ locally, then Build and try it in the game with
 
 **Build & compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
 `<name>_e.nss` (events) and the event handler's NCS bytecode using the installed
-game's API and Moonglow's built-in Beamdog compiler. The opener is validated by
+game's API and the compiler Compile All uses: the built-in one, or the external
+one chosen in Options › Script Editor, with debug files (`.ndb`) when Generate
+Debug Information is on. The opener is validated by
 compiling a temporary caller; that caller is never stored in the module.
 It changes the module only if validation and event compilation succeed;
 one Undo reverses the generated set. The event script is rebuilt around its
@@ -333,13 +334,14 @@ void main()
 Attach your own script to the event you want. Regenerating an untouched older
 opener removes its obsolete NCS in the same undoable operation. Manually edited
 openers are still protected. Build compiles again the scripts of yours that
-include the opener, so they hold the current layout; it does not rewrite them.
+include the opener (also through an include of yours), so they hold the current
+layout; it does not rewrite them. One of them that does not compile is said in
+the log, as Compile All says it, and keeps the compiled script it had: the
+window's own scripts are built all the same.
 The event handler receives the window's events directly; generating does not
 change the module's OnNuiEvent binding. A new window has a **Clicked**
 handler for its Close button whose code closes the window. The `mg_close` ID
-has no built-in behavior: without that handler the button does nothing, and
-the checks say so (**Add Close handler** adds it). Scripts an older Moonglow
-generated are rebuilt into sections on the next Build.
+has no built-in behavior: without that handler the button does nothing.
 
 The default opener sends the layout with `NuiCreate`. **Bindings › Client
 delivery › Load JUI from the client by resource name** instead uses

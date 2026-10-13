@@ -1471,13 +1471,6 @@ line with the codebase before it was merged. This is what that review
 left, found by reading unless it says so, and after it what the
 contribution itself states as not done or not checked.
 
-- **Build has its own compiler path** (`mg_nui::generate`,
-  `crates/mg-nui/src/script.rs`): it compiles with its own
-  `mg_script::Compiler` instead of `mg_module::build`, so the
-  external-compiler option is ignored, no `.ndb` is written and the
-  compile memory is not updated; the scripts that include the opener are
-  found by a substring search rather than `mg_module::refs::includers`.
-  (M)
 - **Pictures go into a hak without asking** (`crates/mg-ui/src/nui_view/images.rs`):
   Images writes a picture into a listed hak in the user's hak folder in
   place (`mg_module::hak_edit::write_into`, which keeps a `.bak`), with no
@@ -1487,12 +1480,6 @@ contribution itself states as not done or not checked.
   about twenty `unwrap()`s on JSON pointers, `paths.len() - 1` in
   `shortcuts.rs` and an `unreachable!()` in `images.rs`; a selection left
   stale by Undo is the likely way into them. Not reproduced. (S)
-- **`mg_nui::key` panics** (`crates/mg-nui/src/lib.rs`): public, and
-  `expect`s a name that is a ResRef. (S)
-- **A caller that fails to compile is passed over** (`crates/mg-nui/src/script.rs`):
-  Build leaves a script that includes the opener with its old `.ncs` and
-  says nothing; the failing-compile path of `mg nui generate` has no test.
-  (S)
 - **Test instrumentation in a draw function** (`crates/mg-ui/src/nui_view/design.rs`):
   a `#[cfg(test)]` block writes layout rectangles into egui's memory for
   `layout_tests.rs`. (S)
@@ -1505,39 +1492,50 @@ contribution itself states as not done or not checked.
   quarter of an idle frame on a 100-control window (2.3 ms in all,
   `crates/mg-ui/tests/nui_perf.rs`). (M)
 - **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
-  `crates/mg-nui/src/validate.rs`, `docs/manual/18-nui-creator.md`): the
-  checks still say "route", "action" and "view"; the hover text "native
-  NWN testing is still required" and the manual's sentences about scripts
-  "an older Moonglow" wrote describe versions never released. (S)
-- **Errors as strings, a severity twice** (`crates/mg-nui/src/lib.rs`,
-  `validate.rs`):
-  `mg-nui`'s public API returns `Result<_, String>` rather than a typed
-  error, and its `Severity` duplicates `mg_module::doctor::Severity`. (S)
-- **The settings TXT and the JUI are not edited losslessly**
-  (`crates/mg-nui/src/actions.rs`, `lib.rs`): unknown fields on a
-  handler (`Route`) are dropped and an unknown action tag fails the
-  parse; the JUI reader rejects duplicate keys, and a structured edit
-  prints the whole file again. (M)
-- **Code kept for versions that were never released**
-  (`crates/mg-nui/src/script.rs`, `actions.rs`, `validate.rs`):
-  `LEGACY_EVENTS`, `plain_guards`, the `+` suffix of a handler's key,
-  the warning from before the Close handler, and the "Clip to control"
-  fix-up. The manual's sentences about scripts "an older Moonglow
-  wrote" describe the same. (S)
+  `crates/mg-nui/src/actions.rs`, `lib.rs`): the hover text "native NWN
+  testing is still required" is the editor's still. In `mg-nui` the
+  checks say "handler" and "variant" now, and the names stayed: a
+  handler is a `Route`, the handlers `Settings::actions`, a variant
+  shown `Action::View` and the variants `Settings::views`, as the
+  editor uses them throughout; the settings file's own field names
+  (`actions`, `views`, `view_targets`) stay whatever the code calls
+  them, for the files there are. (S)
+- **A structured edit prints the whole file again**
+  (`crates/mg-nui/src/lib.rs`, `crates/mg-ui/src/nui_view.rs`): fields
+  nobody knows are kept at every level of the settings and the JUI, in
+  their order, but the file is written anew (its spacing is the
+  writer's), and a JUI with a key twice in one object is not read at
+  all: it is edited as text. (M)
+- **What is left of versions that were never released**
+  (`crates/mg-ui/src/nui_view.rs`, `nui_view/workflow.rs`): the
+  **Add Close handler** button waits for a finding the checks no longer
+  make, the "Turn it off" fix-up of Clip to control is the editor's
+  still, and the bind name's refusal says a name "can't end with +",
+  which it can now (`mg_nui::plain_name`). (S)
 - **Functions too long to read:** `Renderer::node`
   (`crates/mg-ui/src/nui_view/preview.rs`) is 1,350 lines and
   `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490; pages and
   operations are magic numbers. (M)
 - **Tests in the wrong places:** about 6,700 lines of tests live under
   `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
-  `crates/mg-ui/tests/`; `mg-nui`'s unit tests are all in
-  `crates/mg-nui/tests/authoring.rs`, and the ones reading the install
-  belong in `mg-corpus-tests`. (M)
-- **No tests of bad input or of an untouched file:** nothing feeds
-  truncated or garbage text to `Settings::parse`
-  (`crates/mg-nui/src/lib.rs`) and the event script's section parser
-  (`actions.rs`), and nothing shows
-  that an untouched JUI round-trips byte for byte. (S)
+  `crates/mg-ui/tests/`. (M)
+- **Build with an external compiler is tested only where it fails**
+  (`crates/mg-corpus-tests/tests/nui.rs`): Build compiles through
+  `mg_module::build` with the compiler of the options, and the test
+  gives it one that cannot be run; no test builds a window with a real
+  external compiler. `mg nui generate` has no `--ndb` as `mg compile`
+  has, and like it never takes an external compiler. (S)
+- **What Build compiled may be compiled once more**
+  (`crates/mg-ui/src/nui_view.rs`): Build notes its scripts in the
+  window's compile memory as it is; before the first Compile All of a
+  session that memory is not yet the module's, and what Build noted is
+  dropped when Compile All reads the kept one. (S)
+- **The checks read a layout three times**
+  (`crates/mg-nui/src/validate.rs`): once for its shapes, once for its
+  names, and once for the draw list painted last, which follows
+  `children` of any element where the shapes follow only those of rows,
+  columns and groups; folded into one, an unknown widget with children
+  would be judged differently. (S)
 - **What the checks say of the client is tested nowhere**
   (`crates/mg-nui/src/validate.rs`): the checks that cite the client's
   behavior (NWN EE 8193.37) have no engine or client test, so a game
