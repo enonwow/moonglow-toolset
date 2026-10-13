@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:37:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T10:45:04Z }
 ---
 
 # Areas
@@ -293,8 +293,8 @@ places it and keeps it chosen for another; a right click or Escape lets
 it go. Doors go on a tile's door hook when you click near one. Triggers
 and encounters are drawn point by point: click each corner, double-click
 to close the outline. For a rectangle, click one corner, then hold Alt
-and click the corner opposite: its sides run east and north, and it is
-placed at once (the same in **Redraw Polygon**). Turn it after, by its
+and click the corner opposite (either Alt key): its sides run east and
+north, and it is placed at once (the same in **Redraw Polygon**). Turn it after, by its
 ring, if it is to lie another way.
 
 **Edit › Find Instance…** lists the placed objects across the module by

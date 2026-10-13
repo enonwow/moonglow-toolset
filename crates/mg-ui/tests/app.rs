@@ -5644,6 +5644,26 @@ fn area_viewer_places_draws_boxes_and_turns() {
     assert_eq!(points[0].float("PointX"), Some(0.0));
     assert!((points[2].float("PointX").unwrap() - 6.0).abs() < 0.1);
 
+    // Another, as a rectangle: one corner, then Alt and a click at the
+    // corner opposite.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(10.0, 30.0, 0.0));
+    let opposite = screen(&h, area, Vec3::new(14.0, 33.0, 0.0));
+    h.hover_at(opposite);
+    // (The right Alt of many keyboards, AltGr: Ctrl and Alt together, as
+    // Windows reports it. The rectangle showed and the click did nothing.)
+    let alt_gr = egui::Modifiers::ALT | egui::Modifiers::CTRL | egui::Modifiers::COMMAND;
+    press(&h, opposite, true, alt_gr);
+    press(&h, opposite, false, alt_gr);
+    h.run_steps(3);
+    let triggers = git_list(&mut h, "TriggerList");
+    assert_eq!(triggers.len(), 2, "Alt and a click place the rectangle");
+    let points = triggers[1].list("Geometry").unwrap();
+    assert_eq!(points.len(), 4);
+    assert!((points[2].float("PointX").unwrap() - 4.0).abs() < 0.2);
+    assert!((points[2].float("PointY").unwrap() - 3.0).abs() < 0.2);
+
     // A box around the first two waypoints selects them.
     let (a, b) = (
         screen(&h, area, Vec3::new(17.0, 17.0, 0.0)),

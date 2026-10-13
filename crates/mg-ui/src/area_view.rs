@@ -2947,8 +2947,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.outline.clear();
             return;
         }
+        // (Not with Ctrl held, which leads the view about; but with Alt
+        // too it is the right Alt of many keyboards, AltGr, which Windows
+        // reports as Ctrl and Alt together: the rectangle's click.)
         if response.clicked()
-            && !command
+            && (!command || alt)
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(at) = view.ground_at(pos, 0.0)
         {
