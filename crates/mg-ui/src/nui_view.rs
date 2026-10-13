@@ -2628,7 +2628,7 @@ mod tests {
     #[test]
     fn nui_keyboard_navigation_and_custom_delete_binding() {
         let mut h = keyboard_harness();
-        h.state_mut().settings.key_bindings.insert("nui-delete".into(), vec!["F6".into()]);
+        h.state_mut().settings.key_bindings.insert("nui-delete".into(), vec!["F8".into()]);
         h.run();
         h.get_all_by_label("Button · Close").next().unwrap().click();
         h.run();
@@ -2637,7 +2637,7 @@ mod tests {
         assert_eq!(keyboard_document(&h)["root"]["children"].as_array().unwrap().len(), 2);
         h.key_press(egui::Key::ArrowUp);
         h.run();
-        h.key_press(egui::Key::F6);
+        h.key_press(egui::Key::F8);
         h.run();
         assert_eq!(keyboard_document(&h)["root"]["children"].as_array().unwrap().len(), 1);
         assert_eq!(keyboard_document(&h)["root"]["children"][0]["id"], "mg_close");

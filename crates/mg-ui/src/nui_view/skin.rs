@@ -1,6 +1,7 @@
 //! NUI resources are read from the current content stack. No game artwork is bundled.
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use egui::{Color32, FontFamily, FontId, Painter, Rect, pos2, vec2};
 use mg_core::ResType;
@@ -40,7 +41,18 @@ fn pixel_height_to_em(bytes: &[u8]) -> Option<f32> {
 pub(crate) struct Assets {
     dirty: bool,
     signature: Option<u64>,
-    catalog_signature: Option<u64>,
+    /// The module's revision when it was last looked at: an edit that leaves
+    /// its skin, pictures and fonts alone reloads nothing.
+    revision: Option<u64>,
+    /// Every resource the last load asked for, and those of them the module
+    /// itself holds, as it held them.
+    watched: Vec<ResKey>,
+    held: Vec<(ResKey, Arc<[u8]>)>,
+    /// The pictures of the game's layers (listed once for a load order) and
+    /// the module's own, which make up `catalog`.
+    layers: Option<u64>,
+    game_pictures: BTreeSet<String>,
+    module_pictures: BTreeSet<String>,
     pub(super) catalog: Vec<String>,
     requested: BTreeSet<String>,
     style: toml::Table,
@@ -79,14 +91,26 @@ fn resource(rm: Option<&ResMan>, module: &Module, key: ResKey) -> Option<(Vec<u8
     None
 }
 
+/// The types a NUI picture may have, in the order the client looks for them:
+/// not the 3D renderer's DDS-first rule (DDS came as a fallback in EE 8193.36).
+const PICTURE_TYPES: [ResType; 5] =
+    [ResType::JPG, ResType::TGA, ResType::PNG, ResType::BMP, ResType::DDS];
+
+/// Which of `keys` the module holds, each as it holds it now.
+fn held(module: &Module, keys: &[ResKey]) -> Vec<(ResKey, Arc<[u8]>)> {
+    keys.iter().filter_map(|k| Some((*k, module.shared(k)?.clone()))).collect()
+}
+
+fn same_held(a: &[(ResKey, Arc<[u8]>)], b: &[(ResKey, Arc<[u8]>)]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+}
+
 fn image_resource(
     rm: Option<&ResMan>,
     module: &Module,
     name: &str,
 ) -> Option<(ResType, Vec<u8>, String)> {
-    // NUI's image format preference is not the 3D renderer's DDS-first rule.
-    // DDS was added as a fallback in EE 8193.36.
-    [ResType::JPG, ResType::TGA, ResType::PNG, ResType::BMP, ResType::DDS]
+    PICTURE_TYPES
         .into_iter()
         .find_map(|ty| Some((ty, resource(rm, module, ResKey::parse(name, ty)?)?)))
         .map(|(ty, (bytes, origin))| (ty, bytes, origin))
@@ -233,24 +257,42 @@ impl Assets {
             .flat_map(|r| r.layers())
             .map(|l| (&l.label, l.priority, l.fingerprint))
             .collect();
-        let signature = hash((revision, &layers, &wanted));
-        let catalog_signature = hash((revision, &layers));
-        if self.dirty || self.catalog_signature != Some(catalog_signature) {
-            self.catalog_signature = Some(catalog_signature);
-            let types = [ResType::JPG, ResType::TGA, ResType::PNG, ResType::BMP, ResType::DDS];
-            let mut catalog: BTreeSet<String> = module
+        let signature = hash((&layers, &wanted));
+        let layers = hash(&layers);
+        // The module changes with every edit of the window, and with every
+        // key typed in a script beside it: only what it holds of the skin,
+        // the pictures and the fonts is looked at then, and nothing is read
+        // again unless one of those changed.
+        let edited = self.dirty || self.revision != Some(revision);
+        self.revision = Some(revision);
+        let mut listed = false;
+        if self.dirty || self.layers != Some(layers) {
+            self.layers = Some(layers);
+            self.game_pictures = rm
+                .into_iter()
+                .flat_map(|rm| PICTURE_TYPES.into_iter().flat_map(|ty| rm.list(ty)))
+                .map(|r| r.to_string())
+                .collect();
+            listed = true;
+        }
+        if edited {
+            let pictures: BTreeSet<String> = module
                 .keys()
-                .filter(|k| types.contains(&k.restype))
+                .filter(|k| PICTURE_TYPES.contains(&k.restype))
                 .map(|k| k.resref.to_string())
                 .collect();
-            if let Some(rm) = rm {
-                for ty in types {
-                    catalog.extend(rm.list(ty).into_iter().map(|r| r.to_string()));
-                }
+            if pictures != self.module_pictures {
+                self.module_pictures = pictures;
+                listed = true;
             }
-            self.catalog = catalog.into_iter().collect();
         }
-        if !self.dirty && self.signature == Some(signature) {
+        if listed {
+            self.catalog = self.game_pictures.union(&self.module_pictures).cloned().collect();
+        }
+        if !self.dirty
+            && self.signature == Some(signature)
+            && (!edited || same_held(&self.held, &held(module, &self.watched)))
+        {
             return;
         }
         self.dirty = false;
@@ -298,6 +340,13 @@ impl Assets {
             }
         }
         self.pictures.retain(|k, _| wanted.contains(k));
+        self.watched = std::iter::once(key)
+            .chain(
+                wanted
+                    .iter()
+                    .flat_map(|n| PICTURE_TYPES.into_iter().filter_map(|ty| ResKey::parse(n, ty))),
+            )
+            .collect();
         for name in wanted {
             let Some((ty, bytes, origin)) = image_resource(rm, module, &name) else {
                 self.pictures.remove(&name);
@@ -338,8 +387,9 @@ impl Assets {
         for f in fonts.iter().take(32) {
             let name = f.get("name").and_then(toml::Value::as_str).unwrap_or("(default)");
             let resref = f.get("resref").and_then(toml::Value::as_str).unwrap_or("");
-            let data =
-                ResKey::parse(resref, ResType::TTF).and_then(|key| resource(rm, module, key));
+            let font = ResKey::parse(resref, ResType::TTF);
+            self.watched.extend(font);
+            let data = font.and_then(|key| resource(rm, module, key));
             let Some((bytes, origin)) = data else {
                 self.issues.push(format!("Missing font: {resref}"));
                 continue;
@@ -371,6 +421,7 @@ impl Assets {
                 },
             );
         }
+        self.held = held(module, &self.watched);
         ctx.request_repaint();
     }
 
@@ -786,13 +837,26 @@ mod tests {
         assets.invalidate();
         assets.prepare(&ctx, None, &module, 1, &v, &s);
         assert_eq!(first, assets.picture("test_image").unwrap().texture.id());
+        // An edit of something else in the module reads nothing again.
+        module.set(ResKey::parse("other", ResType::NSS).unwrap(), b"void main() {}".to_vec());
+        assets.issues.push("kept".into());
+        assets.prepare(&ctx, None, &module, 2, &v, &s);
+        assert_eq!(assets.issues, ["kept"]);
+        assert!(assets.catalog.contains(&"test_image".to_owned()));
         let mut changed = tga(false);
         changed[18] = 127;
         module.set(tex, changed);
-        assets.prepare(&ctx, None, &module, 2, &v, &s);
-        assert_ne!(first, assets.picture("test_image").unwrap().texture.id());
-        module.set(skin, b"broken = [".to_vec());
         assets.prepare(&ctx, None, &module, 3, &v, &s);
+        assert_ne!(first, assets.picture("test_image").unwrap().texture.id());
+        // A picture new to the module is listed, and one the window names
+        // that was missing is found.
+        module.set(ResKey::parse("gui_error", ResType::TGA).unwrap(), tga(false));
+        assert!(assets.picture("gui_error").is_none());
+        assets.prepare(&ctx, None, &module, 4, &v, &s);
+        assert!(assets.picture("gui_error").is_some());
+        assert!(assets.catalog.contains(&"gui_error".to_owned()));
+        module.set(skin, b"broken = [".to_vec());
+        assets.prepare(&ctx, None, &module, 5, &v, &s);
         assert!(!assets.loaded);
         assert!(!assets.issues.is_empty());
         assert!(assets.picture("test_image").is_none());

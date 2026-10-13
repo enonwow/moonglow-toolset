@@ -79,3 +79,8 @@ test = false
 name = "editor_perf"
 path = "tests/editor_perf.rs"
 test = false
+
+[[test]]
+name = "nui_perf"
+path = "tests/nui_perf.rs"
+test = false
