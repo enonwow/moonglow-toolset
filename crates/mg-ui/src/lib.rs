@@ -101,8 +101,6 @@ enum Place {
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    NewNui(String),
-    GenerateNui(String, bool),
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -174,6 +172,14 @@ pub enum Action {
     /// Makes every static placeable of these areas dynamic.
     DynamicPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
+    /// Creates a NUI window with this name and opens it in the NUI Creator.
+    NewNui(String),
+    /// Builds a NUI window's opener include and event script (Build &
+    /// compile), then, when `export`, offers what it is made of for export.
+    GenerateNui {
+        name: String,
+        export: bool,
+    },
     OpenTab(Tab),
     /// Closes a tab's window (Escape over a model's window).
     CloseTab(Tab),
@@ -2355,7 +2361,7 @@ impl Moonglow {
                 }
             }
             Action::NewNui(name) => nui_view::create(self, &name),
-            Action::GenerateNui(name, export) => nui_view::generate(self, &name, export),
+            Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
             Action::CloseTab(tab) => {
                 if tab == Tab::Options {
                     self.options = None;
@@ -3110,23 +3116,16 @@ impl Moonglow {
 
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
-        // NUI windows changed since their last build are built first, so the
-        // game opens what the Creator shows; one that can't be is named.
-        let stale =
-            self.ws.as_ref().map(|ws| nui_view::stale_windows(&ws.module)).unwrap_or_default();
-        for name in &stale {
-            nui_view::generate(self, name, false);
-        }
-        // The game loads the saved module: what was built is saved too.
-        if !stale.is_empty() {
-            self.save(None);
-        }
+        // The game opens a NUI window as it was last built: those changed
+        // since are named. (Nothing is built or saved here: Test Module
+        // runs the module as it was saved.)
         if let Some(ws) = &self.ws {
-            let left = nui_view::stale_windows(&ws.module);
-            if !left.is_empty() {
+            let stale = nui_view::stale_windows(&ws.module);
+            if !stale.is_empty() {
                 self.log.warn(format!(
-                    "NUI windows not built (fix their problems in the NUI Creator): {}; the game runs what was last built",
-                    left.join(", ")
+                    "NUI windows changed since they were built: {}. The game runs what was \
+                     last built (Build & compile in the NUI Creator, then save)",
+                    stale.join(", ")
                 ));
             }
         }

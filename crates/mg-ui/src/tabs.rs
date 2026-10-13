@@ -311,7 +311,7 @@ impl TabViewer for Viewer<'_> {
         match tab {
             Tab::Welcome => "Welcome".into(),
             Tab::NoArea => "No Area Open".into(),
-            Tab::Nui(k) => k.map_or_else(|| "NUI Creator".into(), |k| format!("NUI: {k}").into()),
+            Tab::Nui(k) => k.map_or_else(|| "NUI Creator".into(), |k| k.to_string().into()),
             Tab::ModuleProperties => "Module Properties".into(),
             Tab::Script(k) => {
                 let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());

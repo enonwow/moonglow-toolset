@@ -52,6 +52,9 @@ egui_kittest = "0.36"
 encoding_rs = "0.8"
 fastrand = "2"
 glam = { version = "0.30", features = ["bytemuck"] }
+# (The NUI preview's pictures: JPEG and BMP, which mg-image does not read,
+# and PNG and TGA as the client's NUI reads them.)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "tga"] }
 indexmap = "2"
 memmap2 = "0.9"
 mlua = { version = "0.12", features = ["luau", "serde"] }
@@ -64,6 +67,9 @@ regex-lite = "0.1"
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+# (A font's metrics for the NUI preview. epaint reads fonts with it too:
+# the version follows egui's.)
+skrifa = "0.44"
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"

@@ -291,12 +291,6 @@ impl Cmd {
             Cmd::OpenModule => vec![k(CTRL, Key::O)],
             Cmd::Save => vec![k(CTRL, Key::S)],
             Cmd::Undo => vec![k(CTRL, Key::Z)],
-            Cmd::NuiDelete => vec![k(NONE, Key::Delete)],
-            Cmd::NuiDuplicate => vec![k(CTRL, Key::D)],
-            Cmd::NuiMoveUp => vec![k(Modifiers::ALT, Key::ArrowUp)],
-            Cmd::NuiMoveDown => vec![k(Modifiers::ALT, Key::ArrowDown)],
-            Cmd::NuiPrevious => vec![k(NONE, Key::ArrowUp)],
-            Cmd::NuiNext => vec![k(NONE, Key::ArrowDown)],
             Cmd::Redo => vec![k(CTRL | SHIFT, Key::Z), k(CTRL, Key::Y)],
             Cmd::ReplaceText => vec![k(CTRL, Key::H)],
             Cmd::AreaWizard => vec![k(CTRL | Modifiers::ALT, Key::A)],
@@ -361,6 +355,12 @@ impl Cmd {
             Cmd::TogglePalettes => vec![k(CTRL | Modifiers::ALT, Key::Num2)],
             Cmd::ToggleLog => vec![k(CTRL | Modifiers::ALT, Key::Num3)],
             Cmd::HidePanels => vec![k(CTRL | Modifiers::ALT, Key::Num0)],
+            Cmd::NuiDelete => vec![k(NONE, Key::Delete)],
+            Cmd::NuiDuplicate => vec![k(CTRL, Key::D)],
+            Cmd::NuiMoveUp => vec![k(Modifiers::ALT, Key::ArrowUp)],
+            Cmd::NuiMoveDown => vec![k(Modifiers::ALT, Key::ArrowDown)],
+            Cmd::NuiPrevious => vec![k(NONE, Key::ArrowUp)],
+            Cmd::NuiNext => vec![k(NONE, Key::ArrowDown)],
         }
     }
 

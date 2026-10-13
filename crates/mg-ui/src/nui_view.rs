@@ -355,7 +355,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 .on_hover_text("Validate and export the window, bind settings, opener include and compiled event script")
                 .clicked()
             {
-                app.actions.push(Action::GenerateNui(name.clone(), true));
+                app.actions.push(Action::GenerateNui { name: name.clone(), export: true });
             }
             if ui
                 .add_enabled(
@@ -371,7 +371,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 ))
                 .clicked()
             {
-                app.actions.push(Action::GenerateNui(name.clone(), false));
+                app.actions.push(Action::GenerateNui { name: name.clone(), export: false });
             }
             if let Some((_, why)) = app.nui_build_error.as_ref().filter(|(n, _)| *n == name) {
                 ui.colored_label(ui.visuals().error_fg_color, "Build failed").on_hover_text(why);
@@ -2911,7 +2911,7 @@ mod tests {
         app.run(Action::NewNui("typed".into()));
         app.actions.clear();
         assert_eq!(super::stale_windows(&app.ws.as_ref().unwrap().module), ["typed"]);
-        app.run(Action::GenerateNui("typed".into(), false));
+        app.run(Action::GenerateNui { name: "typed".into(), export: false });
         assert!(super::stale_windows(&app.ws.as_ref().unwrap().module).is_empty());
         let script = mg_nui::key("typed_e", ResType::NSS);
         let saved = crate::text::decode(app.ws.as_ref().unwrap().module.get(&script).unwrap());
@@ -2919,7 +2919,7 @@ mod tests {
             mg_nui::insert_code(&saved, "click mg_close", "        int nTyped = 1;\n").unwrap();
         app.scripts
             .insert(script, crate::script_view::ScriptBuffer::for_tests(typed.clone(), saved));
-        app.run(Action::GenerateNui("typed".into(), false));
+        app.run(Action::GenerateNui { name: "typed".into(), export: false });
         assert_eq!(
             crate::text::decode(app.ws.as_ref().unwrap().module.get(&script).unwrap()),
             typed
@@ -2929,7 +2929,7 @@ mod tests {
         app.scripts
             .insert(other, crate::script_view::ScriptBuffer::for_tests("x".into(), String::new()));
         app.log.entries.clear();
-        app.run(Action::GenerateNui("typed".into(), false));
+        app.run(Action::GenerateNui { name: "typed".into(), export: false });
         assert!(
             app.log.entries.iter().any(|(_, m)| m.contains("Save other.nss")),
             "{:?}",
@@ -2953,7 +2953,7 @@ mod tests {
         app.ws = Some(mg_edit::Workspace::new(m));
         app.run(Action::NewNui("export_ui".into()));
         app.actions.clear();
-        app.run(Action::GenerateNui("export_ui".into(), true));
+        app.run(Action::GenerateNui { name: "export_ui".into(), export: true });
         app.run_actions();
         let exported = &app.export.as_ref().expect("export opened after compilation").selected;
         assert_eq!(exported.len(), 5);
@@ -2962,7 +2962,7 @@ mod tests {
         }
         assert_eq!(app.ws.as_ref().unwrap().module.get(&ifo).unwrap(), before);
         let revision = app.ws.as_ref().unwrap().revision();
-        app.run(Action::GenerateNui("export_ui".into(), false));
+        app.run(Action::GenerateNui { name: "export_ui".into(), export: false });
         assert_eq!(
             app.ws.as_ref().unwrap().revision(),
             revision,
@@ -3150,12 +3150,15 @@ mod tests {
         h.get_by_label("Events & variants").click();
         h.run();
         h.render().unwrap().save(dir.join("views-events.png")).unwrap();
+        // One GPU device at a time: each harness goes before the next is made.
+        drop(h);
         let mut landing = Harness::builder()
             .with_size(egui::vec2(1000.0, 700.0))
             .wgpu()
             .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, None), app());
         landing.run_steps(3);
         landing.render().unwrap().save(dir.join("landing.png")).unwrap();
+        drop(landing);
         let mut compact = Harness::builder()
             .with_size(egui::vec2(640.0, 720.0))
             .wgpu()
