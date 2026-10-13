@@ -2423,15 +2423,20 @@ impl Moonglow {
                         // A script, with a script's window open: a tab of
                         // that window, not one more window (Options ›
                         // Script Editor).
-                        let beside = (matches!(tab, Tab::Script(_))
-                            && !self.settings.scripts_own_windows)
-                            .then(|| {
+                        // (And so a Properties window and a
+                        // conversation, where their options say so.)
+                        let kind = tab.gathers().filter(|kind| match kind {
+                            0 => !self.settings.scripts_own_windows,
+                            1 => !self.settings.properties_own_windows,
+                            _ => !self.settings.dialogs_own_windows,
+                        });
+                        let beside = kind
+                            .and_then(|kind| {
                                 self.dock.iter_leaves().find(|(p, leaf)| {
                                     !p.surface.is_main()
-                                        && leaf.tabs.iter().any(|t| matches!(t, Tab::Script(_)))
+                                        && leaf.tabs.iter().any(|t| t.gathers() == Some(kind))
                                 })
                             })
-                            .flatten()
                             .map(|(p, _)| p);
                         match (pane, beside) {
                             (Some(pane), _) => {

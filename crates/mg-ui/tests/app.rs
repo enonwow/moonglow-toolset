@@ -16769,6 +16769,63 @@ fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
     assert_eq!(now, "void main()\n{\n    int n;\n    x\n}\n");
 }
 
+/// Properties windows and conversations open as tabs of the window one
+/// of their kind is open in already, or, with their options off, each in
+/// a window of its own.
+#[test]
+fn properties_and_conversations_open_as_tabs_of_one_window() {
+    use mg_module::dialog::new_dialog;
+    let dir = mg_testkit::scratch_dir("ui-properties-together");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let name = |n: &str, t: ResType| ResKey::parse(n, t).unwrap();
+    let waypoints: Vec<ResKey> = ["wp_a", "wp_b", "wp_c"].map(|n| name(n, ResType::UTW)).to_vec();
+    for key in &waypoints {
+        m.set_gff(*key, &mg_gff::Gff::new(*b"UTW ")).unwrap();
+    }
+    let talks: Vec<ResKey> = ["talk_a", "talk_b", "talk_c"].map(|n| name(n, ResType::DLG)).to_vec();
+    for key in &talks {
+        m.set_gff(*key, &new_dialog()).unwrap();
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        h.run_steps(4);
+        let at = h.state().dock.find_tab(&tab).expect("the tab");
+        (at.surface, at.node)
+    };
+    // Off: each in a window of its own.
+    h.state_mut().settings.properties_own_windows = true;
+    h.state_mut().settings.dialogs_own_windows = true;
+    let first = open(&mut h, Tab::Blueprint(waypoints[0]));
+    let second = open(&mut h, Tab::Blueprint(waypoints[1]));
+    assert_ne!(first.0, second.0);
+    let talk = open(&mut h, Tab::Dialog(talks[0]));
+    assert_ne!(open(&mut h, Tab::Dialog(talks[1])).0, talk.0);
+    // On: a tab of a window of its kind, and not of another kind's.
+    h.state_mut().settings.properties_own_windows = false;
+    h.state_mut().settings.dialogs_own_windows = false;
+    let third = open(&mut h, Tab::Blueprint(waypoints[2]));
+    assert!(third == first || third == second, "a tab of a Properties window");
+    let talks_in: Vec<_> = [talks[0], talks[1]]
+        .iter()
+        .map(|k| {
+            let at = h.state().dock.find_tab(&Tab::Dialog(*k)).unwrap();
+            (at.surface, at.node)
+        })
+        .collect();
+    let last = open(&mut h, Tab::Dialog(talks[2]));
+    assert!(talks_in.contains(&last), "a tab of a conversation's window");
+    assert!(last != first && last != second);
+}
+
 /// Scripts open as tabs of one window (the window a script is open in
 /// already), or, with the option off, each in a window of its own.
 #[test]

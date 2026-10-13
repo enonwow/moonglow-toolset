@@ -167,6 +167,13 @@ pub struct Settings {
     /// Options > Script Editor: a script opened from the module tree opens
     /// in the external script editor as well.
     pub scripts_external: bool,
+    /// Options > General: each Properties window (a blueprint's, a placed
+    /// object's) opens in a window of its own (off: as a tab of the
+    /// window one is open in already).
+    pub properties_own_windows: bool,
+    /// Options > Conversation Editor: each conversation opens in a window
+    /// of its own (off: as a tab of the window one is open in already).
+    pub dialogs_own_windows: bool,
     /// Options > Conversation Editor: its text's size in points (`None`:
     /// the window's own).
     pub dialog_font_size: Option<u8>,

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:24:40Z }
 ---
 
 # Options
@@ -63,6 +63,11 @@ the module is opened again from its file.
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
+- **Open Properties as tabs of one window**: on by default. A
+  blueprint's or a placed object's Properties open as a tab of the window
+  Properties are open in already; off, each in a window of its own. A
+  tab dragged out is a window of its own again, to set two side by side.
+  (Scripts have the same on the Script Editor page.)
 - **Ask before the window is closed**: on by default. The window's
   close button asks before Moonglow closes where nothing is unsaved (with
   unsaved changes it asks about those, as always); File › Exit closes
@@ -149,6 +154,9 @@ the module is opened again from its file.
 
 - **Show popup when creating a new text entry**: a new line asks for its
   text first.
+- **Open conversations as tabs of one window**: on by default. A
+  conversation opens as a tab of the window one is open in already; off,
+  each in a window of its own.
 - **Show speaker name before text**, and the **NPC** and **Player** text
   colors.
 - **Font size**: the size of the conversation editor's text (its lines,
