@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-13
+* **Update**: [Areas](manual/04-areas.md): a trigger's or an encounter's outline is drawn as a rectangle by two clicks (the first corner, then Alt and a click at the corner opposite), a builder's ask. The turning ring around an outline is at the outline's own height (it was at the object's stored one: under ground built up, for a trigger stored at height 0), and its mark is toward the outline's first corner, so that it goes round as the outline is turned; seen in a picture before and after.
 * **Update**: [The deferred list](deferred.md): what was left of "text typed and its field gone". A command asked for by its key (Save, Close Tab, Next Tab) is run a frame on where a text field is typed in, after the field has set its text; the hak editor's description, a conversation script's parameters and a 2DA's cell being typed in give the keyboard up at a press elsewhere as the other fields do.
 * **Update**: [Scripts](manual/07-scripts.md) and [the deferred list](deferred.md): Enter in the script editor begins the new line as far in as the line it is started from, as Aurora does. Text typed in a Properties field (a name, a tag, a description, a comment) is set when another page is chosen or the window is closed: it was lost, the field being gone before the keyboard left it. The same kind of field in the other windows (Module Properties, the journal, a conversation, the raw fields, a tileset) gives the keyboard up at a press of the pointer elsewhere, while it is still drawn, and so sets its text before its page or window goes.
 

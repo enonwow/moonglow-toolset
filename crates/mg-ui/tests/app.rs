@@ -9486,6 +9486,132 @@ fn go_to_start_location_opens_the_start_s_area() {
     assert!(mg_ui::commands::Id::all().contains(&mg_ui::commands::Id::GoToStart));
 }
 
+/// A trigger's outline drawn as a rectangle by two clicks: the first
+/// corner, then Alt and a click at the corner opposite.
+#[test]
+fn an_outline_is_drawn_as_a_rectangle_by_two_clicks() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("outline-rect") else { return };
+    h.run_steps(3);
+    let git = ResKey::new(area, ResType::GIT);
+    let mut trigger = mg_gff::Struct::new(1);
+    for (label, v) in [("XPosition", 10.0), ("YPosition", 10.0), ("ZPosition", 0.0)] {
+        trigger.set(label, mg_gff::Value::Float(v));
+    }
+    trigger.set("Geometry", mg_gff::Value::List(Vec::new()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Trigger",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "TriggerList".into(),
+            index: 0,
+            item: trigger,
+        }],
+    )));
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().redraw =
+        Some((mg_area::ObjectKind::Trigger, 0));
+    h.run_steps(2);
+    let (first, opposite) = (Vec3::new(18.0, 18.0, 0.0), Vec3::new(24.0, 21.0, 0.0));
+    let click = |h: &mut Harness<'_, Moonglow>, at: Vec3, modifiers: egui::Modifiers| {
+        let on = screen(h, area, at);
+        h.hover_at(on);
+        press(h, on, true, modifiers);
+        press(h, on, false, modifiers);
+        h.run_steps(3);
+    };
+    click(&mut h, first, egui::Modifiers::NONE);
+    assert!(h.state().area_views[&area].redraw.is_some(), "one corner: not closed");
+    click(&mut h, opposite, egui::Modifiers::ALT);
+    assert!(h.state().area_views[&area].redraw.is_none(), "closed by the second click");
+    let corners: Vec<glam::Vec2> = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let t = ws.doc(&git).unwrap().root.list("TriggerList").unwrap()[0].clone();
+        let at = glam::Vec2::new(t.float("XPosition").unwrap(), t.float("YPosition").unwrap());
+        t.list("Geometry")
+            .unwrap()
+            .iter()
+            .map(|p| at + glam::Vec2::new(p.float("PointX").unwrap(), p.float("PointY").unwrap()))
+            .collect()
+    };
+    assert_eq!(corners.len(), 4, "{corners:?}");
+    let near = |a: glam::Vec2, x: f32, y: f32| a.distance(glam::Vec2::new(x, y)) < 0.2;
+    assert!(near(corners[0], 18.0, 18.0) && near(corners[2], 24.0, 21.0), "{corners:?}");
+    // Its sides run east and north: the other two corners share theirs.
+    assert!(
+        (corners[1].y - corners[0].y).abs() < 1e-4 && (corners[1].x - corners[2].x).abs() < 1e-4
+    );
+    assert!(
+        (corners[3].x - corners[0].x).abs() < 1e-4 && (corners[3].y - corners[2].y).abs() < 1e-4
+    );
+}
+
+/// A picture: the turning ring around a trigger whose outline is on
+/// ground built 5 m up while its own place is stored at height 0 (as
+/// Aurora stores it), before and after a quarter turn. To
+/// `target/test-output/ring-trigger/`. (And held: where the ring is, and
+/// that its mark goes round.)
+#[test]
+fn a_trigger_s_turning_ring_in_a_picture() {
+    let Some((mut h, area)) = area_harness_on("ring-trigger", "trm02", None) else { return };
+    h.run_steps(3);
+    let git = ResKey::new(area, ResType::GIT);
+    let mut trigger = mg_gff::Struct::new(1);
+    for (label, v) in [("XPosition", 18.0), ("YPosition", 20.0), ("ZPosition", 0.0)] {
+        trigger.set(label, mg_gff::Value::Float(v));
+    }
+    let corner = |x: f32, y: f32| {
+        let mut p = mg_gff::Struct::new(3);
+        p.set("PointX", mg_gff::Value::Float(x));
+        p.set("PointY", mg_gff::Value::Float(y));
+        p.set("PointZ", mg_gff::Value::Float(5.0));
+        p
+    };
+    let corners = vec![corner(0.0, 0.0), corner(8.0, 0.0), corner(8.0, 1.5), corner(0.0, 1.5)];
+    trigger.set("Geometry", mg_gff::Value::List(corners));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Trigger",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "TriggerList".into(),
+            index: 0,
+            item: trigger,
+        }],
+    )));
+    h.run_steps(3);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![(mg_area::ObjectKind::Trigger, 0)];
+        if let Some(o) = &mut view.orbit {
+            o.target = glam::Vec3::new(22.0, 20.75, 5.0);
+            o.distance = 22.0;
+            o.pitch = 40f32.to_radians();
+        }
+    }
+    h.run_steps(6);
+    // The ring is around the outline's middle at the outline's own height
+    // (not the trigger's stored 0), marked toward its first corner.
+    let rings = h.state().area_views[&area].ring_places();
+    assert_eq!(rings.len(), 1);
+    let (pivot, mark) = rings[0];
+    assert!(pivot.distance(glam::Vec3::new(22.0, 20.75, 5.0)) < 1e-3, "{pivot}");
+    let to_first = glam::Vec2::new(18.0 - 22.0, 20.0 - 20.75);
+    assert!((mark - to_first.y.atan2(to_first.x)).abs() < 1e-3, "{mark}");
+    let dir = mg_testkit::output_dir("ring-trigger");
+    h.render().unwrap().save(dir.join("before-turn.png")).unwrap();
+    // (The keys are the view's with the pointer over it.)
+    h.hover_at(egui::pos2(700.0, 560.0));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(6);
+    h.render().unwrap().save(dir.join("after-turn.png")).unwrap();
+    // Turned, the mark has gone round with the outline.
+    let turned = h.state().area_views[&area].ring_places()[0].1;
+    assert!((turned - mark).abs() > 1.0, "{mark} then {turned}");
+}
+
 /// Closes a tab, wherever it is.
 fn close_tab(app: &mut Moonglow, tab: &Tab) {
     if let Some(path) = app.dock.find_tab(tab) {

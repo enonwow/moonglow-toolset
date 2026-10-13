@@ -756,9 +756,16 @@ impl AreaView {
             .filter(|o| turns(o.kind))
             .map(|o| {
                 let radius = ((camera.eye - pivot(o)).length() * 0.0765).max(0.5);
-                TurnRing { pivot: pivot(o), radius, facing: o.facing() }
+                TurnRing { pivot: pivot(o), radius, facing: ring_mark(o) }
             })
             .collect()
+    }
+
+    /// Where the turning rings are and which way each is marked: for the
+    /// tests.
+    pub fn ring_places(&self) -> Vec<(Vec3, f32)> {
+        let Some(model) = self.model.as_ref() else { return Vec::new() };
+        self.turn_rings(model).into_iter().map(|r| (r.pivot, r.facing)).collect()
     }
 
     /// The ring whose line `pos` is on (or within [`RING_REACH`] of).
@@ -1726,14 +1733,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let at = crate::terrain_mode::status(view).unwrap_or_default();
         format!("{}: {how}; Escape: stop. {at}", b.label)
     } else if view.redraw.is_some() {
-        "Redraw Polygon: click its corners, double click to close; right click or Escape: stop"
+        "Redraw Polygon: click its corners, double click to close (Alt + click after the first: \
+         a rectangle to there); right click or Escape: stop"
             .to_string()
     } else if view.pasting {
         "Pasting: click to place the copies; right click or Escape: stop".to_string()
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
-                "click its corners, double click to close; right click or Escape: stop"
+                "click its corners, double click to close (Alt + click after the first: a \
+                 rectangle to there); right click or Escape: stop"
             }
             _ => "click to place (Shift + click: place more); right click or Escape: stop",
         };
@@ -2731,8 +2740,20 @@ fn overlays(
             line(w[0], w[1], stroke);
         }
         let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
-        if let (Some(last), Some(p)) = (view.outline.last(), pointer) {
-            line(*last, p, Stroke::new(1.0, stroke.color));
+        // (With Alt held after the first corner: the rectangle a click
+        // would make.)
+        let alt = ui.input(|i| i.modifiers.alt);
+        match pointer.and_then(|p| rectangle_to(&view.outline, p, alt)) {
+            Some(corners) => {
+                for k in 0..4 {
+                    line(corners[k], corners[(k + 1) % 4], Stroke::new(1.0, stroke.color));
+                }
+            }
+            None => {
+                if let (Some(last), Some(p)) = (view.outline.last(), pointer) {
+                    line(*last, p, Stroke::new(1.0, stroke.color));
+                }
+            }
         }
         for p in &view.outline {
             if let Some(c) = at(*p) {
@@ -2896,6 +2917,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(at) = view.ground_at(pos, 0.0)
         {
+            // Alt and a click after the first corner: the rectangle from
+            // there to here, closed at once.
+            if let Some(corners) = rectangle_to(&view.outline, at, alt) {
+                view.outline.clear();
+                redraw_outline(app, view, kind, index, &corners);
+                view.redraw = None;
+                return;
+            }
             if view.outline.last().is_none_or(|p| (*p - at).length() > 0.05) {
                 view.outline.push(at);
             }
@@ -2925,6 +2954,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         {
             let kind = ObjectKind::from_restype(key.restype).expect("a brush places objects");
             if kind.has_outline() {
+                // Alt and a click after the first corner: the rectangle
+                // from there to here, placed at once.
+                if let Some(corners) = rectangle_to(&view.outline, at, alt) {
+                    view.outline.clear();
+                    place(app, view, key, corners[0], 0.0, &corners);
+                    if !shift {
+                        app.palette.selected = None;
+                    }
+                    return;
+                }
                 // A double click's second click closes the outline.
                 if view.outline.last().is_none_or(|p| (*p - at).length() > 0.05) {
                     view.outline.push(at);
@@ -4059,15 +4098,45 @@ fn faces(kind: ObjectKind) -> bool {
     !kind.has_outline() && kind != ObjectKind::Sound
 }
 
+/// The rectangle an outline begun with one corner becomes at an Alt +
+/// click at `to`: its sides along the area's own (east and north), the
+/// two corners clicked opposite each other, the other two at their
+/// heights' middle. `None` unless `alt` is held with one corner set, or
+/// for a rectangle with no width or depth.
+fn rectangle_to(outline: &[Vec3], to: Vec3, alt: bool) -> Option<[Vec3; 4]> {
+    let [from] = outline else { return None };
+    let across = (to - *from).truncate().abs();
+    if !alt || across.x < 0.05 || across.y < 0.05 {
+        return None;
+    }
+    let z = (from.z + to.z) / 2.0;
+    Some([*from, Vec3::new(to.x, from.y, z), to, Vec3::new(from.x, to.y, z)])
+}
+
 /// What an object turns about on its own: an outline's middle, else where
-/// it stands.
+/// it stands. (The middle in height too: an outline's corners have their
+/// own, and a trigger on ground built up may be stored at height 0 with
+/// its corners 5 m above, where its ring belongs.)
 fn pivot(o: &mg_area::AreaObject) -> Vec3 {
     if o.kind.has_outline() && !o.outline.is_empty() {
         let low = o.outline.iter().copied().reduce(Vec3::min).unwrap_or(o.position);
         let high = o.outline.iter().copied().reduce(Vec3::max).unwrap_or(o.position);
-        ((low + high) / 2.0).truncate().extend(o.position.z)
+        (low + high) / 2.0
     } else {
         o.position
+    }
+}
+
+/// The way an object's turning ring is marked: its facing, or, for an
+/// outline (which has none of its own), the way from its middle to its
+/// first corner, so that the mark goes round as the outline is turned.
+fn ring_mark(o: &mg_area::AreaObject) -> f32 {
+    match o.outline.first().filter(|_| o.kind.has_outline()) {
+        Some(first) => {
+            let to = (*first - pivot(o)).truncate();
+            if to.length() > 1e-4 { to.y.atan2(to.x) } else { o.facing() }
+        }
+        None => o.facing(),
     }
 }
 
