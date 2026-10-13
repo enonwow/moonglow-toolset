@@ -1478,6 +1478,37 @@ contribution itself states as not done or not checked.
   compile memory is not updated; the scripts that include the opener are
   found by a substring search rather than `mg_module::refs::includers`.
   (M)
+- **Pictures go into a hak without asking** (`crates/mg-ui/src/nui_view/images.rs`):
+  Images writes a picture into a listed hak in the user's hak folder in
+  place (`mg_module::hak_edit::write_into`, which keeps a `.bak`), with no
+  prompt; the hak editor's own save path was not compared. (S)
+- **Unwraps on a stale selection** (`crates/mg-ui/src/nui_view/bindings.rs`,
+  `events.rs`, `shortcuts.rs`, `design.rs`, `structure.rs`, `fields.rs`):
+  about twenty `unwrap()`s on JSON pointers, `paths.len() - 1` in
+  `shortcuts.rs` and an `unreachable!()` in `images.rs`; a selection left
+  stale by Undo is the likely way into them. Not reproduced. (S)
+- **`mg_nui::key` panics** (`crates/mg-nui/src/lib.rs`): public, and
+  `expect`s a name that is a ResRef. (S)
+- **A caller that fails to compile is passed over** (`crates/mg-nui/src/script.rs`):
+  Build leaves a script that includes the opener with its old `.ncs` and
+  says nothing; the failing-compile path of `mg nui generate` has no test.
+  (S)
+- **Test instrumentation in a draw function** (`crates/mg-ui/src/nui_view/design.rs`):
+  a `#[cfg(test)]` block writes layout rectangles into egui's memory for
+  `layout_tests.rs`. (S)
+- **Decoders and a picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
+  PNG and TGA are read with the `image` crate though `mg-image` and `png`
+  read them elsewhere, and `skin::Assets` keeps its textures beside
+  `images::Loader`. (M)
+- **The preview's text is laid out a glyph a section** (`crates/mg-ui/src/nui_view/preview.rs`,
+  `native_job`): every frame, for the client's whole-pixel advances; a
+  quarter of an idle frame on a 100-control window (2.3 ms in all,
+  `crates/mg-ui/tests/nui_perf.rs`). (M)
+- **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
+  `crates/mg-nui/src/validate.rs`, `docs/manual/18-nui-creator.md`): the
+  checks still say "route", "action" and "view"; the hover text "native
+  NWN testing is still required" and the manual's sentences about scripts
+  "an older Moonglow" wrote describe versions never released. (S)
 - **Errors as strings, a severity twice** (`crates/mg-nui/src/lib.rs`,
   `validate.rs`):
   `mg-nui`'s public API returns `Result<_, String>` rather than a typed

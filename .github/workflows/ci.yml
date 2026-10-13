@@ -69,7 +69,7 @@ jobs:
       - name: Clippy (the tests run by hand)
         # `test = false` in their manifests: --all-targets leaves them out.
         run: |
-          cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf -- -D warnings
+          cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf --test nui_perf -- -D warnings
           cargo clippy -p mg-corpus-tests --test client_render --test client_minimap -- -D warnings
       - name: Test
         # Corpus, differential and engine tests skip without a game install.

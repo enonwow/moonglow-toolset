@@ -332,8 +332,8 @@ void main()
 
 Attach your own script to the event you want. Regenerating an untouched older
 opener removes its obsolete NCS in the same undoable operation. Manually edited
-openers are still protected. Recompile your calling scripts after regeneration
-so they include the current layout; Build does not rewrite those callers.
+openers are still protected. Build compiles again the scripts of yours that
+include the opener, so they hold the current layout; it does not rewrite them.
 The event handler receives the window's events directly; generating does not
 change the module's OnNuiEvent binding. A new window has a **Clicked**
 handler for its Close button whose code closes the window. The `mg_close` ID
