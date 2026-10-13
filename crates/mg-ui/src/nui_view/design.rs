@@ -839,6 +839,7 @@ fn inspector(
     assets: &mut skin::Assets,
 ) {
     let Some(node) = v.pointer(&state.selected) else { return };
+    fields::of(ui.ctx(), egui::Id::new((&state.edit_view, &state.selected)));
     let swap = layouts::is_swap(s, node);
     ui.heading(if state.selected.is_empty() {
         "Window".into()
@@ -937,7 +938,7 @@ pub(super) fn bindings(
                 s.window_id = custom.then(|| "my_window".into());
             }
             if let Some(id) = &mut s.window_id {
-                ui.text_edit_singleline(id);
+                fields::text(ui, id, ui.spacing().text_edit_width);
             }
             ui.weak(
                 "The ID NuiCreate gives the window and NuiFindWindow finds it by. The resource \

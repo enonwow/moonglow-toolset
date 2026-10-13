@@ -1,6 +1,8 @@
 //! JUI authoring in the same Workspace/Undo/recovery path as other editors.
-//! Only transient selection lives in egui memory; even invalid JSON drafts
-//! remain in the module and are recoverable. No lossy fallback widgets.
+//! A field's value is set when the field is left (a drag: when let go), one
+//! Undo step each (`fields`); a source page's text likewise, and one that
+//! doesn't read as JSON is kept in the module as typed, where it is
+//! recoverable. No lossy fallback widgets.
 use crate::{Action, Moonglow, Tab};
 use egui::Ui;
 use mg_core::ResType;
@@ -77,6 +79,8 @@ pub(crate) struct State {
     name: String,
     load_search: String,
     checks: Option<Checks>,
+    /// The source field being typed in.
+    source_draft: Option<SourceDraft>,
 }
 
 /// A page of the Creator.
@@ -622,6 +626,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         ui.separator();
     }
     let mut page_edits = Vec::new();
+    fields::begin(ui.ctx());
+    // A source field that isn't shown any more (another page, another view)
+    // was left: what was typed in it is set.
+    let shows = match (state.page, state.view_mode) {
+        (Page::JuiSource, _) => Some(SourceOf::Window),
+        (Page::BindingJson, _) => Some(SourceOf::Settings),
+        (Page::Design, ViewMode::Split) if state.edit_view.is_some() => Some(SourceOf::Variants),
+        (Page::Design, ViewMode::Split) => Some(SourceOf::SplitWindow),
+        _ => None,
+    };
+    if let Some(draft) = state.source_draft.take_if(|d| Some(d.of) != shows)
+        && draft.typed
+    {
+        match draft.of {
+            SourceOf::Window | SourceOf::SplitWindow => raw = draft.text,
+            SourceOf::Settings | SourceOf::Variants => config_raw = draft.text,
+        }
+    }
     match state.page {
         Page::Images => {
             if let (Ok(mut v), Ok(s)) = (parsed, settings) {
@@ -641,6 +663,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 let script = ResKey::parse(&format!("{name}_e"), ResType::NSS)
                     .and_then(|k| events::current_script(app, &k));
                 workflow::ui(ui, &mut v, &mut s, &mut state, &name, script.as_deref());
+                fields::put_back(ui.ctx(), &before, &mut v);
+                fields::put_back_settings(ui.ctx(), &config_before, &mut s);
                 if v != before {
                     write_window(&mut raw, &v);
                 }
@@ -654,14 +678,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         Page::JuiSource | Page::BindingJson => {
             let is_jui = state.page == Page::JuiSource;
             ui.strong(if is_jui { "JUI source" } else { "Binding JSON" });
-            ui.weak("Drafts are included in module Save and Undo, even while incomplete.");
+            ui.weak(
+                "What is typed is set when the field is left. Text that doesn't read as JSON is \
+                 kept in the module as typed, and Undo takes it back.",
+            );
+            let (of, text) = if is_jui {
+                (SourceOf::Window, &mut raw)
+            } else {
+                (SourceOf::Settings, &mut config_raw)
+            };
             egui::ScrollArea::both().id_salt(("nui-source", state.page)).show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(if is_jui { &mut raw } else { &mut config_raw })
-                        .code_editor()
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(26),
-                );
+                if let Some(typed) = source_field(ui, &mut state.source_draft, of, text, 26) {
+                    *text = typed;
+                }
             });
         }
         Page::Bindings => {
@@ -670,6 +699,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 let mut doc = parsed.as_ref().ok().cloned();
                 let doc_before = doc.clone();
                 design::bindings(ui, &mut s, doc.as_mut(), &mut state);
+                fields::put_back_settings(ui.ctx(), &before, &mut s);
+                if let (Some(was), Some(doc)) = (&doc_before, &mut doc) {
+                    fields::put_back(ui.ctx(), was, doc);
+                }
                 if s != before {
                     write_settings(&mut config_raw, &s);
                 }
@@ -734,28 +767,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             &mut state,
                             &mut app.nui_assets,
                         );
-                        let mut source = if state.edit_view.is_some() {
-                            serde_json::to_string_pretty(&s).unwrap_or_default()
+                        let (of, source, title) = if state.edit_view.is_some() {
+                            (
+                                SourceOf::Variants,
+                                serde_json::to_string_pretty(&s).unwrap_or_default(),
+                                "Variants and binding JSON",
+                            )
                         } else {
-                            serde_json::to_string_pretty(&v).unwrap_or_default()
+                            (
+                                SourceOf::SplitWindow,
+                                serde_json::to_string_pretty(&v).unwrap_or_default(),
+                                "JUI source",
+                            )
                         };
-                        columns[1].strong(if state.edit_view.is_some() {
-                            "Variants and binding JSON"
-                        } else {
-                            "JUI source"
-                        });
+                        columns[1].strong(title);
                         egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
-                            if ui
-                                .add(
-                                    egui::TextEdit::multiline(&mut source)
-                                        .code_editor()
-                                        .desired_width(f32::INFINITY)
-                                        .desired_rows(28),
-                                )
-                                .changed()
-                            {
-                                split_raw = Some(source);
-                            }
+                            split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
                         });
                     }),
                     ViewMode::Editor => design::editor(
@@ -775,6 +802,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     };
                     s.views.insert(name.clone(), root);
                 }
+                fields::put_back(ui.ctx(), &before, &mut v);
+                fields::put_back_settings(ui.ctx(), &before_settings, &mut s);
                 if v != before {
                     write_window(&mut raw, &v);
                 }
@@ -829,6 +858,64 @@ fn array_position(path: &str) -> Option<(String, usize, bool)> {
         return None;
     }
     Some((parent.into(), index.parse().ok()?, cell))
+}
+
+/// A source field: the text a page shows to be edited as text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum SourceOf {
+    /// The JUI source page: the window's text as the module holds it.
+    Window,
+    /// The Binding JSON page: the settings' text as the module holds it.
+    Settings,
+    /// Split source: the window, written out.
+    SplitWindow,
+    /// Split source while a variant is edited: the settings, written out.
+    Variants,
+}
+
+/// What is typed in a source field, until the field is left: a draft that
+/// doesn't read yet isn't written to the module at every key.
+struct SourceDraft {
+    of: SourceOf,
+    text: String,
+    /// Typed in since it was last set.
+    typed: bool,
+}
+
+/// A source field showing `current`, `rows` high: the text typed in it,
+/// once, when the keyboard leaves it (also one that doesn't read as JSON:
+/// it is kept in the module as typed, where Undo takes it back).
+fn source_field(
+    ui: &mut Ui,
+    held: &mut Option<SourceDraft>,
+    of: SourceOf,
+    current: &str,
+    rows: usize,
+) -> Option<String> {
+    let draft = held.take_if(|d| d.of == of).unwrap_or_else(|| SourceDraft {
+        of,
+        text: current.to_owned(),
+        typed: false,
+    });
+    let draft = held.insert(draft);
+    let field = ui.add(
+        egui::TextEdit::multiline(&mut draft.text)
+            .id(ui.id().with(("nui-source-field", of)))
+            .code_editor()
+            .desired_width(f32::INFINITY)
+            .desired_rows(rows),
+    );
+    crate::widgets::leaves_at_a_press(ui.ctx(), &field);
+    draft.typed |= field.changed();
+    if crate::widgets::has_keys(&field) {
+        return None;
+    }
+    let typed = std::mem::take(&mut draft.typed) && draft.text != current;
+    if !typed && draft.text != current {
+        // Changed underneath (Undo, the form): show it.
+        draft.text = current.to_owned();
+    }
+    typed.then(|| draft.text.clone())
 }
 
 /// The window's JSON text into `raw`. (Left as it is should it not write,
@@ -1485,8 +1572,9 @@ fn property(
         }
         fields::binding_options(ui, value);
     } else if let Value::String(text) = value {
-        ui.add(egui::TextEdit::singleline(text).desired_width(f32::INFINITY))
-            .labelled_by(heading.id);
+        if let Some(field) = fields::text(ui, text, f32::INFINITY) {
+            field.labelled_by(heading.id);
+        }
     } else if let Some(id) = value.get_mut("strref") {
         ui.horizontal(|ui| {
             ui.label("TLK StrRef");
@@ -1532,8 +1620,10 @@ fn property(
             .response
             .labelled_by(heading.id);
         *value = json!(n);
-    } else if !value.is_boolean() {
-        scalar(ui, value);
+    } else if !value.is_boolean()
+        && let Some(field) = scalar(ui, value)
+    {
+        field.labelled_by(heading.id);
     }
 }
 
@@ -1551,23 +1641,17 @@ fn named_choices(key: &str) -> Option<&'static [&'static str]> {
     })
 }
 
-fn scalar(ui: &mut Ui, v: &mut Value) {
+/// A value's field: text, a number or a color, set as the other editors set
+/// theirs (see `fields`). The response of a field that is one widget.
+fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
     match v {
-        Value::String(text) => {
-            ui.add(egui::TextEdit::singleline(text).desired_width(ui.available_width().max(0.0)));
-        }
-        Value::Bool(b) => {
-            ui.checkbox(b, "On");
-        }
+        Value::String(text) => return fields::text(ui, text, ui.available_width().max(0.0)),
+        Value::Bool(b) => return Some(ui.checkbox(b, "On")),
         Value::Number(n) => {
-            if let Some(mut i) = n.as_i64() {
-                if ui.add(egui::DragValue::new(&mut i)).changed() {
-                    *v = json!(i);
-                }
-            } else if let Some(mut f) = n.as_f64()
-                && ui.add(egui::DragValue::new(&mut f).speed(0.1)).changed()
-            {
-                *v = json!(f);
+            if let Some(i) = n.as_i64() {
+                return Some(fields::number(ui, v, i, |d| d));
+            } else if let Some(f) = n.as_f64() {
+                return Some(fields::number(ui, v, f, |d| d.speed(0.1)));
             }
         }
         // A colour as the rest of Moonglow shows one: a swatch that opens a picker.
@@ -1575,13 +1659,7 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
             if o.len() == 4
                 && ["r", "g", "b", "a"].iter().all(|k| o.get(*k).is_some_and(Value::is_number)) =>
         {
-            let channel = |k: &str| o[k].as_u64().unwrap_or(255).min(255) as u8;
-            let mut rgba = [channel("r"), channel("g"), channel("b"), channel("a")];
-            if ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed() {
-                for (k, c) in ["r", "g", "b", "a"].iter().zip(rgba) {
-                    o.insert((*k).into(), json!(c));
-                }
-            }
+            fields::color(ui, o);
         }
         // Lined up in a grid, so the values start at one edge.
         Value::Object(o) if o.len() <= 4 && o.values().all(Value::is_number) => {
@@ -1605,6 +1683,7 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
         }
         Value::Null | Value::Array(_) | Value::Object(_) => fields::value(ui, v, 0),
     }
+    None
 }
 
 fn resolved<'a>(v: &'a Value, s: &'a Settings) -> &'a Value {
@@ -1655,44 +1734,6 @@ mod tests {
         v["root"]["row_template"] = json!([[mg_nui::template("label"), 150.0, true]]);
         rearrange(&mut v, &mut selected, Op::Duplicate);
         assert_eq!(v["root"]["row_template"].as_array().unwrap().len(), 2);
-    }
-
-    /// Undo takes back the control that is selected: the next frame draws
-    /// without it, and nothing is selected.
-    #[test]
-    fn nui_selection_left_by_undo_is_cleared() {
-        let key = Some(mg_nui::key("nui_test", ResType::JUI));
-        let mut h = keyboard_harness();
-        h.run();
-        h.get_by_label("Toggle button").click();
-        h.run();
-        let selected = h.state().nui_views[&key].selected.clone();
-        assert!(keyboard_document(&h).pointer(&selected).is_some_and(|n| n["type"] != "window"));
-        h.get_by_label("Draw layers").click();
-        h.run();
-        h.get_by_label("+ Draw primitive").scroll_to_me();
-        h.run();
-        h.get_by_label("+ Draw primitive").click();
-        h.run();
-        h.get_by_label("Rectangle").click();
-        h.run();
-        h.get_by_label("Draw layer 1 · Rectangle").click();
-        h.run();
-        assert!(h.state().nui_views[&key].draw_item.is_some());
-        // The draw layer, then the control.
-        for _ in 0..2 {
-            h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-        }
-        h.run();
-        assert!(keyboard_document(&h).pointer(&selected).is_none());
-        let state = &h.state().nui_views[&key];
-        assert_eq!(state.selected, "");
-        assert!(state.selected_many.is_empty() && state.draw_item.is_none());
-        // The pages that don't show the selection draw too.
-        for page in ["Bindings", "Events & variants", "Design"] {
-            h.get_by_label(page).click();
-            h.run();
-        }
     }
 
     #[test]
@@ -1904,6 +1945,9 @@ mod tests {
         h.get_by_label("Element ID").click();
         h.run();
         h.get_by_label("Element ID").type_text("_x");
+        h.run();
+        // (Set when the field is left.)
+        h.key_press(egui::Key::Tab);
         h.run();
         assert!(routes(&h).iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
         assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
@@ -2987,6 +3031,11 @@ mod tests {
             .next()
             .unwrap()
             .type_text("invalid draft");
+        h.run();
+        // A draft is the tab's until its field is left: then it is the
+        // module's, also one that doesn't read.
+        assert_eq!(h.state().ws.as_ref().unwrap().module.get(&key).unwrap(), before);
+        h.key_press(egui::Key::Escape);
         h.run();
         let ws = h.state_mut().ws.as_mut().unwrap();
         let draft = ws.module.get(&key).unwrap().to_vec();

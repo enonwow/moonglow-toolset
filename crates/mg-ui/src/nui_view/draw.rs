@@ -680,11 +680,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                 ui.label("Image");
                                 let Value::String(picture) = value else { return };
                                 ui.horizontal(|ui| {
-                                    ui.add(
-                                        egui::TextEdit::singleline(picture)
-                                            .desired_width(140.0)
-                                            .hint_text("Picture name"),
-                                    );
+                                    fields::text(ui, picture, 140.0);
                                     if let Some(name) = images::from_disk(ui) {
                                         *picture = name;
                                     }
