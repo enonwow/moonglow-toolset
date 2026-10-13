@@ -739,9 +739,7 @@ mod tests {
                     &assets,
                     "test_image",
                     target,
-                    &json!({"type":ty}),
-                    &s,
-                    None,
+                    crate::nui_view::preview::Props { node: &json!({"type":ty}), s: &s, row: None },
                     1.0,
                     Color32::WHITE,
                 ));
@@ -782,9 +780,11 @@ mod tests {
                     &assets,
                     "test_image",
                     Rect::from_min_size(pos2(20.0, 20.0), vec2(150.0, 64.0)),
-                    &json!({"type":ty,"image_region":{"x":0.0,"y":1.0,"w":1.0,"h":1.0}}),
-                    &s,
-                    None,
+                    crate::nui_view::preview::Props {
+                        node: &json!({"type":ty,"image_region":{"x":0.0,"y":1.0,"w":1.0,"h":1.0}}),
+                        s: &s,
+                        row: None,
+                    },
                     1.0,
                     Color32::WHITE,
                 ));
