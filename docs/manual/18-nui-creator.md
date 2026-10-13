@@ -341,7 +341,8 @@ window's own scripts are built all the same.
 The event handler receives the window's events directly; generating does not
 change the module's OnNuiEvent binding. A new window has a **Clicked**
 handler for its Close button whose code closes the window. The `mg_close` ID
-has no built-in behavior: without that handler the button does nothing.
+has no built-in behavior: without that handler the button does nothing, and
+the checks say so (**Add Close handler** adds it).
 
 The default opener sends the layout with `NuiCreate`. **Bindings › Client
 delivery › Load JUI from the client by resource name** instead uses
