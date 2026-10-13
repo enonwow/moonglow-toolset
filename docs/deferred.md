@@ -1496,14 +1496,16 @@ contribution itself states as not done or not checked.
 - **Test instrumentation in a draw function** (`crates/mg-ui/src/nui_view/design.rs`):
   a `#[cfg(test)]` block writes layout rectangles into egui's memory for
   `layout_tests.rs`. (S)
-- **Decoders and a picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
-  PNG and TGA are read with the `image` crate though `mg-image` and `png`
-  read them elsewhere, and `skin::Assets` keeps its textures beside
-  `images::Loader`. (M)
-- **The preview's text is laid out a glyph a section** (`crates/mg-ui/src/nui_view/preview.rs`,
-  `native_job`): every frame, for the client's whole-pixel advances; a
-  quarter of an idle frame on a 100-control window (2.3 ms in all,
-  `crates/mg-ui/tests/nui_perf.rs`). (M)
+- **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
+  `skin::Assets` keeps its textures beside `images::Loader`
+  (`crates/mg-ui/src/images.rs`). The two look pictures up differently:
+  a window's are JPG, TGA, PNG, BMP, then DDS, with a live module below
+  its haks, read again when their bytes change and reported with where
+  they came from; the loader's are DDS or TGA, the module first, kept by
+  name. JPEG and BMP are still read with the `image` crate (nothing else
+  here reads them). 15- and 16-bit TGAs, which were read with the
+  `image` crate before, come out of `mg-image` a level off in places
+  and with their attribute bit as alpha. (M)
 - **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
   `crates/mg-nui/src/validate.rs`, `docs/manual/18-nui-creator.md`): the
   checks still say "route", "action" and "view"; the hover text "native
@@ -1524,10 +1526,12 @@ contribution itself states as not done or not checked.
   the warning from before the Close handler, and the "Clip to control"
   fix-up. The manual's sentences about scripts "an older Moonglow
   wrote" describe the same. (S)
-- **Functions too long to read:** `Renderer::node`
-  (`crates/mg-ui/src/nui_view/preview.rs`) is 1,350 lines and
-  `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490; pages and
-  operations are magic numbers. (M)
+- **Functions too long to read:** `nui_view::ui`
+  (`crates/mg-ui/src/nui_view.rs`) is 490 lines; pages and operations
+  are magic numbers. Of the preview (`crates/mg-ui/src/nui_view/preview/`),
+  split by kind of control, `Renderer::node` is still 180 lines and
+  `list` and `text_block` 140 each, and `draw::paint` takes nine arguments
+  (its callers in the draw-layer editor pass them). (S)
 - **Tests in the wrong places:** about 6,700 lines of tests live under
   `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
   `crates/mg-ui/tests/`; `mg-nui`'s unit tests are all in
