@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.26.1" date="2026-10-13">
+      <description>
+        <p>Text typed in a field is kept when you switch to another
+        program and back. Shields are pictured from the front in the
+        galleries. The invisible object is selected by its own small
+        box.</p>
+      </description>
+    </release>
     <release version="1.26.0" date="2026-10-13">
       <description>
         <p>A rectangular trigger is drawn by pressing Alt after the first
