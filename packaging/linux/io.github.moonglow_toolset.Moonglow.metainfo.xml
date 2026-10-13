@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.24.2" date="2026-10-13">
+      <description>
+        <p>Text typed in a name, tag or description field is kept when
+        another page is clicked or the window is closed. A new line in
+        the script editor begins as far in as the line before it.</p>
+      </description>
+    </release>
     <release version="1.24.1" date="2026-10-12">
       <description>
         <p>mg tlk-export --base writes a talk table's lines numbered
