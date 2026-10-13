@@ -50,6 +50,17 @@ pub struct Cell {
     pub edges: [Option<Crosser>; 4],
 }
 
+/// Where slot `k` of a group `columns` wide lies from the group's first
+/// cell, with the group turned `quarter_turns` (columns, rows).
+pub fn group_slot(k: usize, columns: u32, quarter_turns: u8) -> (i64, i64) {
+    let columns = columns.max(1);
+    let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
+    for _ in 0..quarter_turns % 4 {
+        (c, r) = (-r, c);
+    }
+    (c, r)
+}
+
 impl Cell {
     /// The cell turned `quarter_turns` counter-clockwise.
     pub fn turned(self, quarter_turns: u8) -> Cell {
@@ -218,13 +229,7 @@ impl TileIndex {
         let turns = here.orientation % 4;
         // Where slot `k` of a group of `columns` goes from its first cell,
         // turned as the group was (as `Grid::place_group` turns it).
-        let offset = |k: usize, columns: u32| {
-            let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
-            for _ in 0..turns {
-                (c, r) = (-r, c);
-            }
-            (c, r)
-        };
+        let offset = |k: usize, columns: u32| group_slot(k, columns, turns);
         for (columns, tiles) in &self.groups {
             for (k, _) in tiles.iter().enumerate().filter(|(_, t)| **t == Some(here.tile)) {
                 let (c, r) = offset(k, *columns);

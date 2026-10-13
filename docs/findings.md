@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T14:21:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:37:46Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -180,6 +180,33 @@ least 1. Epic Toughness is not included (the game adds it).
 - **Moonglow:** `crates/mg-rules/src/creatures.rs` (`creature_stats`).
 - **Wiki:** the Creature JSON page says only "HitPoints + Constitution
   bonuses/penalties".
+
+### Saving throws past level 20, and the Great ability feats
+
+A creature's base saves come from its classes' tables for its first 20
+levels, taken in the order of its classes (the first class's levels,
+then the next's, until 20 are counted); every two levels past 20 add a
+point to each save, whatever the classes. A fighter 20 / wizard 20 has
+the fighter's saves at 20 and ten more on each, not the two tables'
+rows added. A single class past 20 comes to the same either way (its
+table's epic rows are that rule). Aurora adds each class's table at its
+full level (nwn-issues 816), and so did Moonglow through 1.21.3.
+
+The epic Great Strength, Dexterity, Constitution, Intelligence, Wisdom
+and Charisma feats (feat.2da rows 764 to 823, ten of each) each add a
+point to the ability's score itself: `GetAbilityScore` with the base
+asked for has them, and so the modifiers and the saves.
+
+- **Checked:** in the game's server, `engine_saves.rs`
+  `saving_throws_match_the_engine`: thirteen creatures of the Creature
+  Wizard's making, of one to three classes and 10 to 40 levels, each
+  save equal to the Statistics page's.
+- **Moonglow:** `crates/mg-rules/src/creatures.rs` (`creature_stats`).
+  The stored maximum hit points stay Aurora's (the Constitution the
+  blueprint has, without the Great Constitution feats); whether the
+  game adds those feats' hit points itself, as it adds Epic
+  Toughness's, was not measured.
+- **Wiki:** missing.
 
 ### Aurora's Levelup Wizard
 
@@ -537,6 +564,54 @@ it.
 - **Checked:** `creatures_look` with `MG_PARTS`.
 - **Moonglow:** `crates/mg-preview`.
 - **Wiki:** missing.
+
+### A skin mesh in a body part or a held item
+
+A body part (`pmh0_chest001`) and a held item (the small shield,
+`ashsw_011`) were put in the override with their meshes made `skin`
+nodes, each vertex weighted to one bone, and looked at on a creature in
+the client (`creatures_look` with `MG_OVERRIDE`, and `MG_HELD` for the
+shield; the body part's vertices raised 0.6 m, so that the override's
+copy could not be taken for the game's).
+
+| The model | The skin's bone | In the client |
+| --- | --- | --- |
+| Body part, compiled | the skeleton's (`torso_g`, no node of the part) | not drawn |
+| Body part, text | the same | drawn as a plain mesh, where the part hangs |
+| Body part, compiled | the part's own dummy | drawn at the creature's feet, not where the part hangs |
+| Body part, text | the part's own dummy | drawn out of shape, above its place |
+| Held item, compiled or text | the skeleton's (`lforearm_g`) | not drawn |
+
+A builder's report (a body part exported as a skin shows in Moonglow
+and not in the game) is the first row. Moonglow draws the first, the
+second and the last row as the client does; a skin weighted to nodes of
+its own part is not drawn at all (`mg_preview::compose::without_skins`).
+
+- **Checked:** by eye, in the client's pictures (2026-10-11); the rule
+  on a model read as text and compiled, in `mg-preview`'s
+  `a_body_part_s_skin_is_drawn_as_the_game_draws_it`. The compiled
+  models were made by `mgv compile`, not the game's own compiler; one
+  body part and one item were tried.
+
+### A part-based creature with no body part fields
+
+A creature made with a single model (the game's `nw_bandit001`,
+appearance 269) keeps no `BodyPart_*` field, no `ArmorPart_RFoot` and no
+`Appearance_Head`. Given a part-based appearance (Human, row 6) and
+nothing else, the client draws its head and no body: a field that is not
+there is part 0, which is nothing. An armor's parts cover that while it
+is worn, so it shows when the armor is taken off (a builder's report,
+"unequipping an armor sets all body parts to 0"). Moonglow draws the
+same, and since 1.22.1 sets the parts (1, and no belt or shoulders, as a
+creature new in Aurora has them) in the step that gives such a creature
+a part-based appearance (`blueprint::with_a_body`).
+
+- **Checked:** by eye, in the client's picture beside Moonglow's
+  (2026-10-12; `client_render.rs`'s `creatures_look` with `MG_NO_BODY=1
+  MG_WORN=0 MG_APPEARANCES=6,6`): the creature without the fields beside
+  one with them. The head showed though `Appearance_Head` was gone too;
+  why was not looked into. The step, in
+  `a_part_based_appearance_brings_a_body`.
 
 ### A worn part moves at its wearer's animation scale
 

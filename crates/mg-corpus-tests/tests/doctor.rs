@@ -46,6 +46,9 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     ("Neverwinter Nights - Doom of Icewind Dale", "mdl-text", "hak:doiwd", 1),
     ("Neverwinter Nights - Pirates of the Sword Coast", "mdl-text", "hak:potsc_resources", 5),
     ("Neverwinter Nights - Tyrants of the Moonsea", "mdl-text", "hak:tm_race_2da", 1),
+    // Two spells (rows 807 and 809) whose FeatID names feats 3000 and
+    // 2589 of a feat.2da of 1607 rows.
+    ("Neverwinter Nights - Wyvern Crown of Cormyr", "2da-ref", "hak:wc_2da_shared", 2),
 ];
 
 #[test]
@@ -98,5 +101,124 @@ fn shipped_modules_have_only_known_findings() {
         "{} unexpected findings:\n{}",
         unexpected.len(),
         unexpected.join("\n")
+    );
+}
+
+#[test]
+fn row_columns_hold_for_the_game_s_tables() {
+    // Every column the checks take for a row of another table names a
+    // row that is there, in the game's own tables: a column that did not
+    // would be no rule to hold a hak's table to.
+    use mg_module::doctor::{ColumnKind, column_kinds, row_named};
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let table = |name: &str| {
+        let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA).unwrap();
+        mg_2da::TwoDa::parse(&rm.get(&key).unwrap(), mg_core::Codepage::default()).unwrap()
+    };
+    let (mut columns, mut cells) = (0, 0);
+    for name in [
+        "appearance",
+        "baseitems",
+        "classes",
+        "domains",
+        "feat",
+        "genericdoors",
+        "packages",
+        "placeables",
+        "polymorph",
+        "racialtypes",
+        "spells",
+    ] {
+        let t = table(name);
+        for (column, kind) in column_kinds(name) {
+            let ColumnKind::Row(target) = kind else { continue };
+            assert!(t.column(column).is_some(), "{name}.2da has a column {column}");
+            let length = table(target).len();
+            columns += 1;
+            for row in 0..t.len() {
+                let named = t.get_int(row, column).and_then(|v| row_named(name, column, v));
+                if let Some(named) = named {
+                    cells += 1;
+                    assert!(named < length, "{name} row {row}, {column}: {named} of {target}");
+                }
+            }
+        }
+    }
+    assert_eq!(columns, 61);
+    assert!(cells > 5000, "{cells}");
+
+    // The tables a class, a race or a package names: each is known by
+    // its name, has the column, and names rows that are there.
+    let (mut tables, mut cells) = (0, 0);
+    for (naming, by) in [
+        ("classes", "FeatsTable"),
+        ("classes", "SkillsTable"),
+        ("racialtypes", "FeatsTable"),
+        ("packages", "FeatPref2DA"),
+        ("packages", "SkillPref2DA"),
+        ("packages", "SpellPref2DA"),
+    ] {
+        let t = table(naming);
+        let mut names: Vec<String> =
+            (0..t.len()).filter_map(|r| t.get(r, by)).map(str::to_lowercase).collect();
+        names.sort();
+        names.dedup();
+        for name in names {
+            let kinds = column_kinds(&name);
+            let [(column, ColumnKind::Row(target))] = kinds.as_slice() else {
+                panic!("{name}, which {naming}.{by} names: {kinds:?}")
+            };
+            let named = table(&name);
+            assert!(named.column(column).is_some(), "{name}.2da has a column {column}");
+            let length = table(target).len();
+            tables += 1;
+            for row in 0..named.len() {
+                if let Some(v) = named.get_int(row, column).and_then(|v| usize::try_from(v).ok()) {
+                    cells += 1;
+                    assert!(v < length, "{name} row {row}, {column}: {v} of {target}");
+                }
+            }
+        }
+    }
+    assert!(tables > 200 && cells > 20000, "{tables} tables, {cells} cells");
+}
+
+#[test]
+fn the_game_s_own_tables_have_one_cell_fault() {
+    // What the 2DA editor marks wrong as a table is typed must find
+    // nothing in the game's own tables.
+    use mg_module::doctor::{TalkTables, column_kinds_as_named, table_faults};
+    let root = corpus!();
+    let gi = GameInstall::new(&root, None, "en");
+    let rm = ResMan::for_game(&gi).unwrap();
+    let base =
+        mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).unwrap()).unwrap().entries.len();
+    let read = |name: &str| {
+        let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA)?;
+        let t = mg_2da::TwoDa::parse(&rm.get(&key).ok()?, mg_core::Codepage::default()).ok()?;
+        Some(std::sync::Arc::new(t))
+    };
+    let mut wrong = Vec::new();
+    let mut checked = 0;
+    for name in rm.list(mg_core::ResType::TWODA) {
+        let name = name.to_string().to_lowercase();
+        let kinds = column_kinds_as_named(&name, &read);
+        if kinds.is_empty() {
+            continue;
+        }
+        let Some(t) = read(&name) else { continue };
+        checked += 1;
+        let rows_of = |n: &str| read(n).map(|t| t.len());
+        let tlk = TalkTables { base, custom: None };
+        for f in table_faults(&name, &t, &kinds, &rows_of, tlk) {
+            wrong.push(format!("{name} row {}, {}: {}", f.row, t.columns()[f.column], f.message));
+        }
+    }
+    assert!(checked > 200, "{checked}");
+    // (The game's one: a bard's spell preferences name spell 2544 of 840.)
+    assert_eq!(
+        wrong,
+        ["packspbar2 row 40, SpellIndex: row 2544 of spells.2da doesn't exist: it has 840 rows"]
     );
 }

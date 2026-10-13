@@ -1,8 +1,6 @@
 //! `mg init` and `mg build`: a shipped module put into a nasher project and
 //! built from it gives the module's resources back, scripts compiled.
 
-use std::process::Command;
-
 use mg_core::ResType;
 use mg_module::Module;
 use mg_resman::ResKey;
@@ -17,9 +15,8 @@ fn init_then_build_gives_the_module_back() {
     }
     let dir = mg_testkit::scratch_dir("mg-nasher");
     let project = dir.join("chess");
-    let mg = env!("CARGO_BIN_EXE_mg");
     let run = |args: &[&str]| {
-        let out = Command::new(mg).args(args).output().unwrap();
+        let out = crate::mg().args(args).output().unwrap();
         assert!(out.status.success(), "mg {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     };
     run(&["init", module.to_str().unwrap(), project.to_str().unwrap()]);
@@ -51,4 +48,13 @@ fn init_then_build_gives_the_module_back() {
     want.sort();
     have.sort();
     assert_eq!(have, want, "the built module has the original's resources, scripts compiled");
+    // --ndb: each compiled script's debug file is packed with it.
+    let debug = dir.join("debug.mod");
+    let (r, p, d) = (root.to_str().unwrap(), project.to_str().unwrap(), debug.to_str().unwrap());
+    run(&["--root", r, "--no-user-dir", "build", p, "-o", d, "--ndb"]);
+    let with = Module::open(&debug).unwrap();
+    let count = |m: &Module, t| m.keys_of(t).count();
+    assert_eq!(count(&built, ResType::NDB), 0);
+    assert!(count(&with, ResType::NDB) > 10);
+    assert_eq!(count(&with, ResType::NDB), count(&with, ResType::NCS));
 }

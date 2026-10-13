@@ -540,9 +540,10 @@ const CREATURE_SCRIPTS: [(&str, &str); 13] = [
     ("ScriptOnBlocked", "x2_def_onblocked"),
 ];
 
-/// The body parts of a new creature, in Aurora's order, and their value
-/// (Aurora writes the right foot as `ArmorPart_RFoot`).
-const CREATURE_PARTS: [(&str, u8); 18] = [
+/// A part-based creature's parts (each with its EE twin, `x` before its
+/// name), in Aurora's order, and a new creature's value of each (Aurora
+/// writes the right foot as `ArmorPart_RFoot`).
+pub(crate) const CREATURE_PARTS: [(&str, u8); 19] = [
     ("ArmorPart_RFoot", 1),
     ("BodyPart_LFoot", 1),
     ("BodyPart_RShin", 1),
@@ -561,6 +562,7 @@ const CREATURE_PARTS: [(&str, u8); 18] = [
     ("BodyPart_LShoul", 0),
     ("BodyPart_RHand", 1),
     ("BodyPart_LHand", 1),
+    ("Appearance_Head", 1),
 ];
 
 /// The alignment (good–evil, lawful–chaotic) Aurora's Creature Wizard
@@ -659,11 +661,8 @@ pub fn creature(
             t.get(usize::from(spec.appearance), "MODELTYPE").map(|m| m.eq_ignore_ascii_case("P"))
         })
         .unwrap_or(false);
-    let twins: Vec<(String, String, u8)> = CREATURE_PARTS
-        .iter()
-        .map(|(l, v)| (l.to_string(), format!("x{l}"), *v))
-        .chain(std::iter::once(("Appearance_Head".to_string(), "xAppearance_Head".to_string(), 1)))
-        .collect();
+    let twins: Vec<(String, String, u8)> =
+        CREATURE_PARTS.iter().map(|(l, v)| (l.to_string(), format!("x{l}"), *v)).collect();
     let mut g = Gff::new(*b"UTC ");
     for (label, v) in fields.drain(..) {
         g.root.set(label, v);

@@ -12,7 +12,6 @@
 //!   Defaults puts back the lighting scheme's first colours and the loops.
 
 use egui::{Color32, Pos2, Rect};
-use glam::Vec3;
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::Value;
@@ -152,15 +151,7 @@ pub(crate) fn input(
         delete(app, view);
     }
     // Copy, cut and paste (egui's events, or the keys where it sends none).
-    let (copy, cut, paste) = ui.input(|i| {
-        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
-        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
-        (
-            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
-            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
-            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
-        )
-    });
+    let (copy, cut, paste) = crate::widgets::copy_cut_paste(ui);
     if response.hovered() && !typing {
         if (copy || cut) && !view.tile_selection.is_empty() {
             app.tile_clip = copy_tiles(app, view);
@@ -564,12 +555,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             usize::from(props.main[which])
         };
         let mut keep = true;
-        egui::Window::new("Select A Color")
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
+        crate::widgets::dialog(ctx, "Select A Color", &mut keep)
             .collapsible(false)
             .resizable(false)
-            .open(crate::widgets::open_unless_escape(ctx, "Select A Color", &mut keep))
             .show(ctx, |ui| {
                 egui::Grid::new("light_colors").spacing([4.0, 4.0]).show(ui, |ui| {
                     for row in 0..colors.len().min(32) {
@@ -740,13 +728,7 @@ pub(crate) fn refused_overlay(ui: &egui::Ui, view: &mut AreaView) {
     let painter = ui.painter_at(view.rect);
     for &(x, y) in cells {
         let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-        let z = t.position.z;
-        let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(dx, dy)| {
-            Vec3::new((x as f32 + dx) * mg_area::TILE_SIZE, (y as f32 + dy) * mg_area::TILE_SIZE, z)
-        });
-        let corners = view.on_ground(&corners);
-        let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
-        if screen.len() == 4 {
+        if let Some(screen) = view.square_on_screen(x as f32, y as f32, t.position.z) {
             let fill = Color32::from_rgba_unmultiplied(230, 40, 40, (110.0 * strength) as u8);
             let line = Color32::from_rgba_unmultiplied(255, 60, 60, (255.0 * strength) as u8);
             // (The outline edge by edge: see `area_view::outline`.)
@@ -769,13 +751,7 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
     // tiles' heights).
     for &(x, y) in &view.tile_selection {
         let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-        let z = t.position.z;
-        let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(dx, dy)| {
-            Vec3::new((x as f32 + dx) * mg_area::TILE_SIZE, (y as f32 + dy) * mg_area::TILE_SIZE, z)
-        });
-        let corners = view.on_ground(&corners);
-        let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
-        if screen.len() == 4 {
+        if let Some(screen) = view.square_on_screen(x as f32, y as f32, t.position.z) {
             crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, blue));
         }
     }
@@ -787,12 +763,7 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
         let gold = Color32::from_rgb(240, 200, 60);
         for ((dx, dy), _, _) in &clip.tiles {
             let (x, y) = (at.0 as f32 + *dx as f32, at.1 as f32 + *dy as f32);
-            let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(ex, ey)| {
-                Vec3::new((x + ex) * mg_area::TILE_SIZE, (y + ey) * mg_area::TILE_SIZE, 0.0)
-            });
-            let corners = view.on_ground(&corners);
-            let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
-            if screen.len() == 4 {
+            if let Some(screen) = view.square_on_screen(x, y, 0.0) {
                 crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, gold));
             }
         }

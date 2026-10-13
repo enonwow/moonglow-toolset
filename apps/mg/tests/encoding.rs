@@ -3,7 +3,6 @@
 //! by it, and as Windows-1252 without it.
 
 use std::path::Path;
-use std::process::Command;
 
 use mg_core::{Gender, Language, LocString};
 use mg_erf::ErfWriter;
@@ -21,7 +20,7 @@ fn guard(module: &Path) -> Struct {
 }
 
 fn mg(root: &Path, user: Option<&Path>, args: &[&str]) -> (bool, Json) {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_mg"));
+    let mut c = crate::mg();
     c.args(["--json", "--root", root.to_str().unwrap()]);
     match user {
         Some(u) => c.args(["--user-dir", u.to_str().unwrap()]),

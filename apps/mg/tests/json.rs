@@ -4,12 +4,11 @@
 //! `mg info` answer questions about Neverwinter Chess.
 
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::Value;
 
 fn run(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
         .args(args)
         .output()
@@ -70,7 +69,7 @@ fn every_command_answers_in_json() {
     let listed = ok(&["model-files", "plc_a01", &at("files"), "--dry-run"]);
     assert_eq!(listed["files"], files["files"]);
     ok(&["model-files", "plc_a01", &at("files"), "--force"]);
-    let refused = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let refused = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
         .args(["model-files", "plc_a01", &at("files")])
         .output()

@@ -2,12 +2,11 @@
 //! user directory that is not the player's.
 
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::Value;
 
 fn serve(root: &Path, user: &Path, args: &[&str]) -> (bool, Vec<Value>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
         .arg("serve")
         .args(args)
@@ -24,6 +23,7 @@ fn a_module_is_served_until_a_line_of_its_log() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
+    let _alone = mg_testkit::engine::one_at_a_time();
     let dir = mg_testkit::scratch_dir("mg-serve");
     let user = dir.join("user");
     std::fs::create_dir_all(&user).unwrap();
@@ -73,6 +73,48 @@ fn a_module_is_served_until_a_line_of_its_log() {
     let (ok, _, text) = serve(&root, &user, &[c, "--dir", user.to_str().unwrap()]);
     assert!(!ok && text.contains("--real-user-dir"), "{text}");
     assert_eq!(std::fs::read_dir(&user).unwrap().count(), 0);
+}
+
+/// A module kept as files (a folder, a nasher project) is served with its
+/// scripts compiled: its load script, there as source only, runs.
+#[test]
+fn a_module_of_sources_is_served_compiled() {
+    use mg_core::ResType;
+    use mg_resman::ResKey;
+    use mg_schema::StructExt;
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::one_at_a_time();
+    let dir = mg_testkit::scratch_dir("mg-serve-sources");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let mut m = mg_module::Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    m.set(
+        ResKey::parse("mg_hello", ResType::NSS).unwrap(),
+        b"void main() { WriteTimestampedLogEntry(\"MG_SERVED_COMPILED\"); }\n".to_vec(),
+    );
+    m.set(ResKey::parse("mg_broken", ResType::NSS).unwrap(), b"void main() { no }\n".to_vec());
+    let mut info = m.info().unwrap();
+    let load: mg_core::ResRef = "mg_hello".parse().unwrap();
+    info.root.write(&mg_schema::ifo::MOD_ON_MOD_LOAD, load);
+    m.set_info(&info).unwrap();
+    let folder = dir.join("sources");
+    m.save_as(&mg_module::ModuleLocation::Folder(folder.clone())).unwrap();
+    assert!(!folder.join("mg_hello.ncs").exists());
+    let served = dir.join("served");
+    let (f, s) = (folder.to_str().unwrap(), served.to_str().unwrap());
+    let (ok, events, text) =
+        serve(&root, &user, &[f, "--dir", s, "--until", "MG_SERVED_COMPILED", "--timeout", "90"]);
+    assert!(ok, "{text}");
+    // What was compiled is said, and what did not compile; the sources
+    // are as they were.
+    let notes: Vec<&str> =
+        events.iter().filter(|e| e["event"] == "note").filter_map(|e| e["note"].as_str()).collect();
+    assert!(notes.iter().any(|n| n.starts_with("compiled ")), "{events:?}");
+    assert!(notes.iter().any(|n| n.contains("mg_broken.nss did not compile")), "{events:?}");
+    assert!(!folder.join("mg_hello.ncs").exists());
 }
 
 /// `path` as seen from `from` (both absolute).

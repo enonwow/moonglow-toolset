@@ -3,10 +3,32 @@ type: Research Note
 title: 'Moonglow Toolset: prior-art brief'
 description: Survey of 2026-09-30 of existing NWN tools and libraries (rollnw, neverwinter.nim, nwn-lib-rs, NWNExplorer and others), focused on terrain painting, EE lighting and libraries Moonglow could depend on, with recommendations.
 tags: [prior-art, survey, libraries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:38:36Z }
+status: deprecated
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:29:36Z }
 ---
 
 # Moonglow Toolset: prior-art brief
+
+> **Historical.** Written on 30 September 2026, the day the repository
+> began and before Moonglow's first release, and kept as the record of what
+> existed then and why the decisions that followed were taken. It is not
+> kept up to date, and what it says of other projects is as of that day.
+> Decided since, in places against its recommendations:
+>
+> - **License and compiler:** Moonglow is GPL-3.0, with the official
+>   NWScript compiler built in (`mg-script`), not run as a separate program.
+> - **Renderer:** wgpu with Moonglow's own shaders approximating EE
+>   lighting, checked against the game client's screenshots; running the
+>   game's stock shaders is not a goal ([the plan](../PLAN.md), section 5.5,
+>   and the rules of `CLAUDE.md`).
+> - **Libraries:** Moonglow's own crates for every format; neither rollnw
+>   nor nwnrs is used.
+> - **Script tooling:** Moonglow's own language server, `mg lsp`.
+> - **The "gaps nobody has filled" of section 7** are what Moonglow now
+>   does: terrain painting by the tilesets' primary rules as Aurora paints,
+>   EE lighting, a whole module toolset on Linux, Windows and macOS, its own
+>   Rust crates for MDL, MTR, SET and KEY/BIF, and Build Module's side
+>   effects (palettes, compiling, the module's area and hak lists).
 
 Surveyed 2026-09-30. Repository metadata (license, last commit, releases) comes from the GitHub, GitLab
 and crates.io APIs on that date. I shallow-cloned and read the code of rollnw, neverwinter.nim,

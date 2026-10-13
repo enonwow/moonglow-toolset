@@ -2,8 +2,6 @@
 //! its compiled script and an area with its `.git` and `.gic`; no game
 //! install needed.
 
-use std::process::Command;
-
 use mg_core::{ResRef, ResType};
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
@@ -29,7 +27,7 @@ fn resources_are_exported_as_files() {
 
     let out_dir = dir.join("development");
     let run = |resources: &[&str]| {
-        let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+        let out = crate::mg()
             .arg("export")
             .arg(&path)
             .args(resources)

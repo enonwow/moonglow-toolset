@@ -182,7 +182,14 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
         crate::widgets::field_label(ui, "Appearance");
         ui.horizontal(|ui| {
+            let before = f.app.actions.len();
             f.appearance_choice(ui, "Appearance_Type", &appearances, FieldType::Word, true);
+            if f.app.actions.len() > before
+                && let Some(Action::Apply(mut set)) = f.app.actions.pop()
+            {
+                with_a_body(f.app, &mut set.edits);
+                f.app.actions.push(Action::Apply(set));
+            }
             f.gallery_button(ui, crate::appearance_gallery::Kind::Creature);
         });
         ui.end_row();
@@ -352,6 +359,45 @@ const BODY_PARTS: [(&str, &str, &str); 19] = [
     ("Right Foot", "ArmorPart_RFoot", "footr"),
     ("Left Foot", "BodyPart_LFoot", "footl"),
 ];
+
+/// A body for a creature given a part-based appearance that has none: to
+/// each edit that sets `Appearance_Type` to a body of parts, on a creature
+/// that keeps no body part at all (one made with a single model: the
+/// game's bandit), the parts are added as a creature new in Aurora has
+/// them: 1, and no belt or shoulders. The game draws a head and no body
+/// for such a creature without them (`client_render.rs`, `MG_NO_BODY`),
+/// which an armor hides until it is taken off.
+pub(crate) fn with_a_body(app: &mut Moonglow, edits: &mut Vec<Edit>) {
+    let Some(game) = app.game.clone() else { return };
+    let Ok(appearance) = game.table("appearance") else { return };
+    let Some(ws) = app.ws.as_mut() else { return };
+    let mut more = Vec::new();
+    for e in edits.iter() {
+        let Edit::SetField { key, path, label, value: Some(value) } = e else { continue };
+        let mut set = Struct::new(0);
+        set.set(label, value.clone());
+        let row = set.integer("Appearance_Type");
+        let parts = row.and_then(|r| appearance.get(usize::try_from(r).ok()?, "MODELTYPE"));
+        if !parts.is_some_and(|t| t.to_ascii_uppercase().starts_with('P')) {
+            continue;
+        }
+        let Ok(doc) = ws.doc(key) else { continue };
+        let Some(creature) = path.get(&doc.root) else { continue };
+        if BODY_PARTS.iter().any(|(_, field, _)| part_number(creature, field).is_some()) {
+            continue;
+        }
+        for (_, field, mdlname) in BODY_PARTS {
+            let bare = matches!(mdlname, "belt" | "shor" | "shol");
+            more.push(Edit::SetField {
+                key: *key,
+                path: path.clone(),
+                label: field.to_string(),
+                value: Some(Value::Byte(u8::from(!bare))),
+            });
+        }
+    }
+    edits.extend(more);
+}
 
 /// The part numbers with a model for a body's prefix (`pmh0_chest`), cached.
 fn part_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
@@ -576,12 +622,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
             if ui.add_enabled(list.len() > 1, egui::Button::new("Remove").small()).clicked() {
                 edits.push((
                     "Remove class",
-                    vec![Edit::RemoveItem {
-                        key,
-                        path: base.clone(),
-                        list: "ClassList".into(),
-                        index: i,
-                    }],
+                    vec![Edit::remove_item(key, base.clone(), "ClassList", i)],
                 ));
             }
             // A cleric's domains, a wizard's school (classes.2da PickDomains,
@@ -622,13 +663,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         s.set("ClassLevel", Value::Short(1));
         edits.push((
             "Add class",
-            vec![Edit::InsertItem {
-                key,
-                path: base.clone(),
-                list: "ClassList".into(),
-                index: list.len(),
-                item: s,
-            }],
+            vec![Edit::insert_item(key, base.clone(), "ClassList", list.len(), s)],
         ));
     }
     if ui
@@ -776,13 +811,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
             .map(|i| {
                 let mut s = Struct::new(mg_schema::utc::SKILL_LIST.item_id);
                 s.set("Rank", Value::Byte(0));
-                Edit::InsertItem {
-                    key,
-                    path: base.clone(),
-                    list: "SkillList".into(),
-                    index: i,
-                    item: s,
-                }
+                Edit::insert_item(key, base.clone(), "SkillList", i, s)
             })
             .collect();
         edits.push(set(key, &base.item("SkillList", row), "Rank", Value::Byte(v as u8)));

@@ -15,7 +15,7 @@ use mg_resman::ResKey;
 use mg_rules::rows::{RowTable, list_table, row_table};
 use mg_rules::{ChoiceColumns, GameData};
 
-use crate::text::{decode, encode, from_editor, to_editor, with_english};
+use crate::text::{decode, encode, to_editor, with_english};
 use crate::{Action, Moonglow};
 
 struct Ctx<'a> {
@@ -99,18 +99,9 @@ impl Ctx<'_> {
     /// A text box that commits on focus loss; text with line breaks gets a
     /// multi-line box and keeps its line-end style.
     fn text(&mut self, ui: &mut Ui, id: egui::Id, current: &str) -> Option<String> {
-        let (shown, crlf) = to_editor(current);
-        let buf = self.buffers.entry(id).or_insert_with(|| shown.clone());
-        let edit = if shown.contains('\n') {
-            egui::TextEdit::multiline(buf).desired_rows(3)
-        } else {
-            egui::TextEdit::singleline(buf)
-        };
-        let r = ui.add(edit.id(id).desired_width(280.0));
-        if !r.has_focus() && !r.lost_focus() && *buf != shown {
-            *buf = shown.clone();
-        }
-        (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
+        // (As the editor shows it: a lone CR is a line break there too.)
+        let rows = to_editor(current).0.contains('\n').then_some(3);
+        crate::widgets::commit_text_in(self.buffers, ui, id, current, rows, 280.0)
     }
 }
 

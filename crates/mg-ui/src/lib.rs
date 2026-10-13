@@ -49,6 +49,7 @@ mod script_view;
 pub mod script_wizard;
 pub mod settings;
 pub mod store_wizard;
+pub mod table_view;
 mod tabs;
 pub mod talk_view;
 pub mod terrain_mode;
@@ -136,7 +137,7 @@ pub enum Action {
     SaveAsProjectDialog,
     /// File › Open Folder…: a module folder or a nasher project.
     OpenFolderDialog,
-    /// Build › Pack Target: a nasher project's module file, as nasher packs it.
+    /// Build › Pack *file*: a nasher project's module file, as nasher packs it.
     PackTarget,
     /// Saves, then runs the action if the module was saved.
     SaveThen(Box<Action>),
@@ -233,6 +234,9 @@ pub enum Action {
     /// Saves, then starts the game on the module (F9).
     TestModule,
     Quit,
+    /// The window's own close button: Quit, asked about first where there
+    /// is no unsaved work to ask about (Options › General).
+    CloseWindow,
 }
 
 /// Where a window is: where it was last put, where its panes were when
@@ -319,6 +323,17 @@ pub struct Moonglow {
     pub(crate) laid_out: HashMap<ResKey, Option<script_view::LaidOut>>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
+    /// The text field of a Properties window that has the keyboard: when
+    /// it was drawn last, and what it would set if left now (`None`:
+    /// nothing typed). A field that is gone before the keyboard left it
+    /// (another page chosen, its window closed) is set from this, so that
+    /// what was typed is not lost.
+    pub(crate) held_text: Option<(egui::Id, u64, Option<Command>)>,
+    /// The tabs by when each was last in front, the latest first.
+    tabs_recent: Vec<Tab>,
+    /// Next Tab going through the tabs by when they were last used: the
+    /// order it began with, and where it is in it.
+    tab_cycle: Option<(Vec<Tab>, usize)>,
     pub wizard: Option<Wizard>,
     /// An open blueprint wizard.
     pub blueprint_wizard: Option<blueprint_wizard::BlueprintWizard>,
@@ -331,6 +346,8 @@ pub struct Moonglow {
     pub module_page: module_props::Page,
     /// Each open blueprint editor's page.
     pub blueprint_pages: blueprint::Pages,
+    /// What each open Properties window has changed, for its Cancel.
+    pub(crate) properties_changed: blueprint::Changed,
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
     pub dialog_views: HashMap<ResKey, dialog_view::DialogView>,
@@ -360,6 +377,13 @@ pub struct Moonglow {
     keymap_from: std::collections::BTreeMap<String, Vec<String>>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
+    /// The 2DAs open in the table editor.
+    pub tables: Vec<table_view::TableDoc>,
+    pub(crate) next_table: u32,
+    /// The Open 2DA window.
+    pub open_table: Option<table_view::OpenTable>,
+    /// A table whose tab was asked to close with unsaved changes.
+    pub(crate) table_closing: Option<u32>,
     pub(crate) next_hak: u32,
     /// A hak whose tab is being closed with unsaved changes.
     pub(crate) hak_closing: Option<u32>,
@@ -423,6 +447,8 @@ pub struct Moonglow {
     pub item_clip: Vec<mg_core::ResRef>,
     /// An object to show and select when its area's view is next drawn.
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
+    /// The area whose view goes to the start location when next drawn.
+    pub(crate) start_focus: Option<mg_core::ResRef>,
     /// The References tab.
     pub references: references::References,
     /// What each script was compiled from when Compile All last compiled
@@ -431,6 +457,9 @@ pub struct Moonglow {
     /// The text field typed in since it got the keyboard: Undo and Redo
     /// are its own there (`commands::keys_pressed`).
     pub(crate) text_typed: Option<egui::Id>,
+    /// A command asked for by its key while a text field was typed in:
+    /// run in the next frame, after the field has set its text.
+    pub(crate) command_after_text: Option<commands::Id>,
     pub(crate) script_stamps: mg_module::build::Remembered,
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
@@ -510,6 +539,9 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// The window's close button was pressed with nothing unsaved: asked
+    /// whether to close.
+    pub closing: bool,
     /// The graphics adapter and its limits, for the debug log.
     render_info: Option<String>,
     /// A nasher project's files changed outside Moonglow.
@@ -527,6 +559,9 @@ pub struct Moonglow {
     pub(crate) menu_row: [usize; 2],
     pub(crate) menu_open: Option<usize>,
     pub(crate) menu_alt_spoiled: bool,
+    /// Whether the pointer was over an area's view when one was last
+    /// drawn: F10 is Select Tiles there, not the menus'.
+    pub(crate) area_hovered: bool,
     /// Where each open tool window was seen last (see [`Place`]).
     tab_places: HashMap<Tab, Place>,
     /// Each pane's tabs in their order, as this frame began (the dock is
@@ -626,6 +661,9 @@ impl Moonglow {
             scripts: HashMap::new(),
             laid_out: HashMap::new(),
             buffers: HashMap::new(),
+            held_text: None,
+            tabs_recent: Vec::new(),
+            tab_cycle: None,
             wizard: None,
             blueprint_wizard: None,
             settings: Settings::default(),
@@ -635,6 +673,7 @@ impl Moonglow {
             loc_edit: None,
             module_page: module_props::Page::default(),
             blueprint_pages: Default::default(),
+            properties_changed: Default::default(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
             dialog_views: HashMap::new(),
@@ -654,6 +693,10 @@ impl Moonglow {
             keymap_from: Default::default(),
             haks: Vec::new(),
             next_hak: 0,
+            tables: Vec::new(),
+            next_table: 0,
+            open_table: None,
+            table_closing: None,
             hak_closing: None,
             hak_list: Default::default(),
             suggested_hak: None,
@@ -670,8 +713,10 @@ impl Moonglow {
             adjust: None,
             find_instance: None,
             area_focus: None,
+            start_focus: None,
             references: Default::default(),
             text_typed: None,
+            command_after_text: None,
             script_stamps: Default::default(),
             compiled_dir: None,
             rename: None,
@@ -723,6 +768,7 @@ impl Moonglow {
             tree_fold: None,
             import: None,
             confirm_discard: None,
+            closing: false,
             render_info: None,
             outside: Default::default(),
             maximized: HashMap::new(),
@@ -731,6 +777,7 @@ impl Moonglow {
             menu_row: [0, 0],
             menu_open: None,
             menu_alt_spoiled: false,
+            area_hovered: false,
             tab_places: HashMap::new(),
             panes_tabs: Vec::new(),
             closed_tabs: Vec::new(),
@@ -815,6 +862,7 @@ impl Moonglow {
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()));
         widgets::install_fonts(ui.ctx());
         widgets::dialogs_begin(ui.ctx());
+        widgets::text_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
         // of what is drawn, and said so.
         for failure in mg_render::guard::take_failures() {
@@ -986,6 +1034,7 @@ impl Moonglow {
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
         self.remember_window_places();
+        self.note_recent_tabs(ui.ctx());
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -1021,6 +1070,8 @@ impl Moonglow {
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
+        table_view::closing_window(self, ui.ctx());
+        table_view::open_table_ui(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
@@ -1054,6 +1105,20 @@ impl Moonglow {
         jobs::window(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());
+        // (What a Properties window changed is kept while it is open.)
+        let dock = &self.dock;
+        self.properties_changed.retain(|_, changes| dock.find_tab(&changes.tab).is_some());
+        // A Properties text field that was typed in and is not drawn any
+        // more: set now, as it would have been when left.
+        if let Some((id, drawn, typed)) = &self.held_text
+            && *drawn != ui.ctx().cumulative_pass_nr()
+        {
+            if let Some(command) = typed.clone() {
+                self.actions.push(Action::Apply(command));
+            }
+            self.buffers.remove(id);
+            self.held_text = None;
+        }
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -1246,6 +1311,13 @@ impl Moonglow {
             }
             self.haks.retain(|d| d.id != id);
         }
+        if let Tab::Table(id) = *tab {
+            if self.tables.iter().any(|d| d.id == id && d.edit.is_dirty()) {
+                self.table_closing = Some(id);
+                return false;
+            }
+            self.tables.retain(|d| d.id != id);
+        }
         if let Tab::Tileset(id) = *tab {
             if self.tilesets.iter().any(|d| d.id == id && d.is_dirty()) {
                 self.tileset_closing = Some(id);
@@ -1260,7 +1332,10 @@ impl Moonglow {
     /// resource or a tool of the module, not a hak's or a tileset's own
     /// editor (closed, it has let its file go).
     pub(crate) fn closed(&mut self, tab: &Tab) {
-        if matches!(tab, Tab::Hak(_) | Tab::Tileset(_) | Tab::Options | Tab::TileProperties) {
+        if matches!(
+            tab,
+            Tab::Hak(_) | Tab::Table(_) | Tab::Tileset(_) | Tab::Options | Tab::TileProperties
+        ) {
             return;
         }
         // (The palettes' pane closed is the palettes folded away: View
@@ -1319,8 +1394,74 @@ impl Moonglow {
         if n < 2 {
             return;
         }
-        let next = (leaf.active.0 as isize + by).rem_euclid(n) as usize;
-        self.show_tab(leaf.tabs[next].clone());
+        if !self.settings.tabs_by_recent {
+            let next = (leaf.active.0 as isize + by).rem_euclid(n) as usize;
+            self.show_tab(leaf.tabs[next].clone());
+            return;
+        }
+        // By when they were last used (Options › General): the order as
+        // it was when the keys began, gone through for as long as Ctrl is
+        // held ([`Moonglow::note_recent_tabs`] ends it).
+        let (order, at) = self.tab_cycle.take().unwrap_or_else(|| {
+            let mut order: Vec<Tab> =
+                self.tabs_recent.iter().filter(|t| leaf.tabs.contains(t)).cloned().collect();
+            order.extend(leaf.tabs.iter().filter(|t| !self.tabs_recent.contains(t)).cloned());
+            let at = leaf.tabs.get(leaf.active.0).and_then(|t| order.iter().position(|o| o == t));
+            (order, at.unwrap_or(0))
+        });
+        let at = (at as isize + by).rem_euclid(order.len() as isize) as usize;
+        let tab = order[at].clone();
+        self.tab_cycle = Some((order, at));
+        self.show_tab(tab);
+    }
+
+    /// Next Pane and Previous Pane (F6): the arrow keys given to the next
+    /// of the panes shown, round from the last: the module tree (at the
+    /// row they were at, else its first), the middle (an area's view has
+    /// them, as after a click in it), the palettes.
+    pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
+        use palette_view::Keys;
+        let mut panes = Vec::new();
+        if self.ws.is_some() && !self.settings.hide_tree {
+            panes.push(Keys::Tree);
+        }
+        panes.push(Keys::Area);
+        if self.dock.find_tab(&Tab::Palette).is_some() {
+            panes.push(Keys::Palette);
+        }
+        let now = panes.iter().position(|p| palette_view::keys_are(ctx, *p));
+        // (The keys anywhere else, a talk table's lines: as the middle's.)
+        let now = now.or_else(|| panes.iter().position(|p| *p == Keys::Area)).unwrap_or(0);
+        let next = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
+        palette_view::give_keys(ctx, next);
+        if next == Keys::Tree && self.tree_cursor.is_none() {
+            self.tree_cursor = Some(tree::first_row());
+            self.tree_cursor_moved = true;
+        }
+    }
+
+    /// Notes the tab in front as the one used last, each frame; not while
+    /// Next Tab is going through the tabs with Ctrl held, which ends when
+    /// it is let go (the tab arrived at is then the one used last).
+    fn note_recent_tabs(&mut self, ctx: &egui::Context) {
+        if self.tab_cycle.is_some() {
+            if ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
+                return;
+            }
+            self.tab_cycle = None;
+        }
+        let front = (self.tab_pane())
+            .and_then(|pane| self.dock.leaf(pane).ok())
+            .and_then(|leaf| leaf.tabs.get(leaf.active.0))
+            .cloned();
+        let Some(front) = front else { return };
+        if self.tabs_recent.first() != Some(&front) {
+            self.tabs_recent.retain(|t| *t != front);
+            self.tabs_recent.insert(0, front);
+            // (Closed ones go as the list is looked through; not kept
+            // without end.)
+            self.tabs_recent.truncate(64);
+        }
     }
 
     /// The middle's tab of a number (from 1; 9: its last), brought to the
@@ -1791,19 +1932,16 @@ impl Moonglow {
             if self.install.is_some() { "known" } else { "none" },
         ));
         if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
-            let haks = m.haks().unwrap_or_default();
-            match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
-                Ok(missing) => {
-                    for h in missing {
-                        self.log.warn(format!("Hak {h} not found"));
-                    }
-                }
-                Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),
+            let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
+            for h in missing {
+                self.log.warn(format!("Hak {h} not found"));
             }
-            game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+            if let Some(e) = wrong {
+                self.log.error(format!("Could not open the module's haks: {e}"));
+            }
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
-            self.haks_layered = haks;
+            self.haks_layered = m.haks().unwrap_or_default();
         } else if self.game.is_some() && self.install.is_some() {
             // (Something still reads the game data: said, rather than a
             // module opened without its haks and nothing to show why.)
@@ -1902,6 +2040,7 @@ impl Moonglow {
             || self.scripts.values().any(|b| b.is_dirty())
             || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable())
             || hak_view::unsaved(self)
+            || table_view::unsaved(self)
             || tileset_view::unsaved(self)
     }
 
@@ -1966,6 +2105,7 @@ impl Moonglow {
         self.thumbnails.forget(self.viewport.as_ref());
         self.scripts.clear();
         self.buffers.clear();
+        self.properties_changed.clear();
         self.talk = None;
         self.talk_view = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);
@@ -2026,6 +2166,17 @@ impl Moonglow {
                     | Action::Close
                     | Action::Quit
             ),
+        };
+        // The window's X: with unsaved work, the question Exit asks; with
+        // none, one of its own, so that a slip of the pointer does not end
+        // a session of open areas and scripts.
+        let action = match action {
+            Action::CloseWindow if self.has_unsaved_work() => {
+                self.confirm_discard = Some(Action::Quit);
+                return;
+            }
+            Action::CloseWindow if self.settings.close_without_asking => Action::Quit,
+            other => other,
         };
         if discards && self.has_unsaved_work() {
             self.confirm_discard = Some(action);
@@ -2281,13 +2432,30 @@ impl Moonglow {
                                 p.surface.is_main() && Some((p.surface, p.node)) != palette
                             }),
                         };
-                        match pane {
-                            Some(pane) => {
+                        // A script, with a script's window open: a tab of
+                        // that window, not one more window (Options ›
+                        // Script Editor).
+                        let beside = (matches!(tab, Tab::Script(_))
+                            && !self.settings.scripts_own_windows)
+                            .then(|| {
+                                self.dock.iter_leaves().find(|(p, leaf)| {
+                                    !p.surface.is_main()
+                                        && leaf.tabs.iter().any(|t| matches!(t, Tab::Script(_)))
+                                })
+                            })
+                            .flatten()
+                            .map(|(p, _)| p);
+                        match (pane, beside) {
+                            (Some(pane), _) => {
                                 self.dock.set_focused_node_and_surface(pane);
                                 self.dock.push_to_focused_leaf(tab.clone());
                                 self.tab_places.remove(&tab);
                             }
-                            None => self.open_window(tab.clone()),
+                            (None, Some(window)) => {
+                                self.dock.set_focused_node_and_surface(window);
+                                self.dock.push_to_focused_leaf(tab.clone());
+                            }
+                            (None, None) => self.open_window(tab.clone()),
                         }
                     } else {
                         // Into the main window, not the palette's pane: the
@@ -2370,11 +2538,19 @@ impl Moonglow {
                     && self.settings.scripts_external
                     && self.settings.external_editor.is_some()
                 {
+                    // (Alone, where the script's own file can be edited in
+                    // place.)
+                    if self.settings.scripts_external_only
+                        && script_view::open_only_external(self, key)
+                    {
+                        return;
+                    }
                     self.script_tools.open_externally.insert(key);
                 }
                 self.run_now(Action::OpenTab(tab));
             }
             Action::PlacePrefab(name) => self.place_prefab(&name),
+            Action::CloseWindow => self.closing = true,
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();
@@ -2555,6 +2731,9 @@ impl Moonglow {
             }
         }
         talk_view::save(self);
+        // (Tables first: one of a hak's is saved into the hak, which is
+        // then written; one of the module's is a step saved below.)
+        table_view::save_all(self);
         hak_view::save_all(self);
         tileset_view::save_all(self);
         let Some(ws) = &mut self.ws else { return };
@@ -2652,13 +2831,19 @@ impl Moonglow {
     /// Logs (and clears) what the open nasher project has to say.
     fn take_project_warnings(&mut self) {
         let Some(ws) = &mut self.ws else { return };
+        // (And a module folder's: a resource there under two spellings.)
+        if let Some(folder) = ws.module.folder.as_mut() {
+            for w in std::mem::take(&mut folder.warnings) {
+                self.log.warn(w);
+            }
+        }
         let Some(project) = ws.module.project.as_mut() else { return };
         for w in std::mem::take(&mut project.warnings) {
             self.log.warn(w);
         }
     }
 
-    /// Build › Pack Target: writes a nasher project's module file (its
+    /// Build › Pack *file*: writes a nasher project's module file (its
     /// target's `file`), scripts compiled, as `nasher pack` would. Returns
     /// where it went.
     fn pack_target(&mut self) -> Option<PathBuf> {
@@ -2686,11 +2871,11 @@ impl Moonglow {
                 }
             }
             Ok(None) => {
-                self.log.error("Pack Target: the module isn't in a nasher project");
+                self.log.error("Pack: the module isn't in a nasher project");
                 None
             }
             Err(e) => {
-                self.log.error(format!("Pack Target: {e}"));
+                self.log.error(format!("Pack: {e}"));
                 None
             }
         }
@@ -2700,6 +2885,7 @@ impl Moonglow {
     /// holds none).
     fn compile_uncompiled(&mut self) {
         let external = self.external_compiler();
+        let debug = self.settings.debug_info;
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
         let Ok(results) = ws.derive(|module| {
             mg_module::build::compile_scripts_with(
@@ -2707,6 +2893,7 @@ impl Moonglow {
                 &game.resman,
                 mg_module::build::ScriptSelection::Uncompiled,
                 external.as_ref(),
+                debug,
             )
         }) else {
             return;
@@ -2852,6 +3039,7 @@ impl Moonglow {
             );
         }
         let known = self.script_stamps.clone();
+        let debug = self.settings.debug_info;
         let all = only.is_none();
         let title = if all { "Compile All Scripts" } else { "Compile Scripts" };
         self.start_job(
@@ -2865,9 +3053,11 @@ impl Moonglow {
                     external.as_ref(),
                     &known,
                     only,
+                    debug,
                 );
                 let edits: Vec<mg_edit::Edit> = staged
-                    .keys_of(ResType::NCS)
+                    .keys()
+                    .filter(|k| matches!(k.restype, ResType::NCS | ResType::NDB))
                     .filter(|k| staged.get(k) != job.module.get(k))
                     .map(|k| mg_edit::Edit::SetResource {
                         key: *k,
@@ -3258,7 +3448,7 @@ impl Moonglow {
         for l in old {
             game.resman.remove(&l);
         }
-        match game.resman.add_haks(gi, &listed.iter().map(String::as_str).collect::<Vec<_>>()) {
+        match game.resman.add_haks(gi, &listed) {
             Ok(missing) => {
                 for h in missing {
                     self.log.warn(format!("Hak {h} not found"));

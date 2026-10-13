@@ -205,12 +205,7 @@ pub fn delete_edits(git: ResKey, objects: &[(ObjectKind, usize)]) -> Vec<Edit> {
         indices.sort_unstable();
         indices.dedup();
         for index in indices.into_iter().rev() {
-            edits.push(Edit::RemoveItem {
-                key: git,
-                path: GffPath::root(),
-                list: list.into(),
-                index,
-            });
+            edits.push(Edit::remove_item(git, GffPath::root(), list, index));
         }
     }
     edits

@@ -1028,6 +1028,23 @@ fn pictured_look(app: &Moonglow, key: Pictured) -> Option<(Source, Preview)> {
     }
 }
 
+/// Whether a preview is a shield's: an item of a base item that goes in
+/// the left hand alone (`EquipableSlots`: 0x20 and not the right hand's
+/// 0x10, which a torch has too), by its model's name (`ItemClass` and
+/// what follows). A shield's model faces its bearer: its front, which
+/// tells one from another, is the side away from where models face.
+fn is_shield(app: &Moonglow, source: &Source, preview: &Preview) -> bool {
+    let item = matches!(source, Source::Resource(k) if k.restype == ResType::UTI);
+    let Some(Ok(t)) = app.game.as_deref().filter(|_| item).map(|g| g.table("baseitems")) else {
+        return false;
+    };
+    let class = preview.base.model.split('_').next().unwrap_or_default();
+    (0..t.len()).any(|row| {
+        t.get(row, "ItemClass").is_some_and(|c| c.eq_ignore_ascii_case(class))
+            && t.get_int(row, "EquipableSlots").is_some_and(|s| s & 0x30 == 0x20)
+    })
+}
+
 fn draw_thumbnail(
     app: &mut Moonglow,
     key: Pictured,
@@ -1039,6 +1056,7 @@ fn draw_thumbnail(
         Pictured::Tile(_, quarters) => Some(f32::from(quarters % 4) * std::f32::consts::FRAC_PI_2),
         _ => None,
     };
+    let shield = is_shield(app, source, preview);
     let composed = compose(app, source, preview).ok()?;
     let vp = app.viewport.as_mut()?;
     // As the viewer frames it: from the front, a little to the side.
@@ -1056,6 +1074,8 @@ fn draw_thumbnail(
         // (From the south-west, as an area opens: the camera goes round
         // the other way from the tile's turn.)
         Some(by) => -120f32.to_radians() - by,
+        // (A shield from its front.)
+        None if shield => usual + std::f32::consts::PI,
         None => {
             [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]
                 .into_iter()
@@ -1103,10 +1123,16 @@ fn draw_thumbnail(
     let near = if idle.is_some() { 1.05 } else { 0.85 };
     let distance = (radius / 20f32.to_radians().sin() * near).max(tall);
     let camera = Camera::orbit(target, distance, yaw, pitch);
+    // The sun goes round with the view: a thing seen from another side
+    // than the usual (a shield, a banner) is lit on the side seen.
+    let mut area = AreaLight::default();
+    if turned.is_none() {
+        area.direction = glam::Quat::from_rotation_z(yaw - usual) * area.direction;
+    }
     let scene = Scene {
         instances: composed.instances(idle, 0.0, Mat4::IDENTITY),
         lights: composed.point_lights(Mat4::IDENTITY),
-        area: AreaLight::default(),
+        area,
         background: [0.16, 0.18, 0.21],
         particles,
         ..Default::default()

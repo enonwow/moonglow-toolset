@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 fn mg(root: &Path, args: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_mg"));
+    let mut c = crate::mg();
     c.args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json"]).args(args);
     c
 }
@@ -44,7 +44,15 @@ fn changes_go_to_the_development_folder_or_build_the_module() {
     let p = project.to_str().unwrap();
     let mut child = mg(
         &root,
-        &["watch", p, "--dev-dir", dev.to_str().unwrap(), "--mod", built.to_str().unwrap()],
+        &[
+            "watch",
+            p,
+            "--dev-dir",
+            dev.to_str().unwrap(),
+            "--mod",
+            built.to_str().unwrap(),
+            "--ndb",
+        ],
     )
     .stdout(Stdio::piped())
     .spawn()
@@ -81,6 +89,10 @@ fn changes_go_to_the_development_folder_or_build_the_module() {
             synced["written"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         assert!(written.contains(&format!("{script}.ncs").as_str()), "{synced}");
         assert!(dev.join(format!("{script}.ncs")).is_file());
+        // (With --ndb: its debug file beside it.)
+        assert!(written.contains(&format!("{script}.ndb").as_str()), "{synced}");
+        let ndb = std::fs::read(dev.join(format!("{script}.ndb"))).unwrap();
+        assert!(ndb.starts_with(b"NDB V1.0"));
 
         // A script that does not compile: said, and nothing put out.
         let before = std::fs::read(dev.join(format!("{script}.ncs"))).unwrap();
@@ -120,6 +132,83 @@ fn changes_go_to_the_development_folder_or_build_the_module() {
     }));
     let _ = child.kill();
     let _ = child.wait();
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}
+
+#[test]
+fn a_project_is_served_and_started_again_when_it_is_built_again() {
+    use std::io::Write;
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::one_at_a_time();
+    let dir = mg_testkit::scratch_dir("mg-watch-serve");
+    let (project, served) = (dir.join("chess"), dir.join("served"));
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let unpack = [chess.to_str().unwrap(), project.to_str().unwrap()];
+    assert!(mg(&root, &[&["unpack"][..], &unpack[..]].concat()).status().unwrap().success());
+    let p = project.to_str().unwrap();
+    let mut child = mg(&root, &["watch", p, "--serve", "--dir", served.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let out = child.stdout.take().unwrap();
+    let mut typed = child.stdin.take().unwrap();
+    let (send, events) = channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                let _ = send.send(v);
+            }
+        }
+    });
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        next(&events, "watching");
+        let started = next(&events, "started");
+        next(&events, "ready");
+        // The server's own development folder is where changes go.
+        let dev = served.join("development");
+        let m = mg_module::Module::open(&project).unwrap();
+        let script = (m.keys_of(mg_core::ResType::NSS))
+            .find(|k| m.get(k).is_some_and(mg_script::outline::has_entry_point))
+            .unwrap()
+            .resref
+            .to_string();
+        let file = project.join(format!("{script}.nss"));
+        let mut source = std::fs::read(&file).unwrap();
+        source.extend_from_slice(b"\n// changed\n");
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&file, source).unwrap();
+        let synced = next(&events, "synced");
+        assert!(dev.join(format!("{script}.ncs")).is_file(), "{synced}");
+
+        // The module's own file changes: built again, and the server
+        // started again on it, at its port.
+        std::thread::sleep(Duration::from_millis(1100));
+        let set = mg(&root, &["set", p, "module.ifo", "Mod_Tag=WATCHED"]).output().unwrap();
+        assert!(set.status.success(), "{}", String::from_utf8_lossy(&set.stdout));
+        next(&events, "rebuilt");
+        let again = next(&events, "started");
+        assert_eq!(again["port"], started["port"]);
+        assert_ne!(again["pid"], started["pid"]);
+        next(&events, "ready");
+        assert!(!dev.join(format!("{script}.ncs")).exists(), "the module has it now");
+
+        // Told to stop, it stops the server and ends well.
+        typed.write_all(b"/quit\n").unwrap();
+        typed.flush().unwrap();
+        assert_eq!(next(&events, "ended")["failed"], false);
+    }));
+    if result.is_ok() {
+        assert!(child.wait().unwrap().success());
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
     if let Err(e) = result {
         std::panic::resume_unwind(e);
     }

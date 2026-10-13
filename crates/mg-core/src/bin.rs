@@ -41,6 +41,19 @@ impl<'a> Reader<'a> {
         Reader { data, pos: 0 }
     }
 
+    /// A reader at a table of `count` entries of `size` bytes each that
+    /// starts at `offset`: an error unless all of the table is there (so
+    /// a bad count cannot ask for a huge allocation).
+    pub fn table(
+        data: &'a [u8],
+        offset: usize,
+        count: usize,
+        size: usize,
+    ) -> Result<Self, BinError> {
+        slice(data, offset, count.saturating_mul(size))?;
+        Reader::at(data, offset)
+    }
+
     /// A reader positioned at `offset` in `data`.
     pub fn at(data: &'a [u8], offset: usize) -> Result<Self, BinError> {
         let mut r = Reader::new(data);

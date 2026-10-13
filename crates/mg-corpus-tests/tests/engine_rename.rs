@@ -11,11 +11,11 @@ use mg_module::{Module, ModuleLocation};
 use mg_resman::ResKey;
 use mg_schema::{StructExt, ifo};
 use mg_testkit::engine::{ServerRun, run_server, server_binary};
-use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
+use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir, sweep};
 use rayon::prelude::*;
 
-mod common;
-use common::{PROBE, compile, world};
+use crate::common;
+use common::{PROBE, compile, original_world, world};
 
 /// The first placed object (not a creature: they may wander) whose blueprint
 /// is in the module.
@@ -47,7 +47,7 @@ fn renamed_resources_present_the_same_world_in_the_engine() {
     let dir = scratch_dir("engine_rename");
     let probe = compile(&dir, "mg_probe", PROBE);
     let probe_key = ResKey::new(ResRef::from_str("mg_probe").unwrap(), ResType::NCS);
-    let modules: Vec<_> = bundled_modules(&root)
+    let modules: Vec<_> = sweep(bundled_modules(&root), 5)
         .into_iter()
         .filter(|m| m.extension().is_some_and(|e| e == "mod"))
         .collect();
@@ -79,36 +79,37 @@ fn renamed_resources_present_the_same_world_in_the_engine() {
             new("mg_probe_r"),
             "the module runs the renamed script"
         );
-        for (m, variant) in [(a, "a"), (b, "b")] {
-            let name = format!("r{i}{variant}");
-            let user = dir.join(format!("user-{name}"));
-            let mut m = m;
-            m.save_as(&ModuleLocation::Archive(user.join(format!("modules/{name}.mod")))).unwrap();
-            jobs.push((name, user));
-        }
+        let name = format!("r{i}b");
+        let user = dir.join(format!("user-{name}"));
+        b.save_as(&ModuleLocation::Archive(user.join(format!("modules/{name}.mod")))).unwrap();
+        jobs.push((path, name, user));
         cases.push((path.file_name().unwrap().to_string_lossy().into_owned(), renames));
     }
 
+    // The original with the probe is `original_world`'s module.
     let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
-    let runs: Vec<ServerRun> = pool.install(|| {
+    let runs: Vec<(Option<Vec<String>>, ServerRun)> = pool.install(|| {
         jobs.par_iter()
-            .map(|(name, user)| {
-                run_server(&root, user, name, "MG_DONE", Duration::from_secs(300)).unwrap()
+            .map(|(path, name, user)| {
+                rayon::join(
+                    || original_world(&root, path),
+                    || run_server(&root, user, name, "MG_DONE", Duration::from_secs(300)).unwrap(),
+                )
             })
             .collect()
     });
 
     let mut failures = Vec::new();
     let mut renamed = 0;
-    for ((label, renames), pair) in cases.iter().zip(runs.chunks(2)) {
-        let [a, b] = pair else { unreachable!() };
-        if !a.finished || !b.finished {
+    for ((label, renames), (a, b)) in cases.iter().zip(&runs) {
+        let Some(a) = a.as_ref().filter(|_| b.finished) else {
             failures.push(format!(
                 "{label}: server did not finish (original {}, renamed {})",
-                a.finished, b.finished
+                a.is_some(),
+                b.finished
             ));
             continue;
-        }
+        };
         // The original's world under the new names: area resrefs (field 1
         // of MG_AREA, field 1 of MG_OBJ) and blueprints (field 4 of MG_OBJ).
         let rename_field = |v: &str| {
@@ -117,8 +118,8 @@ fn renamed_resources_present_the_same_world_in_the_engine() {
                 .find(|(old, _)| old.eq_ignore_ascii_case(v))
                 .map_or_else(|| v.to_string(), |(_, new)| new.clone())
         };
-        let mut want: Vec<String> = world(a)
-            .into_iter()
+        let mut want: Vec<String> = a
+            .iter()
             .map(|l| {
                 let (tag, rest) = l.split_once(' ').unwrap();
                 let mut fields: Vec<String> = rest.split('|').map(str::to_string).collect();

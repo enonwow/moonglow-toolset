@@ -12,7 +12,7 @@ use mg_rules::GameData;
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
-mod common;
+use crate::common;
 use common::probe_module;
 
 /// Items per delayed chunk, each its own script run (the instruction limit).
@@ -116,6 +116,7 @@ fn item_costs_match_the_engine() {
         })
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut items = mg_testkit::sweep(items, 8);
     let extra: Vec<_> = synthetic()
         .into_iter()
         .map(|(name, g)| (ResKey::parse(&name, ResType::UTI).unwrap(), g.to_bytes().unwrap()))

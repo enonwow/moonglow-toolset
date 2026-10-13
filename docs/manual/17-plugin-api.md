@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
 ---
 
 # Plugin API reference
@@ -152,9 +152,29 @@ an empty one:
 
 `mg.twoda.kinds(name)` says what the columns of one of the game's tables
 hold, where Verify Module checks them: a table by column name, `"strref"`
-(a talk-table string's number: `kinds("feat").FEAT`) or `"model"` (a
-model's name: `kinds("placeables").ModelName`). A table it knows nothing
-of gives an empty one.
+(a talk-table string's number: `kinds("feat").FEAT`), `"model"` (a
+model's name: `kinds("placeables").ModelName`) or `"row:"` and a table's
+name (a row's number in that table: `kinds("feat").MASTERFEAT` is
+`"row:masterfeats"`; since Moonglow 1.21.2). A table it knows nothing
+of gives an empty one. The lists a class, a race or a package names are
+known by how the game's own are named (`cls_feat_*`, `cls_skill_*`,
+`race_feat_*`, `packft*`, `packsk*`, `packsp*`). A cell that names a row holds `****` or a
+negative number for none, and a spell's `FeatID` keeps the feat in its
+low 16 bits.
+
+`mg.twoda.describe(text, scripts)` reads
+[a table's description](03-modules.md#a-tables-description) from the
+text of its `name.2da.toml` (since Moonglow 1.23.0); `scripts`, where the
+description takes a list from a script's constants, gives each such
+script's source by its name (`{ my_inc = source }`). It gives:
+
+| | |
+| --- | --- |
+| `d.rows` | The table whose rows the described table's are, if it says. |
+| `d.columns` | Each described column's kind, by name: `"text"`, `"int"`, `"float"`, `"list"`, `"flags"`, `"strref"`, or `"row:"` and a table's name. |
+| `d.notes` | What the description said that was not understood. |
+| `d:name(column, value)` | A value's name in a list, or the names of the flags it has; nil where it has none. |
+| `d:faults(twoda, lengths)` | The cells of `twoda` that are not what the description says, each `{ row, column, value, message }`. `lengths` gives how many rows the tables it names have (`{ classes = 42 }`); a table not given is not held to. Strings are not looked up. |
 
 A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new()`; lines count from 0
 as in the file (a custom table's line 0 is the game's string 16777216):
@@ -296,7 +316,7 @@ fails. A file of more than 64 MB is not read.
 | `folder.name` | The folder's name. |
 | `folder:files()` | The names of its files and of those in its folders, sorted. |
 | `folder:bytes(name)` | A file's bytes. |
-| `folder:text(name)` | A file as text: UTF-8 if it is, else from the Windows-1252 codepage. |
+| `folder:text(name)` | A file as text: UTF-8 if it is, else from the module's codepage (Windows-1252, unless a hak of the module has an `encoding.2da`). |
 | `folder:write(name, bytes)` | Writes a file into the folder, when the handler has returned: as `name` (a name alone, not a path; not one that begins with a dot), in place of a file of that name there. The first time a job writes into a folder the user is asked whether to allow it, and a refusal ends the job. Undo does not take it back, and a check can't write. |
 | `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. |
 
@@ -344,7 +364,8 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 - Nothing is kept between jobs. A plugin runs when its command is
   chosen, when its check runs with Verify Module, and by itself only on
   the events its manifest declares (`mg.on`).
-- Text must fit the Windows-1252 codepage.
+- Text must fit the module's codepage (Windows-1252, unless a hak of the
+  module has an `encoding.2da`).
 
 ## What the API doesn't have yet
 

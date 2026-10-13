@@ -313,3 +313,98 @@ pub(crate) fn tlk(args: &Args<'_>, cp: Codepage) -> Result<Output> {
     ));
     Ok(out)
 }
+
+/// `mg 2da-check`: tables held to their descriptions.
+pub(crate) fn check(
+    paths: &[PathBuf],
+    beside: Option<&Path>,
+    game: Option<&mg_rules::GameData>,
+    cp: Codepage,
+) -> Result<Output> {
+    use mg_module::doctor::TalkTables;
+    use mg_module::table_desc::{Beside, Description, path_beside};
+    let tlk = TalkTables {
+        base: game.map_or(0, |g| g.tlk().entries.len()),
+        custom: game.and_then(|g| g.custom_tlk().map(|t| t.entries.len())),
+    };
+    let mut tables = Vec::new();
+    let (mut wrong, mut unread) = (0, 0);
+    let mut out = Output::new(Value::Null);
+    for path in paths {
+        // A folder: its described tables; a table: its own description,
+        // which it must have.
+        let (root, found) = if path.is_dir() {
+            (path.clone(), Beside::of(path).described())
+        } else {
+            let description = path_beside(path);
+            if !description.is_file() {
+                bail!("{} has no description ({})", path.display(), description.display());
+            }
+            (Beside::root_of(path), vec![(path.clone(), description)])
+        };
+        let files = Beside::of(beside.unwrap_or(&root));
+        let script = |name: &str| {
+            let key = ResKey::from_filename(&format!("{name}.nss"))?;
+            files.script(name).or_else(|| Some(game?.resman.get(&key).ok()?.into_owned()))
+        };
+        let rows_of = |name: &str| {
+            files.rows_of(name, cp).or_else(|| game?.table(name).ok().map(|t| t.len()))
+        };
+        for (table_path, description_path) in found {
+            let name = table_path.display().to_string();
+            let t = table(&table_path, cp)?;
+            let source = std::fs::read_to_string(&description_path)
+                .with_context(|| description_path.display().to_string())?;
+            let d = match Description::parse(&source, &script) {
+                Ok(d) => d,
+                Err(e) => {
+                    unread += 1;
+                    out.line(format!("{}: not read: {e}", description_path.display()));
+                    tables.push(json!({
+                        "table": name,
+                        "description": description_path.display().to_string(),
+                        "error": e,
+                    }));
+                    continue;
+                }
+            };
+            let faults = d.faults(&t, &rows_of, tlk);
+            let missing = d.missing_columns(&t);
+            wrong += faults.len();
+            out.line(match faults.len() {
+                0 => format!("{name}: {} rows, nothing wrong", t.len()),
+                1 => format!("{name}: 1 cell is wrong"),
+                n => format!("{name}: {n} cells are wrong"),
+            });
+            for f in &faults {
+                let column = &t.columns()[f.column];
+                out.line(format!("  {}, {column}: {}", row_name(&[&t], f.row), f.message));
+            }
+            for note in &d.notes {
+                out.note(format!("{}: {note}", description_path.display()));
+            }
+            if !missing.is_empty() {
+                out.note(format!("{name} has no column {}", missing.join(", ")));
+            }
+            tables.push(json!({
+                "table": name,
+                "description": description_path.display().to_string(),
+                "rows": t.len(),
+                "faults": faults.iter().map(|f| json!({
+                    "row": f.row,
+                    "column": t.columns()[f.column],
+                    "value": t.cell(f.row, f.column),
+                    "message": f.message,
+                })).collect::<Vec<_>>(),
+                "missing_columns": missing,
+                "notes": d.notes,
+            }));
+        }
+    }
+    if tables.is_empty() {
+        out.line("No table with a description (name.2da.toml beside name.2da)");
+    }
+    out.json = json!({ "tables": tables, "wrong": wrong, "unread": unread });
+    out.failed = wrong > 0 || unread > 0;
+    Ok(out)
+}

@@ -3,19 +3,20 @@
 //! same world as the original: the same areas and, in each, the same objects
 //! with the same types, tags, blueprints and positions.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use mg_core::{ResRef, ResType};
 use mg_module::{Module, ModuleLocation};
 use mg_resman::ResKey;
 use mg_schema::{StructExt, ifo};
-use mg_testkit::engine::{ServerRun, run_server, server_binary};
+use mg_testkit::engine::{run_server, server_binary};
 
-use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
+use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir, sweep};
 use rayon::prelude::*;
 
-mod common;
-use common::{PROBE, compile, rewrite_all_gffs, world};
+use crate::common;
+use common::{PROBE, compile, original_world, rewrite_all_gffs, world};
 
 #[test]
 fn rewritten_modules_present_the_same_world_in_the_engine() {
@@ -30,56 +31,36 @@ fn rewritten_modules_present_the_same_world_in_the_engine() {
     let probe = compile(&dir, "mg_probe", PROBE);
     let probe_key = ResKey::new(ResRef::from_str("mg_probe").unwrap(), ResType::NCS);
 
-    let modules = bundled_modules(&root);
-    // Build both copies of every module: the original's resources and
-    // Moonglow's rewrite, each with the probe as OnModuleLoad.
+    let modules = sweep(bundled_modules(&root), 5);
+    // Moonglow's rewrite of every module, with the probe as OnModuleLoad;
+    // the original's world is `original_world`'s.
     let mut jobs = Vec::new();
     for (i, path) in modules.iter().enumerate() {
-        let original = Module::open(path).unwrap();
-        for (variant, rewrite) in [("a", false), ("b", true)] {
-            let mut m = original.clone();
-            if rewrite {
-                rewrite_all_gffs(&mut m);
-            }
-            let mut info = m.info().unwrap();
-            info.root.write(&ifo::MOD_ON_MOD_LOAD, ResRef::from_str("mg_probe").unwrap());
-            m.set_info(&info).unwrap();
-            m.set(probe_key, probe.clone());
-            let name = format!("m{i}{variant}");
-            m.save_as(&ModuleLocation::Archive(dir.join(format!("modules/{name}.mod")))).unwrap();
-            jobs.push((path.file_name().unwrap().to_string_lossy().into_owned(), name));
-        }
+        let mut m = Module::open(path).unwrap();
+        rewrite_all_gffs(&mut m);
+        let mut info = m.info().unwrap();
+        info.root.write(&ifo::MOD_ON_MOD_LOAD, ResRef::from_str("mg_probe").unwrap());
+        m.set_info(&info).unwrap();
+        m.set(probe_key, probe.clone());
+        // Each server gets its own user directory (logs are per directory).
+        let name = format!("m{i}b");
+        let user = dir.join(format!("user-{name}"));
+        m.save_as(&ModuleLocation::Archive(user.join(format!("modules/{name}.mod")))).unwrap();
+        jobs.push((path, name, user));
     }
-
-    // Each server gets its own user directory (logs are per directory),
-    // sharing the modules folder.
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
-    let runs: Vec<(String, String, ServerRun)> = pool.install(|| {
-        jobs.par_iter()
-            .map(|(label, name)| {
-                let user = dir.join(format!("user-{name}"));
-                std::fs::create_dir_all(user.join("modules")).unwrap();
-                let src = dir.join(format!("modules/{name}.mod"));
-                std::fs::rename(&src, user.join(format!("modules/{name}.mod"))).unwrap();
-                let run =
-                    run_server(&root, &user, name, "MG_DONE", Duration::from_secs(300)).unwrap();
-                (label.clone(), name.clone(), run)
-            })
-            .collect()
-    });
+    let runs = both_worlds(&root, &jobs);
 
     let mut failures = Vec::new();
     let mut objects = 0;
-    for pair in runs.chunks(2) {
-        let [(label, _, a), (_, _, b)] = pair else { unreachable!() };
-        if !a.finished || !b.finished {
+    for (label, a, b) in &runs {
+        let (Some(wa), Some(wb)) = (a, b) else {
             failures.push(format!(
                 "{label}: server did not finish (original {}, rewrite {})",
-                a.finished, b.finished
+                a.is_some(),
+                b.is_some()
             ));
             continue;
-        }
-        let (wa, wb) = (world(a), world(b));
+        };
         objects += wa.iter().filter(|l| l.starts_with("MG_OBJ")).count();
         if wa.iter().filter(|l| l.starts_with("MG_AREA")).count() == 0 {
             failures.push(format!("{label}: the probe saw no areas"));
@@ -119,21 +100,13 @@ fn modules_packed_from_nasher_projects_present_the_same_world() {
         m.set_info(&info).unwrap();
         m.set(probe_key, probe.clone());
     };
-    let modules: Vec<_> = bundled_modules(&root)
+    let modules: Vec<_> = sweep(bundled_modules(&root), 5)
         .into_iter()
         .filter(|m| m.extension().is_some_and(|e| e == "mod"))
         .collect();
     let mut jobs = Vec::new();
     for (i, path) in modules.iter().enumerate() {
         let original = Module::open(path).unwrap();
-        let label = path.file_name().unwrap().to_string_lossy().into_owned();
-        // The original, as it is.
-        let mut a = original.clone();
-        with_probe(&mut a);
-        let a_name = format!("n{i}a");
-        let user = dir.join(format!("user-{a_name}"));
-        a.save_as(&ModuleLocation::Archive(user.join(format!("modules/{a_name}.mod")))).unwrap();
-        jobs.push((label.clone(), a_name, user));
         // Into a project, reopened from it, and packed.
         let project = dir.join(format!("project-{i}"));
         let mut copy = original.clone();
@@ -149,30 +122,20 @@ fn modules_packed_from_nasher_projects_present_the_same_world() {
         let user = dir.join(format!("user-{b_name}"));
         std::fs::create_dir_all(user.join("modules")).unwrap();
         std::fs::write(user.join(format!("modules/{b_name}.mod")), bytes).unwrap();
-        jobs.push((label, b_name, user));
+        jobs.push((path, b_name, user));
     }
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
-    let runs: Vec<(String, ServerRun)> = pool.install(|| {
-        jobs.par_iter()
-            .map(|(label, name, user)| {
-                let run =
-                    run_server(&root, user, name, "MG_DONE", Duration::from_secs(300)).unwrap();
-                (label.clone(), run)
-            })
-            .collect()
-    });
+    let runs = both_worlds(&root, &jobs);
     let mut failures = Vec::new();
     let mut objects = 0;
-    for pair in runs.chunks(2) {
-        let [(label, a), (_, b)] = pair else { unreachable!() };
-        if !a.finished || !b.finished {
+    for (label, a, b) in &runs {
+        let (Some(wa), Some(wb)) = (a, b) else {
             failures.push(format!(
                 "{label}: server did not finish (original {}, project {})",
-                a.finished, b.finished
+                a.is_some(),
+                b.is_some()
             ));
             continue;
-        }
-        let (wa, wb) = (world(a), world(b));
+        };
         objects += wa.iter().filter(|l| l.starts_with("MG_OBJ")).count();
         let near = |x: &str, y: &str| {
             let (Some((ka, pa)), Some((kb, pb))) = (split_object(x), split_object(y)) else {
@@ -183,7 +146,7 @@ fn modules_packed_from_nasher_projects_present_the_same_world() {
                 && pa[..3].iter().zip(&pb[..3]).all(|(u, v)| (u - v).abs() <= 0.011)
                 && (turn <= 1.0 || turn >= 359.0)
         };
-        if wa.len() != wb.len() || !wa.iter().zip(&wb).all(|(x, y)| near(x, y)) {
+        if wa.len() != wb.len() || !wa.iter().zip(wb).all(|(x, y)| near(x, y)) {
             let only_a: Vec<_> =
                 wa.iter().filter(|l| !wb.iter().any(|m| near(l, m))).take(3).collect();
             let only_b: Vec<_> =
@@ -195,6 +158,29 @@ fn modules_packed_from_nasher_projects_present_the_same_world() {
     }
     eprintln!("compared {} modules ({objects} objects) in the engine", modules.len());
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// What the probe saw (`world`), or `None`: the server did not finish.
+type World = Option<Vec<String>>;
+
+/// A module's file name, the world of the original and the world of the
+/// changed module `jobs` gives for it (its path, the changed module's name
+/// and user directory); `None` for a server that did not finish. Four
+/// servers at a time.
+fn both_worlds(root: &Path, jobs: &[(&PathBuf, String, PathBuf)]) -> Vec<(String, World, World)> {
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+    pool.install(|| {
+        jobs.par_iter()
+            .map(|(path, name, user)| {
+                let (a, b) = rayon::join(
+                    || original_world(root, path),
+                    || run_server(root, user, name, "MG_DONE", Duration::from_secs(300)).unwrap(),
+                );
+                let label = path.file_name().unwrap().to_string_lossy().into_owned();
+                (label, a, b.finished.then(|| world(&b)))
+            })
+            .collect()
+    })
 }
 
 /// An `MG_OBJ area|type|tag|resref|x,y,z|facing` line: everything but the

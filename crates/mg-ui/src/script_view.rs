@@ -214,8 +214,46 @@ pub(crate) fn file_url(path: &std::path::Path) -> String {
     if p.starts_with('/') { format!("file://{p}") } else { format!("file:///{p}") }
 }
 
+/// Where a selection is drawn, row by row, in the galley's own space: from
+/// its first character to its last, and on the rows between to each row's
+/// last character (a row with none: a sliver, so that an empty line in a
+/// selection is seen to be in it).
+pub(crate) fn selection_rects(
+    galley: &egui::Galley,
+    range: &egui::text::CCursorRange,
+) -> Vec<egui::Rect> {
+    if range.is_empty() {
+        return Vec::new();
+    }
+    let [min, max] = range.sorted_cursors();
+    let (min, max) = (galley.layout_from_cursor(min), galley.layout_from_cursor(max));
+    let mut out = Vec::new();
+    for ri in min.row..=max.row {
+        let Some(placed) = galley.rows.get(ri) else { continue };
+        let row = &placed.row;
+        let left = if ri == min.row { row.x_offset(min.column) } else { 0.0 };
+        let right = if ri == max.row { row.x_offset(max.column) } else { row.size.x };
+        // (The last row with nothing of it selected: the selection ends
+        // at its start.)
+        if ri == max.row && ri != min.row && right <= left {
+            continue;
+        }
+        let right = if right <= left && ri != max.row { left + 3.0 } else { right };
+        let rect = egui::Rect::from_min_max(egui::pos2(left, 0.0), egui::pos2(right, row.size.y));
+        out.push(rect.translate(placed.pos.to_vec2()));
+    }
+    out
+}
+
 fn editor_id(key: ResKey) -> egui::Id {
     egui::Id::new(("script", key))
+}
+
+/// Whether a script's editor has the keyboard: Undo and Redo are its own
+/// then, whatever was done in it last.
+pub(crate) fn has_keys(app: &Moonglow, ctx: &egui::Context) -> bool {
+    let Some(focused) = ctx.memory(|m| m.focused()) else { return false };
+    app.scripts.keys().any(|k| editor_id(*k) == focused)
 }
 
 /// Moves an editor's cursor (and selection) and focuses it.
@@ -816,6 +854,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             buf.text = text;
             set_cursor(&ctx, key, from, to);
         }
+        // Enter begins the new line as far in as the line it is started
+        // from (Aurora does; the field alone begins it at the margin).
+        if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            let start = format!("\n{}", tools::new_line_indent(&buf.text, a));
+            insert(buf, &ctx, key, a, b, &start);
+            script_tools.scroll = Some(key);
+        }
     }
     let pending = script_tools.jump.take_if(|(k, _)| *k == key).or(jump).map(|(_, at)| at);
     if let Some(at) = pending {
@@ -873,14 +918,37 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
                         .selectable(false),
                 );
+                // The selection is drawn here, not by the field: to each
+                // line's last character, where the field draws a line end
+                // that is selected as half a character more (which reads
+                // as a space the line does not have). The field's own is
+                // not drawn (no color), and the field's ground and the
+                // selection go under its text.
+                let under = ui.painter().add(egui::Shape::Noop);
+                let ground = ui.visuals().text_edit_bg_color();
+                let selected = std::mem::replace(
+                    &mut ui.visuals_mut().selection.bg_fill,
+                    egui::Color32::TRANSPARENT,
+                );
                 let out = egui::TextEdit::multiline(&mut buf.text)
                     .code_editor()
                     .desired_width(f32::INFINITY)
                     .desired_rows(1)
                     .min_size(egui::vec2(0.0, room))
                     .id(editor_id(key))
+                    .background_color(egui::Color32::TRANSPARENT)
                     .layouter(&mut layouter)
                     .show(ui);
+                ui.visuals_mut().selection.bg_fill = selected;
+                let field = out.response.response.rect;
+                let radius = ui.style().interact(&out.response.response).corner_radius;
+                let mut shapes = vec![egui::Shape::rect_filled(field, radius, ground)];
+                let rows = out.cursor_range.map(|r| selection_rects(&out.galley, &r));
+                for rect in rows.unwrap_or_default() {
+                    let rect = rect.translate(out.galley_pos.to_vec2());
+                    shapes.push(egui::Shape::rect_filled(rect, 0.0, selected));
+                }
+                ui.painter().set(under, egui::Shape::Vec(shapes));
                 if let Some(r) = out.cursor_range {
                     let rect =
                         out.galley.pos_from_cursor(r.primary).translate(out.galley_pos.to_vec2());
@@ -1019,6 +1087,38 @@ fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
     let buf = app.scripts.get(&key)?;
     let on_disk = std::fs::read(&path).ok()?;
     (!buf.is_dirty() && decode(&on_disk) == buf.text).then_some(path)
+}
+
+/// Opens a script in the external editor alone, with no editor of
+/// Moonglow's (Options › Script Editor): where the script has a file of
+/// its own to edit in place (a nasher project's source, a module folder's
+/// file) that Moonglow holds nothing more of, and files changed outside
+/// are read again, which is how its saves come back. Whether it was.
+pub(crate) fn open_only_external(app: &mut Moonglow, key: ResKey) -> bool {
+    let Some(editor) = app.settings.external_editor.clone() else { return false };
+    if app.settings.no_auto_reload {
+        return false;
+    }
+    let Some(path) =
+        app.ws.as_ref().and_then(|ws| ws.module.file_of(&key)).map(|p| p.to_path_buf())
+    else {
+        return false;
+    };
+    // (Open here with something the file lacks: Moonglow's editor has it.)
+    if app.scripts.contains_key(&key) && project_file(app, key).is_none() {
+        return false;
+    }
+    match std::process::Command::new(&editor).arg(&path).spawn() {
+        Ok(running) => {
+            crate::test_module::let_run(running);
+            app.log.info(format!("{key}: editing {} in {}", path.display(), editor.display()));
+            true
+        }
+        Err(e) => {
+            app.log.error(format!("{}: {e}", editor.display()));
+            false
+        }
+    }
 }
 
 /// Opens the script in the external editor: a nasher project's own source
@@ -1363,6 +1463,41 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// A selection is drawn to each line's last character: no wider than
+    /// the line (the field's own drew a selected line end as more of the
+    /// line), with a sliver on an empty line.
+    #[test]
+    fn a_selection_ends_at_each_line_s_last_character() {
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::monospace(14.0);
+            galley = Some(ui.painter().layout_no_wrap(
+                "ab;\n\ncdef\n".into(),
+                font,
+                egui::Color32::WHITE,
+            ));
+        });
+        // (The font's texture is not uploaded anywhere here.)
+        out.textures_delta.clear();
+        let galley = galley.unwrap();
+        let cursor = egui::text::CCursor::new;
+        let range = |a, b| egui::text::CCursorRange::two(cursor(a), cursor(b));
+        let rows = &galley.rows;
+        // From the first character to after "cd": three rows.
+        let found = selection_rects(&galley, &range(0, 7));
+        assert_eq!(found.len(), 3);
+        assert_eq!(found[0].width(), rows[0].row.size.x, "the line, and no more");
+        assert_eq!(found[1].width(), 3.0, "an empty line's sliver");
+        assert!(found[2].width() > 0.0 && found[2].width() < rows[2].row.size.x);
+        assert_eq!(found[1].top(), rows[1].pos.y);
+        // Whole lines, to the start of the next: nothing on that one.
+        assert_eq!(selection_rects(&galley, &range(0, 5)).len(), 2);
+        // Backwards is the same; nothing selected is nothing drawn.
+        assert_eq!(selection_rects(&galley, &range(7, 0)), found);
+        assert!(selection_rects(&galley, &range(2, 2)).is_empty());
+    }
+
     #[test]
     fn print_pages_are_highlighted_and_escaped() {
         let style = crate::settings::ScriptStyle::default();
@@ -1432,7 +1567,8 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
     }
     scripts.sort_by_key(|(k, _)| k.resref.to_string());
     let shown = app.script_tools.open_script.take().map(|o| o.shown).unwrap_or_default();
-    app.script_tools.open_script = Some(OpenScript { filter: String::new(), shown, scripts });
+    app.script_tools.open_script =
+        Some(OpenScript { filter: String::new(), shown, scripts, cursor: 0 });
 }
 
 /// The Open Script window: a name to find, which scripts to show (as
@@ -1443,20 +1579,36 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.script_tools.open_script.take() else { return };
     let mut open = true;
     let mut chosen = None;
-    egui::Window::new("Open Script")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+    crate::widgets::dialog(ctx, "Open Script", &mut open)
         .default_size([420.0, 440.0])
         .collapsible(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Open Script", &mut open))
         .show(ctx, |ui| {
+            // Down and Up (Page Down and Up) choose among the scripts
+            // listed while the name is typed: Enter opens the one chosen.
+            let mut moved: isize = 0;
+            for (key, by) in [
+                (egui::Key::ArrowDown, 1),
+                (egui::Key::ArrowUp, -1),
+                (egui::Key::PageDown, 10),
+                (egui::Key::PageUp, -10),
+            ] {
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)) {
+                    moved += by;
+                }
+            }
             let field = ui.add(
                 egui::TextEdit::singleline(&mut w.filter)
                     .hint_text("Find by name")
                     .desired_width(f32::INFINITY),
             );
             crate::widgets::autofocus(ui, &field);
-            let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if field.changed() {
+                w.cursor = 0;
+            }
+            // (Enter opens wherever the keys are in the window: after a
+            // click on what to show they are not the name's.)
+            let entered = (field.lost_focus() || !field.has_focus())
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal_wrapped(|ui| {
                 for (shown, label) in [
                     (ScriptsShown::All, "All Resources"),
@@ -1478,30 +1630,36 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 .filter(|(k, _)| needle.is_empty() || k.resref.to_string().contains(&needle))
                 .collect();
             ui.weak(format!("{} scripts", listed.len()));
-            if entered && let Some(first) = listed.first() {
-                chosen = Some(**first);
+            let last = listed.len().saturating_sub(1) as isize;
+            let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
+            w.cursor = cursor;
+            if entered && let Some(at) = listed.get(cursor) {
+                chosen = Some(**at);
             }
             let row = ui.spacing().interact_size.y;
-            egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                ui,
-                row,
-                listed.len(),
-                |ui, range| {
-                    for (key, from) in listed[range].iter().copied() {
-                        ui.horizontal(|ui| {
-                            let r = ui.selectable_label(false, key.resref.to_string());
-                            match from {
-                                ScriptFrom::Module => {}
-                                ScriptFrom::Hak => _ = ui.weak("hak"),
-                                ScriptFrom::Game => _ = ui.weak("game"),
-                            }
-                            if r.clicked() {
-                                chosen = Some((*key, *from));
-                            }
-                        });
-                    }
-                },
-            );
+            let mut list = egui::ScrollArea::vertical().auto_shrink(false);
+            if moved != 0 {
+                let pitch = row + ui.spacing().item_spacing.y;
+                let above = (ui.available_height() / 2.0 - pitch).max(0.0);
+                list = list.vertical_scroll_offset((cursor as f32 * pitch - above).max(0.0));
+            }
+            // (Shown once it has moved: the first is Enter's without it.)
+            let marked = (cursor > 0 || moved != 0).then_some(cursor);
+            list.show_rows(ui, row, listed.len(), |ui, range| {
+                for (at, (key, from)) in range.clone().zip(listed[range].iter().copied()) {
+                    ui.horizontal(|ui| {
+                        let r = ui.selectable_label(marked == Some(at), key.resref.to_string());
+                        match from {
+                            ScriptFrom::Module => {}
+                            ScriptFrom::Hak => _ = ui.weak("hak"),
+                            ScriptFrom::Game => _ = ui.weak("game"),
+                        }
+                        if r.clicked() {
+                            chosen = Some((*key, *from));
+                        }
+                    });
+                }
+            });
         });
     match chosen {
         Some((key, ScriptFrom::Module)) => app.actions.push(Action::OpenTab(Tab::Script(key))),
@@ -1635,97 +1793,55 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         }
     }
 
+    use crate::widgets::{NameWindow, Named};
     if let Some((from, mut name)) = app.script_save_as.clone() {
-        let mut close = false;
-        egui::Window::new("Save Script As")
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .collapsible(false)
-            .resizable(false)
-            .show(&ctx, |ui| {
-                ui.label("New name (up to 16 characters)");
-                let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
-                crate::widgets::autofocus(ui, &field);
-                let key = mg_core::ResRef::from_str(name.trim())
-                    .ok()
-                    .filter(|r| !r.is_empty())
-                    .map(|r| ResKey::new(r, ResType::NSS));
-                let exists =
-                    key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
-                if exists {
-                    ui.colored_label(
-                        ui.visuals().warn_fg_color,
-                        "The module has a script of this name; it will be replaced.",
-                    );
-                }
-                ui.horizontal(|ui| {
-                    if (ui.add_enabled(key.is_some(), egui::Button::new("Save")).clicked()
-                        || (key.is_some() && crate::widgets::enter(ui)))
-                        && let Some(k) = key
-                    {
-                        let text =
-                            app.scripts.get(&from).map(|b| b.text.clone()).unwrap_or_default();
-                        app.actions.push(Action::Apply(Command::new(
-                            format!("Save {from} as {k}"),
-                            vec![Edit::SetResource { key: k, data: Some(encode(&text)) }],
-                        )));
-                        app.actions.push(Action::OpenTab(Tab::Script(k)));
-                        close = true;
-                    }
-                    if crate::widgets::cancel(ui) {
-                        close = true;
-                    }
-                });
-            });
-        app.script_save_as = if close { None } else { Some((from, name)) };
+        let window = NameWindow {
+            title: "Save Script As",
+            label: "New name (up to 16 characters)",
+            restype: ResType::NSS,
+            taken: "The module has a script of this name; it will be replaced.",
+            replaces: true,
+            button: "Save",
+        };
+        let module = app.ws.as_ref().map(|w| &w.module);
+        app.script_save_as = match window.show(&ctx, module, &mut name) {
+            Named::Open => Some((from, name)),
+            Named::Cancelled => None,
+            Named::Chosen(k) => {
+                let text = app.scripts.get(&from).map(|b| b.text.clone()).unwrap_or_default();
+                app.actions.push(Action::Apply(Command::new(
+                    format!("Save {from} as {k}"),
+                    vec![Edit::SetResource { key: k, data: Some(encode(&text)) }],
+                )));
+                app.actions.push(Action::OpenTab(Tab::Script(k)));
+                None
+            }
+        };
     }
 
     if let Some(mut name) = app.new_script.clone() {
-        let mut close = false;
-        egui::Window::new("New Script")
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .collapsible(false)
-            .resizable(false)
-            .show(&ctx, |ui| {
-                ui.label("Name (up to 16 characters)");
-                let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
-                crate::widgets::autofocus(ui, &field);
-                let key = mg_core::ResRef::from_str(name.trim())
-                    .ok()
-                    .filter(|r| !r.is_empty())
-                    .map(|r| ResKey::new(r, ResType::NSS));
-                let exists =
-                    key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
-                if exists {
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        "The module already has a script of this name.",
-                    );
-                }
-                ui.horizontal(|ui| {
-                    if (ui
-                        .add_enabled(key.is_some() && !exists, egui::Button::new("Create"))
-                        .clicked()
-                        || (key.is_some() && !exists && crate::widgets::enter(ui)))
-                        && let Some(k) = key
-                    {
-                        app.actions.push(Action::Apply(Command::new(
-                            format!("New script {k}"),
-                            vec![Edit::SetResource {
-                                key: k,
-                                data: Some(NEW_SCRIPT.as_bytes().to_vec()),
-                            }],
-                        )));
-                        app.actions.push(Action::OpenTab(Tab::Script(k)));
-                        close = true;
-                    }
-                    if crate::widgets::cancel(ui) {
-                        close = true;
-                    }
-                });
-            });
-        app.new_script = if close { None } else { Some(name) };
+        let window = NameWindow {
+            title: "New Script",
+            label: "Name (up to 16 characters)",
+            restype: ResType::NSS,
+            taken: "The module already has a script of this name.",
+            replaces: false,
+            button: "Create",
+        };
+        let module = app.ws.as_ref().map(|w| &w.module);
+        app.new_script = match window.show(&ctx, module, &mut name) {
+            Named::Open => Some(name),
+            Named::Cancelled => None,
+            Named::Chosen(k) => {
+                let data = Some(NEW_SCRIPT.as_bytes().to_vec());
+                app.actions.push(Action::Apply(Command::new(
+                    format!("New script {k}"),
+                    vec![Edit::SetResource { key: k, data }],
+                )));
+                app.actions.push(Action::OpenTab(Tab::Script(k)));
+                None
+            }
+        };
     }
 }
 

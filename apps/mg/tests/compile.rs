@@ -3,20 +3,20 @@
 //! the window keeps the same), never beside the module.
 
 use std::path::Path;
-use std::process::Command;
 
 use mg_core::ResType;
 use mg_resman::ResKey;
 use serde_json::Value;
 
 fn compile(root: &Path, dir: &Path, module: &Path, more: &[&str]) -> Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+    let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--json", "--user-dir"])
         .arg(dir.join("user"))
         .arg("compile")
         .arg(module)
         .args(more)
-        // (The test's own data folder, not the user's.)
+        // (A data folder that starts empty: what was compiled before is
+        // remembered there.)
         .env("XDG_DATA_HOME", dir.join("data"))
         .env("APPDATA", dir.join("data"))
         .env("HOME", dir.join("data"))
@@ -65,6 +65,25 @@ fn a_second_compile_passes_over_what_is_unchanged() {
     // --all compiles them all, whatever is remembered.
     let all = compile(&root, &dir, &chess, &["--all"]);
     assert!(all["scripts"] == scripts && all["unchanged"] == 0, "{all}");
+
+    // --ndb: those compiled without a debug file are compiled again for
+    // one, once.
+    // (Of the scripts with a source: one compiled script has none.)
+    let debug_files = |m: &mg_module::Module| {
+        let made = |t| {
+            (m.keys_of(ResType::NSS))
+                .filter(|k| m.get(&ResKey::new(k.resref, t)).is_some_and(|d| !d.is_empty()))
+                .count()
+        };
+        (made(ResType::NCS), made(ResType::NDB))
+    };
+    assert_eq!(debug_files(&mg_module::Module::open(&chess).unwrap()).1, 0);
+    let with = compile(&root, &dir, &chess, &["--ndb"]);
+    let (ncs, ndb) = debug_files(&mg_module::Module::open(&chess).unwrap());
+    assert!(ncs > 10 && ndb == ncs, "{ncs} compiled scripts, {ndb} debug files");
+    assert_eq!(with["scripts"], ncs as u64, "{with}");
+    let again = compile(&root, &dir, &chess, &["--ndb"]);
+    assert_eq!(again["scripts"], 0, "{again}");
 }
 
 fn is_json(p: &Path) -> bool {

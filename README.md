@@ -103,7 +103,7 @@ Moonglow's later work follows what builders have long asked of Aurora
 - **Plugins (experimental):** a team's own commands and checks, written
   in Luau and run in a sandbox; their edits are one step of Undo, and
   their checks run with Verify Module, in the window and in a build
-  pipeline. The plugin API is at 0.1 and may still change.
+  pipeline. The plugin API is at 0.3 and may still change.
 
 ![The script editor with a script from the original campaign](docs/images/script.png)
 
@@ -163,8 +163,8 @@ See [Command-line tools](docs/manual/11-command-line.md).
 - [Writing plugins](docs/manual/16-writing-plugins.md) and the
   [plugin API reference](docs/manual/17-plugin-api.md), with
   [examples](docs/plugins/README.md).
-- [The plan](docs/PLAN.md): goals, architecture, phases, testing strategy and
-  licensing.
+- [Architecture](docs/PLAN.md): goals, architecture, the record of the phases,
+  testing strategy and licensing.
 - [Packaging](packaging/README.md): building the AppImage, Flatpak, Windows
   installer and macOS app.
 - [Findings](docs/findings.md): what building Moonglow taught us about
@@ -192,9 +192,12 @@ cargo run --release -p mg -- --help      # the command-line tools
 ## Testing
 
 ```sh
-cargo test --workspace                          # unit tests (corpus tests skip without a game install)
-cargo test -p mg-corpus-tests --release         # corpus, differential and engine tests
+cargo test --workspace --exclude mg-corpus-tests --lib --bins --tests   # unit, UI and command-line tests
+cargo test -p mg-corpus-tests --release --tests                         # corpus, differential and engine tests (skip without a game install)
+MOONGLOW_FULL_CORPUS=1 cargo test -p mg-corpus-tests --release --tests    # the same over the whole install: before a release
 cargo clippy --workspace --all-targets          # must be warning-free
+cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf   # the tests run by hand, which --all-targets leaves out
+cargo clippy -p mg-corpus-tests --test client_render --test client_minimap
 cargo fmt                                       # rustfmt.toml: width 100
 ```
 

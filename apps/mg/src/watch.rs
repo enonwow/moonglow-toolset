@@ -108,6 +108,8 @@ pub(crate) struct Watcher {
     seen: HashMap<ResKey, u64>,
     signature: u64,
     looked: Instant,
+    /// Debug files (`.ndb`) are made with the compiled scripts.
+    debug: bool,
 }
 
 fn stamp(data: &[u8]) -> u64 {
@@ -132,13 +134,15 @@ impl Watcher {
         project: &Path,
         dev_dir: &Path,
         build_to: Option<PathBuf>,
+        debug: bool,
         rm: &ResMan,
     ) -> Result<(Watcher, Step)> {
         let mut module = Module::open(project).with_context(|| project.display().to_string())?;
         let all: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
         let mut step = Step::default();
-        compile(&mut module, rm, &all, &mut step);
+        compile(&mut module, rm, &all, debug, &mut step);
         let mut w = Watcher {
+            debug,
             project: project.to_path_buf(),
             dev_dir: dev_dir.to_path_buf(),
             build_to,
@@ -229,7 +233,8 @@ impl Watcher {
             }
         }
         // The compiled scripts of those that did not change, as they were.
-        for k in self.module.keys_of(ResType::NCS) {
+        let made = |k: &&ResKey| matches!(k.restype, ResType::NCS | ResType::NDB);
+        for k in self.module.keys().filter(made) {
             let source = ResKey::new(k.resref, ResType::NSS);
             if module.contains(&source)
                 && !to_compile.contains(&source)
@@ -238,7 +243,7 @@ impl Watcher {
                 module.set(*k, data.clone());
             }
         }
-        compile(&mut module, rm, &to_compile, &mut step);
+        compile(&mut module, rm, &to_compile, self.debug, &mut step);
         let mut heavy: Vec<String> = (changed.iter())
             .filter(|k| kind(k.restype) == Kind::Rebuild)
             .chain(&removed)
@@ -256,7 +261,7 @@ impl Watcher {
         // Out they go: the compiled scripts, and what the server reads
         // anew.
         let mut out: Vec<ResKey> = (to_compile.iter())
-            .map(|k| ResKey::new(k.resref, ResType::NCS))
+            .flat_map(|k| [ResType::NCS, ResType::NDB].map(|t| ResKey::new(k.resref, t)))
             .filter(|k| self.module.get(k).is_some_and(|d| !d.is_empty()))
             .collect();
         out.extend(changed.iter().filter(|k| kind(k.restype) == Kind::Hot));
@@ -277,8 +282,8 @@ impl Watcher {
     }
 }
 
-fn compile(module: &mut Module, rm: &ResMan, names: &[ResKey], step: &mut Step) {
-    for r in mg_module::build::compile_named_scripts(module, rm, names, None) {
+fn compile(module: &mut Module, rm: &ResMan, names: &[ResKey], debug: bool, step: &mut Step) {
+    for r in mg_module::build::compile_named_with(module, rm, names, None, debug) {
         match r.result {
             Ok(()) if module.contains(&ResKey::new(r.script.resref, ResType::NCS)) => {
                 step.compiled.push(r.script.resref.to_string());
@@ -287,6 +292,7 @@ fn compile(module: &mut Module, rm: &ResMan, names: &[ResKey], step: &mut Step) 
             Err(e) => {
                 // (Not an older compiled script in its place.)
                 module.remove(&ResKey::new(r.script.resref, ResType::NCS));
+                module.remove(&ResKey::new(r.script.resref, ResType::NDB));
                 step.errors.push(e.message);
             }
         }

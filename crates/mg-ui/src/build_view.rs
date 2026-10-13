@@ -57,6 +57,9 @@ pub struct BuildWindow {
     /// The external compiler a build is given (Options › Script Editor),
     /// set as it starts.
     pub(crate) external: Option<mg_module::external_compiler::ExternalCompiler>,
+    /// Generate Debug Information (Options › Script Editor), set as a
+    /// build starts: the scripts' debug files are made too.
+    pub(crate) debug: bool,
 }
 
 impl Default for BuildWindow {
@@ -77,6 +80,7 @@ impl Default for BuildWindow {
             results: Vec::new(),
             selected: None,
             external: None,
+            debug: false,
         }
     }
 }
@@ -85,10 +89,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.build.take() else { return };
     let mut open = true;
     let (mut build, mut done, mut export, mut go) = (false, false, false, None);
-    egui::Window::new("Build Module")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .open(crate::widgets::open_unless_escape(ctx, "Build Module", &mut open))
+    crate::widgets::dialog(ctx, "Build Module", &mut open)
         .collapsible(false)
         .default_width(560.0)
         .show(ctx, |ui| {
@@ -176,6 +177,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let options = build.then(|| {
         let mut options = w.clone();
         options.external = app.external_compiler();
+        options.debug = app.settings.debug_info;
         options
     });
     if open && !done {
@@ -208,7 +210,8 @@ pub(crate) fn build_on_save(app: &mut Moonglow) {
     let was_open = app.build.is_some();
     let mut w = app.build.take().unwrap_or_default();
     let external = app.external_compiler();
-    let results = run(app, &BuildWindow { external, ..Default::default() });
+    let debug = app.settings.debug_info;
+    let results = run(app, &BuildWindow { external, debug, ..Default::default() });
     let clean =
         results.len() == 1 && results[0].about.is_none() && results[0].text == "No errors found";
     w.results = results;
@@ -306,6 +309,7 @@ fn compile(
                 &game.resman,
                 mg_module::build::ScriptSelection::All,
                 w.external.as_ref(),
+                w.debug,
             );
             let failed = results.iter().filter(|r| r.result.is_err()).count();
             for r in &results {

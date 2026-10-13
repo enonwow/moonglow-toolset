@@ -147,6 +147,48 @@ void main()
 }
 "#;
 
+/// What [`PROBE`] sees of a shipped module as it is (the module with the
+/// probe as its OnModuleLoad, nothing else touched): its [`world`], or
+/// `None` if the server did not finish. Run once per module for all the
+/// tests of the binary that compare a changed module with it.
+#[allow(dead_code)]
+pub(crate) fn original_world(root: &Path, module: &Path) -> Option<Vec<String>> {
+    use mg_schema::StructExt;
+    use std::sync::OnceLock;
+    static WORLDS: mg_testkit::Shared<PathBuf, Option<Vec<String>>> = mg_testkit::Shared::new();
+    static SCRATCH: OnceLock<(PathBuf, Vec<u8>)> = OnceLock::new();
+    WORLDS.get(&module.to_path_buf(), || {
+        let (dir, probe) = SCRATCH.get_or_init(|| {
+            let dir = mg_testkit::scratch_dir("engine_original");
+            let probe = compile(&dir, "mg_probe", PROBE);
+            (dir, probe)
+        });
+        let mut m = mg_module::Module::open(module).unwrap();
+        let mut info = m.info().unwrap();
+        info.root.write(&mg_schema::ifo::MOD_ON_MOD_LOAD, ResRef::from_str("mg_probe").unwrap());
+        m.set_info(&info).unwrap();
+        m.set(ResKey::new(ResRef::from_str("mg_probe").unwrap(), ResType::NCS), probe.clone());
+        let stem: String = module
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let user = dir.join(&stem);
+        m.save_as(&mg_module::ModuleLocation::Archive(user.join("modules/original.mod"))).unwrap();
+        let run = mg_testkit::engine::run_server(
+            root,
+            &user,
+            "original",
+            "MG_DONE",
+            Duration::from_secs(300),
+        )
+        .unwrap();
+        run.finished.then(|| world(&run))
+    })
+}
+
 /// The probe's view of the world, sorted. Creatures keep only their area,
 /// type, tag and blueprint: their AI may move them between probe chunks.
 #[allow(dead_code)]

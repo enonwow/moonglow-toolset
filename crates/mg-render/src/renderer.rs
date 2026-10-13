@@ -387,6 +387,31 @@ fn cols(m: Mat4) -> [[f32; 4]; 4] {
     m.to_cols_array_2d()
 }
 
+/// Puts `data` into `buffer`, which is made anew, larger, where it is too
+/// small for it (or for `least` bytes, where a binding needs something
+/// to be there with no data).
+fn upload<T: bytemuck::Pod>(
+    gpu: &Gpu,
+    buffer: &mut wgpu::Buffer,
+    label: &'static str,
+    usage: wgpu::BufferUsages,
+    data: &[T],
+    least: usize,
+) {
+    let bytes = std::mem::size_of_val(data).max(least) as u64;
+    if buffer.size() < bytes {
+        *buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: bytes.next_power_of_two(),
+            usage,
+            mapped_at_creation: false,
+        });
+    }
+    if !data.is_empty() {
+        gpu.queue.write_buffer(buffer, 0, bytemuck::cast_slice(data));
+    }
+}
+
 impl Renderer {
     /// A renderer drawing into `color_format` targets with `sample_count`
     /// samples (1 = no MSAA).
@@ -1148,18 +1173,14 @@ impl Renderer {
                 }
             })
             .collect();
-        let light_bytes = std::mem::size_of::<LightUniform>() * lights.len().max(1);
-        if (self.light_buffer.size() as usize) < light_bytes {
-            self.light_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("lights"),
-                size: light_bytes.next_power_of_two() as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if !lights.is_empty() {
-            gpu.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&lights));
-        }
+        upload(
+            gpu,
+            &mut self.light_buffer,
+            "lights",
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            &lights,
+            std::mem::size_of::<LightUniform>(),
+        );
 
         // Draws.
         // The sky first, around the camera.
@@ -1440,60 +1461,44 @@ impl Renderer {
         self.drawn.batches = starts.len() - 1;
         // (Each instance's uniforms, by its number.)
         let named: Vec<u32> = order.iter().map(|&d| draws[d as usize].uniform).collect();
-        let order_bytes = std::mem::size_of_val(named.as_slice()) as u64;
-        if self.order_buffer.size() < order_bytes {
-            self.order_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("draw order"),
-                size: order_bytes.next_power_of_two(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if !named.is_empty() {
-            gpu.queue.write_buffer(&self.order_buffer, 0, bytemuck::cast_slice(&named));
-        }
+        upload(
+            gpu,
+            &mut self.order_buffer,
+            "draw order",
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            &named,
+            0,
+        );
 
         // Bones.
-        let bone_bytes = 64 * bones.len().max(1);
-        if (self.bone_buffer.size() as usize) < bone_bytes {
-            self.bone_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("bones"),
-                size: bone_bytes.next_power_of_two() as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if !bones.is_empty() {
-            gpu.queue.write_buffer(&self.bone_buffer, 0, bytemuck::cast_slice(&bones));
-        }
+        upload(
+            gpu,
+            &mut self.bone_buffer,
+            "bones",
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            &bones,
+            64,
+        );
 
         // Replaced vertices.
-        let dynamic_bytes = std::mem::size_of_val(dynamic.as_slice());
-        if (self.dynamic_buffer.size() as usize) < dynamic_bytes {
-            self.dynamic_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("dynamic vertices"),
-                size: dynamic_bytes.next_power_of_two() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if dynamic_bytes > 0 {
-            gpu.queue.write_buffer(&self.dynamic_buffer, 0, bytemuck::cast_slice(&dynamic));
-        }
+        upload(
+            gpu,
+            &mut self.dynamic_buffer,
+            "dynamic vertices",
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            &dynamic,
+            0,
+        );
 
         // Upload per-draw data.
-        let needed = std::mem::size_of_val(uniforms.as_slice()) as u64;
-        if self.draw_buffer.size() < needed {
-            self.draw_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("draws"),
-                size: needed.next_power_of_two(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if !uniforms.is_empty() {
-            gpu.queue.write_buffer(&self.draw_buffer, 0, bytemuck::cast_slice(&uniforms));
-        }
+        upload(
+            gpu,
+            &mut self.draw_buffer,
+            "draws",
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            &uniforms,
+            0,
+        );
 
         // Bind groups.
         let frame_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1552,39 +1557,27 @@ impl Renderer {
             }
             particle_draws.push((b.blend, group, start..particle_vertices.len() as u32));
         }
-        let particle_bytes = std::mem::size_of_val(particle_vertices.as_slice());
-        if (self.particle_buffer.size() as usize) < particle_bytes {
-            self.particle_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("particles"),
-                size: particle_bytes.next_power_of_two() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if particle_bytes > 0 {
-            gpu.queue.write_buffer(
-                &self.particle_buffer,
-                0,
-                bytemuck::cast_slice(&particle_vertices),
-            );
-        }
+        upload(
+            gpu,
+            &mut self.particle_buffer,
+            "particles",
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            &particle_vertices,
+            0,
+        );
         let line_vertices: Vec<LineVertex> = scene
             .lines
             .iter()
             .flat_map(|l| [l.from, l.to].map(|p| LineVertex { pos: p.to_array(), color: l.color }))
             .collect();
-        let line_bytes = std::mem::size_of_val(line_vertices.as_slice());
-        if (self.line_buffer.size() as usize) < line_bytes {
-            self.line_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("lines"),
-                size: line_bytes.next_power_of_two() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if line_bytes > 0 {
-            gpu.queue.write_buffer(&self.line_buffer, 0, bytemuck::cast_slice(&line_vertices));
-        }
+        upload(
+            gpu,
+            &mut self.line_buffer,
+            "lines",
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            &line_vertices,
+            0,
+        );
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {

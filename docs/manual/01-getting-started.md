@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:05Z }
 ---
 
 # Getting started
@@ -14,8 +14,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
   Beamdog). Moonglow reads the game's data (tilesets, models, 2DA tables,
   the talk table, scripts) from the installation; it ships none of it.
 - A graphics card with **Vulkan**, **Metal** (macOS) or **Direct3D 12**
-  (Windows) for the area viewer and model previews. Everything else works
-  without one.
+  (Windows) for the area viewer and model previews (OpenGL is tried where
+  none of them is there). Everything else works without one.
 - Linux (x86-64, a 2022 or newer distribution), Windows 10 or 11 (x64),
   or macOS 11 or newer (Apple silicon or Intel).
 
@@ -32,6 +32,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
 - **Windows**: run `Moonglow-*-setup.exe`. It installs for your user
   without administrator rights (or for all users, if you choose), adds a
   Start menu entry and, if you tick it, opens `.mod` files with Moonglow.
+- **Windows, Scoop**: `scoop bucket add moonglow
+  https://github.com/jadzziaa/moonglow-toolset`, then `scoop install
+  moonglow`; `scoop update moonglow` for a newer release.
+- **Windows, zip**: unpack it and run `moonglow.exe`. Nothing is
+  installed: no Start menu entry, no `.mod` association.
 - **macOS**: open the disk image and drag **Moonglow Toolset** into
   Applications. The app is not notarized by Apple, so macOS refuses to
   open it the first time. Open **System Settings › Privacy & Security**

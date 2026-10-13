@@ -114,13 +114,13 @@ impl Moonglow {
         {
             let mut item = Struct::new(6);
             item.set("Area_Name", Value::resref(to));
-            edits.push(Edit::InsertItem {
-                key: ifo,
-                path: mg_edit::GffPath::root(),
-                list: "Mod_Area_list".into(),
-                index: info.root.list("Mod_Area_list").map_or(0, <[Struct]>::len),
+            edits.push(Edit::insert_item(
+                ifo,
+                mg_edit::GffPath::root(),
+                "Mod_Area_list",
+                info.root.list("Mod_Area_list").map_or(0, <[Struct]>::len),
                 item,
-            });
+            ));
         }
         match self.apply(Command::new(format!("Copy {} as {new}", draft.from), edits)) {
             Ok(()) => {
@@ -141,13 +141,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = format!("Copy {}", draft.from);
     let mut open = true;
     let (mut done, mut cancel) = (false, false);
-    egui::Window::new(&title)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .open(crate::widgets::open_unless_escape(ctx, &title, &mut open))
-        .collapsible(false)
-        .resizable(false)
-        .show(ctx, |ui| {
+    crate::widgets::dialog(ctx, &title, &mut open).collapsible(false).resizable(false).show(
+        ctx,
+        |ui| {
             egui::Grid::new("copy-as").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "ResRef");
                 let r = ui.add(egui::TextEdit::singleline(&mut draft.resref).desired_width(200.0));
@@ -190,7 +186,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     cancel = true;
                 }
             });
-        });
+        },
+    );
     if done {
         if let Some(new) = app.copy_resource(&draft) {
             if draft.palette {

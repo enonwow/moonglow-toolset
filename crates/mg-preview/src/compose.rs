@@ -26,6 +26,14 @@ struct Placed {
     anims: Vec<(String, Arc<Model>)>,
 }
 
+impl Placed {
+    /// One of its animations (its own or a supermodel's), by name.
+    fn animation(&self, name: &str) -> Option<&Animation> {
+        let owner = self.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+        owner.1.animation(name)
+    }
+}
+
 /// A preview ready to draw.
 #[derive(Debug)]
 pub struct Composed {
@@ -60,11 +68,10 @@ fn place_unguarded(
 ) -> Option<Placed> {
     let mut model = load(&part.model)?;
     // A part hung from a node and not animated (a body part, a held
-    // item) is drawn rigid by the game: a mesh in it that is a skin has
-    // no skeleton to follow there and is not drawn at all (a body part
-    // exported as a skin mesh is invisible in the game).
-    if part.attach.is_some() && !part.animated && base.is_some() {
-        model = without_skins(model);
+    // item) is drawn rigid by the game, and a mesh in it that is a skin
+    // has no skeleton to follow there.
+    if let Some(node) = part.attach.as_deref().filter(|_| !part.animated && base.is_some()) {
+        model = without_skins(model, node.ends_with("_g"));
     }
     let attach = part
         .attach
@@ -85,17 +92,28 @@ fn place_unguarded(
     })
 }
 
-/// A model with its skin meshes not drawn (the model itself if it has
-/// none).
-fn without_skins(model: Arc<Model>) -> Arc<Model> {
-    let is_skin = |n: &mg_mdl::Node| {
-        n.mesh().is_some_and(|m| m.render && matches!(m.extra, mg_mdl::MeshExtra::Skin(_)))
+/// A part hung from a node, with the skin meshes the game does not draw
+/// there not drawn (the model itself if it has none such). Seen in the
+/// client (`docs/findings.md`, "A skin mesh in a body part or a held
+/// item"): a body part's skin whose bones are the skeleton's, no nodes of
+/// the part, is not drawn where the model is compiled and is drawn as a
+/// plain mesh where it is text; a held item's is drawn in neither.
+/// (`body_part`: it hangs from one of the skeleton's part nodes.)
+fn without_skins(model: Arc<Model>, body_part: bool) -> Arc<Model> {
+    let hidden = |n: &mg_mdl::Node| {
+        n.mesh().is_some_and(|m| match &m.extra {
+            // (Text: no bind pose is stored.)
+            mg_mdl::MeshExtra::Skin(s) => {
+                m.render && !(body_part && s.bones.is_empty() && s.inverse_bind.is_empty())
+            }
+            _ => false,
+        })
     };
-    if !model.nodes.iter().any(is_skin) {
+    if !model.nodes.iter().any(hidden) {
         return model;
     }
     let mut rigid = (*model).clone();
-    for n in rigid.nodes.iter_mut().filter(|n| is_skin(n)) {
+    for n in rigid.nodes.iter_mut().filter(|n| hidden(n)) {
         if let mg_mdl::NodeKind::Mesh(m) = &mut n.kind {
             m.render = false;
         }
@@ -176,10 +194,7 @@ impl Composed {
         if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_))) {
             return None;
         }
-        let playing = animation.and_then(|name| {
-            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
-            owner.1.animation(name)
-        });
+        let playing = animation.and_then(|name| self.base.animation(name));
         let pose = match playing {
             Some(a) => anim::pose(model, a, t),
             None => self.base.gpu.rest.clone(),
@@ -206,18 +221,13 @@ impl Composed {
     }
 
     fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
-        fn find<'a>(anims: &'a [(String, Arc<Model>)], name: &str) -> Option<&'a Animation> {
-            anims
-                .iter()
-                .find(|(n, _)| n.eq_ignore_ascii_case(name))
-                .and_then(|(_, owner)| owner.animation(name))
-        }
         // The animation asked for, else the other standing one: a model
         // whose appearance says full-body (`pause1`) may have a creature's
         // animations (`cpause1`), and stands in its rest pose without.
         let base_anim = animation.and_then(|a| {
-            find(&self.base.anims, a)
-                .or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(&self.base.anims, a)))
+            self.base
+                .animation(a)
+                .or_else(|| ["pause1", "cpause1"].iter().find_map(|a| self.base.animation(a)))
         });
         let base_pose: Arc<Vec<Mat4>> = Arc::new(match &base_anim {
             Some(a) => anim::pose(&self.base.gpu.model, a, t),
@@ -237,8 +247,8 @@ impl Composed {
             // Animated parts play the animation on their own nodes: their
             // own (wings, tails), else the base's (robe and cloak bones).
             let pose = if p.animated {
-                let own = animation.and_then(|a| find(&p.anims, a)).or_else(|| {
-                    ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(&p.anims, a))
+                let own = animation.and_then(|a| p.animation(a)).or_else(|| {
+                    ["creadyl", "cpause1", "pause1"].iter().find_map(|a| p.animation(a))
                 });
                 // (A skeleton's animation, the base's or its supermodel's,
                 // moves the part as it moves the base: at the base's
@@ -290,15 +300,35 @@ impl Composed {
         self.bounds_with(&self.base.gpu.rest, None)
     }
 
+    /// The box around the base model's meshes that are not drawn (`render
+    /// 0`), at rest: what a model of nothing to see is still the size of.
+    /// The game's invisible object is a box 0.6 m across and 0.18 m tall
+    /// that is never drawn, which Aurora outlines where it is selected.
+    /// `None` for a model with none.
+    pub fn hidden_bounds(&self) -> Option<(Vec3, Vec3)> {
+        let gm = &self.base.gpu;
+        let mut bounds: Option<(Vec3, Vec3)> = None;
+        for (i, node) in gm.model.nodes.iter().enumerate() {
+            let mg_mdl::NodeKind::Mesh(mesh) = &node.kind else { continue };
+            if mesh.render {
+                continue;
+            }
+            let at = gm.rest.get(i).copied().unwrap_or(Mat4::IDENTITY);
+            for v in &mesh.vertices {
+                let v = at.transform_point3(Vec3::from(*v));
+                let (min, max) = bounds.unwrap_or((v, v));
+                bounds = Some((min.min(v), max.max(v)));
+            }
+        }
+        bounds
+    }
+
     /// [`Composed::bounds`] as it stands in `animation` at `t`: a creature
     /// whose skeleton plays another body's animations at a scale stands
     /// taller or shorter than at rest, and a picture framed by its rest
     /// cut its head off.
     pub fn bounds_in(&self, animation: Option<&str>, t: f32) -> (Vec3, Vec3) {
-        let find = |name: &str| {
-            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
-            owner.1.animation(name)
-        };
+        let find = |name: &str| self.base.animation(name);
         let playing = animation
             .and_then(|a| find(a).or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(a))));
         match (playing, animation) {
@@ -417,10 +447,7 @@ impl Composed {
         for p in &self.parts {
             let at = p.attach.and_then(|i| pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
             let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
-                let find = |name: &str| {
-                    let owner = p.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
-                    owner.1.animation(name)
-                };
+                let find = |name: &str| p.animation(name);
                 let own = find(asked)
                     .or_else(|| ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(a)));
                 let worn = self.base.gpu.model.animation_scale;
@@ -502,14 +529,40 @@ mod ray_tests {
         let mut model = Model::default();
         model.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
         model.nodes.push(Node::new("skin", mesh(MeshExtra::Skin(Default::default()))));
-        let rigid = without_skins(Arc::new(model));
+        let rigid = without_skins(Arc::new(model), false);
         let drawn: Vec<bool> = rigid.nodes.iter().map(|n| n.mesh().unwrap().render).collect();
         assert_eq!(drawn, [true, false]);
         // One without skins is the same model, not a copy.
         let mut plain = Model::default();
         plain.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
         let plain = Arc::new(plain);
-        assert!(Arc::ptr_eq(&without_skins(plain.clone()), &plain));
+        assert!(Arc::ptr_eq(&without_skins(plain.clone(), false), &plain));
+    }
+
+    #[test]
+    fn a_body_part_s_skin_is_drawn_as_the_game_draws_it() {
+        // A part whose mesh is a skin weighted to a bone of the skeleton,
+        // which is no node of the part: as text, and compiled.
+        let text = "newmodel part\nsetsupermodel part NULL\nclassification character\n\
+            beginmodelgeom part\nnode dummy part\n  parent NULL\nendnode\n\
+            node skin part_g\n  parent part\n  bitmap part\n\
+            verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            faces 1\n    0 1 2 1 0 1 2 0\n\
+            weights 3\n    torso_g 1.0\n    torso_g 1.0\n    torso_g 1.0\n\
+            endnode\nendmodelgeom part\ndonemodel part\n";
+        let drawn = |model: Model, body_part: bool| {
+            let rigid = without_skins(Arc::new(model), body_part);
+            rigid.nodes.iter().find_map(|n| n.mesh()).expect("a mesh").render
+        };
+        let as_text = Model::read(text.as_bytes()).unwrap();
+        let compiled = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).unwrap();
+        let as_binary = Model::read(&compiled.binary).unwrap();
+        assert!(matches!(as_binary.nodes[1].mesh().unwrap().extra, mg_mdl::MeshExtra::Skin(_)));
+        assert!(drawn(as_text.clone(), true), "text, a body part: a plain mesh");
+        assert!(!drawn(as_binary.clone(), true), "compiled, a body part: not drawn");
+        assert!(!drawn(as_text, false), "text, a held item: not drawn");
+        assert!(!drawn(as_binary, false), "compiled, a held item: not drawn");
     }
 
     #[test]

@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:48:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:37:40Z }
 ---
 
 # Coming from Aurora
@@ -73,8 +73,9 @@ Each names what Aurora does, then what Moonglow does instead.
 - **Game patches break the toolset**, because it updates with the game.
   Moonglow is released separately, and you choose when to update.
 - **Small text and icons** on high-resolution screens, and no dark mode.
-  Moonglow follows the system's display scaling and its light or dark
-  theme; Ctrl + plus and Ctrl + minus make everything larger or smaller.
+  Moonglow follows the system's display scaling and has a dark and a
+  light theme (Tools › Options › General); Ctrl + plus and Ctrl + minus
+  make everything larger or smaller.
 - **Testing.** Aurora's F9 has problems the wiki warns about, always
   picks the first character, and needs a restart to see a changed hak.
   Moonglow starts the game the way the wiki recommends, offers **Test
@@ -86,9 +87,14 @@ Each names what Aurora does, then what Moonglow does instead.
 
 ## Habits to change
 
-- **There's no OK or Cancel.** A change applies as you make it. To take
-  one back, use Undo (Ctrl+Z), as many times as you need. Closing an
-  editor loses nothing.
+- **A change applies as you make it.** To take one back, use Undo
+  (Ctrl+Z), as many times as you need. Closing an editor loses nothing.
+  The editors' windows (a blueprint's Properties, a placed object's,
+  Module and Area Properties, a conversation, the journal, the factions)
+  have **OK** and **Cancel** as Aurora's do: Cancel sets back what was
+  changed in the window since it was opened, as one step. A 2DA is
+  saved when you ask, so its OK saves it and its Cancel closes it as
+  last saved (after asking).
 - **Save writes everything**: the module, and every script you've edited.
   A script's **Compile** button saves and compiles that script. F7
   compiles all of them.
@@ -138,7 +144,10 @@ own.
 - **The resource browser** (Tools › Resource Browser) shows any resource
   in the game, the haks or the module, and where it comes from; models
   open in the model viewer. A 2DA shows its StrRefs as text, which hak
-  each row comes from, and what a hak changed.
+  each row comes from, and what a hak changed; **Edit…** there (the
+  module's table, a hak's, or a copy), or **Edit Table** in the hak
+  editor, opens it in the
+  [2DA editor](03-modules.md#the-2da-editor).
 - **Talk tables**: Tools › Talk Table edits the module's own, and String
   Edit's **Move to Talk Table** puts a text there by StrRef.
 - **Tilesets**: Tools › Tilesets edits `.set` files (the Set File

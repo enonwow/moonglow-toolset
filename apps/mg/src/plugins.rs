@@ -14,7 +14,7 @@ use mg_edit::{Command, Workspace};
 use mg_module::Module;
 use mg_module::doctor::{Finding, Severity};
 use mg_plugin::{Answer, FieldKind, Host, Input, Level, Plugin, PluginError, Question};
-use mg_resman::{GameInstall, LayerClass, priority};
+use mg_resman::GameInstall;
 use mg_rules::GameData;
 use serde_json::json;
 
@@ -47,12 +47,11 @@ pub(crate) fn game_for(
             return None;
         }
     };
-    let haks = m.haks().unwrap_or_default();
-    match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
-        Ok(missing) => missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found"))),
-        Err(e) => out.note(format!("warning: the module's haks: {e}")),
+    let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
+    missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found")));
+    if let Some(e) = wrong {
+        out.note(format!("warning: the module's haks: {e}"));
     }
-    game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
     if let Some(name) = m.custom_tlk().ok().flatten()
         && let Some(found) = mg_module::talk::find(&game.resman, &gi.tlk_dirs(), &name)
         && let Ok(tlk) = mg_tlk::Tlk::read(&found.data)
@@ -340,11 +339,7 @@ pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
 
 /// A plugin's archive read from a file, as the installer reads it.
 fn archive(file: &Path) -> Result<mg_plugin::Package> {
-    let size = std::fs::metadata(file)?.len();
-    if size > mg_plugin::MAX_ARCHIVE {
-        bail!("it is over {} MB", mg_plugin::MAX_ARCHIVE >> 20);
-    }
-    mg_plugin::Package::read(&std::fs::read(file)?).map_err(|e| anyhow!("{e}"))
+    mg_plugin::Package::open(file).map_err(|e| anyhow!("{e}"))
 }
 
 /// `mg plugin remove`: a plugin installed from an archive taken out of a
@@ -393,11 +388,19 @@ pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Outp
 
 /// `mg plugin run`: a plugin's command on a module, its edits applied as
 /// one command and saved (or, with `dry_run`, printed).
+/// What of a plugin to run: a command, or (`changed`) what it does by
+/// itself on an event, with the resources a save changed (none named:
+/// all of the module's).
+pub(crate) struct What<'a> {
+    pub id: &'a str,
+    pub changed: Option<Vec<mg_resman::ResKey>>,
+}
+
 pub(crate) fn run(
     gi: Option<&GameInstall>,
     module: &Path,
     dir: &Path,
-    command: &str,
+    what: &What<'_>,
     host: CliHost,
     hak_dir: Option<&Path>,
     dry_run: bool,
@@ -408,12 +411,29 @@ pub(crate) fn run(
     let game = game_for(gi, &m, &mut notes);
     // (The edits are shown in the module's own letters, as the plugin
     // wrote them.)
-    if let Some(game) = &game {
-        super::edits::use_codepage(game.codepage().for_language(mg_core::Language::ENGLISH));
-    }
+    let codepage = game.as_ref().map_or(mg_core::Codepage::WINDOWS_1252, |game| {
+        game.codepage().for_language(mg_core::Language::ENGLISH)
+    });
     let host = Rc::new(host);
     let input = Input { module: m.clone(), game };
-    let outcome = mg_plugin::run_command(&plugin, command, input, host.clone());
+    let outcome = match &what.changed {
+        None => mg_plugin::run_command(&plugin, what.id, input, host.clone()),
+        Some(changed) => {
+            let on = plugin.manifest.events.iter().find(|e| e.id == what.id).map(|e| e.on);
+            let mut resources = changed.clone();
+            if resources.is_empty() {
+                resources = m.keys().copied().collect();
+                resources.sort();
+            }
+            // (An event that is not the plugin's is refused below.)
+            let kind = on.unwrap_or(mg_plugin::EventKind::ModuleSaved);
+            if kind == mg_plugin::EventKind::ModuleOpened {
+                resources.clear();
+            }
+            let event = mg_plugin::Event { kind, resources };
+            mg_plugin::run_event(&plugin, what.id, &event, input, host.clone())
+        }
+    };
     let outcome = match outcome {
         Ok(o) => o,
         Err(e) => {
@@ -451,7 +471,7 @@ pub(crate) fn run(
         notes.note(format!("{}: {new} files written, {replaced} replaced", folder.dir.display()));
     }
     let cmd = Command::new(outcome.label, outcome.edits);
-    let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run)?;
+    let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage)?;
     out.notes.splice(0..0, notes.notes);
     host.finish(&mut out);
     Ok(out)
@@ -482,17 +502,7 @@ pub(crate) fn findings(
                 let input = Input { module: m.clone(), game: game.clone() };
                 match mg_plugin::run_check(&plugin, &check.id, input, host.clone()) {
                     Ok(found) => all.extend(found),
-                    Err(e) => all.push(Finding {
-                        severity: Severity::Error,
-                        check: plugin.check_id(&check.id).into(),
-                        source: "plugin".into(),
-                        resource: mg_resman::ResKey::new(
-                            mg_core::ResRef::from_str("module").expect("valid"),
-                            mg_core::ResType::IFO,
-                        ),
-                        at: String::new(),
-                        message: format!("the check failed: {e}"),
-                    }),
+                    Err(e) => all.push(plugin.check_failed(&check.id, &e)),
                 }
                 for (_, text) in host.log.borrow().iter() {
                     out.note(format!("{}: {text}", plugin.manifest.name));

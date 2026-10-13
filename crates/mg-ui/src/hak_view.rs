@@ -113,7 +113,7 @@ impl HakDoc {
         self.rows.as_ref().map(|r| r.3.clone()).unwrap_or_default()
     }
 
-    fn changed(&mut self) {
+    pub(crate) fn changed(&mut self) {
         self.revision += 1;
         self.description = None;
         let keys: BTreeSet<ResKey> = self.hak.items().iter().map(|i| i.key).collect();
@@ -146,21 +146,31 @@ pub fn new_hak(app: &mut Moonglow) {
 pub fn open_hak(app: &mut Moonglow) {
     let start = hak_dir(app);
     let Some(path) = app.dialogs.open_file(FileKind::Hak, start.as_deref()) else { return };
-    if let Some(d) = app.haks.iter().find(|d| d.hak.path.as_deref() == Some(&path)) {
+    open_at(app, &path);
+}
+
+/// Opens a hak's file in the hak editor (its tab brought to the front if
+/// it is open already); its id.
+pub fn open_at(app: &mut Moonglow, path: &std::path::Path) -> Option<u32> {
+    if let Some(d) = app.haks.iter().find(|d| d.hak.path.as_deref() == Some(path)) {
         let id = d.id;
         app.actions.push(crate::Action::OpenTab(Tab::Hak(id)));
-        return;
+        return Some(id);
     }
-    match Hak::open(&path) {
+    match Hak::open(path) {
         Ok(h) => {
             let id = open_tab(app, h);
             // (Built from a folder before: Update from Folder knows it.)
-            let folder = app.settings.hak_folder(&path).map(std::path::Path::to_path_buf);
+            let folder = app.settings.hak_folder(path).map(std::path::Path::to_path_buf);
             if let Some(doc) = app.haks.iter_mut().find(|d| d.id == id) {
                 doc.folder = folder;
             }
+            Some(id)
         }
-        Err(e) => app.log.error(format!("Could not open {}: {e}", path.display())),
+        Err(e) => {
+            app.log.error(format!("Could not open {}: {e}", path.display()));
+            None
+        }
     }
 }
 
@@ -284,6 +294,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         Extract(Vec<ResKey>),
         Save(bool),
         View(ResKey),
+        EditTable(ResKey),
         UpdateFromFolder,
         CompileModels,
     }
@@ -336,6 +347,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 .desired_width(480.0)
                 .hint_text("for people: the game doesn't show it"),
         );
+        crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if r.lost_focus() && *text != doc.hak.description {
             let t = text.clone();
             doc.hak.set_description(&t);
@@ -405,8 +417,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     }
     ui.horizontal(|ui| {
         ui.label("Find");
+        let field = ui.id().with("hak-filter-field");
+        crate::widgets::pane_filter_keys(ui, field, &mut doc.filter);
         ui.add(
             egui::TextEdit::singleline(&mut doc.filter)
+                .id(field)
                 .desired_width(200.0)
                 .hint_text("name or .type"),
         );
@@ -491,6 +506,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     if ui.button("View").clicked() {
                         todo = Some(Do::View(item.key));
                     }
+                    if item.key.restype == mg_core::ResType::TWODA
+                        && ui
+                            .button("Edit Table")
+                            .on_hover_text(
+                                "In the 2DA editor: saved into this hak, and written with the \
+                                 hak's own Save",
+                            )
+                            .clicked()
+                    {
+                        todo = Some(Do::EditTable(item.key));
+                    }
                     if ui.button("Rename…").clicked() {
                         doc.rename = Some((item.key, item.key.resref.to_string()));
                     }
@@ -550,6 +576,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             if let Some(dir) = app.dialogs.pick_folder("Add Folder", None) {
                 add(app, i, mg_module::hak_edit::folder_files(&dir));
             }
+        }
+        Some(Do::EditTable(key)) => {
+            let id = app.haks[i].id;
+            crate::table_view::open_in_hak(app, id, key);
         }
         Some(Do::Extract(keys)) => {
             if let Some(dir) = app.dialogs.pick_folder("Extract to", None) {

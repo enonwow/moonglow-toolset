@@ -196,14 +196,17 @@ fn field_read(field: &Map<String, Json>, cp: Codepage, fpath: &str) -> Result<Va
         }
     };
     let v = match ty {
-        FieldType::Byte => Value::Byte(int(0, u8::MAX as i128)? as u8),
-        FieldType::Char => Value::Char(int(i8::MIN as i128, i8::MAX as i128)? as i8),
-        FieldType::Word => Value::Word(int(0, u16::MAX as i128)? as u16),
-        FieldType::Short => Value::Short(int(i16::MIN as i128, i16::MAX as i128)? as i16),
-        FieldType::Dword => Value::Dword(int(0, u32::MAX as i128)? as u32),
-        FieldType::Int => Value::Int(int(i32::MIN as i128, i32::MAX as i128)? as i32),
-        FieldType::Dword64 => Value::Dword64(int(0, u64::MAX as i128)? as u64),
-        FieldType::Int64 => Value::Int64(int(i64::MIN as i128, i64::MAX as i128)? as i64),
+        FieldType::Byte
+        | FieldType::Char
+        | FieldType::Word
+        | FieldType::Short
+        | FieldType::Dword
+        | FieldType::Int
+        | FieldType::Dword64
+        | FieldType::Int64 => {
+            let (min, max) = ty.int_range().expect("an integer type");
+            ty.int_value(int(min, max)?).expect("within the type's range")
+        }
         FieldType::Float => Value::Float(as_float(need()?, fpath)? as f32),
         FieldType::Double => Value::Double(as_float(need()?, fpath)?),
         FieldType::String => Value::String(text()?),

@@ -86,6 +86,19 @@ impl Plugin {
     pub fn check_id(&self, check: &str) -> String {
         format!("{}/{check}", self.manifest.id)
     }
+
+    /// The finding for one of its checks that failed to run: an error
+    /// under the check's id, about the module.
+    pub fn check_failed(&self, check: &str, why: &PluginError) -> Finding {
+        Finding {
+            severity: mg_module::doctor::Severity::Error,
+            check: self.check_id(check).into(),
+            source: "plugin".into(),
+            resource: ResKey::parse("module", mg_core::ResType::IFO).expect("a resource name"),
+            at: String::new(),
+            message: format!("the check failed: {why}"),
+        }
+    }
 }
 
 /// The plugins' folders in `dir`: each folder with a `plugin.cfg`, sorted

@@ -204,6 +204,115 @@ impl TwoDa {
         self.get(row, column).and_then(parse_int)
     }
 
+    /// Sets the cell at (`row`, `column`): `None`, or `****`, empties it.
+    /// An error for a value a 2DA cannot hold (a double quote); nothing
+    /// for a cell the table does not have.
+    pub fn set(
+        &mut self,
+        row: usize,
+        column: usize,
+        value: Option<String>,
+    ) -> Result<(), TwoDaError> {
+        let value = value.filter(|v| v != "****");
+        if value.as_ref().is_some_and(|v| v.contains('"')) {
+            return Err(TwoDaError::Unquotable);
+        }
+        if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(column)) {
+            *cell = value;
+        }
+        Ok(())
+    }
+
+    /// Adds a row of empty cells at the end; its number.
+    pub fn add_row(&mut self) -> usize {
+        self.rows.push(vec![None; self.columns.len()]);
+        self.rows.len() - 1
+    }
+
+    /// Adds a column at the end, its cells empty.
+    pub fn add_column(&mut self, name: &str) -> Result<(), TwoDaError> {
+        let mut columns = self.columns.clone();
+        columns.push(name.to_string());
+        self.set_columns(columns)?;
+        for row in &mut self.rows {
+            row.push(None);
+        }
+        Ok(())
+    }
+
+    /// Takes a column out, with its cells (a row's cell, where the row has
+    /// one); `None` for a column the table does not have.
+    pub fn remove_column(&mut self, column: usize) -> Option<Vec<Option<String>>> {
+        if column >= self.columns.len() {
+            return None;
+        }
+        let mut columns = self.columns.clone();
+        columns.remove(column);
+        self.set_columns(columns).ok()?;
+        let cells = self.rows.iter_mut().map(|r| (column < r.len()).then(|| r.remove(column)));
+        Some(cells.map(Option::flatten).collect())
+    }
+
+    /// Puts a column in at `column` (the end, past it), with its cells: one
+    /// for each row, the rows beyond `cells` empty.
+    pub fn insert_column(
+        &mut self,
+        column: usize,
+        name: &str,
+        cells: Vec<Option<String>>,
+    ) -> Result<(), TwoDaError> {
+        let at = column.min(self.columns.len());
+        let mut columns = self.columns.clone();
+        columns.insert(at, name.to_string());
+        self.set_columns(columns)?;
+        let mut cells = cells.into_iter();
+        for row in &mut self.rows {
+            let cell = cells.next().flatten();
+            row.insert(at.min(row.len()), cell);
+        }
+        Ok(())
+    }
+
+    /// Moves a column to another place among the columns, with its cells:
+    /// the columns between move one place the other way. Nothing for a
+    /// place the table does not have.
+    pub fn move_column(&mut self, from: usize, to: usize) -> bool {
+        let count = self.columns.len();
+        if from >= count || to >= count || from == to {
+            return false;
+        }
+        let mut columns = self.columns.clone();
+        let name = columns.remove(from);
+        columns.insert(to, name);
+        if self.set_columns(columns).is_err() {
+            return false;
+        }
+        for row in &mut self.rows {
+            // (A row with fewer cells than columns is given the rest.)
+            row.resize(count.max(row.len()), None);
+            let cell = row.remove(from);
+            row.insert(to, cell);
+        }
+        true
+    }
+
+    /// Gives a column another name (an error for one the table has).
+    pub fn rename_column(&mut self, column: usize, name: &str) -> Result<(), TwoDaError> {
+        let mut columns = self.columns.clone();
+        if let Some(c) = columns.get_mut(column) {
+            *c = name.to_string();
+        }
+        self.set_columns(columns)
+    }
+
+    /// Empties every cell of a row, which stays (the rows after it keep
+    /// their numbers: a row is never taken out of a table).
+    pub fn clear_row(&mut self, row: usize) {
+        if let Some(r) = self.rows.get_mut(row) {
+            r.iter_mut().for_each(|c| *c = None);
+        }
+    }
+
     /// A cell as a float, parsed as the game does (see [`parse_float`]).
     pub fn get_float(&self, row: usize, column: &str) -> Option<f32> {
         self.get(row, column).and_then(parse_float)
@@ -212,6 +321,13 @@ impl TwoDa {
     /// Serializes the table with aligned columns and CRLF line ends, as the
     /// game's own files are laid out.
     pub fn to_bytes(&self, codepage: Codepage) -> Result<Vec<u8>, TwoDaError> {
+        self.to_bytes_as(codepage, Layout::Aligned)
+    }
+
+    /// Serializes the table as `layout` says: its columns in line, or one
+    /// space between cells (a smaller file, with less for the game to
+    /// pass over as it reads).
+    pub fn to_bytes_as(&self, codepage: Codepage, layout: Layout) -> Result<Vec<u8>, TwoDaError> {
         let esc = |c: &Option<String>| -> Result<String, TwoDaError> {
             match c {
                 None => Ok("****".into()),
@@ -238,6 +354,16 @@ impl TwoDa {
         }
         out += "\r\n";
         let line = |label: &str, cells: &[String]| {
+            if layout == Layout::Compact {
+                // (The column names' line begins with a space, as the
+                // rows begin with their numbers.)
+                let mut l = label.to_string();
+                for c in cells {
+                    l.push(' ');
+                    l += c;
+                }
+                return l + "\r\n";
+            }
             let mut l = format!("{label:id_width$}");
             for (i, c) in cells.iter().enumerate() {
                 if i + 1 == cells.len() {
@@ -254,6 +380,29 @@ impl TwoDa {
             out += &line(&i.to_string(), r);
         }
         codepage.encode(&out).map(|b| b.into_owned()).ok_or(TwoDaError::Unquotable)
+    }
+}
+
+/// How a table's file is laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Layout {
+    /// Columns in line, padded with spaces: the game's own files.
+    #[default]
+    Aligned,
+    /// One space between cells.
+    Compact,
+}
+
+impl Layout {
+    /// How a file is laid out: compact where no row has two blanks
+    /// together between its cells (one space or one tab between each).
+    pub fn of(data: &[u8]) -> Layout {
+        let padded = data
+            .split(|b| *b == b'\n')
+            .skip(3)
+            .any(|line| line.trim_ascii().windows(2).any(|w| w.iter().all(|b| b" \t".contains(b))));
+        let rows = data.split(|b| *b == b'\n').skip(3).any(|l| !l.trim_ascii().is_empty());
+        if rows && !padded { Layout::Compact } else { Layout::Aligned }
     }
 }
 
@@ -383,5 +532,66 @@ mod tests {
         let t = b"2DA V2.0\n\n   LABEL Model\n0  a     m_a\n1  b     m_b 2 c m_c\n2  \"d e\" m_d\n";
         assert_eq!(overlong_rows(t, Codepage::default()), [(1, 5)]);
         assert!(overlong_rows(b"nope", Codepage::default()).is_empty());
+    }
+
+    #[test]
+    fn cells_rows_and_columns_are_changed_in_place() {
+        let mut t =
+            TwoDa::parse(b"2DA V2.0\n\n  Label Cost\n0 a 1\n1 b 2\n", Codepage::default()).unwrap();
+        t.set(1, 1, Some("5".into())).unwrap();
+        t.set(0, 0, Some("****".into())).unwrap();
+        assert_eq!((t.get(1, "Cost"), t.get(0, "Label")), (Some("5"), None));
+        assert_eq!(t.set(0, 0, Some("a \"b\"".into())), Err(TwoDaError::Unquotable));
+        // (A cell that is not there: nothing.)
+        t.set(9, 0, Some("x".into())).unwrap();
+        assert_eq!(t.add_row(), 2);
+        t.set(2, 0, Some("two words".into())).unwrap();
+        t.add_column("Name").unwrap();
+        assert_eq!(t.add_column("name"), Err(TwoDaError::DuplicateColumn("name".into())));
+        t.set(2, 2, Some("7".into())).unwrap();
+        t.clear_row(1);
+        // One space between cells reads back as the same table, and a
+        // file's own layout is known.
+        let compact = t.to_bytes_as(Codepage::default(), Layout::Compact).unwrap();
+        let aligned = t.to_bytes(Codepage::default()).unwrap();
+        assert!(compact.len() < aligned.len());
+        assert!(!String::from_utf8_lossy(&compact).lines().skip(2).any(|l| l.contains("  ")));
+        assert_eq!(TwoDa::parse(&compact, Codepage::default()).unwrap(), t);
+        assert_eq!(
+            (Layout::of(&compact), Layout::of(&aligned)),
+            (Layout::Compact, Layout::Aligned)
+        );
+        assert_eq!(Layout::of(b"2DA V2.0\n\n\tA\tB\n0\tx\ty\n"), Layout::Compact);
+        assert_eq!(Layout::of(b"2DA V2.0\n\n  A B\n"), Layout::Aligned, "no rows: the game's way");
+        // A column moved takes its cells along, and moved back is as it was.
+        let before = t.clone();
+        let (first, last) = (t.columns()[0].clone(), t.columns().len() - 1);
+        let cell = t.cell(0, 0).map(str::to_string);
+        assert!(t.move_column(0, last) && !t.move_column(0, 99) && !t.move_column(1, 1));
+        assert_eq!((t.column(&first), t.cell(0, last).map(str::to_string)), (Some(last), cell));
+        assert_eq!(t.columns()[0], before.columns()[1]);
+        assert!(t.move_column(last, 0));
+        assert_eq!(t, before);
+        // A column taken out and put back where it was, and renamed.
+        let before = t.clone();
+        let first = t.columns()[0].clone();
+        let cells = t.remove_column(0).unwrap();
+        assert_eq!((t.columns().len(), cells.len()), (before.columns().len() - 1, t.len()));
+        assert!(t.column(&first).is_none() && t.remove_column(99).is_none());
+        t.insert_column(0, &first, cells).unwrap();
+        assert_eq!(t, before);
+        let second = t.columns()[1].clone();
+        assert!(t.rename_column(0, &second).is_err(), "a name the table has");
+        t.rename_column(0, "Other").unwrap();
+        assert_eq!((t.column("other"), t.column(&first)), (Some(0), None));
+        t.rename_column(0, &first).unwrap();
+        assert_eq!(t.len(), 3, "a cleared row stays");
+        let text = String::from_utf8(t.to_bytes(Codepage::default()).unwrap()).unwrap();
+        let rows: Vec<&str> = text.lines().skip(3).map(str::trim).collect();
+        assert_eq!(
+            rows,
+            ["0  ****        1    ****", "1  ****        **** ****", "2  \"two words\" **** 7"]
+        );
+        assert_eq!(TwoDa::parse(text.as_bytes(), Codepage::default()).unwrap(), t);
     }
 }

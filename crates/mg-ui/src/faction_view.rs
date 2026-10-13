@@ -83,9 +83,14 @@ impl Moonglow {
             renumber_faction_users(&mut staged, map);
         }
         let edits = ws.edits_to(&staged);
-        if !edits.is_empty()
-            && let Err(e) = self.apply(Command::new(what, edits))
-        {
+        if edits.is_empty() {
+            return;
+        }
+        let command = Command::new(what, edits);
+        // (For the window's Cancel: what the command replaces, as it is.)
+        let targets = [(key(), mg_edit::GffPath::root())];
+        crate::blueprint::note_command(self, &crate::Tab::Factions, &targets, &command);
+        if let Err(e) = self.apply(command) {
             self.log.error(e.to_string());
         }
     }
@@ -94,7 +99,18 @@ impl Moonglow {
 /// The width of a column of the Advanced grid (its heading's).
 const HEAD_WIDTH: f32 = 64.0;
 
+/// The faction editor, over its OK and Cancel (`blueprint::ok_cancel`).
+/// (Its changes are noted as they are made: `store_factions`.)
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    let targets = [(key(), mg_edit::GffPath::root())];
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    editor(app, ui);
+    let tab = crate::Tab::Factions;
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+}
+
+fn editor(app: &mut Moonglow, ui: &mut Ui) {
     let Some(mut f) = app.factions() else {
         ui.label("No module is open.");
         return;

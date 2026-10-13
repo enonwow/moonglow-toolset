@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.2, for editors that check
+-- The types of Moonglow's plugin API, version 0.3, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -214,12 +214,27 @@ end
 -- the root).
 function mg.path(struct: Struct): string? return nil end
 
+-- A table's description (the text of its `name.2da.toml`): what each
+-- column holds ("text", "int", "float", "list", "flags", "strref", or
+-- "row:" and a table), a value's name, and what is wrong in a table.
+export type Described = {
+    rows: string?,
+    columns: { [string]: string },
+    notes: { string },
+    name: (self: Described, column: string, value: string | number) -> string?,
+    faults: (self: Described, table: TwoDa, lengths: { [string]: number }?) -> { { row: number, column: string, value: string?, message: string } },
+}
+
 -- 2DAs made, read (from a file's bytes) and written; `kinds` says which
--- columns of a table of the game's hold what ("strref", "model").
+-- columns of a table of the game's hold what ("strref", "model", or
+-- "row:" and the table whose row it names, as "row:feat"); `describe`
+-- reads a table's description, `scripts` the sources of the scripts
+-- whose constants it names.
 mg.twoda = {
     parse = function(bytes: string): TwoDa return nil :: any end,
     new = function(columns: { string }): TwoDa return nil :: any end,
     kinds = function(name: string): { [string]: string } return {} end,
+    describe = function(text: string, scripts: { [string]: string }?): Described return nil :: any end,
 }
 
 -- Talk tables made, read and written.

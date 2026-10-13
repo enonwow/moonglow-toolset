@@ -2,12 +2,11 @@
 //! line), and three-way merges.
 
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::Value;
 
 fn mg(args: &[&str]) -> (bool, Value) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg")).arg("--json").args(args).output().unwrap();
+    let out = crate::mg().arg("--json").args(args).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     (out.status.success(), serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}: {text}")))
 }

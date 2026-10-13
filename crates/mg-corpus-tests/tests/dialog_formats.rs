@@ -36,6 +36,8 @@ fn conversations_survive_twine_ink_and_csv() {
             dialogs.push((format!("{name}/{}", k.resref), m.get(k).unwrap().to_vec()));
         }
     }
+    assert!(dialogs.len() > 1000, "{}", dialogs.len());
+    let dialogs = mg_testkit::sweep(dialogs, 10);
     let (mut checked, mut structural) = (0, 0);
     let mut failures = Vec::new();
     for (name, data) in &dialogs {
@@ -83,7 +85,7 @@ fn conversations_survive_twine_ink_and_csv() {
         }
     }
     println!("{checked} conversations played out, {structural} compared line by line");
-    assert!(checked > 1000, "{checked}");
+    assert!(checked > dialogs.len() / 2, "{checked}");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 

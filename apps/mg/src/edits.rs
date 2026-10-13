@@ -16,22 +16,15 @@ use serde_json::json;
 
 use super::{Output, resource_key};
 
-/// The codepage of the text in commands: Windows-1252 (as `mg gff` reads
-/// and writes), or the table of the module's `encoding.2da`, once
-/// [`use_codepage`] has said so.
-static MODULE_CODEPAGE: std::sync::OnceLock<Codepage> = std::sync::OnceLock::new();
-
-/// The module's codepage, for the commands of this run.
-pub(crate) fn use_codepage(codepage: Codepage) {
-    let _ = MODULE_CODEPAGE.set(codepage);
-}
-
-fn codepage() -> Codepage {
-    MODULE_CODEPAGE.get().copied().unwrap_or(Codepage::WINDOWS_1252)
-}
-
 /// `mg apply`: the edits of a file (`-`: standard input), all or none.
-pub(crate) fn apply(module: &Path, edits: &Path, dry_run: bool) -> Result<Output> {
+/// (`codepage`, here and below: that of the module's text, Windows-1252
+/// or the table of its `encoding.2da`.)
+pub(crate) fn apply(
+    module: Module,
+    edits: &Path,
+    dry_run: bool,
+    codepage: Codepage,
+) -> Result<Output> {
     let text = if edits == Path::new("-") {
         let mut text = String::new();
         std::io::stdin().lock().read_to_string(&mut text)?;
@@ -42,27 +35,27 @@ pub(crate) fn apply(module: &Path, edits: &Path, dry_run: bool) -> Result<Output
     let json: serde_json::Value =
         serde_json::from_str(&text).with_context(|| format!("{} is not JSON", edits.display()))?;
     let cmd =
-        command_from_json(&json, codepage()).map_err(|e| anyhow!("{}: {e}", edits.display()))?;
-    let ws = Workspace::new(Module::open(module)?);
-    run(ws, cmd, dry_run, None, false)
+        command_from_json(&json, codepage).map_err(|e| anyhow!("{}: {e}", edits.display()))?;
+    run(Workspace::new(module), cmd, dry_run, None, false, codepage)
 }
 
 /// `mg set`: fields of one resource, each `FIELD=VALUE` (or
 /// `FIELD:TYPE=VALUE` for a field the resource lacks), and fields to remove.
 pub(crate) fn set(
-    module: &Path,
+    module: Module,
     resource: &str,
     assignments: &[String],
     remove: &[String],
     dry_run: bool,
+    codepage: Codepage,
 ) -> Result<Output> {
     let key = resource_key(resource)?;
-    let mut ws = Workspace::new(Module::open(module)?);
+    let mut ws = Workspace::new(module);
     let root = ws.doc(&key)?.root.clone();
     let mut edits = Vec::new();
     // Each field as it was and as it will be, for people.
     let mut lines = Vec::new();
-    let shown = |v: &Value| match mg_gff::value_to_json(v, codepage()) {
+    let shown = |v: &Value| match mg_gff::value_to_json(v, codepage) {
         Ok(json) => json.get("value").or(json.get("value64")).cloned().unwrap_or_default(),
         Err(_) => serde_json::Value::Null,
     };
@@ -93,7 +86,7 @@ pub(crate) fn set(
                      cexostring, resref, cexolocstring)"
                 )
             })?;
-        let value = typed(ty, text, old).with_context(|| field.to_string())?;
+        let value = typed(ty, text, old, codepage).with_context(|| field.to_string())?;
         let place = mg_edit::wire::field_to_string(&path, &label);
         lines.push(match old {
             Some(old) => format!("{key} {place}: {} -> {}", shown(old), shown(&value)),
@@ -118,12 +111,12 @@ pub(crate) fn set(
         [Edit::SetField { label, .. }] => format!("Remove {label}"),
         _ => format!("Set {} fields of {key}", edits.len()),
     };
-    run(ws, Command::new(label, edits), dry_run, Some(lines), true)
+    run(ws, Command::new(label, edits), dry_run, Some(lines), true, codepage)
 }
 
 /// `text` as a value of type `ty` (a localized string keeps what `old` has
 /// and takes the text as its English).
-fn typed(ty: FieldType, text: &str, old: Option<&Value>) -> Result<Value> {
+fn typed(ty: FieldType, text: &str, old: Option<&Value>, codepage: Codepage) -> Result<Value> {
     let int = |min: i128, max: i128| -> Result<i128> {
         let v: i128 = text.trim().parse().with_context(|| format!("{text:?} is not a number"))?;
         if v < min || v > max {
@@ -139,16 +132,19 @@ fn typed(ty: FieldType, text: &str, old: Option<&Value>) -> Result<Value> {
         Ok(v)
     };
     let encoded =
-        || codepage().encode(text).map(|b| b.into_owned()).context("text the codepage cannot hold");
+        || codepage.encode(text).map(|b| b.into_owned()).context("text the codepage cannot hold");
     Ok(match ty {
-        FieldType::Byte => Value::Byte(int(0, u8::MAX.into())? as u8),
-        FieldType::Char => Value::Char(int(i8::MIN.into(), i8::MAX.into())? as i8),
-        FieldType::Word => Value::Word(int(0, u16::MAX.into())? as u16),
-        FieldType::Short => Value::Short(int(i16::MIN.into(), i16::MAX.into())? as i16),
-        FieldType::Dword => Value::Dword(int(0, u32::MAX.into())? as u32),
-        FieldType::Int => Value::Int(int(i32::MIN.into(), i32::MAX.into())? as i32),
-        FieldType::Dword64 => Value::Dword64(int(0, u64::MAX.into())? as u64),
-        FieldType::Int64 => Value::Int64(int(i64::MIN.into(), i64::MAX.into())? as i64),
+        FieldType::Byte
+        | FieldType::Char
+        | FieldType::Word
+        | FieldType::Short
+        | FieldType::Dword
+        | FieldType::Int
+        | FieldType::Dword64
+        | FieldType::Int64 => {
+            let (min, max) = ty.int_range().expect("an integer type");
+            ty.int_value(int(min, max)?).expect("within the type's range")
+        }
         FieldType::Float => Value::Float(float()? as f32),
         FieldType::Double => Value::Double(float()?),
         FieldType::String => Value::String(encoded()?),
@@ -185,6 +181,7 @@ pub(crate) fn run(
     dry_run: bool,
     lines: Option<Vec<String>>,
     show: bool,
+    codepage: Codepage,
 ) -> Result<Output> {
     let mut resources: Vec<ResKey> = Vec::new();
     for e in &cmd.edits {
@@ -192,7 +189,7 @@ pub(crate) fn run(
             resources.push(*e.key());
         }
     }
-    let written = command_to_json(&cmd, codepage()).map_err(|e| anyhow!("{e}"))?;
+    let written = command_to_json(&cmd, codepage).map_err(|e| anyhow!("{e}"))?;
     let (label, count) = (cmd.label.clone(), cmd.edits.len());
     ws.apply(cmd)?;
     if !dry_run && count > 0 {

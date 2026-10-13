@@ -151,37 +151,15 @@ fn classify(file_type: &str, list: Option<&str>, label: &str) -> Option<RefKind>
     })
 }
 
-fn walk(
-    from: ResKey,
-    file_type: &str,
-    s: &Struct,
-    list: Option<&str>,
-    path: &str,
-    out: &mut Vec<Reference>,
-) {
-    for f in &s.fields {
-        let label = f.label.to_string_lossy();
-        let fpath = format!("{path}/{label}");
-        match &f.value {
-            Value::ResRef(_) => {
-                let (Some(target), Some(kind)) =
-                    (f.value.as_resref(), classify(file_type, list, &label))
-                else {
-                    continue;
-                };
-                if !target.is_empty() {
-                    out.push(Reference { from, path: fpath, kind, target });
-                }
-            }
-            Value::Struct(c) => walk(from, file_type, c, list, &fpath, out),
-            Value::List(items) => {
-                for (i, c) in items.iter().enumerate() {
-                    walk(from, file_type, c, Some(&label), &format!("{fpath}[{i}]"), out);
-                }
-            }
-            _ => {}
+fn walk(from: ResKey, file_type: &str, s: &Struct, out: &mut Vec<Reference>) {
+    s.walk_fields(&mut |f| {
+        if let (Value::ResRef(_), Some(target)) = (f.value, f.value.as_resref())
+            && !target.is_empty()
+            && let Some(kind) = classify(file_type, f.list, f.label)
+        {
+            out.push(Reference { from, path: f.path.to_string(), kind, target });
         }
-    }
+    });
 }
 
 /// Points the references of the given kinds to `from` (compared ignoring
@@ -225,7 +203,7 @@ pub fn rewrite_references(gff: &mut Gff, kinds: &[RefKind], from: ResRef, to: Re
 /// The references in a GFF resource.
 pub fn gff_references(from: ResKey, gff: &Gff) -> Vec<Reference> {
     let mut out = Vec::new();
-    walk(from, &gff.file_type_str(), &gff.root, None, "", &mut out);
+    walk(from, &gff.file_type_str(), &gff.root, &mut out);
     out
 }
 

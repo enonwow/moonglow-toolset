@@ -28,11 +28,11 @@ fn apply(f: &mut Form<'_>, what: &str, edits: Vec<Edit>) {
 }
 
 fn insert(key: ResKey, path: GffPath, list: &str, index: usize, item: Struct) -> Edit {
-    Edit::InsertItem { key, path, list: list.into(), index, item }
+    Edit::insert_item(key, path, list, index, item)
 }
 
 fn remove(key: ResKey, path: GffPath, list: &str, index: usize) -> Edit {
-    Edit::RemoveItem { key, path, list: list.into(), index }
+    Edit::remove_item(key, path, list, index)
 }
 
 /// A text filter kept per page.
@@ -1207,19 +1207,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     adds.extend(add);
-    if !adds.is_empty() {
-        let mut held = backpack.clone();
-        let mut together = taken;
-        for r in adds {
-            let item = f.inventory_item(&held, r);
-            together.push(insert(key, base.clone(), "ItemList", held.len(), item.clone()));
-            held.push(item);
-        }
-        apply(f, "Add item", together);
-    }
-    for (what, e) in edits {
-        apply(f, what, vec![e]);
-    }
+    f.apply_list(&base, &backpack, adds, taken, edits);
 }
 
 #[cfg(test)]

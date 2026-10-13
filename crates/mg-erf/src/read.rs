@@ -56,11 +56,8 @@ pub(crate) fn read(data: &[u8]) -> Result<Erf<'_>, ReadError> {
     };
     // Validate both tables up front so a bad count cannot trigger a huge
     // allocation.
-    slice(data, offset_to_keys, entry_count.saturating_mul(key_size))?;
-    slice(data, offset_to_resources, entry_count.saturating_mul(res_size))?;
-
-    let mut keys = Reader::at(data, offset_to_keys)?;
-    let mut res = Reader::at(data, offset_to_resources)?;
+    let mut keys = Reader::table(data, offset_to_keys, entry_count, key_size)?;
+    let mut res = Reader::table(data, offset_to_resources, entry_count, res_size)?;
     let mut entries = Vec::with_capacity(entry_count);
     for index in 0..entry_count {
         let name = keys.fixed_str(16)?;

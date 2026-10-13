@@ -57,19 +57,12 @@ const ARMOR_ICON: [(&str, &str); 6] = [
 /// The PLT layers' colours an item gives (metal, cloth and leather; skin,
 /// hair and tattoos the first colour).
 pub(crate) fn item_colors(item: &Struct) -> [u8; 10] {
-    let c = |l: &str| item.integer(l).unwrap_or(0).clamp(0, 255) as u8;
-    [
-        0,
-        0,
-        c("Metal1Color"),
-        c("Metal2Color"),
-        c("Cloth1Color"),
-        c("Cloth2Color"),
-        c("Leather1Color"),
-        c("Leather2Color"),
-        0,
-        0,
-    ]
+    let mut colors = [0; 10];
+    for channel in mg_rules::items::ArmorChannel::ALL {
+        colors[channel.plt_layer()] =
+            item.integer(channel.field()).unwrap_or(0).clamp(0, 255) as u8;
+    }
+    colors
 }
 
 /// A model or part number: the EE twin (`xModelPart1`) where there is one.
@@ -307,6 +300,21 @@ impl Loader<'_> {
         }
         layers
     }
+
+    /// One part of a composite item's icon alone (`letter`: b, m or t; its
+    /// number in the item's `label`), colored as the item is.
+    pub(crate) fn item_icon_part(
+        &mut self,
+        ctx: &egui::Context,
+        item: &Struct,
+        (label, letter): (&str, &str),
+    ) -> Option<Picture> {
+        let t = self.game.table("baseitems").ok()?;
+        let row = usize::try_from(item.integer("BaseItem").unwrap_or(-1)).ok()?;
+        let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
+        let name = format!("i{class}_{letter}_{:03}", part(item, label));
+        self.plt_picture(ctx, &name, item_colors(item)).or_else(|| self.picture(ctx, &name))
+    }
 }
 
 impl Moonglow {
@@ -377,6 +385,39 @@ pub(crate) fn stacked(
     for p in layers {
         ui.painter().image(p.texture.id(), rect, uv, egui::Color32::WHITE);
     }
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response
+}
+
+/// [`stacked`], of the icon what is drawn alone, and no taller than
+/// `tallest`: a weapon's icon is a texture 256 points tall whatever the
+/// weapon's length, and a hak's may be any size.
+pub(crate) fn stacked_drawn(
+    ui: &mut egui::Ui,
+    layers: &[Picture],
+    (scale, tallest): (f32, f32),
+    alt: &str,
+) -> egui::Response {
+    let Some(first) = layers.first() else { return stacked(ui, layers, scale, alt) };
+    let uv = icon_drawn(layers);
+    let size = first.size * uv.size();
+    let size = size * scale.min(tallest / size.y.max(1.0));
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    for p in layers {
+        ui.painter().image(p.texture.id(), rect, uv, egui::Color32::WHITE);
+    }
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response
+}
+
+/// Draws what of a picture is not transparent, at its size where that is
+/// no larger than `most` either way, else as large: a part of an icon as
+/// large as it is in the icon, without the icon's empty room about it.
+pub(crate) fn cropped(ui: &mut egui::Ui, p: &Picture, most: f32, alt: &str) -> egui::Response {
+    let size = p.size * p.drawn.size();
+    let size = size * (most / size.max_elem().max(1.0)).min(1.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    ui.painter().image(p.texture.id(), rect, p.drawn, egui::Color32::WHITE);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
     response
 }

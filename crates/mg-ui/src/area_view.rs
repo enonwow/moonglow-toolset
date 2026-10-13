@@ -383,6 +383,15 @@ pub struct AreaView {
     pub turn_ring: bool,
     /// The outline being drawn for a trigger or encounter.
     pub outline: Vec<Vec3>,
+    /// Alt was pressed with the outline's first corner set: the next click
+    /// makes the rectangle to there, Alt held or not. (Many Linux window
+    /// managers keep an Alt + click for themselves, to move the window:
+    /// the view is never told of it, and of Alt no longer.)
+    rectangle: bool,
+    /// Alt is held, since the pointer was over the view: and whether it
+    /// led the view about meanwhile (a middle or right button), which is
+    /// not asking for a rectangle.
+    alt_held: Option<bool>,
     /// The copied objects follow the pointer, to be placed with a click.
     pub pasting: bool,
     /// How many of them were drawn, see-through, last frame.
@@ -535,6 +544,8 @@ impl AreaView {
             held: Held::default(),
             turn_ring: true,
             outline: Vec::new(),
+            rectangle: false,
+            alt_held: None,
             pasting: false,
             pasted_shown: 0,
             particles: std::collections::HashMap::new(),
@@ -694,6 +705,14 @@ impl AreaView {
     /// shape, so that at a cliff's edge it takes this side's. Some
     /// tilesets build their ground above the tiles' heights, and slopes and
     /// cliffs are not at a corner's.
+    /// A tile-sized square ([`tile_square`]) as it lies on the ground the
+    /// pointer picks, on screen; `None` where a corner is out of view.
+    pub(crate) fn square_on_screen(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
+        let corners = self.on_ground(&tile_square(x, y, z));
+        let screen: Vec<Pos2> = corners.iter().filter_map(|p| self.screen_pos(*p)).collect();
+        (screen.len() == 4).then_some(screen)
+    }
+
     pub(crate) fn on_ground(&self, points: &[Vec3]) -> Vec<Vec3> {
         let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
         points
@@ -748,9 +767,22 @@ impl AreaView {
             .filter(|o| turns(o.kind))
             .map(|o| {
                 let radius = ((camera.eye - pivot(o)).length() * 0.0765).max(0.5);
-                TurnRing { pivot: pivot(o), radius, facing: o.facing() }
+                TurnRing { pivot: pivot(o), radius, facing: ring_mark(o) }
             })
             .collect()
+    }
+
+    /// The box object `i` is selected and clicked by, in its own space:
+    /// for the tests.
+    pub fn box_of(&self, i: usize) -> Option<(Vec3, Vec3)> {
+        Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
+    }
+
+    /// Where the turning rings are and which way each is marked: for the
+    /// tests.
+    pub fn ring_places(&self) -> Vec<(Vec3, f32)> {
+        let Some(model) = self.model.as_ref() else { return Vec::new() };
+        self.turn_rings(model).into_iter().map(|r| (r.pivot, r.facing)).collect()
     }
 
     /// The ring whose line `pos` is on (or within [`RING_REACH`] of).
@@ -1353,6 +1385,33 @@ fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     Some((p, r.read(&ifo::MOD_ENTRY_DIR_Y).atan2(r.read(&ifo::MOD_ENTRY_DIR_X))))
 }
 
+/// Brings the view to the start location, if it is in its area.
+fn look_at_start(app: &mut Moonglow, view: &mut AreaView) -> bool {
+    let (Some((p, _)), Some(o)) = (start_on_ground(app, view), &mut view.orbit) else {
+        return false;
+    };
+    o.target = p;
+    o.distance = o.distance.min(30.0);
+    true
+}
+
+/// Opens the area the module starts in, its view at the start location
+/// (Aurora's Go to Start Location).
+pub(crate) fn go_to_start(app: &mut Moonglow) {
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(info) = ws.doc(&crate::module_props::info_key()) else { return };
+    let area: ResRef = info.root.read(&ifo::MOD_ENTRY_AREA);
+    if !ws.module.contains(&ResKey::new(area, ResType::ARE)) {
+        app.log.error(format!(
+            "The module's start location is in an area it does not have (\"{area}\"): set it \
+             in an area's view (right-click the ground, Set Start Location Here)."
+        ));
+        return;
+    }
+    app.start_focus = Some(area);
+    app.actions.push(Action::OpenTab(crate::Tab::Area(area)));
+}
+
 /// The start location as the view shows it: on the ground above or below
 /// the stored point (a new module's start is at height 0, under the ground
 /// of tilesets that build it higher; the game puts players on the walkmesh).
@@ -1449,6 +1508,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         }
         app.area_focus = None;
     }
+    // The start location to go to (Go to Start Location).
+    if app.start_focus == Some(area) && view.orbit.is_some() {
+        app.start_focus = None;
+        look_at_start(app, &mut view);
+    }
     toolbar(app, ui, &mut view);
     let start = start_on_ground(app, &view);
     if let Some(e) = &view.error {
@@ -1508,7 +1572,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
         let before = view.fade;
-        egui::ComboBox::from_id_salt("fade-geometry")
+        let fits =
+            Fits::before(ui, "fade-geometry", &format!("Fade Geometry: {}", view.fade.name()));
+        let r = egui::ComboBox::from_id_salt("fade-geometry")
             .selected_text(format!("Fade Geometry: {}", view.fade.name()))
             .show_ui(ui, |ui| {
                 for f in Fade::ALL {
@@ -1521,6 +1587,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                  (roofs, upper walls), to see and place what is under them: never, while \
                  working on objects (not with Select Tiles or a terrain brush), or always",
             );
+        fits.after(ui, &r);
         if view.fade != before {
             app.settings.fade_geometry = view.fade as u8;
         }
@@ -1565,7 +1632,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let grid = |v: Option<u16>| {
             v.map_or("Snap: off".to_string(), |cm| format!("Snap: {} m", f32::from(cm) / 100.0))
         };
-        egui::ComboBox::from_id_salt("snap-grid")
+        let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
+        let r = egui::ComboBox::from_id_salt("snap-grid")
             .selected_text(grid(app.settings.snap_grid))
             .show_ui(ui, |ui| {
                 for g in [None, Some(25), Some(50), Some(100), Some(250), Some(500)] {
@@ -1574,8 +1642,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             })
             .response
             .on_hover_text("Moved and placed objects snap to this grid");
+        fits.after(ui, &r);
         let angle = |v: Option<u16>| v.map_or("Turn: free".to_string(), |a| format!("Turn: {a}°"));
-        egui::ComboBox::from_id_salt("snap-angle")
+        let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
+        let r = egui::ComboBox::from_id_salt("snap-angle")
             .selected_text(angle(app.settings.snap_angle))
             .show_ui(ui, |ui| {
                 for a in [None, Some(5), Some(15), Some(45), Some(90)] {
@@ -1593,6 +1663,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             })
             .response
             .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
+        fits.after(ui, &r);
         ui.toggle_value(&mut app.settings.turn_together, "Together").on_hover_text(
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
@@ -1618,11 +1689,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             o.yaw = -FRAC_PI_2;
         }
-        if ui.button(labelled(icons::GO_TO_START, "Go to Start Location")).clicked()
-            && let (Some((p, _)), Some(o)) = (start_on_ground(app, view), &mut view.orbit)
-        {
-            o.target = p;
-            o.distance = o.distance.min(30.0);
+        if ui.button(labelled(icons::GO_TO_START, "Go to Start Location")).clicked() {
+            // In another area: that area's view is opened at it, as Aurora does.
+            if !look_at_start(app, view) {
+                go_to_start(app);
+            }
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
@@ -1679,14 +1750,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let at = crate::terrain_mode::status(view).unwrap_or_default();
         format!("{}: {how}; Escape: stop. {at}", b.label)
     } else if view.redraw.is_some() {
-        "Redraw Polygon: click its corners, double click to close; right click or Escape: stop"
+        "Redraw Polygon: click its corners, double click to close (after the first, press Alt: \
+         the next click makes a rectangle to there); right click or Escape: stop"
             .to_string()
     } else if view.pasting {
         "Pasting: click to place the copies; right click or Escape: stop".to_string()
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
-                "click its corners, double click to close; right click or Escape: stop"
+                "click its corners, double click to close (after the first, press Alt: the next \
+                 click makes a rectangle to there); right click or Escape: stop"
             }
             _ => "click to place (Shift + click: place more); right click or Escape: stop",
         };
@@ -2181,6 +2254,38 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     }
 }
 
+/// A toolbar's list of choices, begun on the next row where it would not
+/// fit in what is left of this one. (A list is laid out as one group,
+/// which a wrapping row does not move down by itself: it ran past the
+/// tab's edge, and widened the rows after it.) Its width is the one it
+/// had in the last frame.
+struct Fits(egui::Id);
+
+impl Fits {
+    fn before(ui: &mut egui::Ui, salt: &str, text: &str) -> Fits {
+        let id = ui.id().with(("fits", salt));
+        // (Not drawn yet: about what its text will take.)
+        let width = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| {
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let text = ui.fonts_mut(|f| {
+                f.layout_no_wrap(text.to_string(), font, egui::Color32::WHITE).size().x
+            });
+            let spacing = ui.spacing();
+            let around = 2.0 * spacing.button_padding.x + spacing.icon_width + spacing.icon_spacing;
+            (text + around).max(spacing.combo_width)
+        });
+        let row_begun = ui.cursor().left() > ui.max_rect().left() + 1.0;
+        if row_begun && width > ui.available_size_before_wrap().x {
+            ui.end_row();
+        }
+        Fits(id)
+    }
+
+    fn after(self, ui: &mut egui::Ui, r: &egui::Response) {
+        ui.data_mut(|d| d.insert_temp(self.0, r.rect.width()));
+    }
+}
+
 /// The toolbar's one button for the walkmeshes: a click shows or hides
 /// the ground's (or hides whichever are shown); held, or right-clicked,
 /// it opens the two to choose from, the ground's and the objects'.
@@ -2222,6 +2327,13 @@ fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView) {
                  orange, doors blue (in their open or closed state)",
             );
         });
+}
+
+/// The corners of the tile-sized square whose low corner is at tile
+/// (`x`, `y`), at height `z`: round the square, from that corner.
+pub(crate) fn tile_square(x: f32, y: f32, z: f32) -> [Vec3; 4] {
+    [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        .map(|(dx, dy)| Vec3::new((x + dx) * TILE_SIZE, (y + dy) * TILE_SIZE, z))
 }
 
 /// A closed outline over the view, each edge a line of its own. (As one
@@ -2645,8 +2757,20 @@ fn overlays(
             line(w[0], w[1], stroke);
         }
         let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
-        if let (Some(last), Some(p)) = (view.outline.last(), pointer) {
-            line(*last, p, Stroke::new(1.0, stroke.color));
+        // (With Alt held after the first corner: the rectangle a click
+        // would make.)
+        let alt = view.rectangle || view.alt_held == Some(false);
+        match pointer.and_then(|p| rectangle_to(&view.outline, p, alt)) {
+            Some(corners) => {
+                for k in 0..4 {
+                    line(corners[k], corners[(k + 1) % 4], Stroke::new(1.0, stroke.color));
+                }
+            }
+            None => {
+                if let (Some(last), Some(p)) = (view.outline.last(), pointer) {
+                    line(*last, p, Stroke::new(1.0, stroke.color));
+                }
+            }
         }
         for p in &view.outline {
             if let Some(c) = at(*p) {
@@ -2709,6 +2833,23 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
+    // Alt with an outline's first corner set: a rectangle from there on,
+    // until the outline is done or dropped; while it is held, and after
+    // it was let go (or taken away with the click, see `rectangle`).
+    let leading = ui.input(|i| {
+        i.pointer.button_down(egui::PointerButton::Middle)
+            || i.pointer.button_down(egui::PointerButton::Secondary)
+    });
+    view.alt_held = match (alt, view.alt_held) {
+        (true, Some(led)) => Some(led || leading),
+        (true, None) => response.hovered().then_some(leading),
+        (false, held) => {
+            view.rectangle |= held == Some(false);
+            None
+        }
+    };
+    view.rectangle &= view.outline.len() == 1;
+    let rectangle = view.rectangle || view.alt_held == Some(false);
     // (Whether something was in hand when the frame began: Escape drops it
     // and no more.)
     let in_hand = view.drag.is_some() || view.pasting || brush(app).is_some() || view.held.on;
@@ -2719,6 +2860,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     view.held = Held::read(ui, response, view.held);
     let scaling = wheel_scales(app, ui, view, response, (command, shift));
+    app.area_hovered |= response.hovered();
     camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
     // (Asked of each kind only when that is what is dragged: asking takes
     // the payload, whatever it is.)
@@ -2766,15 +2908,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
     // Copy, cut and paste (egui's events, or the keys where it sends none).
     let typing = ui.ctx().memory(|m| m.focused().is_some());
-    let (copy, cut, pasted) = ui.input(|i| {
-        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
-        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
-        (
-            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
-            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
-            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
-        )
-    });
+    let (copy, cut, pasted) = crate::widgets::copy_cut_paste(ui);
     if hovered && !typing {
         if (copy || cut) && !view.selection.is_empty() {
             app.object_clip = copy_selection(app, view);
@@ -2817,6 +2951,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(at) = view.ground_at(pos, 0.0)
         {
+            // Alt and a click after the first corner: the rectangle from
+            // there to here, closed at once.
+            if let Some(corners) = rectangle_to(&view.outline, at, rectangle) {
+                view.outline.clear();
+                redraw_outline(app, view, kind, index, &corners);
+                view.redraw = None;
+                return;
+            }
             if view.outline.last().is_none_or(|p| (*p - at).length() > 0.05) {
                 view.outline.push(at);
             }
@@ -2839,13 +2981,26 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.outline.clear();
             return;
         }
+        // (Not with Ctrl held, which leads the view about; but with Alt
+        // too it is the right Alt of many keyboards, AltGr, which Windows
+        // reports as Ctrl and Alt together: the rectangle's click.)
         if response.clicked()
-            && !command
+            && (!command || alt || rectangle)
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(at) = view.ground_at(pos, 0.0)
         {
             let kind = ObjectKind::from_restype(key.restype).expect("a brush places objects");
             if kind.has_outline() {
+                // Alt and a click after the first corner: the rectangle
+                // from there to here, placed at once.
+                if let Some(corners) = rectangle_to(&view.outline, at, rectangle) {
+                    view.outline.clear();
+                    place(app, view, key, corners[0], 0.0, &corners);
+                    if !shift {
+                        app.palette.selected = None;
+                    }
+                    return;
+                }
                 // A double click's second click closes the outline.
                 if view.outline.last().is_none_or(|p| (*p - at).length() > 0.05) {
                     view.outline.push(at);
@@ -3468,13 +3623,7 @@ fn append_object(
     let Some(ws) = app.ws.as_mut() else { return false };
     let git = view.git();
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: kind.list().into(),
-        index,
-        item,
-    };
+    let edit = mg_edit::Edit::insert_item(git, mg_edit::GffPath::root(), kind.list(), index, item);
     app.actions.push(Action::Apply(Command::new(what, vec![edit])));
     view.selection = vec![(kind, index)];
     true
@@ -3870,13 +4019,8 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
         match instance_of(app, key, placement, &[]) {
             Ok(Some(item)) => {
                 let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
-                edits.push(mg_edit::Edit::RemoveItem {
-                    key: git,
-                    path: path.clone(),
-                    list: list.clone(),
-                    index,
-                });
-                edits.push(mg_edit::Edit::InsertItem { key: git, path, list, index, item });
+                edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), index));
+                edits.push(mg_edit::Edit::insert_item(git, path, list, index, item));
             }
             Ok(None) => {}
             Err(e) => {
@@ -3963,13 +4107,13 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
     let mut selection = Vec::new();
     for ((o, s, _), position) in clip.objects.iter().zip(pasted_positions(view, &clip, at)) {
         let count = counts.get_mut(&o.kind).expect("every kind");
-        edits.push(mg_edit::Edit::InsertItem {
-            key: git,
-            path: mg_edit::GffPath::root(),
-            list: o.kind.list().into(),
-            index: *count,
-            item: mg_area::edit::moved(o, s, position, o.rotation),
-        });
+        edits.push(mg_edit::Edit::insert_item(
+            git,
+            mg_edit::GffPath::root(),
+            o.kind.list(),
+            *count,
+            mg_area::edit::moved(o, s, position, o.rotation),
+        ));
         selection.push((o.kind, *count));
         *count += 1;
     }
@@ -3991,15 +4135,45 @@ fn faces(kind: ObjectKind) -> bool {
     !kind.has_outline() && kind != ObjectKind::Sound
 }
 
+/// The rectangle an outline begun with one corner becomes at a click at
+/// `to` once Alt was pressed: its sides along the area's own (east and north), the
+/// two corners clicked opposite each other, the other two at their
+/// heights' middle. `None` unless `alt` is held with one corner set, or
+/// for a rectangle with no width or depth.
+fn rectangle_to(outline: &[Vec3], to: Vec3, alt: bool) -> Option<[Vec3; 4]> {
+    let [from] = outline else { return None };
+    let across = (to - *from).truncate().abs();
+    if !alt || across.x < 0.05 || across.y < 0.05 {
+        return None;
+    }
+    let z = (from.z + to.z) / 2.0;
+    Some([*from, Vec3::new(to.x, from.y, z), to, Vec3::new(from.x, to.y, z)])
+}
+
 /// What an object turns about on its own: an outline's middle, else where
-/// it stands.
+/// it stands. (The middle in height too: an outline's corners have their
+/// own, and a trigger on ground built up may be stored at height 0 with
+/// its corners 5 m above, where its ring belongs.)
 fn pivot(o: &mg_area::AreaObject) -> Vec3 {
     if o.kind.has_outline() && !o.outline.is_empty() {
         let low = o.outline.iter().copied().reduce(Vec3::min).unwrap_or(o.position);
         let high = o.outline.iter().copied().reduce(Vec3::max).unwrap_or(o.position);
-        ((low + high) / 2.0).truncate().extend(o.position.z)
+        (low + high) / 2.0
     } else {
         o.position
+    }
+}
+
+/// The way an object's turning ring is marked: its facing, or, for an
+/// outline (which has none of its own), the way from its middle to its
+/// first corner, so that the mark goes round as the outline is turned.
+fn ring_mark(o: &mg_area::AreaObject) -> f32 {
+    match o.outline.first().filter(|_| o.kind.has_outline()) {
+        Some(first) => {
+            let to = (*first - pivot(o)).truncate();
+            if to.length() > 1e-4 { to.y.atan2(to.x) } else { o.facing() }
+        }
+        None => o.facing(),
     }
 }
 
@@ -4681,13 +4855,7 @@ fn add_spawn_point(app: &mut Moonglow, view: &AreaView, index: usize, at: Vec3) 
     for (label, v) in [("X", at.x), ("Y", at.y), ("Z", at.z), ("Orientation", 0.0)] {
         point.set(label, Value::Float(v));
     }
-    let edit = mg_edit::Edit::InsertItem {
-        key: view.git(),
-        path,
-        list: "SpawnPointList".into(),
-        index: count,
-        item: point,
-    };
+    let edit = mg_edit::Edit::insert_item(view.git(), path, "SpawnPointList", count, point);
     app.actions.push(Action::Apply(Command::new("Add spawn point", vec![edit])));
 }
 
@@ -4760,13 +4928,13 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
     let index = doc.root.list(ObjectKind::Waypoint.list()).map_or(0, <[_]>::len);
     let tag = mg_module::instances::set_tag(&format!("WP_{tag}"), &tags);
     let item = mg_module::instances::walk_waypoint(&tag, at.to_array());
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: ObjectKind::Waypoint.list().into(),
+    let edit = mg_edit::Edit::insert_item(
+        git,
+        mg_edit::GffPath::root(),
+        ObjectKind::Waypoint.list(),
         index,
         item,
-    };
+    );
     app.actions.push(Action::Apply(Command::new("Create waypoint", vec![edit])));
     view.selection = vec![(ObjectKind::Waypoint, index)];
 }
@@ -4800,12 +4968,9 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let mut open = true;
     let mut done = false;
     let mut cancel = false;
-    egui::Window::new("Create Set")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
+    crate::widgets::dialog(ui.ctx(), "Create Set", &mut open)
         .collapsible(false)
         .resizable(false)
-        .open(crate::widgets::open_unless_escape(ui.ctx(), "Create Set", &mut open))
         .show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("What is the name of the set?");
@@ -4857,19 +5022,8 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
         }
     }
     let path = mg_edit::GffPath::root();
-    edits.push(mg_edit::Edit::RemoveItem {
-        key: git,
-        path: path.clone(),
-        list: kind.list().into(),
-        index,
-    });
-    edits.push(mg_edit::Edit::InsertItem {
-        key: git,
-        path,
-        list: kind.list().into(),
-        index,
-        item: added.instance,
-    });
+    edits.push(mg_edit::Edit::remove_item(git, path.clone(), kind.list(), index));
+    edits.push(mg_edit::Edit::insert_item(git, path, kind.list(), index, added.instance));
     let first = added.blueprints[0].0;
     let held = added.blueprints.len() - 1;
     app.actions.push(Action::Apply(Command::new("Add to palette", edits)));
@@ -4891,10 +5045,7 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
     };
     let mut open = true;
     let mut done = false;
-    egui::Window::new("Resources Used")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .open(crate::widgets::open_unless_escape(ctx, "Resources Used", &mut open))
+    crate::widgets::dialog(ctx, "Resources Used", &mut open)
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {

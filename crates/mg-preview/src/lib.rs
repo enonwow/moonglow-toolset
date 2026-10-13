@@ -152,16 +152,9 @@ const TATTOO2: usize = 9;
 /// An item's colours in PLT layer order (metal, cloth, leather), over
 /// `colors`.
 fn item_colors(item: &Struct, mut colors: [u8; 10]) -> [u8; 10] {
-    for (layer, field) in [
-        (2, "Metal1Color"),
-        (3, "Metal2Color"),
-        (4, "Cloth1Color"),
-        (5, "Cloth2Color"),
-        (6, "Leather1Color"),
-        (7, "Leather2Color"),
-    ] {
-        if let Some(v) = item.integer(field) {
-            colors[layer] = v.clamp(0, 255) as u8;
+    for channel in mg_rules::items::ArmorChannel::ALL {
+        if let Some(v) = item.integer(channel.field()) {
+            colors[channel.plt_layer()] = v.clamp(0, 255) as u8;
         }
     }
     colors

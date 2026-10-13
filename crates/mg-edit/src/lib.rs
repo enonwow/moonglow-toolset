@@ -115,6 +115,24 @@ pub enum Edit {
 }
 
 impl Edit {
+    /// [`Edit::InsertItem`]: `item` into list `list` of the struct at
+    /// `path`, at `index`.
+    pub fn insert_item(
+        key: ResKey,
+        path: GffPath,
+        list: impl Into<String>,
+        index: usize,
+        item: Struct,
+    ) -> Edit {
+        Edit::InsertItem { key, path, list: list.into(), index, item }
+    }
+
+    /// [`Edit::RemoveItem`]: item `index` of list `list` of the struct at
+    /// `path`.
+    pub fn remove_item(key: ResKey, path: GffPath, list: impl Into<String>, index: usize) -> Edit {
+        Edit::RemoveItem { key, path, list: list.into(), index }
+    }
+
     /// The resource it changes.
     pub fn key(&self) -> &ResKey {
         match self {

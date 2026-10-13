@@ -17,7 +17,8 @@ pub struct ScriptResult {
 }
 
 /// A script and its bytecode (empty for include files) or error.
-type Compiled = (ResKey, Result<Vec<u8>, CompileError>);
+/// A script, with its compiled script and its debug file if one was made.
+type Compiled = (ResKey, Result<(Vec<u8>, Option<Vec<u8>>), CompileError>);
 
 /// Which scripts to compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,16 +39,18 @@ pub fn compile_scripts(
     resman: &ResMan,
     selection: ScriptSelection,
 ) -> Vec<ScriptResult> {
-    compile_scripts_with(module, resman, selection, None)
+    compile_scripts_with(module, resman, selection, None, false)
 }
 
 /// [`compile_scripts`], by an external compiler when one is given (Options
-/// › Script Editor) in place of the built-in one.
+/// › Script Editor) in place of the built-in one; with `debug`, each
+/// script's debug file (`.ndb`) is made too.
 pub fn compile_scripts_with(
     module: &mut Module,
     resman: &ResMan,
     selection: ScriptSelection,
     external: Option<&ExternalCompiler>,
+    debug: bool,
 ) -> Vec<ScriptResult> {
     // A nasher project's target may leave some scripts uncompiled.
     let skipped = |k: &ResKey| {
@@ -62,7 +65,7 @@ pub fn compile_scripts_with(
         .filter(|k| !skipped(k))
         .copied()
         .collect();
-    compile_named_scripts(module, resman, &names, external)
+    compile_named_with(module, resman, &names, external, debug)
 }
 
 /// What a script compiles from, as one number: its source and the sources
@@ -291,13 +294,16 @@ pub struct Pass {
 /// Compiles the scripts that are not as `known` remembers them (`only`:
 /// those named instead, whatever is remembered), storing each `.ncs` in
 /// `module`. Those compiled are remembered as they are after; one that
-/// failed is tried again next time.
+/// failed is tried again next time. With `debug`, each gets its debug
+/// file (`.ndb`) too, and a compiled script that has none is compiled
+/// again for it.
 pub fn compile_changed(
     module: &mut Module,
     resman: &ResMan,
     external: Option<&ExternalCompiler>,
     known: &Remembered,
     only: Option<Vec<ResKey>>,
+    debug: bool,
 ) -> Pass {
     let stamps = script_stamps(module);
     // A nasher project's target may leave some scripts uncompiled.
@@ -308,11 +314,15 @@ pub fn compile_changed(
     let names: Vec<ResKey> = match only {
         Some(names) => names,
         None => (module.keys_of(ResType::NSS))
-            .filter(|k| !skipped(k) && known.stale(module, &stamps, k))
+            .filter(|k| {
+                let made = |t| module.contains(&ResKey::new(k.resref, t));
+                let no_debug_file = debug && made(ResType::NCS) && !made(ResType::NDB);
+                !skipped(k) && (no_debug_file || known.stale(module, &stamps, k))
+            })
             .copied()
             .collect(),
     };
-    let results = compile_named_scripts(module, resman, &names, external);
+    let results = compile_named_with(module, resman, &names, external, debug);
     let mut now = known.clone();
     for r in &results {
         match r.result {
@@ -329,6 +339,20 @@ pub fn compile_named_scripts(
     resman: &ResMan,
     names: &[ResKey],
     external: Option<&ExternalCompiler>,
+) -> Vec<ScriptResult> {
+    compile_named_with(module, resman, names, external, false)
+}
+
+/// [`compile_named_scripts`]; with `debug`, each script's debug file
+/// (`.ndb`) is made and stored beside its compiled script, as Aurora's
+/// Generate Debug Information does. (An external compiler makes one or
+/// not by its own settings.)
+pub fn compile_named_with(
+    module: &mut Module,
+    resman: &ResMan,
+    names: &[ResKey],
+    external: Option<&ExternalCompiler>,
+    debug: bool,
 ) -> Vec<ScriptResult> {
     if names.is_empty() {
         return Vec::new();
@@ -352,11 +376,12 @@ pub fn compile_named_scripts(
                         .or_else(|| resman.get(&k).ok().map(|d| d.into_owned()))
                 };
                 let mut c = Compiler::new(resolve);
+                c.set_debug_output(debug);
                 let mut local = Vec::new();
                 for k in part {
                     let name = k.resref.to_lowercase().to_string();
                     let result = match c.compile(&name) {
-                        Ok(out) => Ok(out.ncs),
+                        Ok(out) => Ok((out.ncs, out.ndb)),
                         // An include file (no `main`, no
                         // `StartingConditional`): nothing to compile or to
                         // store, as Aurora skips it. It is checked where it
@@ -367,7 +392,7 @@ pub fn compile_named_scripts(
                                 .get(k)
                                 .is_some_and(|src| !mg_script::outline::has_entry_point(src)) =>
                         {
-                            Ok(Vec::new())
+                            Ok((Vec::new(), None))
                         }
                         Err(e) => Err(e),
                     };
@@ -385,9 +410,12 @@ pub fn compile_named_scripts(
     results
         .into_iter()
         .map(|(k, r)| {
-            let result = r.map(|ncs| {
+            let result = r.map(|(ncs, ndb)| {
                 if !ncs.is_empty() {
                     module.set(ResKey::new(k.resref, ResType::NCS), ncs);
+                    if let Some(ndb) = ndb {
+                        module.set(ResKey::new(k.resref, ResType::NDB), ndb);
+                    }
                 }
             });
             ScriptResult { script: k, result }

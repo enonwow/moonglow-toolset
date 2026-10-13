@@ -34,6 +34,8 @@ pub mod rename;
 pub mod script_set;
 pub mod script_wizard;
 pub mod store_setup;
+pub mod table_desc;
+pub mod table_edit;
 pub mod table_layers;
 pub mod talk;
 pub mod testing;
@@ -186,19 +188,35 @@ impl Module {
         files.sort();
         // Two files of one resource (`x.UTI` as Aurora names a new one,
         // `x.uti` as Moonglow does): the one changed last is the resource.
-        let mut changed = std::collections::HashMap::<ResKey, SystemTime>::new();
+        let mut changed = std::collections::HashMap::<ResKey, (SystemTime, String)>::new();
         let mut read = folder::FolderFiles::new(path);
+        let mut twice: Vec<(ResKey, Vec<String>)> = Vec::new();
         for f in files.iter().filter(|f| f.is_file()) {
-            let Some(key) = f.file_name().and_then(|n| n.to_str()).and_then(folder_key) else {
+            let Some(name) = f.file_name().and_then(|n| n.to_str()) else { continue };
+            let Some(key) = folder_key(name) else {
                 continue; // not a resource (notes, editor files, ...)
             };
             let at = f.metadata().and_then(|d| d.modified()).unwrap_or(std::time::UNIX_EPOCH);
-            if changed.get(&key).is_none_or(|had| at > *had) {
+            if let Some((_, other)) = changed.get(&key) {
+                match twice.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, names)) => names.push(name.to_string()),
+                    None => twice.push((key, vec![other.clone(), name.to_string()])),
+                }
+            }
+            if changed.get(&key).is_none_or(|(had, _)| at > *had) {
                 let bytes: Arc<[u8]> = Arc::from(std::fs::read(f).map_err(io(f))?);
                 read.note(key, f.clone(), bytes.clone());
                 m.resources.insert(key, bytes);
-                changed.insert(key, at);
+                changed.insert(key, (at, name.to_string()));
             }
+        }
+        for (key, names) in twice {
+            let taken = changed.get(&key).map(|(_, n)| n.clone()).unwrap_or_default();
+            read.warnings.push(format!(
+                "{key} is in the folder as {}: {taken}, changed last, is the one read, and at \
+                 the next save it alone is left, as {key}",
+                names.join(" and "),
+            ));
         }
         m.folder = Some(Box::new(read));
         m.location = Some(ModuleLocation::Folder(path.into()));
@@ -347,6 +365,29 @@ impl Module {
         let name =
             String::from_utf8_lossy(info.root.read(&ifo::MOD_CUSTOM_TLK).as_bytes()).into_owned();
         Ok(Some(name).filter(|n| !n.is_empty()))
+    }
+
+    /// Puts the module over a game's resources as the game has them: its
+    /// haks (the user's, else the install's), then the module itself.
+    /// The haks found nowhere, and what went wrong opening the others, if
+    /// anything did: the module is put over what there is either way.
+    pub fn stack_onto(
+        &self,
+        resman: &mut mg_resman::ResMan,
+        install: &mg_resman::GameInstall,
+    ) -> (Vec<String>, Option<mg_resman::ResError>) {
+        let haks = self.haks().unwrap_or_default();
+        let (missing, wrong) = match resman.add_haks(install, &haks) {
+            Ok(missing) => (missing, None),
+            Err(e) => (Vec::new(), Some(e)),
+        };
+        resman.add(
+            mg_resman::priority::MODULE,
+            "module",
+            mg_resman::LayerClass::Erf,
+            self.container(),
+        );
+        (missing, wrong)
     }
 
     /// A snapshot of the resources as a resman container (cheap: the data
@@ -813,6 +854,9 @@ mod tests {
             f.set_modified(later).unwrap();
             let mut m = Module::open(&folder).unwrap();
             assert_eq!(m.get(&key("bread", ResType::UTI)), Some(&b"newer"[..]));
+            let said = &m.folder.as_ref().unwrap().warnings;
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(said[0].contains("bread.UTI, changed last, is the one read"), "{said:?}");
             m.set(key("other", ResType::NSS), &b"y"[..]);
             m.save().unwrap();
             assert_eq!(names(&folder), ["bread.uti"]);

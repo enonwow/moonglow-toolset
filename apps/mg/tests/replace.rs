@@ -1,8 +1,6 @@
 //! `mg replace`: "champion" replaced in Contest of Champions' text; a dry
 //! run lists the strings and changes nothing.
 
-use std::process::Command;
-
 use mg_module::text::{Options, TextKind, find};
 use mg_module::{Module, ModuleLocation};
 
@@ -20,7 +18,7 @@ fn replace_lists_then_changes_the_modules_text() {
     assert!(!hits.is_empty(), "the module names {word}");
     let bytes = std::fs::read(&path).unwrap();
     let run = |extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_mg"))
+        crate::mg()
             .args(["--root", root.to_str().unwrap(), "--no-user-dir", "replace", "--whole-word"])
             .args(extra)
             .arg(&path)

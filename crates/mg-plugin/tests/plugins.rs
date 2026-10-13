@@ -103,7 +103,10 @@ fn plugins_are_found_by_their_manifests() {
         .iter()
         .map(|p| p.as_ref().map(|p| p.manifest.id.clone()).unwrap_or_else(|e| e.to_string()))
         .collect();
-    assert_eq!(ids, ["test.broken", "test.forms", "test.hostile", "example.tag-conventions"]);
+    assert_eq!(
+        ids,
+        ["test.asks", "test.broken", "test.forms", "test.hostile", "example.tag-conventions"]
+    );
     let p = plugin("tag-conventions");
     assert_eq!(p.manifest.commands.len(), 2);
     assert_eq!(p.check_id("tag-case"), "example.tag-conventions/tag-case");
@@ -471,7 +474,7 @@ fn tables_are_made_and_written() {
         return row, t.rows, #t.columns, again:get(1, "Name"), again:get(1, "Label"),
             again:get(2, "Cost"), again:get(2, "Name"), new:write(),
             mg.twoda.kinds("feat").FEAT, mg.twoda.kinds("placeables").ModelName,
-            next(mg.twoda.kinds("nothing"))
+            mg.twoda.kinds("feat").MASTERFEAT, next(mg.twoda.kinds("nothing"))
     "#;
     run_console(code, input(), host.clone()).unwrap();
     let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
@@ -488,6 +491,7 @@ fn tables_are_made_and_written() {
             "\"2DA V2.0\\r\\n\\r\\n   Label\\r\\n0  only\\r\\n\"",
             "\"strref\"",
             "\"model\"",
+            "\"row:masterfeats\"",
             "nil"
         ]
     );
@@ -511,4 +515,56 @@ fn tables_are_made_and_written() {
     run_console(code, input(), host.clone()).unwrap();
     let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
     assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
+}
+
+/// `mg.twoda.describe`: a table's description read, a value named, and a
+/// table held to it.
+#[test]
+fn a_plugin_reads_a_table_s_description() {
+    use mg_plugin::run_console;
+    let host = Rc::new(TestHost::default());
+    let input = || Input { module: module(), game: None };
+    let code = r#"
+        local mg = require("@moonglow")
+        local d = mg.twoda.describe([[
+rows = "places"
+[columns.Chance]
+kind = "int"
+max = 100
+[columns.Kinds]
+kind = "flags"
+constants = "loot_inc"
+prefix = "KIND_"
+[columns.Place]
+kind = "row"
+table = "places"
+]], { loot_inc = "const int KIND_GOLD = 0x01;\nconst int KIND_GEMS = 0x02;" })
+        local t = mg.twoda.parse("2DA V2.0\r\n\r\n  Label Chance Kinds Place\r\n0 a 50 0x03 1\r\n1 b 500 0x04 9\r\n")
+        local faults = d:faults(t, { places = 3 })
+        local said = {}
+        for _, f in faults do table.insert(said, f.row .. " " .. f.column .. " " .. tostring(f.value)) end
+        local ok, err = pcall(mg.twoda.describe, "[columns.A]\nkind = \"odd\"")
+        return d.rows, d.columns.Chance, d.columns.Kinds, d.columns.Place,
+            d:name("Kinds", "0x03"), d:name("Kinds", 2), tostring(d:name("Chance", 5)),
+            table.concat(said, "; "), #d:faults(t), ok, tostring(err):find("no kind") ~= nil
+    "#;
+    run_console(code, input(), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        log,
+        [
+            "\"places\"",
+            "\"int\"",
+            "\"flags\"",
+            "\"row:places\"",
+            "\"KIND_GOLD | KIND_GEMS\"",
+            "\"KIND_GEMS\"",
+            "\"nil\"",
+            "\"1 Chance 500; 1 Kinds 0x04; 1 Place 9\"",
+            // (Without the other table's length, its rows are not held to.)
+            "2",
+            "false",
+            "true",
+        ]
+    );
 }

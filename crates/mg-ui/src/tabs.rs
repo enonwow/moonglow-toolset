@@ -36,6 +36,8 @@ pub enum Tab {
     TalkTable,
     /// A hak in the hak editor (its id among the open haks).
     Hak(u32),
+    /// A 2DA in the table editor (its id among the open tables).
+    Table(u32),
     /// A tileset in the tileset editor (its id among the open tilesets).
     Tileset(u32),
     /// A conversation.
@@ -99,6 +101,7 @@ impl Tab {
             Tab::Journal => "journal",
             Tab::TalkTable => "talk-table",
             Tab::Hak(_) => "hak",
+            Tab::Table(_) => "table",
             Tab::Tileset(_) => "tileset",
             Tab::Dialog(_) => "dialog",
             Tab::Resource(_) => "resource",
@@ -132,13 +135,20 @@ impl Tab {
             Tab::Script(_) => (1120.0, 720.0),
             Tab::Nui(_) => (1140.0, 760.0),
             Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
-            Tab::Dialog(_) => (920.0, 660.0),
+            Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
+            Tab::Table(_) => (1040.0, 732.0),
             Tab::Model(_) | Tab::InstanceModel { .. } => (780.0, 680.0),
-            Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
-            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
+            Tab::Factions | Tab::Journal => (780.0, 632.0),
+            Tab::Gff(_) => (780.0, 600.0),
+            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
             Tab::Options => crate::options::WINDOW_SIZE.into(),
             Tab::TileProperties => (560.0, 640.0),
+            // (Each with OK and Cancel under it: 32 points of its height.)
+            Tab::Blueprint(_)
+            | Tab::Blueprints(_)
+            | Tab::Instance { .. }
+            | Tab::Instances { .. } => (820.0, 672.0),
             _ => (820.0, 640.0),
         };
         egui::vec2(w, h)
@@ -245,6 +255,7 @@ impl Viewer<'_> {
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::TalkTable => crate::talk_view::ui(self.app, ui),
             Tab::Hak(id) => crate::hak_view::ui(self.app, ui, *id),
+            Tab::Table(id) => crate::table_view::ui(self.app, ui, *id),
             Tab::Tileset(id) => crate::tileset_view::ui(self.app, ui, *id),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
@@ -321,6 +332,10 @@ impl TabViewer for Viewer<'_> {
             Tab::Hak(id) => {
                 let doc = self.app.haks.iter().find(|d| d.id == *id);
                 doc.map_or("Hak".into(), |d| d.title()).into()
+            }
+            Tab::Table(id) => {
+                let doc = self.app.tables.iter().find(|d| d.id == *id);
+                doc.map_or("2DA".into(), |d| d.title()).into()
             }
             Tab::TalkTable => {
                 let dirty = self.app.talk.as_ref().is_some_and(|t| t.is_dirty());

@@ -110,6 +110,10 @@ pub enum Cmd {
     NextTab,
     PreviousTab,
     ReopenTab,
+    /// The keys to the next pane (the module tree, the middle, the
+    /// palettes), or the one before.
+    NextPane,
+    PreviousPane,
     ToggleTree,
     TogglePalettes,
     ToggleLog,
@@ -127,7 +131,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 63] = [
+    pub const ALL: [Cmd; 65] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -181,6 +185,8 @@ impl Cmd {
         Cmd::NextTab,
         Cmd::PreviousTab,
         Cmd::ReopenTab,
+        Cmd::NextPane,
+        Cmd::PreviousPane,
         Cmd::ToggleTree,
         Cmd::TogglePalettes,
         Cmd::ToggleLog,
@@ -250,6 +256,8 @@ impl Cmd {
             Cmd::NextTab => ("next-tab", "Next Tab", General),
             Cmd::PreviousTab => ("previous-tab", "Previous Tab", General),
             Cmd::ReopenTab => ("reopen-tab", "Reopen Closed Tab", General),
+            Cmd::NextPane => ("next-pane", "Next Pane", General),
+            Cmd::PreviousPane => ("previous-pane", "Previous Pane", General),
             Cmd::ToggleTree => ("view-tree", "Module Tree", General),
             Cmd::TogglePalettes => ("view-palettes", "Palettes Panel", General),
             Cmd::ToggleLog => ("view-log", "Log", General),
@@ -347,6 +355,8 @@ impl Cmd {
             Cmd::NextTab => vec![k(CTRL, Key::Tab), k(CTRL, Key::PageDown)],
             Cmd::PreviousTab => vec![k(CTRL | SHIFT, Key::Tab), k(CTRL, Key::PageUp)],
             Cmd::ReopenTab => vec![k(CTRL | SHIFT, Key::T)],
+            Cmd::NextPane => vec![k(NONE, Key::F6)],
+            Cmd::PreviousPane => vec![k(SHIFT, Key::F6)],
             Cmd::ToggleTree => vec![k(CTRL | Modifiers::ALT, Key::Num1)],
             Cmd::TogglePalettes => vec![k(CTRL | Modifiers::ALT, Key::Num2)],
             Cmd::ToggleLog => vec![k(CTRL | Modifiers::ALT, Key::Num3)],

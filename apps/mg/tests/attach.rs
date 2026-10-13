@@ -2,8 +2,6 @@
 //! the user folder and attached to a module, which then verifies clean (its
 //! haks and talk table found where the game looks).
 
-use std::process::Command;
-
 use mg_core::{ResRef, ResType};
 use mg_erf::ErfWriter;
 use mg_module::Module;
@@ -27,7 +25,7 @@ fn haks_and_a_talk_table_attach_in_one_step() {
     std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
 
     let mg = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_mg"))
+        crate::mg()
             .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
             .args(args)
             .output()

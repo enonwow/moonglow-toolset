@@ -14,7 +14,7 @@ use mg_rules::GameData;
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
-mod common;
+use crate::common;
 use common::probe_module;
 
 const PROBE: &str = r#"

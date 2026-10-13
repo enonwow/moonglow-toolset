@@ -3,14 +3,14 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
 ---
 
 # Options
 
 **Tools › Options…** has Aurora's pages, in a window that docks and
 tabs with the others. **OK** applies the changes; the module stays open.
-**Cancel**, closing the window or Escape discards them. Only another game or user folder (the Folders page)
+**Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop switch (the Folders page) or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 
@@ -52,7 +52,7 @@ the module is opened again from its file.
   module file to load. Switch it off to keep a folder a folder (a source
   tree that something else packs). The `.mod`
   that was there is kept as its `.BackupMod` (with backups on). A nasher
-  project is not packed this way: it has **Build › Pack Target**.
+  project is not packed this way: it has **Build › Pack** *file*.
 - **Minimize Toolset on test module**.
 - **Start a Steam copy of the game through Steam for a test** (on):
   off, the game's program is started on its own, without Steam's overlay
@@ -63,6 +63,14 @@ the module is opened again from its file.
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
+- **Ask before the window is closed**: on by default. The window's
+  close button asks before Moonglow closes where nothing is unsaved (with
+  unsaved changes it asks about those, as always); File › Exit closes
+  without this question.
+- **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
+  through a pane's tabs in the order they were last used, for as long
+  as Ctrl is held (one press: back to the tab before); off, to the next
+  tab as they lie.
 - **Write a debug log**: what Moonglow does, step by step, in
   the `logs` folder of its data folder, a file for each start; on
   unless you switch it off (see
@@ -101,13 +109,25 @@ the module is opened again from its file.
   saving the module, compile the scripts whose text they save; so is a
   script another program saved in the module's folder or nasher
   project, when it is read again.
-- **Generate Debug Information When Compiling Scripts** (`.ndb` files).
+- **Generate Debug Information When Compiling Scripts** (`.ndb` files):
+  for the script compiled in its editor, and for Compile All Scripts,
+  which compiles again a script that has no debug file yet.
+- **Open scripts as tabs of one window**: on by default. A script opens
+  as a tab of the window scripts are open in already; off, each in a
+  window of its own. (Scripts docked in the main pane open there either
+  way.)
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
 - **Open scripts in the external editor**: a script opened from the
   module tree opens there as well; what it saves comes back into
   Moonglow's editor. In a nasher project the external editor gets the
   project's own file (see [Scripts](07-scripts.md)).
+- **…and not in Moonglow's editor**: with the option above, only the
+  external editor opens, for a script kept as a file of its own (a
+  nasher project's, a module folder's): what it saves is read as files
+  changed outside are (General). A script in a `.mod` file still opens
+  in Moonglow's editor too, which is how the external editor's saves
+  come back; so does one Moonglow holds unsaved text of.
 - **External Script Compiler**: a compiler program to use in place of the
   built-in one (empty: the built-in one, which is the game's and
   Aurora's own). Compile in the script editor, Compile All Scripts, the
@@ -131,6 +151,10 @@ the module is opened again from its file.
   text first.
 - **Show speaker name before text**, and the **NPC** and **Player** text
   colors.
+- **Font size**: the size of the conversation editor's text (its lines,
+  its buttons, the fields under them, and the lists and right-click
+  menus opened from it), apart from the rest of the window; **Default**
+  goes back to the window's own.
 - **Paste Link Options** and **Drag Link Options**: whether Paste As
   Link and Ctrl + drag link the source to the destination or the reverse.
 - **Automatically backup the conversation files** every … minutes.

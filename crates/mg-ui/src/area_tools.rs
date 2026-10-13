@@ -268,12 +268,9 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
     let labels: std::collections::HashMap<ResRef, String> =
         areas.iter().map(|a| (*a, crate::tabs::area_label(app, *a))).collect();
     let label = |a: &ResRef| labels.get(a).cloned().unwrap_or_else(|| a.to_string());
-    egui::Window::new("Find Instance")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
-        .open(crate::widgets::open_unless_escape(ui.ctx(), "Find Instance", &mut open))
-        .default_width(460.0)
-        .show(ui.ctx(), |ui| {
+    crate::widgets::dialog(ui.ctx(), "Find Instance", &mut open).default_width(460.0).show(
+        ui.ctx(),
+        |ui| {
             ui.horizontal_wrapped(|ui| {
                 crate::widgets::field_label(ui, "Search For");
                 for kind in ObjectKind::ALL {
@@ -329,7 +326,8 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
             });
-        });
+        },
+    );
     if let Some(r) = go {
         app.area_focus = Some((r.area, r.kind, r.index));
         app.actions.push(Action::OpenTab(Tab::Area(r.area)));
@@ -348,12 +346,9 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
     }
     let mut open = true;
     let key = app.palette.selected;
-    egui::Window::new("Preview")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
-        .open(crate::widgets::open_unless_escape(ui.ctx(), "Preview", &mut open))
-        .default_size([360.0, 460.0])
-        .show(ui.ctx(), |ui| {
+    crate::widgets::dialog(ui.ctx(), "Preview", &mut open).default_size([360.0, 460.0]).show(
+        ui.ctx(),
+        |ui| {
             let Some(key) = key else {
                 ui.weak("Choose a blueprint in the palette.");
                 return;
@@ -389,7 +384,8 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
             if key.restype == ResType::UTM {
                 egui::ScrollArea::vertical().show(ui, |ui| store_stock(app, ui, &gff.root));
             }
-        });
+        },
+    );
     app.preview_window = open;
 }
 

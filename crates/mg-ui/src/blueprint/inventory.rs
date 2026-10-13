@@ -289,7 +289,7 @@ impl Dragged {
             Dragged::Listed { source, index, .. } => ("ItemList", source, *index),
             Dragged::Equipped { source, index, .. } => ("Equip_ItemList", source, *index),
         };
-        Some(Edit::RemoveItem { key: *key, path: path.clone(), list: list.into(), index })
+        Some(Edit::remove_item(*key, path.clone(), list, index))
     }
 }
 
@@ -455,12 +455,7 @@ pub(super) fn item_list(
                     if ui.small_button("Remove").clicked() {
                         edits.push((
                             "Remove item",
-                            Edit::RemoveItem {
-                                key,
-                                path: path.clone(),
-                                list: "ItemList".into(),
-                                index: i,
-                            },
+                            Edit::remove_item(key, path.clone(), "ItemList", i),
                         ));
                     }
                     if infinite {
@@ -532,12 +527,7 @@ pub(super) fn item_list(
                         if ui.button("Remove").clicked() {
                             edits.push((
                                 "Remove item",
-                                Edit::RemoveItem {
-                                    key,
-                                    path: path.clone(),
-                                    list: "ItemList".into(),
-                                    index: i,
-                                },
+                                Edit::remove_item(key, path.clone(), "ItemList", i),
                             ));
                             ui.close();
                         }
@@ -553,14 +543,8 @@ pub(super) fn item_list(
         egui::DragAndDrop::clear_payload(ui.ctx());
         let at = if from < to { to - 1 } else { to };
         moved = vec![
-            Edit::RemoveItem { key, path: path.clone(), list: "ItemList".into(), index: from },
-            Edit::InsertItem {
-                key,
-                path: path.clone(),
-                list: "ItemList".into(),
-                index: at,
-                item: item.clone(),
-            },
+            Edit::remove_item(key, path.clone(), "ItemList", from),
+            Edit::insert_item(key, path.clone(), "ItemList", at, item.clone()),
         ];
     }
     // Ctrl+C on the row under the pointer (else the one selected), Ctrl+V
@@ -585,6 +569,41 @@ pub(super) fn item_list(
 
 impl Form<'_> {
     /// What an item list reported that is the same for every inventory:
+    /// What an inventory page does with what its list came to: the
+    /// blueprints to add (picked, pasted or dropped) go to the end of the
+    /// object's `ItemList` at `base`, with `taken` (what took a moved one
+    /// from where it was), as one step; the list's own `edits`, each a
+    /// step.
+    pub(super) fn apply_list(
+        &mut self,
+        base: &GffPath,
+        items: &[Struct],
+        adds: Vec<ResRef>,
+        taken: Vec<Edit>,
+        edits: Vec<(&'static str, Edit)>,
+    ) {
+        let key = self.key;
+        if !adds.is_empty() {
+            let mut held = items.to_vec();
+            let mut together = taken;
+            for r in adds {
+                let item = self.inventory_item(&held, r);
+                together.push(Edit::insert_item(
+                    key,
+                    base.clone(),
+                    "ItemList",
+                    held.len(),
+                    item.clone(),
+                ));
+                held.push(item);
+            }
+            self.app.actions.push(Action::Apply(Command::new("Add item", together)));
+        }
+        for (what, edit) in edits {
+            self.app.actions.push(Action::Apply(Command::new(what, vec![edit])));
+        }
+    }
+
     /// Copy and Properties from a row's menu, a row moved within the
     /// list, and what there is to add to it: the items pasted, one dragged
     /// from the palette, one dragged from another object's inventory

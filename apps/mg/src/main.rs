@@ -21,7 +21,7 @@ use mg_core::{Codepage, ResType, StrRef};
 use mg_erf::{Erf, ErfWriter};
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, ResKey, ResMan};
 
 #[derive(Parser)]
 #[command(name = "mg", version, about = "Moonglow Toolset command-line tools")]
@@ -149,6 +149,10 @@ enum Cmd {
         /// Moonglow's data folder, what they compiled).
         #[arg(long, conflicts_with = "uncompiled")]
         all: bool,
+        /// Make each compiled script's debug file (.ndb) too; a compiled
+        /// script that has none is compiled again for it.
+        #[arg(long)]
+        ndb: bool,
     },
     /// Run a module in the game's headless server (nwserver): privately
     /// unless --public, on a scratch user directory unless --dir, its log
@@ -285,6 +289,28 @@ enum Cmd {
         #[arg(long)]
         resource: Option<String>,
     },
+    /// Check builders' own 2DAs against their descriptions: a file
+    /// `name.2da.toml` beside `name.2da` that says what each column holds
+    /// (a whole number in a range, one of a list of values, a set of
+    /// flags, a row of another table, a talk-table string) and whose rows
+    /// the table's are. Lists may be a script's constants, read from the
+    /// script. Each path is a table, or a folder: every table in it (and
+    /// in the folders in it) that has a description. Scripts and tables a
+    /// description names are looked for in the folder (or --beside),
+    /// then in the game. Fails if a cell is wrong or a description cannot
+    /// be read. The format: the manual's Modules chapter, "A table's
+    /// description"
+    #[command(name = "2da-check")]
+    TwodaCheck {
+        /// Tables (.2da) or folders.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// A folder whose scripts and tables the descriptions may name
+        /// (default: the folder given; for a table, the repository or
+        /// nasher project it is in, else its own folder)
+        #[arg(long)]
+        beside: Option<PathBuf>,
+    },
     /// What differs between two talk tables (.tlk), by line. With --base
     /// (the table both were made from), the two merged, as `mg 2da-diff`
     /// merges.
@@ -358,6 +384,10 @@ enum Cmd {
         /// after every change.
         #[arg(long, value_name = "FILE")]
         r#mod: Option<PathBuf>,
+        /// Make each compiled script's debug file (.ndb) too, for the
+        /// game's script debugger.
+        #[arg(long)]
+        ndb: bool,
         /// Run the module in the server too, as `mg serve` does.
         #[arg(long)]
         serve: bool,
@@ -427,8 +457,19 @@ enum Cmd {
     /// Write a talk table (a .tlk file) as JSON, as nwn_tlk writes it, or as
     /// CSV (a row a line: StrRef, text, the feminine table's text if a
     /// table named with an added `f` lies beside it, sound, its length),
-    /// by the output's extension (.json, .csv).
-    TlkExport { table: PathBuf, output: PathBuf },
+    /// by the output's extension (.json, .csv). A CSV's StrRefs are a
+    /// custom table's, as a module's files name its lines: 16777216 and
+    /// up (line 131 is 16777347). For the game's own dialog.tlk, --base
+    /// writes each line's own number. (JSON has the line's number either
+    /// way, as nwn_tlk does.)
+    TlkExport {
+        table: PathBuf,
+        output: PathBuf,
+        /// CSV: number the lines from 0, as the game's dialog.tlk's are
+        /// named, not as a custom table's (`mg tlk-import` reads both)
+        #[arg(long)]
+        base: bool,
+    },
     /// Read a .json or .csv file of talk-table lines into a talk table (a
     /// .tlk file, made if it isn't there) and save it: the lines the file
     /// has are set, the others stay. Nothing is written unless every line
@@ -546,6 +587,10 @@ enum Cmd {
         /// Pack even if scripts fail to compile (as nasher does by default).
         #[arg(long)]
         keep_going: bool,
+        /// Make each compiled script's debug file (.ndb) too, packed with
+        /// it.
+        #[arg(long)]
+        ndb: bool,
     },
     /// Put a module into a nasher project: its resources as source files
     /// (GFF as JSON), with a nasher.cfg like `nasher init` writes unless the
@@ -755,8 +800,17 @@ enum PluginCmd {
         module: PathBuf,
         /// The plugin's folder.
         plugin: PathBuf,
-        /// The command's id (`mg plugin list` shows them).
+        /// The command's id (`mg plugin list` shows them); with --event,
+        /// the id of what the plugin does by itself.
         command: String,
+        /// Run what the plugin does by itself when a module is opened or
+        /// saved (its event of this id), as the window would then.
+        #[arg(long)]
+        event: bool,
+        /// With --event, for a module saved: a resource that changed
+        /// (`guard.utc`), as often as needed. None named: all of them.
+        #[arg(long, value_name = "NAME", requires = "event")]
+        changed: Vec<String>,
         /// A form's field, `ID=VALUE` (the others take their defaults).
         #[arg(long)]
         answer: Vec<String>,
@@ -1097,12 +1151,14 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
         Cmd::Set { module, resource, fields, remove, dry_run } => {
-            edits::use_codepage(codepage_at(cli, module));
-            edits::set(module, resource, fields, remove, *dry_run)?
+            let m = Module::open(module)?;
+            let codepage = module_codepage(cli, &m);
+            edits::set(m, resource, fields, remove, *dry_run, codepage)?
         }
         Cmd::Apply { module, edits, dry_run } => {
-            edits::use_codepage(codepage_at(cli, module));
-            edits::apply(module, edits, *dry_run)?
+            let m = Module::open(module)?;
+            let codepage = module_codepage(cli, &m);
+            edits::apply(m, edits, *dry_run, codepage)?
         }
         Cmd::Which { resource } => {
             let rm = ResMan::for_game(&install(cli)?)?;
@@ -1167,12 +1223,37 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
-            PluginCmd::Run { module, plugin, command, answer, file, hak_dir, yes, dry_run } => {
+            PluginCmd::Run {
+                module,
+                plugin,
+                command,
+                event,
+                changed,
+                answer,
+                file,
+                hak_dir,
+                yes,
+                dry_run,
+            } => {
                 let host = plugins::CliHost::new(answer, file, *yes)?;
                 // (A plugin that reads no game data needs no game.)
                 let gi = install(cli).ok();
                 let hak_dir = hak_dir.as_deref();
-                plugins::run(gi.as_ref(), module, plugin, command, host, hak_dir, *dry_run)?
+                let changed = match event {
+                    true => Some(
+                        changed
+                            .iter()
+                            .map(|n| {
+                                ResKey::from_filename(n).ok_or_else(|| {
+                                    anyhow::anyhow!("{n} is no resource's name (name.ext)")
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    ),
+                    false => None,
+                };
+                let what = plugins::What { id: command, changed };
+                plugins::run(gi.as_ref(), module, plugin, &what, host, hak_dir, *dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
             PluginCmd::Install { file, folder, replace } => {
@@ -1262,15 +1343,22 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("exported {} resources", plan.resources.len()));
             out
         }
-        Cmd::Compile { module, uncompiled, all } => {
+        Cmd::Compile { module, uncompiled, all, ndb } => {
             let mut m = Module::open(module)?;
             let mut out = Output::default();
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
             use mg_module::build;
             if *uncompiled {
-                let results =
-                    build::compile_scripts(&mut m, &rm, build::ScriptSelection::Uncompiled);
+                let names: Vec<ResKey> = (m.keys_of(ResType::NSS))
+                    .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
+                    .filter(|k| {
+                        let target = m.project.as_ref().map(|p| p.target());
+                        !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
+                    })
+                    .copied()
+                    .collect();
+                let results = build::compile_named_with(&mut m, &rm, &names, None, *ndb);
                 out.json = compiled(&mut out, &results);
                 m.save()?;
                 let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
@@ -1285,7 +1373,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 true => build::Remembered { made_with, ..Default::default() },
                 false => build::Remembered::kept(dir.as_deref(), Some(module), made_with),
             };
-            let pass = build::compile_changed(&mut m, &rm, None, &known, None);
+            let pass = build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
             out.json = compiled(&mut out, &pass.results);
             m.save()?;
             if let Some(dir) = &dir
@@ -1454,6 +1542,11 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             for t in &ran.report.tests {
                 match (&t.error, t.failed()) {
+                    // (Run to its end with nothing asserted: said, not a
+                    // failure.)
+                    (None, 0) if t.cases.is_empty() => {
+                        out.line(format!("ok    {} (0: it made no assertion)", t.script));
+                    }
                     (None, 0) => out.line(format!("ok    {} ({})", t.script, t.cases.len())),
                     (None, n) => out.line(format!("FAIL  {} ({n} of {})", t.script, t.cases.len())),
                     (Some(_), _) => out.line(format!("ERROR {}", t.script)),
@@ -1489,6 +1582,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 ran.report.tests.len()
             ));
             out
+        }
+        Cmd::TwodaCheck { paths, beside } => {
+            // (A table that names nothing of the game's needs no game.)
+            let game = install(cli).ok().and_then(|gi| mg_rules::GameData::open(&gi).ok());
+            diff::check(paths, beside.as_deref(), game.as_ref(), Codepage::default())?
         }
         Cmd::TwodaDiff { a, b, base, output, edits, prefer, resource } => diff::twoda(
             &diff::Args {
@@ -1526,7 +1624,18 @@ fn run(cli: &Cli) -> Result<Output> {
                 against: against.as_ref(),
             })?
         }
-        Cmd::Watch { project, dev_dir, r#mod, serve, dir, port, env, preload, server_args } => {
+        Cmd::Watch {
+            project,
+            dev_dir,
+            r#mod,
+            ndb,
+            serve,
+            dir,
+            port,
+            env,
+            preload,
+            server_args,
+        } => {
             let gi = install(cli)?;
             let name = serve::module_name(project);
             let server_dir = serve.then(|| {
@@ -1566,7 +1675,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 Ok(())
             };
             let mut rm = resman(&Module::open(project)?)?;
-            let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, &rm)?;
+            let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, *ndb, &rm)?;
             also(&w)?;
             say(
                 json!({
@@ -1687,11 +1796,14 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut compile = json!(null);
             if !report.recompile.is_empty() {
                 let rm = module_resman(&install(cli)?, &m, &mut out)?;
-                let results = mg_module::build::compile_scripts(
+                // (Those that had a debug file get one again.)
+                let mut results =
+                    mg_module::build::compile_named_with(&mut m, &rm, &report.debug, None, true);
+                results.extend(mg_module::build::compile_scripts(
                     &mut m,
                     &rm,
                     mg_module::build::ScriptSelection::Uncompiled,
-                );
+                ));
                 compile = compiled(&mut out, &results);
             }
             m.save()?;
@@ -1732,11 +1844,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
         }
-        Cmd::TlkExport { table, output } => {
+        Cmd::TlkExport { table, output, base } => {
             let t = talk_table(table, false)?;
             let (text, format) = match extension(output).as_str() {
                 "json" => (t.to_json(), "json"),
-                "csv" => (t.to_csv(), "csv"),
+                "csv" => (t.to_csv_as(!*base), "csv"),
                 _ => anyhow::bail!("the output must end .json or .csv"),
             };
             std::fs::write(output, text)?;
@@ -1746,6 +1858,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "format": format,
                 "lines": t.len(),
                 "feminine": t.feminine.is_some(),
+                "strrefs": if format == "csv" && !*base { "custom" } else { "line" },
             }))
         }
         Cmd::TlkImport { table, file, dry_run } => {
@@ -2055,7 +2168,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("updated {total} objects from {} blueprints", wanted.len()));
             out
         }
-        Cmd::Build { project, target, output, keep_going } => {
+        Cmd::Build { project, target, output, keep_going, ndb } => {
             let mut m = Module::open_project(project, target.as_deref())?;
             let mut out = Output::default();
             if let Some(p) = &m.project {
@@ -2064,10 +2177,12 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             let rm = module_resman(&install(cli)?, &m, &mut out)?;
-            let results = mg_module::build::compile_scripts(
+            let results = mg_module::build::compile_scripts_with(
                 &mut m,
                 &rm,
                 mg_module::build::ScriptSelection::All,
+                None,
+                *ndb,
             );
             let compile = compiled(&mut out, &results);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
@@ -2456,24 +2571,23 @@ fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let haks = m.haks().unwrap_or_default();
     let Ok(gi) = install(cli) else { return own };
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
-    let _ = rm.add_haks(&gi, &haks.iter().map(String::as_str).collect::<Vec<_>>());
+    let _ = rm.add_haks(&gi, &haks);
     mg_rules::encoding_of(&rm, own)
-}
-
-/// [`module_codepage`] of the module at a path (Windows-1252 if it can't
-/// be opened: the command says why).
-fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
-    Module::open(module).map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, &m))
 }
 
 /// The resman for a module: the game, the module's haks and the module.
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
-    let haks = m.haks()?;
-    for missing in rm.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>())? {
+    // (A module whose hak list can't be read, or a hak that can't be
+    // opened, stops the command.)
+    m.haks()?;
+    let (missing, wrong) = m.stack_onto(&mut rm, gi);
+    if let Some(e) = wrong {
+        return Err(e.into());
+    }
+    for missing in missing {
         out.note(format!("warning: hak {missing} not found"));
     }
-    rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
     Ok(rm)
 }
 

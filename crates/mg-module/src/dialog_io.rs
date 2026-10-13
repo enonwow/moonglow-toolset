@@ -983,7 +983,8 @@ pub fn to_ink(g: &Gff) -> String {
                 Next::Choice => passage(Kind::Reply, r),
             };
             let tags: String = tags(Kind::Reply, reply).iter().map(|t| format!(" # {t}")).collect();
-            let _ = writeln!(out, "+ {cond}[{t}] -> {target}{tags}");
+            // (Tags before the divert: Inky refuses a tag after it.)
+            let _ = writeln!(out, "+ {cond}[{t}]{tags} -> {target}");
         }
         out.push('\n');
     }
@@ -1044,12 +1045,18 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
         if let Some(tag) = line.strip_prefix('#') {
             k.tags.push(tag.trim().to_string());
         } else if let Some(choice) = line.strip_prefix('+').or_else(|| line.strip_prefix('*')) {
-            // + {cond} [text] -> target # tag
-            let (choice, tags) = match ink_find(choice, '#') {
-                Some(at) => (
-                    &choice[..at],
-                    choice[at + 1..].split('#').map(|t| t.trim().to_string()).collect(),
-                ),
+            // + {cond} [text] # tag -> target (and, as Moonglow wrote it
+            // before 1.22.1, + {cond} [text] -> target # tag)
+            let named = |tags: &str| tags.split('#').map(|t| t.trim().to_string()).collect();
+            let joined;
+            let (choice, tags): (&str, Vec<String>) = match ink_find(choice, '#') {
+                Some(at) => match choice[at..].rfind("->") {
+                    Some(arrow) => {
+                        joined = format!("{} {}", &choice[..at], &choice[at + arrow..]);
+                        (joined.as_str(), named(&choice[at + 1..at + arrow]))
+                    }
+                    None => (&choice[..at], named(&choice[at + 1..])),
+                },
                 None => (choice, Vec::new()),
             };
             let mut rest = choice.trim();
@@ -1176,6 +1183,27 @@ mod tests {
         assert!(ink.contains("+ {c_curious} [Who are you?] -> E2"), "{ink}");
         let back = from_ink(&ink).unwrap();
         assert_eq!(play_outline(&back, 10_000).unwrap(), want, "{ink}");
+    }
+
+    /// A choice's tags are written before its divert (Inky refuses them
+    /// after it), and read in either place.
+    #[test]
+    fn an_ink_choice_s_tags_come_before_its_divert() {
+        let ink = to_ink(&sample());
+        for line in ink.lines().filter(|l| l.starts_with('+')) {
+            let (arrow, tag) = (line.rfind("->").unwrap(), line.find('#'));
+            assert!(tag.is_none_or(|t| t < arrow), "{line}");
+        }
+        assert!(ink.lines().any(|l| l.starts_with('+') && l.contains(" # do:a_bye -> ")), "{ink}");
+        let new = "-> a\n=== a ===\nHi\n+ {c} [Go] # do:a_x # journal:q:1 -> b\n\n=== b ===\nB\n";
+        let old = "-> a\n=== a ===\nHi\n+ {c} [Go] -> b # do:a_x # journal:q:1\n\n=== b ===\nB\n";
+        let (new, old) = (from_ink(new).unwrap(), from_ink(old).unwrap());
+        assert_eq!(to_ink(&new), to_ink(&old));
+        assert!(
+            to_ink(&new).contains("+ {c} [Go] # do:a_x # journal:q:1 -> E1"),
+            "{}",
+            to_ink(&new)
+        );
     }
 
     #[test]

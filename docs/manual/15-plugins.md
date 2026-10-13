@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T20:19:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
 ---
 
 # Plugins
@@ -15,10 +15,11 @@ plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
 **Plugins are experimental.** They are new in Moonglow 1.0, and the
-plugin API (version 0.1) may change in a later release as the people who
-write plugins try it. A plugin written for one version of the API is not
-run by a Moonglow that has another: Manage Plugins says so, and the
-plugin needs its author's update. What you build with plugins, and what
+plugin API (version 0.3) may change in a later release as the people who
+write plugins try it. A plugin written for an earlier version of the API still
+runs (0.2 and 0.3 only added to it); one written for a version this
+Moonglow doesn't have is not run: Manage Plugins says so, and Moonglow,
+or the plugin, needs an update. What you build with plugins, and what
 you miss, is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).
 
@@ -47,8 +48,11 @@ A plugin's code runs in a sandbox. It can:
 - act by itself when a module is opened or saved, if it says so (the
   Plugins window lists what each plugin does by itself). What it does
   then is a change like a command's, which Undo takes back; where it
-  asks for a folder or for leave to write, it asks once in a session of
-  Moonglow, not at every save.
+  asks for a folder or for leave to write, it asks once, not at every
+  save: what you allowed is kept between runs (for that version of the
+  plugin), the Plugins window says how much, and **Forget** there makes
+  it ask again. Disabling, removing or installing the plugin anew
+  forgets it too.
 
 It cannot open files of its own choosing, write any other file, use the
 network, start other programs, or reach anything of Moonglow's beyond
@@ -172,6 +176,7 @@ resource's fields are called (`return ctx.module:gff("guard.utc")`).
 ```text
 mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
+mg plugin run mymodule.mod plugins/my-plugin on-save --event --changed guard.utc
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins

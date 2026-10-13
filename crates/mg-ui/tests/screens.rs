@@ -1,11 +1,12 @@
 //! Screenshots of windows for looking at their layout, rendered with wgpu
-//! into `target/test-output/screens/`. Not checks; run by hand:
+//! into `target/test-output/screens/` (kept from run to run: each test adds
+//! its pictures). Not checks; run by hand:
 //! `cargo test -p mg-ui --test screens -- --ignored`.
 
 use std::sync::Arc;
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use mg_core::ResType;
 use mg_edit::GffPath;
 use mg_module::script_wizard::{ClassLevel, Lists, Perform};
@@ -27,7 +28,7 @@ fn script_wizard_pages() {
     let root = mg_testkit::corpus!();
     let app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let lists = Arc::new(Lists::load(app.game.as_deref().unwrap()));
     let key = ResKey::parse("dlg", ResType::DLG).unwrap();
     let mut h = Harness::builder()
@@ -70,7 +71,7 @@ fn module_properties_haks() {
     use mg_schema::{ExoString, StructExt, ifo};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let user = dir.join("haks-user");
     std::fs::create_dir_all(user.join("hak")).unwrap();
     let names = ["bloodwar", "bmmountainsv102", "cb_tile_atemple", "dia_udrkspid3", "ghcastlehd"];
@@ -109,6 +110,226 @@ fn module_properties_haks() {
     shoot(&mut h, &dir, "module-properties-haks");
 }
 
+/// The 2DA editor on a copy of the game's feat.2da kept as a file: a
+/// cell that names a feat that is not there, selected; and Take Rows,
+/// with the game's copy to take from.
+#[test]
+#[ignore]
+fn table_editor() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-table");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    // The game's table with a feat changed, one wrong, and its last rows
+    // not there.
+    let mut t = (*game.table("feat").unwrap()).clone();
+    let (prereq, label) = (t.column("PREREQFEAT1").unwrap(), t.column("LABEL").unwrap());
+    t.rows.truncate(t.len() - 25);
+    t.set(3, prereq, Some("4000".into())).unwrap();
+    t.set(5, label, Some("MyOwnDodge".into())).unwrap();
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.go_to(3, prereq);
+    }
+    h.run_steps(6);
+    shoot(&mut h, &dir, "table-editor");
+    // Typing in a cell.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.go_to(5, label);
+        doc.typing = Some("MyOwnDodge".into());
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-editor-typing");
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.typing = None;
+        doc.taking = Some(Default::default());
+    }
+    h.run_steps(6);
+    h.get_by_label("New").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-editor-take-rows");
+    // Several cells selected, and a column's menu.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.taking = None;
+        doc.go_to(2, 0);
+        doc.select_to((7, 2));
+    }
+    h.run_steps(4);
+    let name = h.get_by_label("DESCRIPTION").rect().center();
+    h.hover_at(name);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: name,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-editor-selection");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // The window's close button, with nothing unsaved.
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "close-question");
+    h.state_mut().closing = false;
+    // Where a row is named, and a row of another table to choose from.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.go_to(3, prereq);
+    }
+    h.run_steps(4);
+    h.get_by_label("Find References to Row 3").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-editor-references");
+    // The resource browser's Edit… on a table of the game's.
+    let key = ResKey::parse("skills", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run_steps(5);
+    h.get_by_label("Edit…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "table-editor-edit-menu");
+}
+
+/// A table with a description beside it: values by name, a cell that is
+/// none of its list, and a flags cell being ticked (the flags are the
+/// game's own `DAMAGE_TYPE_` constants, read from `nwscript`).
+#[test]
+#[ignore]
+fn described_table() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-described");
+    let install = GameInstall::new(&root, None, "en");
+    // (A project of its own: what the description names is looked for
+    // here, not through this repository.)
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    let file = dir.join("my_ai_spells.2da");
+    std::fs::write(
+        &file,
+        "2DA V2.0\r\n\r\n  Label Level DamageType AOEShape Duration ClassRequired Cures\r\n\
+         0 Acid_Fog 6 0x0010 0 2 **** ****\r\n1 Aid 2 **** **** 3 **** ****\r\n\
+         2 Animate_Dead 3 **** **** 4 2 ****\r\n3 Barkskin 2 **** **** 4 **** ****\r\n\
+         4 Bestow_Curse 3 **** **** 5 **** ****\r\n5 Blade_Barrier 6 0x0006 1 2 **** ****\r\n\
+         6 Bless 1 **** **** 3 **** ****\r\n7 Bless_Weapon 12 **** **** 9 **** ****\r\n\
+         8 Blindness_and_Deafness 2 **** **** #N/A 99 ****\r\n\
+         9 Bulls_Strength 2 **** **** 4 **** ****\r\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("my_ai_spells.2da.toml"),
+        "rows = \"spells\"\n\n[columns.Level]\nkind = \"int\"\nmin = -1\nmax = 10\n\n\
+         [columns.DamageType]\nkind = \"flags\"\nconstants = \"nwscript\"\nprefix = \
+         \"DAMAGE_TYPE_\"\n\n[columns.AOEShape]\nkind = \"list\"\nvalues = { Sphere = 0, \
+         Wall = 1, Cone = 3 }\n\n[columns.Duration]\nkind = \"list\"\nvalues = { Instant = 1, \
+         Short = 2, Medium = 3, Long = 4, Permanent = 5 }\n\n[columns.ClassRequired]\nkind = \
+         \"row\"\ntable = \"classes\"\n",
+    )
+    .unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(5, 2);
+    h.run_steps(4);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v == "2 flags"))
+        .map(|n| n.rect().center())
+        .expect("the flags' list");
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "described-table");
+}
+
+/// The conversation editor's Text Appears When page, with a script that
+/// has parameters.
+#[test]
+#[ignore]
+fn dialog_script_parameters() {
+    use mg_module::dialog::{Parent, add_node, new_dialog, params_value};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-dialog-params");
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "What do you want made?");
+    {
+        let link = &mut g.root.list_mut("StartingList").unwrap()[0];
+        link.set("Active", mg_gff::Value::resref("cond_weapmod".parse().unwrap()));
+        let pairs = [
+            ("tag".to_string(), "weficort".to_string()),
+            ("apariencia".to_string(), "05".to_string()),
+        ];
+        link.set("ConditionParams", params_value(&pairs));
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("smith", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.set(
+        ResKey::parse("cond_weapmod", ResType::NSS).unwrap(),
+        b"// TRUE where the weapon is the one named\nint StartingConditional()\n{\n    return TRUE;\n}\n".to_vec(),
+    );
+    let path = dir.join("d.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(key)));
+    h.run_steps(4);
+    h.get_by_label_contains("What do you want made?").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "dialog-script-parameters");
+    // (And at a larger size of its own: Options › Conversation Editor.)
+    h.state_mut().settings.dialog_font_size = Some(20);
+    shoot(&mut h, &dir, "dialog-font-20");
+    // (Its right-click menu, at that size too.)
+    let at = h.get_by_label_contains("What do you want made?").rect().center();
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    shoot(&mut h, &dir, "dialog-font-20-menu");
+}
+
 /// The Talk Table editor on a line with a long text: plain, and with a
 /// feminine table.
 #[test]
@@ -116,7 +337,7 @@ fn module_properties_haks() {
 fn talk_table_editor() {
     use mg_module::talk::{Line, Table};
     mg_testkit::gpu::hold();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     for feminine in [false, true] {
         let app = Moonglow::new(None, Box::new(NoDialogs::default()));
         let mut h = Harness::builder()
@@ -183,7 +404,7 @@ fn options_window() {
 fn model_viewer() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens-model");
+    let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -239,7 +460,7 @@ fn palette_hover_preview() {
 fn blueprint_preview() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens-model");
+    let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -263,7 +484,7 @@ fn blueprint_preview() {
 fn palettes() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
@@ -279,7 +500,7 @@ fn palettes() {
 fn blueprint_editors() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     for (name, t, pages) in [
         ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
         ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
@@ -335,7 +556,7 @@ fn blueprint_editors() {
 fn item_general_widths() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let (name, t) = ("nw_cloth009", ResType::UTI);
     for width in [820.0, 960.0, 1100.0, 1240.0, 1500.0] {
         let mut app = Moonglow::new(
@@ -356,6 +577,121 @@ fn item_general_widths() {
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         shoot(&mut h, &dir, &format!("item-general-{width}"));
     }
+}
+
+/// A weapon's Appearance page: its parts' pictures, at two window sizes.
+#[test]
+#[ignore]
+fn weapon_parts() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let t = ResType::UTI;
+    for (name, size) in [
+        ("nw_wswgs001", egui::vec2(1300.0, 1500.0)),
+        ("nw_wswgs001", egui::vec2(1000.0, 640.0)),
+        ("nw_wswdg001", egui::vec2(1000.0, 640.0)),
+    ] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get_named(name, t).unwrap().into_owned();
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), data);
+        let path = dir.join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(size)
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(4);
+        h.get_by_label("Appearance").click();
+        h.run_steps(6);
+        shoot(&mut h, &dir, &format!("weapon-parts-{name}-{}", size.y));
+    }
+}
+
+/// Export Resources: the module kind by kind.
+#[test]
+#[ignore]
+fn export_resources() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-export");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    for (name, t) in [
+        ("guard", ResType::UTC),
+        ("smith", ResType::UTC),
+        ("longsword", ResType::UTI),
+        ("chest", ResType::UTP),
+        ("on_enter", ResType::NSS),
+        ("on_enter", ResType::NCS),
+        ("spells", ResType::TWODA),
+    ] {
+        m.set(ResKey::parse(name, t).unwrap(), Vec::new());
+    }
+    let path = dir.join("e.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "export-resources");
+}
+
+/// A creature's Appearance list, opened: at the appearance it has, its
+/// Filter field above the rows.
+#[test]
+#[ignore]
+fn appearance_list_opened() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.open_palette = false;
+    let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    // (The lists of the Basic page in order: the appearance's is the one
+    // whose value is an appearance's name.)
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("Aribeth")))
+        .map(|n| n.rect().center())
+        .expect("the Appearance dropdown");
+    h.hover_at(at);
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(4);
+    shoot(&mut h, &dir, "appearance-list-opened");
 }
 
 /// The model beside the fields, in a window wide enough for both.
@@ -421,7 +757,7 @@ fn glyphs() {
 fn store_chosen_item() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let (name, t) = ("nw_storebar01", ResType::UTM);
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
@@ -554,6 +890,49 @@ fn script_editor() {
     h.run();
     h.run();
     shoot(&mut h, &dir, "script-editor");
+}
+
+/// A selection in the script editor: whole lines (to their line ends),
+/// and part of one.
+#[test]
+#[ignore]
+fn script_selection() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-script-selection");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let text = "void main()\n{\n    int nGold = 5;\n    string sName = \"x\";\n\n    return;\n}\n";
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 420.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    // From the start of "int nGold" line to the start of the empty line:
+    // two whole lines with their line ends.
+    let from = text.find("    int").unwrap();
+    let to = text.find("\n\n").unwrap() + 1;
+    for (name, range) in [("lines", (from, to)), ("part", (from + 4, from + 13))] {
+        let id = egui::Id::new(("script", key));
+        let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(range.0),
+            egui::text::CCursor::new(range.1),
+        )));
+        state.store(&h.ctx, id);
+        h.ctx.memory_mut(|m| m.request_focus(id));
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("script-selection-{name}"));
+    }
 }
 
 #[test]
@@ -956,7 +1335,7 @@ fn area_grid() {
     // The tile grid among buildings and trees: hidden behind them.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -989,13 +1368,40 @@ fn area_grid() {
 
 #[test]
 #[ignore]
+fn area_toolbar_narrow() {
+    // The area's toolbar in a narrow tab: its rows end at the tab's edge.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "area-toolbar-narrow");
+}
+
+#[test]
+#[ignore]
 fn lighting_off_and_sound_ranges() {
     // The area with the most placed sounds, at night: with the area's
     // lighting, then without it and with the sounds' ranges, the camera
     // raised.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1047,7 +1453,7 @@ fn areas_by_name_and_area_properties() {
     mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1081,7 +1487,7 @@ fn merchant_markers() {
     // sign, is in the scene, hidden by what is in front of it.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1130,7 +1536,7 @@ fn areas_edited_together() {
     mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1166,7 +1572,7 @@ fn raw_fields_with_row_names() {
     mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1194,7 +1600,7 @@ fn spawn_point_markers() {
     // arrow of its facing.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1240,7 +1646,7 @@ fn creature_appearance_inline() {
     // A creature's Appearance page with its model in the page.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,
@@ -1272,7 +1678,7 @@ fn crosser_cursor() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -1344,7 +1750,7 @@ fn area_fog() {
     use mg_module::new::{AreaSpec, add_area, new_module, tilesets};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let city = tilesets(&game).into_iter().find(|t| t.name == "Medieval City 2").unwrap();
@@ -1388,7 +1794,7 @@ fn city_tile_selection() {
     use mg_module::new::{AreaSpec, add_area, new_module, tilesets};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let city = tilesets(&game).into_iter().find(|t| t.name == "Medieval City 2").unwrap();
@@ -1432,7 +1838,7 @@ fn tile_preview() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -1485,7 +1891,7 @@ fn area_properties_advanced() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let install = GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -1528,7 +1934,7 @@ fn area_ghost() {
     // A placeable chosen in the palette: see-through under the pointer.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("screens");
+    let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
         egui_kittest::wgpu::default_wgpu_setup(),
         egui_wgpu::RendererOptions::PREDICTABLE,

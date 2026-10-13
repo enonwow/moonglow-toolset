@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)'
 description: The NWN:EE tileset system for the area editor - the SET format, the corner and edge model and terrain painting, ARE and GIT tile data, walkmesh and pathing, tile lights, minimap and palette - with citations and open questions.
 tags: [tilesets, set, terrain, areas]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T03:14:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:36Z }
 ---
 
 # NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)
@@ -61,7 +61,7 @@ Two key orders occur in base data: `Name,Type,Version,Interior,HasHeightTransiti
 | DisplayName | int StrRef | Tileset name in the area wizard. -1 = none. Values ≥ 16777216 are custom-TLK refs [D Tilesets] |
 | UnlocalizedName | str | Used when DisplayName = -1 (EE sets: `Medieval City 2`, `TNO: Exterior`). An optional `name:description` split on the colon is documented [D Tilesets] |
 | Border | terrain name | Terrain of the vertices on the area's outer boundary [D, V: e.g. tcn01 Border=building, Default=cobble] |
-| Default | terrain name | Terrain the Eraser paints, and the fill for a new area [D ITP PDF: "The eraser paints down the tileset's default terrain type"] |
+| Default | terrain name | The fill for a new area. Documented as the terrain the Eraser paints [D ITP PDF: "The eraser paints down the tileset's default terrain type"]; Aurora's Eraser does not paint it (§B.4a) |
 | Floor | terrain name | "Main floor" terrain. Interior sets have Floor ≠ Default (tdm01 Default=Wall, Floor=Floor). A new tdm01 area is "mostly walled up … except for a small space in the center" [D BioWare Toolset Tutorial]. So Floor is likely what the area wizard seeds in the centre [I] |
 
 ### A.3 `[GRASS]`

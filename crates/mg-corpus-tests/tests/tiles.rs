@@ -6,26 +6,22 @@ use std::collections::HashMap;
 
 use mg_core::{Codepage, ResType};
 use mg_gff::Gff;
-use mg_module::Module;
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::ResKey;
 use mg_schema::{StructExt, are};
 use mg_set::Tileset;
-use mg_testkit::{bundled_modules, corpus};
+use mg_testkit::corpus;
+
+use crate::area_common::each_module;
 use mg_tiles::{Lattice, Placement, TileIndex};
 
 #[test]
 fn shipped_tile_grids_are_consistent() {
     let root = corpus!();
-    let install = GameInstall::new(&root, None, "en");
     let mut indexes: HashMap<String, Option<TileIndex>> = HashMap::new();
     let (mut areas, mut cells, mut mismatched, mut unfitted) = (0, 0, 0, 0);
     let mut worst: Vec<(f64, String)> = Vec::new();
-    for path in bundled_modules(&root) {
-        let m = Module::open(&path).unwrap();
-        let mut rm = ResMan::for_game(&install).unwrap();
-        let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    each_module(&root, |opened| {
+        let (path, m, rm, haks) = (&opened.path, &opened.module, &opened.game.resman, &opened.haks);
         for area in m.areas().unwrap() {
             let Ok(data) = rm.get(&ResKey::new(area, ResType::ARE)) else { continue };
             let g = Gff::read(&data).unwrap();
@@ -63,7 +59,7 @@ fn shipped_tile_grids_are_consistent() {
                 format!("{}:{area}", path.display()),
             ));
         }
-    }
+    });
     worst.sort_by(|a, b| b.0.total_cmp(&a.0));
     eprintln!(
         "{areas} areas, {cells} tiles: {mismatched} disagree with a neighbour, {unfitted} cells fit no free tile; worst {:?}",
@@ -71,7 +67,7 @@ fn shipped_tile_grids_are_consistent() {
     );
     // 1,462 areas, 102,182 tiles: 69 seams (0.07%), and 103 cells (group
     // tiles) that no free tile fits. Ignoring Tile_Height gives 6% seams.
-    assert!(areas > 1000);
+    assert!(areas > mg_testkit::at_least(1000, 6));
     assert!((mismatched as f64) < cells as f64 * 0.001, "{mismatched} of {cells}");
     assert!((unfitted as f64) < cells as f64 * 0.002, "{unfitted} of {cells}");
 }

@@ -453,7 +453,14 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     let Ok(t) = d.set.clone() else { return };
     ui.horizontal(|ui| {
         ui.label("Find");
-        ui.add(egui::TextEdit::singleline(&mut d.filter).desired_width(160.0).hint_text("model or terrain"));
+        let field = ui.id().with("tileset-filter-field");
+        crate::widgets::pane_filter_keys(ui, field, &mut d.filter);
+        ui.add(
+            egui::TextEdit::singleline(&mut d.filter)
+                .id(field)
+                .desired_width(160.0)
+                .hint_text("model or terrain"),
+        );
         let sel = d.tile;
         if ui
             .add_enabled(sel.is_some(), egui::Button::new("Duplicate Tile"))

@@ -688,7 +688,7 @@ fn options_leave_the_module_open() {
     h.run();
     h.get_by_label("Light theme").click();
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     assert!(h.state().settings.light_theme);
     assert!(h.state().confirm_discard.is_none(), "nothing to ask");
@@ -701,7 +701,7 @@ fn options_leave_the_module_open() {
     h.run();
     h.get_all_by_label("Browse…").next().unwrap().click();
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     assert!(h.state().confirm_discard.is_some(), "asked before the module is read again");
     assert_eq!(h.state().settings.game_root, None, "not applied until answered");
@@ -714,6 +714,49 @@ fn options_leave_the_module_open() {
     assert_eq!(h.state().settings.game_root.as_deref(), Some(other.as_path()));
     assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()), "opened again");
     assert!(!h.state().has_unsaved_work());
+}
+
+/// Export Resources lists the module kind by kind, and one kind alone
+/// when it is chosen: the buttons under the list are for those listed.
+#[test]
+fn export_lists_a_kind() {
+    let dir = mg_testkit::scratch_dir("ui-export-kinds");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    for name in ["mg_one", "mg_two"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
+    h.run();
+    // Every kind, each under its heading, the tree's kinds first.
+    assert!(h.query_by_label("Areas (.are)").is_some());
+    assert!(h.query_by_label("Scripts (.nss)").is_some());
+    assert!(h.query_by_label("start.are").is_some());
+    h.state_mut().export.as_mut().unwrap().kind = Some(ResType::NSS);
+    h.run();
+    assert!(h.query_by_label("start.are").is_none(), "scripts alone");
+    assert!(h.query_by_label("mg_one.nss").is_some());
+    let scripts =
+        h.state().ws.as_ref().unwrap().module.keys().filter(|k| k.restype == ResType::NSS);
+    let scripts: std::collections::BTreeSet<ResKey> = scripts.copied().collect();
+    // (The window settles round its shorter list first.)
+    h.run_steps(3);
+    h.get_by_label(&format!("Select the {} Listed", scripts.len())).click();
+    h.run();
+    assert_eq!(h.state().export.as_ref().unwrap().selected, scripts);
+    // With the filter, those it leaves.
+    h.state_mut().export.as_mut().unwrap().filter = "mg_t".into();
+    h.run_steps(3);
+    h.get_by_label("Clear Them").click();
+    h.run();
+    let left = &h.state().export.as_ref().unwrap().selected;
+    assert_eq!(left.len(), scripts.len() - 1);
+    assert!(!left.contains(&ResKey::parse("mg_two", ResType::NSS).unwrap()));
 }
 
 #[test]
@@ -960,7 +1003,7 @@ fn module_name_in_every_language_and_variables() {
         e.strref = "12".into();
     }
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     let name: LocString = info(h.state_mut()).read(&ifo::MOD_NAME);
     assert_eq!(name.get(Language::GERMAN, Gender::Male), Some(&b"Beispiel"[..]));
@@ -988,7 +1031,7 @@ fn module_name_in_every_language_and_variables() {
         .rect()
         .width();
     assert!(name_width >= 250.0, "the name's field is {name_width} wide");
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     let vars = info(h.state_mut()).items(&ifo::VAR_TABLE).to_vec();
     assert_eq!(vars.len(), 1);
@@ -1004,6 +1047,35 @@ fn module_name_in_every_language_and_variables() {
 /// A line of the talk table is chosen by a click anywhere on its row, the
 /// arrow keys choose from there, and Enter goes to the line's text
 /// (GitHub issue 24).
+#[test]
+fn a_talk_table_s_rows_begin_under_its_buttons() {
+    // Open File… and New File… stood in a sliver past the end of the row
+    // before them, one under the other, and the list began a third of
+    // the window down.
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("ui-talk-top");
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(NoDialogs::default())),
+    );
+    let mut table = Table::create("top", &dir, mg_core::Language::ENGLISH, false);
+    let line =
+        Line { text: "Text 0".into(), feminine: None, sound: String::new(), sound_length: 0.0 };
+    table.add_line(&line).unwrap();
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(6);
+    let buttons = ["Open File…", "New File…"].map(|l| h.get_by_label(l).rect());
+    let go_to = h.get_by_label("Go to").rect();
+    let row = h.get_by_label("Text 0").rect();
+    for b in buttons {
+        assert!(b.width() > 40.0, "a button of its text's width: {b:?}");
+        assert!(b.top() < go_to.bottom() + 30.0, "in the row, or the next: {b:?}");
+        assert!(row.top() < b.bottom() + 30.0, "the list right under them: {row:?}, {b:?}");
+    }
+}
+
 #[test]
 fn a_talk_table_s_row_is_clicked_anywhere() {
     use mg_module::talk::{Line, Table};
@@ -1309,7 +1381,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.run();
     let edit = h.state().loc_edit.clone().unwrap();
     assert_eq!((edit.strref.as_str(), edit.entries.len()), ("16777217", 0));
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     let ws = h.state_mut().ws.as_mut().unwrap();
     let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().root.clone();
@@ -1700,6 +1772,26 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.get_by_label("mg_ui_test.2da").click();
     h.run();
     assert_eq!(h.state().haks[0].selected.len(), 1);
+    // The Find field's keys (GitHub issue 12): Ctrl+F with the pointer
+    // over the editor goes to it, Escape clears it and then leaves it.
+    let over = h.get_by_label("mg_ui_test.2da").rect().center();
+    h.hover_at(over);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.event(egui::Event::Text("other".into()));
+    h.run();
+    assert_eq!(h.state().haks[0].filter, "other");
+    assert!(h.query_by_label("mg_ui_test.2da").is_none(), "the list is narrowed");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().haks[0].filter, "");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.event(egui::Event::Text("x".into()));
+    h.run();
+    assert_eq!(h.state().haks[0].filter, "", "left: what is typed is not the field's");
+    assert!(h.state().dock.find_tab(&Tab::Hak(id)).is_some(), "and the editor is open still");
     h.get_by_label("Save").click();
     h.run();
     assert!(hak.is_file(), "{:?}", log(&h));
@@ -1715,7 +1807,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.get_by_label("Add Haks and Talk Table…").click();
     h.run();
     assert!(h.state().attach.is_some());
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     assert!(user.join("tlk/mg_ui.tlk").is_file());
     let key = ResKey::parse("mg_ui_test", ResType::TWODA).unwrap();
@@ -2245,7 +2337,7 @@ fn faction_editor_adds_and_removes_factions() {
         add.parent = 4;
     }
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     let f = factions(h.state());
     assert_eq!(f.factions[5].name, "Guards");
@@ -2487,6 +2579,38 @@ fn conversation_editor_builds_and_links() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
     assert_eq!(texts(&doc(&mut h)).len(), 5);
+}
+
+/// The conversation editor's text has a size of its own (Options ›
+/// Conversation Editor): its lines and the fields under them, and nothing
+/// outside it.
+#[test]
+fn the_conversation_editor_s_text_has_its_own_size() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-dialog-font");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "Hello there.");
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let heights = |h: &Harness<'_, Moonglow>| {
+        let line = h.get_by_label_contains("Hello there.").rect().height();
+        (line, h.get_by_label("Expand All").rect().height(), h.get_by_label("File").rect().height())
+    };
+    let (line, button, menu) = heights(&h);
+    h.state_mut().settings.dialog_font_size = Some(24);
+    h.run_steps(3);
+    let (large, large_button, same_menu) = heights(&h);
+    assert!(large > line * 1.5, "{line} to {large}");
+    assert!(large_button > button * 1.5, "{button} to {large_button}");
+    assert_eq!(same_menu, menu, "the window's own text is as it was");
 }
 
 #[test]
@@ -3174,7 +3298,7 @@ fn a_placeable_s_model_files_are_exported() {
         h.state_mut().dialogs = Box::new(again);
         mg_ui::model_view::export_files(h.state_mut(), &source);
         h.run();
-        h.get_by_label_contains(button).click();
+        h.get_all_by_label_contains(button).last().unwrap().click();
         h.run();
         assert!(h.state().model_export.is_none());
         assert_eq!(std::fs::read(dir.join(model)).unwrap() != b"mine", replaced, "{button}");
@@ -3335,6 +3459,19 @@ fn tabs_by_the_keyboard() {
     assert_eq!(front(&h), area("third"));
     key(&mut h, ctrl, egui::Key::Num2);
     assert_eq!(front(&h), area("start"));
+    // With the option (Options › General), Ctrl+Tab goes to the tab used
+    // last, and again back: third was in front before start.
+    h.state_mut().settings.tabs_by_recent = true;
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("third"));
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("start"));
+    // (The other way round the same order: the one used longest ago.)
+    key(&mut h, ctrl | shift, egui::Key::Tab);
+    assert_eq!(front(&h), Tab::ModuleProperties);
+    h.state_mut().settings.tabs_by_recent = false;
+    key(&mut h, ctrl, egui::Key::Num2);
+    assert_eq!(front(&h), area("start"));
 
     // Ctrl+W closes the one in front; Ctrl+Shift+T opens it again.
     key(&mut h, ctrl, egui::Key::W);
@@ -3438,6 +3575,47 @@ fn undo_in_a_text_field_is_the_field_s() {
     assert_eq!(undoable(&h), None, "the module's Undo");
 }
 
+/// In a script's editor Undo is the editor's whatever was done last: a
+/// new line (with its indent) is no typed text, and Ctrl+Z after it undid
+/// the module's last change, somewhere else, and left the script as it
+/// was.
+#[test]
+fn undo_in_a_script_is_the_script_s() {
+    let dir = mg_testkit::scratch_dir("ui-undo-in-script");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int a;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run();
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    h.state_mut().script_tools.jump = Some((key, text.find("a;").unwrap() + 2));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let edited = h.state().script_text(key).unwrap();
+    assert!(edited.contains("int a;\n    \n}"), "{edited:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(h.state().script_text(key).as_deref(), Some(text), "the new line is taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run();
+    assert_eq!(h.state().script_text(key), Some(edited), "and Redo gives it again");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+}
+
 fn filter_type(h: &mut Harness<'_, Moonglow>, text: &str) {
     h.event(egui::Event::Text(text.into()));
     h.run_steps(2);
@@ -3469,6 +3647,24 @@ fn the_module_tree_by_the_keyboard() {
     h.get_by_label("start").hover();
     key(&mut h, egui::Key::ArrowDown);
     assert_eq!(at(&h), None);
+    // F6 gives them to the tree without one, at its first row; again, on
+    // to the middle (no palettes here), and Shift+F6 back.
+    key(&mut h, egui::Key::F6);
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)));
+    key(&mut h, egui::Key::F6);
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "the keys are the middle's");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F6);
+    h.run();
+    h.run();
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    h.state_mut().tree_cursor = None;
+    key(&mut h, egui::Key::F6);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), None, "handed on again");
     h.get_by_label("start").click();
     h.run();
     assert_eq!(at(&h), Some(TreeAt::Resource(start)));
@@ -3977,6 +4173,503 @@ fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     h.run();
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);
     h.run();
+}
+
+/// Text typed in a Properties field is kept when the field is left by a
+/// click on another page, or by closing the window: the field is gone
+/// before the keyboard leaves it, and what was typed was lost.
+#[test]
+fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_typed", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let input = |h: &Harness<'_, Moonglow>, value: &str| {
+        let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
+        };
+        h.get(egui_kittest::kittest::by().predicate(is)).rect().center()
+    };
+    let tag = field(&mut h, &key).string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    let tag = tag.unwrap_or_default();
+    // The Tag, typed in, and another page clicked.
+    let at = input(&h, &tag);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_X".into()));
+    h.run_steps(2);
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(tag.as_bytes()), "not set while typed");
+    h.get_by_label("Lock").click();
+    h.run_steps(4);
+    let now = format!("{tag}_X");
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tag"));
+    // The description, typed in, and the window closed.
+    h.get_by_label("Description").click();
+    h.run_steps(3);
+    let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    let at = h.get(memo).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("Sturdy. ".into()));
+    h.run_steps(2);
+    close_tab(h.state_mut(), &Tab::Blueprint(key));
+    h.run_steps(4);
+    let description = field(&mut h, &key).locstring("Description").cloned().unwrap();
+    let text: Vec<String> =
+        description.strings.iter().map(|(_, t)| String::from_utf8_lossy(t).into_owned()).collect();
+    assert!(text.iter().any(|t| t.contains("Sturdy. ")), "{text:?}");
+    // A field left with nothing typed sets nothing.
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Description"));
+}
+
+/// Text typed in a field is kept while another program has the keyboard
+/// (Alt + Tab away and back): the field took its window's loss of the
+/// keyboard for its own, and showed what was stored again.
+#[test]
+fn text_typed_is_kept_while_another_program_has_the_keyboard() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_away", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let tag = field(&mut h, &key).string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    let tag = tag.unwrap_or_default();
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(&*tag)
+    };
+    let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_X".into()));
+    h.run_steps(2);
+    for focused in [false, true] {
+        h.input_mut().focused = focused;
+        h.event(egui::Event::WindowFocused(focused));
+        h.run_steps(3);
+    }
+    h.get_by_label("Lock").click();
+    h.run_steps(4);
+    let now = format!("{tag}_X");
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
+}
+
+/// A Properties window has OK and Cancel, as Aurora's: Cancel sets back
+/// what the window changed since it was opened, as one step, and closes
+/// it; what was changed elsewhere meanwhile stays; OK keeps it all.
+#[test]
+fn a_properties_window_s_cancel_sets_back_what_it_changed() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_cancel", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let tab = Tab::Blueprint(key);
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        String::from_utf8_lossy(field(h, &key).string("Tag").unwrap_or_default()).into_owned()
+    };
+    let type_tag = |h: &mut Harness<'_, Moonglow>, more: &str| {
+        let was = tag(h);
+        let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(&*was)
+        };
+        let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        h.key_press(egui::Key::End);
+        h.event(egui::Event::Text(more.into()));
+        h.run_steps(2);
+    };
+    let before = field(&mut h, &key);
+    let original = tag(&mut h);
+    // Two changes in the window, and one made elsewhere.
+    type_tag(&mut h, "_X");
+    h.get_by_label("Plot").click();
+    h.run_steps(3);
+    assert_eq!(tag(&mut h), format!("{original}_X"));
+    assert_ne!(field(&mut h, &key).integer("Plot"), before.integer("Plot"));
+    let elsewhere = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Hardness".into(),
+        value: Some(mg_gff::Value::Byte(77)),
+    };
+    let elsewhere = mg_edit::Command::new("Elsewhere", vec![elsewhere]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(elsewhere));
+    h.run_steps(3);
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    let now = field(&mut h, &key);
+    assert_eq!(tag(&mut h), original, "the tag is set back");
+    assert_eq!(now.integer("Plot"), before.integer("Plot"), "and Plot");
+    assert_eq!(now.integer("Hardness"), Some(77), "what was changed elsewhere stays");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Cancel Changes"));
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    // Opened again: nothing of the last time is its to set back; OK keeps
+    // what is changed.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(4);
+    type_tag(&mut h, "_Y");
+    h.get_by_label("OK").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h), format!("{original}_Y"), "kept");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    // Cancel with text typed and its field not left yet: the press sets
+    // the text, and Cancel sets it back.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(4);
+    type_tag(&mut h, "_Z");
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h), format!("{original}_Y"), "what was typed is not kept");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    // And Cancel with nothing changed closes, no more.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(4);
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h), format!("{original}_Y"));
+}
+
+/// The other editors have OK and Cancel too: Cancel sets back what the
+/// window changed (a file it made is gone again), and closes it.
+#[test]
+fn the_editors_cancel_sets_back_what_they_changed() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-editors-cancel");
+    let path = sample_module(&dir);
+    let talk = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "Hello there.");
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(talk, &g).unwrap();
+    m.set(ResKey::parse("mine", ResType::TWODA).unwrap(), b"2DA V2.0\n\n  A\n0 one\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    // (One window with OK and Cancel at a time.)
+    close_tab(&mut app, &Tab::ModuleProperties);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(4);
+    };
+    let cancel = |h: &mut Harness<'_, Moonglow>, tab: &Tab| {
+        h.get_by_label("Cancel").click();
+        h.run_steps(4);
+        assert!(h.state().dock.find_tab(tab).is_none(), "{tab:?} closed");
+    };
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+
+    // The journal: a category added makes module.jrl; Cancel takes the
+    // file away again.
+    let jrl = ResKey::parse("module", ResType::JRL).unwrap();
+    let has = |h: &mut Harness<'_, Moonglow>, key: &ResKey| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.contains(key)
+    };
+    let had_journal = has(&mut h, &jrl);
+    open(&mut h, Tab::Journal);
+    h.get_by_label("Add").click();
+    h.run_steps(3);
+    assert!(has(&mut h, &jrl));
+    cancel(&mut h, &Tab::Journal);
+    assert_eq!(has(&mut h, &jrl), had_journal, "as it was");
+    assert_eq!(undoable(&h).as_deref(), Some("Cancel Changes"));
+
+    // A conversation: a line deleted, and back.
+    let lines = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(&talk).unwrap();
+        (
+            g.root.list("EntryList").map_or(0, <[_]>::len),
+            g.root.list("StartingList").map_or(0, <[_]>::len),
+        )
+    };
+    open(&mut h, Tab::Dialog(talk));
+    assert_eq!(lines(&mut h), (1, 1));
+    h.get_by_label_contains("Hello there.").click();
+    h.run_steps(2);
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert_eq!(lines(&mut h).1, 0);
+    cancel(&mut h, &Tab::Dialog(talk));
+    assert_eq!(lines(&mut h), (1, 1), "the line is back");
+
+    // Factions: one added (repute.fac made), and gone.
+    let factions =
+        |app: &Moonglow| mg_module::factions::Factions::of_module(&app.ws.as_ref().unwrap().module);
+    open(&mut h, Tab::Factions);
+    h.get_by_label("Add Faction…").click();
+    h.run();
+    h.state_mut().faction_view.adding.as_mut().unwrap().name = "Guards".into();
+    h.run();
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(factions(h.state()).factions.len(), 6);
+    cancel(&mut h, &Tab::Factions);
+    assert_eq!(factions(h.state()).factions.len(), 5, "the faction is gone");
+
+    // Area Properties: a box ticked, and unticked; OK keeps it.
+    let area = ResRef::from_str("start").unwrap();
+    let are = ResKey::new(area, ResType::ARE);
+    let night = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().ws.as_mut().unwrap().doc(&are).unwrap().root.integer("IsNight")
+    };
+    let was = night(&mut h);
+    open(&mut h, Tab::AreaProperties(area));
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    h.get_by_label("Always Dark").click();
+    h.run_steps(3);
+    assert_ne!(night(&mut h), was);
+    cancel(&mut h, &Tab::AreaProperties(area));
+    assert_eq!(night(&mut h), was, "as it was");
+    open(&mut h, Tab::AreaProperties(area));
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    h.get_by_label("Always Dark").click();
+    h.run_steps(3);
+    h.get_by_label("OK").click();
+    h.run_steps(4);
+    assert_ne!(night(&mut h), was, "kept");
+    assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_none());
+
+    // Module Properties: its tag typed in, and Cancel pressed with the
+    // field not left yet.
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    let module_tag = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = &ws.doc(&info).unwrap().root;
+        String::from_utf8_lossy(root.string("Mod_Tag").unwrap_or_default()).into_owned()
+    };
+    open(&mut h, Tab::ModuleProperties);
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("SAMPLE")
+    };
+    let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_X".into()));
+    h.run_steps(2);
+    h.get_by_label("Basic").click();
+    h.run_steps(3);
+    assert_eq!(module_tag(&mut h), "SAMPLE_X");
+    cancel(&mut h, &Tab::ModuleProperties);
+    assert_eq!(module_tag(&mut h), "SAMPLE", "as it was");
+    assert_eq!(undoable(&h).as_deref(), Some("Cancel Changes"));
+
+    // A 2DA is saved when asked: OK saves it; Cancel closes it as last
+    // saved, after the question its window's close asks of unsaved work.
+    let mine = ResKey::parse("mine", ResType::TWODA).unwrap();
+    let cell = |h: &Harness<'_, Moonglow>| {
+        let data = h.state().ws.as_ref().unwrap().module.get(&mine).unwrap().to_vec();
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default())
+            .unwrap()
+            .get(0, "A")
+            .map(str::to_string)
+    };
+    for (press, kept) in [("Cancel", "one"), ("OK", "two")] {
+        let id = mg_ui::table_view::open_in_module(h.state_mut(), mine).unwrap();
+        h.run_steps(4);
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(0, 0, Some("two".into())).unwrap();
+        h.run_steps(2);
+        h.get_by_label(press).click();
+        h.run_steps(4);
+        if press == "Cancel" {
+            h.get_by_label("Discard").click();
+            h.run_steps(4);
+        }
+        assert!(h.state().dock.find_tab(&Tab::Table(id)).is_none(), "closed by {press}");
+        assert!(h.state().tables.is_empty());
+        assert_eq!(cell(&h).as_deref(), Some(kept), "{press}");
+    }
+}
+
+/// The same in the other windows: Module Properties' description, typed
+/// in, is kept when another of its pages is clicked.
+#[test]
+fn text_typed_in_module_properties_is_kept_when_its_page_is_left() {
+    let dir = mg_testkit::scratch_dir("ui-ifo-typed");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Description").click();
+    h.run_steps(3);
+    let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    let at = h.get(memo.clone()).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.event(egui::Event::Text("A quiet valley. ".into()));
+    h.run_steps(2);
+    let described = |h: &mut Harness<'_, Moonglow>| {
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+        let root = h.state_mut().ws.as_mut().unwrap().doc(&ifo).unwrap().root.clone();
+        let text = root.locstring("Mod_Description").cloned().unwrap_or_default();
+        text.strings.iter().any(|(_, t)| String::from_utf8_lossy(t).contains("A quiet valley. "))
+    };
+    assert!(!described(&mut h), "not set while it is typed");
+    // (A click as the pointer makes one: pressed, then let go a frame on.)
+    let basic = h.get_by_label("Basic").rect().center();
+    h.hover_at(basic);
+    press(&h, basic, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    press(&h, basic, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    assert!(h.query(memo.clone()).is_none(), "the other page is shown");
+    assert!(described(&mut h), "what was typed is kept");
+
+    // And when a key does it: Save, with more typed in and the field not
+    // left, saves that too; then the key that closes the tab keeps it.
+    let type_more = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        h.get_by_label("Description").click();
+        h.run_steps(3);
+        let at = h.get(memo.clone()).rect().center();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(2);
+    };
+    let has = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+        let root = h.state_mut().ws.as_mut().unwrap().doc(&ifo).unwrap().root.clone();
+        let d = root.locstring("Mod_Description").cloned().unwrap_or_default();
+        d.strings.iter().any(|(_, t)| String::from_utf8_lossy(t).contains(text))
+    };
+    type_more(&mut h, "Saved by a key. ");
+    assert!(!has(&mut h, "Saved by a key. "));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(5);
+    assert!(has(&mut h, "Saved by a key. "));
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "and saved with it");
+    type_more(&mut h, "Closed by a key. ");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_none(), "the tab is closed");
+    assert!(has(&mut h, "Closed by a key. "));
+}
+
+/// A long dropdown opens at the one chosen, not at its top, and whole:
+/// what was typed in its Filter field the last time is gone.
+#[test]
+fn a_dropdown_opens_at_what_is_chosen() {
+    let Some((mut h, _)) = blueprint_harness("plc_chest1", "chest_opens_at", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let appearance = |h: &Harness<'_, Moonglow>| {
+        h.query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("Chest")))
+            .map(|n| (n.rect().center(), n.accesskit_node().value().unwrap()))
+            .expect("the Appearance Type dropdown")
+    };
+    let (at, chosen) = appearance(&h);
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run();
+    };
+    open(&mut h);
+    // The chosen row is in the list's window, a little under its Filter
+    // field (the list has hundreds of rows before "Chest").
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let in_sight = |h: &Harness<'_, Moonglow>| {
+        let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
+        let row = h
+            .query_all_by_label(&chosen)
+            .map(|n| n.rect().center().y)
+            .find(|y| *y > top)
+            .expect("the chosen row");
+        assert!(row - top < 260.0, "the chosen row is {} under the Filter field", row - top);
+    };
+    in_sight(&h);
+    // Filtered to something else and left; opened again, it is whole.
+    type_into_hint(&mut h, "Filter", "Armoire");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    if h.query(egui_kittest::kittest::by().predicate(hint)).is_some() {
+        // (Escape went to the field: a click outside closes the list.)
+        let away = egui::pos2(5.0, 5.0);
+        h.hover_at(away);
+        press(&h, away, true, egui::Modifiers::NONE);
+        press(&h, away, false, egui::Modifiers::NONE);
+        h.run();
+    }
+    open(&mut h);
+    in_sight(&h);
+}
+
+/// A creature made with a single model keeps no body parts: given a
+/// part-based appearance it gets them in the same step (the game draws a
+/// head and no body without them), and one that has parts keeps its own.
+#[test]
+fn a_part_based_appearance_brings_a_body() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_body", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("BodyPart_Torso"), None, "the bandit keeps none");
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    // The Appearance dropdown: the one beside Gallery….
+    let line = h.get_by_label("Gallery…").rect().center().y;
+    let at = h
+        .query_all(combo)
+        .map(|n| n.rect().center())
+        .find(|c| (c.y - line).abs() < 6.0)
+        .expect("the Appearance dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    type_into_hint(&mut h, "Filter", "Human");
+    // (Typed in, the list is at its top again: the row is in sight.)
+    let row = h.get_by_label("Human").rect().center();
+    assert!((row.y - line).abs() < 120.0, "the row is at {row:?}");
+    h.hover_at(row);
+    press(&h, row, true, egui::Modifiers::NONE);
+    press(&h, row, false, egui::Modifiers::NONE);
+    h.run();
+    let c = field(&mut h, &key);
+    assert_eq!(c.integer("Appearance_Type"), Some(6));
+    assert_eq!(c.integer("BodyPart_Torso"), Some(1));
+    assert_eq!(c.integer("ArmorPart_RFoot"), Some(1));
+    assert_eq!(c.integer("Appearance_Head"), Some(1));
+    assert_eq!(c.integer("BodyPart_Belt"), Some(0), "a bare body has no belt");
+    // One step: Undo takes the parts away with the appearance.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    let c = field(&mut h, &key);
+    assert_ne!(c.integer("Appearance_Type"), Some(6));
+    assert_eq!(c.integer("BodyPart_Torso"), None);
 }
 
 /// A dropdown with a Filter field stays open while the field is clicked
@@ -4684,6 +5377,27 @@ fn classes_page_sets_domains_and_associates() {
     assert!(h.query_by_label_contains("companion only for a creature with a divine").is_some());
 }
 
+/// A weapon's parts are chosen from pictures of the part alone: the
+/// icon's texture is the whole weapon's size (256 points for a great
+/// sword), and three lists of those were more than a window.
+#[test]
+fn a_weapon_s_parts_are_pictured_alone() {
+    let Some((mut h, key)) = blueprint_harness("nw_wswgs001", "sword_copy", ResType::UTI) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Appearance").click();
+    h.run_steps(4);
+    for part in ["Top", "Middle", "Bottom"] {
+        let size = h.get_by_label(&format!("{part} 12")).rect().size();
+        assert!(size.y <= 96.0 && size.x <= 64.0, "{part}: {size:?}");
+    }
+    // A click on one chooses it.
+    h.get_by_label("Middle 21").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("ModelPart2"), Some(21));
+}
+
 #[test]
 fn item_editor_adds_properties_and_keeps_the_cost() {
     let Some((mut h, key)) = blueprint_harness("nw_wswls001", "sword_copy", ResType::UTI) else {
@@ -4714,6 +5428,9 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     assert_eq!(stored, computed);
     let plus_one = stored;
     // The new property is selected: its value, +1, becomes +3.
+    // (Under the lists: scrolled to, above the window's OK and Cancel.)
+    h.get_by_value("+1").scroll_to_me();
+    h.run();
     h.get_by_value("+1").click();
     h.run();
     h.get_by_label("+3").click();
@@ -4734,6 +5451,12 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     let count = |h: &Harness<'_, Moonglow>, label: &str| h.query_all_by_label(label).count();
     let before = count(&h, "Enhancement Bonus");
     assert!(before >= 1);
+    // (Back up the page, to the search field.)
+    let search = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.placeholder() == Some("🔍 Search properties")
+    };
+    h.get(egui_kittest::kittest::by().predicate(search)).scroll_to_me();
+    h.run();
     type_into_hint(&mut h, "🔍 Search properties", "cast fireball");
     h.run_steps(2);
     assert_eq!(count(&h, "Cast Spell"), 1);
@@ -5342,6 +6065,63 @@ fn area_viewer_places_draws_boxes_and_turns() {
     assert!((triggers[0].float("XPosition").unwrap() - 30.0).abs() < 0.1);
     assert_eq!(points[0].float("PointX"), Some(0.0));
     assert!((points[2].float("PointX").unwrap() - 6.0).abs() < 0.1);
+
+    // Another, as a rectangle: one corner, then Alt and a click at the
+    // corner opposite.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(10.0, 30.0, 0.0));
+    let opposite = screen(&h, area, Vec3::new(14.0, 33.0, 0.0));
+    h.hover_at(opposite);
+    // (The right Alt of many keyboards, AltGr: Ctrl and Alt together, as
+    // Windows reports it. The rectangle showed and the click did nothing.)
+    let alt_gr = egui::Modifiers::ALT | egui::Modifiers::CTRL | egui::Modifiers::COMMAND;
+    press(&h, opposite, true, alt_gr);
+    press(&h, opposite, false, alt_gr);
+    h.run_steps(3);
+    let triggers = git_list(&mut h, "TriggerList");
+    assert_eq!(triggers.len(), 2, "Alt and a click place the rectangle");
+    let points = triggers[1].list("Geometry").unwrap();
+    assert_eq!(points.len(), 4);
+    assert!((points[2].float("PointX").unwrap() - 4.0).abs() < 0.2);
+    assert!((points[2].float("PointY").unwrap() - 3.0).abs() < 0.2);
+
+    // And with Alt pressed and let go before the click: many Linux window
+    // managers keep an Alt + click to move the window, so the view never
+    // hears of the click, and of Alt no longer. The rectangle stays.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(20.0, 10.0, 0.0));
+    let opposite = screen(&h, area, Vec3::new(23.0, 12.0, 0.0));
+    h.hover_at(opposite);
+    h.run_steps(1);
+    h.event_modifiers(egui::Event::PointerMoved(opposite), egui::Modifiers::ALT);
+    h.run_steps(2);
+    press(&h, opposite, true, egui::Modifiers::NONE);
+    press(&h, opposite, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let triggers = git_list(&mut h, "TriggerList");
+    assert_eq!(triggers.len(), 3, "Alt, let go, and a click place the rectangle");
+    let points = triggers[2].list("Geometry").unwrap();
+    assert_eq!(points.len(), 4);
+    assert!((points[2].float("PointX").unwrap() - 3.0).abs() < 0.2);
+    assert!((points[2].float("PointY").unwrap() - 2.0).abs() < 0.2);
+    // Alt held to lead the view about (a middle drag) asks for none: the
+    // next click is the outline's second corner.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(20.0, 20.0, 0.0));
+    let (button, alt) = (egui::PointerButton::Middle, egui::Modifiers::ALT);
+    for pressed in [true, false] {
+        let event = egui::Event::PointerButton { pos: opposite, button, pressed, modifiers: alt };
+        h.event_modifiers(event, alt);
+    }
+    h.run_steps(2);
+    click(&mut h, Vec3::new(23.0, 22.0, 0.0));
+    assert_eq!(h.state().area_views[&area].outline.len(), 2, "a corner, not a rectangle");
+    assert_eq!(git_list(&mut h, "TriggerList").len(), 3);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
 
     // A box around the first two waypoints selects them.
     let (a, b) = (
@@ -6747,7 +7527,7 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     h.get_by_label("Save").click();
     h.run();
     assert!(sets.join("Loot.vars.json").is_file());
-    h.get_by_label("Cancel").click();
+    h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert!(field(&mut h, &key).list("VarTable").is_none_or(|l| l.is_empty()), "not applied");
     // Added to the variables (one already named MG_LOOT takes its value).
@@ -6764,7 +7544,7 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     h.run();
     h.get_by_label("Loot").click();
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     let vars: Vec<(String, Option<i64>)> = field(&mut h, &key)
         .list("VarTable")
@@ -7228,7 +8008,7 @@ fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
     // Fighter 1 to 5, as captured in Aurora (aurora_levelup.rs).
     h.state_mut().levelup.as_mut().expect("the wizard").slots[0].1 = 5;
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     assert!(h.state().levelup.is_none());
     let s = field(&mut h, &key);
@@ -7257,7 +8037,7 @@ fn the_levelup_wizard_adds_a_class_with_its_spells_and_gear() {
     // Wizard 1, as captured in Aurora on a placed bandit.
     h.state_mut().levelup.as_mut().expect("the wizard").slots.push((10, 1, 0));
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     let s = field(&mut h, &key);
     let wizard = &s.list("ClassList").unwrap()[1];
@@ -7851,6 +8631,8 @@ fn equipping_without_the_feat_asks_to_add_it() {
     // The slot shows the axe's icon.
     let image = egui::accesskit::Role::Image;
     assert!(h.get_all_by_label("Battleaxe").any(|n| n.accesskit_node().role() == image));
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-inventory-icons").join("inventory.png"));
     }
@@ -7881,7 +8663,7 @@ fn conversation_options_popup_link_directions_drag_and_backup() {
             .collect()
     };
     let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
-        h.get_by_label(label).click();
+        h.get_all_by_label(label).last().unwrap().click();
         h.run();
     };
     // The popup's text field (its text is also a text run).
@@ -8180,13 +8962,15 @@ fn portraits_are_chosen_from_their_pictures() {
     assert!(h.query_by_label("po_dw_f_02_").is_none());
     h.get_by_label("Characters and Creatures").click();
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("PortraitId"), Some(1));
     assert!(h.query_by_label("Select Portrait").is_none());
     // A look at the window (ignored test `screens`-style output).
     h.get_by_label("Portraits…").click();
     h.run();
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-portraits").join("select.png"));
     }
@@ -8201,6 +8985,8 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     h.get_by_label("Appearance").click();
     h.run();
     h.get_by_label("Icon");
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-item-icons").join("gem.png"));
     }
@@ -8246,6 +9032,8 @@ fn colours_are_chosen_from_palette_swatches() {
         .expect("the Cloth 1 colour")
         .click();
     h.run();
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-colours").join("swatches.png"));
     }
@@ -8275,6 +9063,8 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     h.run();
     h.get_by_label("Appearance").click();
     h.run();
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-part-colors").join("page.png"));
     }
@@ -9139,15 +9929,166 @@ fn the_start_location_shows_on_raised_ground() {
         (r.read(&ifo::MOD_ENTRY_AREA), r.read(&ifo::MOD_ENTRY_Z))
     };
     assert_eq!(stored(&mut h), (area, 0.0));
-    // (A window wide enough for the toolbar: in a narrow one its rows
-    // end past the tab's edge, a button there out of reach.)
-    h.set_size(egui::vec2(1700.0, 900.0));
-    h.run_steps(3);
+    // (The button is at the end of a toolbar's row, which ends at the
+    // tab's edge in a window this narrow too.)
     h.get_by_label("🏃 Go to Start Location").click();
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
     assert_eq!(stored(&mut h), (area, 0.0), "the module's start is as it was");
+}
+
+/// The main toolbar's Start opens the area the module starts in, with its
+/// view at the start location (as Aurora's Go to Start Location does).
+#[test]
+fn go_to_start_location_opens_the_start_s_area() {
+    let Some((mut h, area)) = area_harness_on("start-go", "trm02", None) else { return };
+    h.run_steps(3);
+    let start = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        glam::Vec2::new(r.read(&ifo::MOD_ENTRY_X), r.read(&ifo::MOD_ENTRY_Y))
+    };
+    // The view looks elsewhere, and its tab is closed.
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().target =
+        glam::Vec3::new(start.x + 25.0, start.y + 25.0, 0.0);
+    close_tab(h.state_mut(), &Tab::Area(area));
+    h.run_steps(2);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
+    h.get_by_label("🏃 Start").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is opened");
+    let target = h.state().area_views[&area].orbit.unwrap().target;
+    assert!(target.truncate().distance(start) < 0.01, "{target} is not at {start}");
+    // (The command is in the View menu and the command palette too.)
+    assert!(mg_ui::commands::Id::all().contains(&mg_ui::commands::Id::GoToStart));
+}
+
+/// A trigger's outline drawn as a rectangle by two clicks: the first
+/// corner, then Alt and a click at the corner opposite.
+#[test]
+fn an_outline_is_drawn_as_a_rectangle_by_two_clicks() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("outline-rect") else { return };
+    h.run_steps(3);
+    let git = ResKey::new(area, ResType::GIT);
+    let mut trigger = mg_gff::Struct::new(1);
+    for (label, v) in [("XPosition", 10.0), ("YPosition", 10.0), ("ZPosition", 0.0)] {
+        trigger.set(label, mg_gff::Value::Float(v));
+    }
+    trigger.set("Geometry", mg_gff::Value::List(Vec::new()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Trigger",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "TriggerList".into(),
+            index: 0,
+            item: trigger,
+        }],
+    )));
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().redraw =
+        Some((mg_area::ObjectKind::Trigger, 0));
+    h.run_steps(2);
+    let (first, opposite) = (Vec3::new(18.0, 18.0, 0.0), Vec3::new(24.0, 21.0, 0.0));
+    let click = |h: &mut Harness<'_, Moonglow>, at: Vec3, modifiers: egui::Modifiers| {
+        let on = screen(h, area, at);
+        h.hover_at(on);
+        press(h, on, true, modifiers);
+        press(h, on, false, modifiers);
+        h.run_steps(3);
+    };
+    click(&mut h, first, egui::Modifiers::NONE);
+    assert!(h.state().area_views[&area].redraw.is_some(), "one corner: not closed");
+    click(&mut h, opposite, egui::Modifiers::ALT);
+    assert!(h.state().area_views[&area].redraw.is_none(), "closed by the second click");
+    let corners: Vec<glam::Vec2> = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let t = ws.doc(&git).unwrap().root.list("TriggerList").unwrap()[0].clone();
+        let at = glam::Vec2::new(t.float("XPosition").unwrap(), t.float("YPosition").unwrap());
+        t.list("Geometry")
+            .unwrap()
+            .iter()
+            .map(|p| at + glam::Vec2::new(p.float("PointX").unwrap(), p.float("PointY").unwrap()))
+            .collect()
+    };
+    assert_eq!(corners.len(), 4, "{corners:?}");
+    let near = |a: glam::Vec2, x: f32, y: f32| a.distance(glam::Vec2::new(x, y)) < 0.2;
+    assert!(near(corners[0], 18.0, 18.0) && near(corners[2], 24.0, 21.0), "{corners:?}");
+    // Its sides run east and north: the other two corners share theirs.
+    assert!(
+        (corners[1].y - corners[0].y).abs() < 1e-4 && (corners[1].x - corners[2].x).abs() < 1e-4
+    );
+    assert!(
+        (corners[3].x - corners[0].x).abs() < 1e-4 && (corners[3].y - corners[2].y).abs() < 1e-4
+    );
+}
+
+/// A picture: the turning ring around a trigger whose outline is on
+/// ground built 5 m up while its own place is stored at height 0 (as
+/// Aurora stores it), before and after a quarter turn. To
+/// `target/test-output/ring-trigger/`. (And held: where the ring is, and
+/// that its mark goes round.)
+#[test]
+fn a_trigger_s_turning_ring_in_a_picture() {
+    let Some((mut h, area)) = area_harness_on("ring-trigger", "trm02", None) else { return };
+    h.run_steps(3);
+    let git = ResKey::new(area, ResType::GIT);
+    let mut trigger = mg_gff::Struct::new(1);
+    for (label, v) in [("XPosition", 18.0), ("YPosition", 20.0), ("ZPosition", 0.0)] {
+        trigger.set(label, mg_gff::Value::Float(v));
+    }
+    let corner = |x: f32, y: f32| {
+        let mut p = mg_gff::Struct::new(3);
+        p.set("PointX", mg_gff::Value::Float(x));
+        p.set("PointY", mg_gff::Value::Float(y));
+        p.set("PointZ", mg_gff::Value::Float(5.0));
+        p
+    };
+    let corners = vec![corner(0.0, 0.0), corner(8.0, 0.0), corner(8.0, 1.5), corner(0.0, 1.5)];
+    trigger.set("Geometry", mg_gff::Value::List(corners));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Trigger",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "TriggerList".into(),
+            index: 0,
+            item: trigger,
+        }],
+    )));
+    h.run_steps(3);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![(mg_area::ObjectKind::Trigger, 0)];
+        if let Some(o) = &mut view.orbit {
+            o.target = glam::Vec3::new(22.0, 20.75, 5.0);
+            o.distance = 22.0;
+            o.pitch = 40f32.to_radians();
+        }
+    }
+    h.run_steps(6);
+    // The ring is around the outline's middle at the outline's own height
+    // (not the trigger's stored 0), marked toward its first corner.
+    let rings = h.state().area_views[&area].ring_places();
+    assert_eq!(rings.len(), 1);
+    let (pivot, mark) = rings[0];
+    assert!(pivot.distance(glam::Vec3::new(22.0, 20.75, 5.0)) < 1e-3, "{pivot}");
+    let to_first = glam::Vec2::new(18.0 - 22.0, 20.0 - 20.75);
+    assert!((mark - to_first.y.atan2(to_first.x)).abs() < 1e-3, "{mark}");
+    let dir = mg_testkit::output_dir("ring-trigger");
+    h.render().unwrap().save(dir.join("before-turn.png")).unwrap();
+    // (The keys are the view's with the pointer over it.)
+    h.hover_at(egui::pos2(700.0, 560.0));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(6);
+    h.render().unwrap().save(dir.join("after-turn.png")).unwrap();
+    // Turned, the mark has gone round with the outline.
+    let turned = h.state().area_views[&area].ring_places()[0].1;
+    assert!((turned - mark).abs() > 1.0, "{mark} then {turned}");
 }
 
 /// Closes a tab, wherever it is.
@@ -11960,6 +12901,82 @@ fn a_plugin_acts_when_the_module_is_saved() {
     assert!(!h.state().busy());
     save(&mut h);
     assert_eq!(said(&h).len(), 1, "once for a change");
+    // What a plugin's events were allowed is kept in the settings, by
+    // plugin and version, shown in the Plugins window and forgotten from
+    // there, or when the plugin is enabled or disabled. (Another of the
+    // plugins installed: this one's are what its events just did.)
+    let (id, name) = (h.state().plugins.installed.iter())
+        .filter_map(|i| i.plugin.as_ref().ok())
+        .map(|p| (p.manifest.id.clone(), format!("{} {}", p.manifest.id, p.manifest.version)))
+        .find(|(id, _)| id != "example.tag-conventions")
+        .unwrap();
+    let grant = |h: &mut Harness<'_, Moonglow>| {
+        let other = ("other 1.0.0".to_string(), "q".to_string(), "yes".to_string());
+        h.state_mut().settings.plugin_grants =
+            vec![(name.clone(), "q".into(), "yes".into()), other];
+    };
+    grant(&mut h);
+    assert_eq!(h.state().plugin_grants(&id), 1);
+    h.state_mut().plugins.window = true;
+    h.run_steps(3);
+    h.get_by_label("Allowed before, and not asked again: 1").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Forget").click();
+    h.run_steps(3);
+    assert_eq!(h.state().plugin_grants(&id), 0);
+    assert_eq!(h.state().settings.plugin_grants.len(), 1, "another plugin's stay");
+    grant(&mut h);
+    h.state_mut().enable_plugin(&id, true);
+    assert_eq!(h.state().plugin_grants(&id), 0);
+}
+
+/// A plugin that asks before it acts on a save asks once: what it was
+/// allowed is kept in the settings, so it is not asked again at the next
+/// save nor after a restart, until it is forgotten.
+#[test]
+fn a_plugin_s_event_asks_once_and_not_after_a_restart() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-asks", false) else { return };
+    h.run();
+    h.state_mut().enable_plugin("test.asks", true);
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+        log.filter(|m| m.starts_with("Asks: ")).collect()
+    };
+    let mut n = 0;
+    let mut save_changed = |h: &mut Harness<'_, Moonglow>| {
+        n += 1;
+        let mut guard = Gff::new(*b"UTC ");
+        guard.root.set("Tag", mg_gff::Value::String(format!("guard_{n}").into_bytes()));
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "A guard",
+            vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+        )));
+        h.run_steps(2);
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(6);
+    };
+    // Asked, and answered yes.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Yes));
+    save_changed(&mut h);
+    assert_eq!(said(&h), ["Asks: noted"]);
+    assert!(h.state().plugins.answers.is_empty(), "the question was asked");
+    // The next save: not asked (there is no answer to give), and done.
+    save_changed(&mut h);
+    assert_eq!(said(&h).len(), 2, "{:?}", h.state().log.entries);
+    assert!(!h.state().busy());
+    assert_eq!(h.state().plugin_grants("test.asks"), 1, "kept in the settings");
+    // After a restart (what this run holds is gone): still not asked.
+    h.state_mut().forget_plugin_session();
+    save_changed(&mut h);
+    assert_eq!(said(&h), ["Asks: noted"; 3]);
+    assert!(!h.state().busy());
+    // Forgotten: asked again, and a no this time is a no.
+    h.state_mut().forget_plugin_grants("test.asks");
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_changed(&mut h);
+    assert_eq!(said(&h).last().unwrap(), "Asks: not noted");
+    assert!(h.state().plugins.answers.is_empty());
+    assert_eq!(h.state().plugin_grants("test.asks"), 0, "a no is not kept");
 }
 
 fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
@@ -11971,7 +12988,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     let Some((mut h, key)) = plugin_harness("ui-plugins", false) else { return };
     h.run();
     // Installed, none enabled: the Plugins menu has only its manager.
-    assert_eq!(h.state().plugins.installed.len(), 4);
+    assert_eq!(h.state().plugins.installed.len(), 5);
     assert!(h.state().plugin_commands().is_empty());
     h.get_by_label("Plugins").click();
     h.run();
@@ -12037,16 +13054,16 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.state_mut().options.as_mut().unwrap().recording =
         Some("example.tag-conventions/fix-tags".to_string());
     h.run();
-    h.key_press(egui::Key::F6);
+    h.key_press(egui::Key::F8);
     h.run();
     h.get_by_label("OK").click();
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
     assert_eq!(tag_of(&mut h, &key), "gate_guard");
-    h.key_press(egui::Key::F6);
+    h.key_press(egui::Key::F8);
     h.run();
-    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD", "F6 runs the plugin's command");
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD", "F8 runs the plugin's command");
 
     // Disabled again: its commands are gone.
     h.state_mut().enable_plugin("example.tag-conventions", false);
@@ -12421,7 +13438,7 @@ fn several_areas_are_edited_together() {
         row.value = "42".into();
     }
     h.run();
-    h.get_by_label("OK").click();
+    h.get_all_by_label("OK").last().unwrap().click();
     h.run_steps(2);
     let names = |h: &mut Harness<'_, Moonglow>, name: &str| -> Vec<String> {
         let a = are(h, name);
@@ -13230,7 +14247,8 @@ fn escape_closes_the_window_in_front() {
         .find(|(p, _)| !p.surface.is_main())
         .map(|(_, leaf)| leaf.rect)
         .unwrap();
-    let beside = props.left_bottom() + egui::vec2(12.0, -12.0);
+    // (Above its OK and Cancel.)
+    let beside = props.left_bottom() + egui::vec2(12.0, -48.0);
     h.hover_at(beside);
     press(&h, beside, true, egui::Modifiers::NONE);
     press(&h, beside, false, egui::Modifiers::NONE);
@@ -13293,6 +14311,43 @@ fn an_area_is_copied_with_its_objects() {
     let ws = h.state().ws.as_ref().unwrap();
     assert!(!ws.module.contains(&ResKey::new(new, ResType::ARE)));
     assert!(!ws.module.contains(&ResKey::new(new, ResType::GIT)));
+}
+
+/// The game's invisible object is selected by the box its model holds
+/// undrawn (0.6 m across, 0.18 m tall), as Aurora outlines it: it was a
+/// marker's, a metre each way.
+#[test]
+fn an_invisible_object_is_selected_by_its_own_box() {
+    let Some((mut h, area)) = area_harness("invisible-object") else { return };
+    h.run_steps(3);
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let mut utp = {
+        let game = h.state().game.as_deref().unwrap();
+        Gff::read(&game.resman.get(&chest).unwrap()).unwrap().root
+    };
+    utp.set("Appearance", mg_gff::Value::Dword(157));
+    for (label, v) in [("X", 15.0), ("Y", 15.0), ("Z", 0.0), ("Bearing", 0.0)] {
+        utp.set(label, mg_gff::Value::Float(v));
+    }
+    let edit = mg_edit::Edit::InsertItem {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: utp,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Place", vec![edit])));
+    h.run_steps(5);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    let placeable = |o: &mg_area::AreaObject| o.kind == mg_area::ObjectKind::Placeable;
+    let i = view.model.as_ref().unwrap().objects.iter().position(placeable).unwrap();
+    view.selection = vec![(mg_area::ObjectKind::Placeable, 0)];
+    let (min, max) = view.box_of(i).expect("a box");
+    let across = max - min;
+    assert!((across.x - 0.6).abs() < 0.05 && (across.y - 0.6).abs() < 0.05, "{across:?}");
+    assert!(across.z < 0.3, "{across:?}");
+    h.run_steps(3);
+    h.render().unwrap().save(mg_testkit::scratch_dir("ui-invisible-object").join("a.png")).unwrap();
 }
 
 /// A right click on the ground offers a light: one of the game's
@@ -14118,6 +15173,22 @@ fn look_gallery_pictures() {
 }
 
 #[test]
+#[ignore = "a look at the palette's gallery of items"]
+fn look_item_gallery() {
+    let Some((mut h, _area)) = area_harness("gallery-items") else { return };
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Item;
+        (p.tiles, p.custom) = (false, false);
+        p.filter = std::env::var("MG_FILTER").unwrap_or_else(|_| "shield".into());
+    }
+    h.state_mut().settings.palette_gallery = true;
+    h.run_steps(60);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-gallery-items").join("look.png")).unwrap();
+}
+
+#[test]
 #[ignore = "a look at the Creature Wizard's Appearance page"]
 fn look_creature_wizard_appearance() {
     let Some((mut h, _area)) = area_harness("cw-look") else { return };
@@ -14129,6 +15200,42 @@ fn look_creature_wizard_appearance() {
     h.run_steps(40);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-cw-look").join("look.png")).unwrap();
+}
+
+/// F10 with the pointer over an area's view is Select Tiles or Objects, as
+/// in Aurora; the menus don't take it there (they do everywhere else, and
+/// Alt opens them anywhere).
+#[test]
+fn f10_over_an_area_selects_tiles() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("f10-tiles") else { return };
+    h.run_steps(40);
+    let shown = |h: &Harness<'_, Moonglow>, label: &str| {
+        h.query_all_by_label_contains(label).next().is_some()
+    };
+    h.hover_at(screen(&h, area, Vec3::new(5.0, 5.0, 0.0)));
+    h.run_steps(3);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].tile_mode, "over to the tiles");
+    assert!(!shown(&h, "Save As"), "and no menu opened");
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(!h.state().area_views[&area].tile_mode, "back to the objects");
+    // Off the view (over the menu bar), F10 is the menus'.
+    h.hover_at(egui::pos2(300.0, 4.0));
+    h.run_steps(3);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(shown(&h, "Save As"));
+    assert!(!h.state().area_views[&area].tile_mode);
+    // And with a menu open it closes them, wherever the pointer is.
+    h.hover_at(screen(&h, area, Vec3::new(5.0, 5.0, 0.0)));
+    h.run_steps(3);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(!shown(&h, "Save As"));
+    assert!(!h.state().area_views[&area].tile_mode);
 }
 
 /// Between objects and tiles without the toolbar: a double click on the
@@ -14236,6 +15343,40 @@ fn an_item_s_appearance_page_shows_its_model() {
     assert!(h.query_by_label_contains("No game data").is_none());
     // Each of the sword's parts as pictures.
     assert!(h.query_all_by_label_contains("Top ").count() > 1);
+}
+
+/// A placeable's and a door's Basic page show the model in the page, as
+/// Aurora's dialogs have a 3D preview.
+#[test]
+fn a_placeable_s_and_a_door_s_page_show_the_model() {
+    let Some((mut h, _area)) = area_harness("situated-model") else { return };
+    for (name, restype) in [("plc_chest1", ResType::UTP), ("nw_door_ttr_01", ResType::UTD)] {
+        let key = ResKey::parse(name, restype).unwrap();
+        {
+            let app = h.state_mut();
+            let data = app.game.as_ref().unwrap().resman.get(&key).unwrap();
+            app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
+            app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Basic");
+            // (As a tab of the middle: as wide as the window lets it be.)
+            let kind = if restype == ResType::UTP { "placeable" } else { "door" };
+            app.settings.window_places = vec![(kind.to_string(), "middle".to_string())];
+            app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        }
+        // Too narrow for the fields and the model: a Preview button.
+        h.set_size(egui::vec2(900.0, 800.0));
+        h.run_steps(10);
+        assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
+        assert!(h.query_by_label("Preview").is_some(), "{key}");
+        // Wide enough: the viewer beside the fields.
+        h.set_size(egui::vec2(1900.0, 1000.0));
+        h.run_steps(10);
+        assert!(h.query_by_label("Pop Out").is_some(), "{key}: the viewer is in the page");
+        assert!(h.query_by_label_contains("No game data").is_none(), "{key}");
+        let tab = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+        h.state_mut().dock.remove_tab(tab);
+        h.run_steps(3);
+        assert!(h.query_by_label("Pop Out").is_none(), "{key}: closed again");
+    }
 }
 
 /// Properties on an item in a placed object's inventory opens that item's
@@ -14902,10 +16043,22 @@ fn compile_all_compiles_only_what_changed() {
     let install = h.state().install.clone().unwrap();
     let mut rm = mg_resman::ResMan::for_game(&install).unwrap();
     let haks = mg_module::Module::open(&module).unwrap().haks().unwrap();
-    rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    rm.add_haks(&install, &haks).unwrap();
     let with = mg_module::build::made_with(Some(&module), None, Some(&install.root), &rm);
     let read = mg_module::build::Remembered::kept(Some(&kept), Some(&module), with);
     assert_eq!(read.scripts.len(), 3, "mg compile's memory is the window's");
+    // With Generate Debug Information (Options), the compiled scripts
+    // that have no debug file are compiled again for one, once.
+    h.state_mut().settings.debug_info = true;
+    let debug = compile(&mut h);
+    assert!(debug.starts_with("Compiled 2 scripts: 0 failed, 2 changed"), "{debug}");
+    let has = |h: &Harness<'_, Moonglow>, name: &str| {
+        let key = ResKey::parse(name, ResType::NDB).unwrap();
+        h.state().ws.as_ref().unwrap().module.contains(&key)
+    };
+    assert!(has(&h, "uses_n") && has(&h, "alone") && !has(&h, "inc_n"));
+    let again = compile(&mut h);
+    assert!(again.starts_with("Compiled 0 scripts"), "{again}");
 }
 
 /// In a nasher project the external editor gets the project's own script
@@ -14986,7 +16139,7 @@ fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
 #[test]
 fn text_in_another_language_shows_where_the_one_edited_has_none() {
     use mg_core::{Gender, Language, LocString};
-    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_named", ResType::UTC) else {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_text", ResType::UTC) else {
         return;
     };
     // The module's name and the bandit's first name, in English alone.
@@ -15056,6 +16209,102 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     h.run_steps(3);
     assert_eq!(h.state().tree_object, None);
     assert!(h.query_by_label("Waypoints (2)").is_some());
+}
+
+/// The resource browser's Filter has the side panes' keys (GitHub issue
+/// 12): Ctrl+F goes to it, Escape clears it, Down goes into the list,
+/// where the arrow keys choose and Enter opens.
+#[test]
+fn the_resource_browser_s_filter_and_list_take_the_keys() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-browser-keys");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run_steps(4);
+    let over = h.get_by_label("Refresh").rect().center();
+    h.hover_at(over);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    h.event(egui::Event::Text("zzz".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().browser.filter, "zzz", "typed into the Filter");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(h.state().browser.filter, "", "Escape clears it");
+    h.event(egui::Event::Text("nw_it_gem00".into()));
+    h.run_steps(2);
+    // Down: into the list, at its first row; again, the second.
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().browser.cursor, Some(0));
+    assert_eq!(h.state().browser.filter, "nw_it_gem00", "the arrow is the list's now");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.run_steps(2);
+    h.key_press(egui::Key::Home);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(h.state().browser.cursor, Some(1));
+    // Enter opens the row the keys are at.
+    let opened = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        (h.state().dock.iter_all_tabs())
+            .filter_map(|(_, t)| match t {
+                Tab::Resource(k) | Tab::Blueprint(k) => Some(k.to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(opened(&h).is_empty());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    let now = opened(&h);
+    assert_eq!(now.len(), 1, "{now:?}");
+    assert!(now[0].starts_with("nw_it_gem00"), "{now:?}");
+}
+
+/// In Open Script, Down and Up choose among the scripts listed while the
+/// name is typed, and Enter opens the one chosen (the first, unmoved).
+#[test]
+fn open_script_s_arrows_choose_among_those_listed() {
+    let Some((mut h, _)) = area_harness("open-script-keys") else { return };
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: hello, data: Some(b"void main() { }\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    h.run_steps(4);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    h.get_by_label("All Resources").click();
+    h.run_steps(2);
+    h.state_mut().script_tools.open_script.as_mut().unwrap().filter = "nw_s0_fire".into();
+    h.run_steps(2);
+    let listed: Vec<ResKey> = {
+        let w = h.state().script_tools.open_script.as_ref().unwrap();
+        assert_eq!(w.filter, "nw_s0_fire");
+        let has = |k: &ResKey| k.resref.to_string().contains("nw_s0_fire");
+        w.scripts.iter().map(|(k, _)| *k).filter(has).collect()
+    };
+    assert!(listed.len() > 2, "{listed:?}");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    assert_eq!(h.state().script_tools.open_script.as_ref().unwrap().cursor, 1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    assert!(h.state().script_tools.open_script.is_none(), "the window closed");
+    assert!(h.state().dock.find_tab(&Tab::Resource(listed[1])).is_some(), "{:?}", listed[1]);
 }
 
 /// A script editor's Open… lists the scripts there are to open, the
@@ -15132,4 +16381,800 @@ fn look_palette_in_language() {
     h.render().expect("render").save(dir.join("a.png")).unwrap();
     let game = h.state().game.as_deref().unwrap();
     eprintln!("LANG {:?} sample {:?}", game.language, game.string(mg_core::StrRef(6686)));
+}
+
+const SMALL_TABLE: &[u8] = b"2DA V2.0\r\n\r\n   Label   Cost\r\n0  Bread   1\r\n1  Cheese  2\r\n";
+
+fn table_of(h: &Harness<'_, Moonglow>, id: u32) -> mg_2da::TwoDa {
+    h.state().tables.iter().find(|d| d.id == id).unwrap().edit.table().clone()
+}
+
+/// The 2DA editor's cells are selected several at a time (Shift and the
+/// arrows, Shift and a click, a drag), copied as a spreadsheet's and
+/// emptied in one step; a paste begins at the selection's first cell. A
+/// column's name, right-clicked, renames or removes it. Tools › 2DA File…
+/// lists the module's tables.
+#[test]
+fn a_table_s_cells_are_selected_and_its_columns_changed() {
+    let dir = mg_testkit::scratch_dir("ui-table-select");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // The module's tables are listed to open, by name.
+    mg_ui::table_view::open_table_window(h.state_mut());
+    h.run_steps(3);
+    assert_eq!(h.state().open_table.as_ref().map(|w| w.tables.len()), Some(1));
+    h.get_by_label("mystore.2da").click();
+    h.run_steps(4);
+    assert!(h.state().open_table.is_none());
+    let id = h.state().tables[0].id;
+    let area = |h: &Harness<'_, Moonglow>| h.state().tables[0].area();
+    // Shift and the arrows reach from Bread to Cheese's cost.
+    h.get_by_label("Bread").click();
+    h.run_steps(2);
+    assert_eq!(area(&h), Some((0, 0, 0, 0)));
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowRight] {
+        h.key_press_modifiers(egui::Modifiers::SHIFT, key);
+        h.run_steps(2);
+    }
+    assert_eq!(area(&h), Some((0, 1, 0, 1)));
+    // (Away without Shift and back: one cell, not the rectangle again.)
+    for key in [egui::Key::ArrowUp, egui::Key::ArrowDown] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    assert_eq!(area(&h), Some((1, 1, 1, 1)));
+    h.get_by_label("Bread").click();
+    h.run_steps(2);
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowRight] {
+        h.key_press_modifiers(egui::Modifiers::SHIFT, key);
+        h.run_steps(2);
+    }
+    assert_eq!(area(&h), Some((0, 1, 0, 1)));
+    // Copied: a line a row, tabs between the cells.
+    h.event(egui::Event::Copy);
+    h.step();
+    let copied = h.output().platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(copied.as_deref(), Some("Bread\t1\nCheese\t2"));
+    // Delete empties them all, in one step.
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.get(0, "Label"), t.get(1, "Cost")), (None, None));
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Cost"), Some("2"));
+    // A paste begins at the selection's first cell, and adds the rows it
+    // runs past the end by; cells past the last column are left out.
+    h.event(egui::Event::Paste("Ale\t5\tx\nEggs\t3\nFish\t8".into()));
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(0, "Label"), t.get(2, "Cost")), (3, Some("Ale"), Some("8")));
+    // Ctrl+Z takes the paste back and Ctrl+Y makes it again: the table's
+    // own steps, with the keys in its grid, not the module's.
+    let module_step = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(0, "Label")), (2, Some("Bread")), "the paste is undone");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), module_step);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"));
+    // A plain arrow is one cell again; Shift and a click reaches to it.
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    let cell = h.get_by_label("Fish").rect().center();
+    h.hover_at(cell);
+    press(&h, cell, true, egui::Modifiers::SHIFT);
+    press(&h, cell, false, egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    assert_eq!(area(&h).map(|a| a.1), Some(2), "to Fish's row");
+    // A drag selects from where it began to where it is.
+    let (from, to) = (h.get_by_label("Ale").rect().center(), h.get_by_label("3").rect().center());
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(egui::pos2((from.x + to.x) / 2.0, to.y));
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(2);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(area(&h), Some((0, 1, 0, 1)));
+
+    // A column's name, right-clicked: renamed, then removed.
+    let secondary = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let pos = h.get_by_label(label).rect().center();
+        h.hover_at(pos);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    secondary(&mut h, "Cost");
+    h.get_by_label("Rename Column…").click();
+    h.run_steps(3);
+    h.get_by_label("Rename Column");
+    h.event(egui::Event::Text("s".into()));
+    h.run_steps(2);
+    h.get_by_label("Rename").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Costs"]);
+    secondary(&mut h, "Label");
+    h.get_by_label("Remove Column").click();
+    h.run_steps(3);
+    let t = table_of(&h, id);
+    assert_eq!((t.columns().to_vec(), t.cell(0, 0)), (vec!["Costs".to_string()], Some("5")));
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"), "back where it was");
+    // A column is moved by its menu, and by a drag of its name onto
+    // another's: its cells go with it, and the selected cell with its.
+    h.get_by_label("Ale").click();
+    h.run_steps(2);
+    secondary(&mut h, "Label");
+    h.get_by_label("Move Right").click();
+    h.run_steps(3);
+    let t = table_of(&h, id);
+    assert_eq!(
+        (t.columns().to_vec(), t.cell(0, 1)),
+        (vec!["Costs".to_string(), "Label".into()], Some("Ale"))
+    );
+    assert_eq!(h.state().tables[0].selected, Some((0, 1)));
+    let (from, to) =
+        (h.get_by_label("Label").rect().center(), h.get_by_label("Costs").rect().center());
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(egui::pos2((from.x + to.x) / 2.0, to.y));
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(2);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Costs"]);
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).columns(), ["Costs", "Label"], "a step to take back");
+}
+
+/// A table with a description beside it (`name.2da.toml`): its cells are
+/// held to what the description says, values show by their names, and a
+/// cell is chosen from its list or ticked from its flags, which a
+/// script's constants give.
+#[test]
+fn a_described_table_is_chosen_from_its_lists() {
+    let dir = mg_testkit::scratch_dir("ui-table-described");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/loot_inc.nss"),
+        "const int LOOT_KIND_GOLD = 0x01;\nconst int LOOT_KIND_GEMS = 0x02;\n",
+    )
+    .unwrap();
+    let file = dir.join("loot.2da");
+    std::fs::write(
+        &file,
+        "2DA V2.0\r\n\r\n  Label Chance Kinds Rarity Place\r\n0 Chest 50 0x01 0 1\r\n1 Urn 500 \
+         0x03 1 0\r\n",
+    )
+    .unwrap();
+    // (A table of the project's own, which the description names twice:
+    // the rows are its rows, and a column names one.)
+    std::fs::write(
+        dir.join("src/places.2da"),
+        "2DA V2.0\r\n\r\n  Label\r\n0 Cellar\r\n1 Attic\r\n2 Vault\r\n",
+    )
+    .unwrap();
+    let description = "[columns.Chance]\nkind = \"int\"\nmin = 0\nmax = 100\nnote = \"In a hundred\"\n\n\
+         [columns.Kinds]\nkind = \"flags\"\nconstants = \"loot_inc\"\nprefix = \
+         \"LOOT_KIND_\"\n\n[columns.Rarity]\nkind = \"list\"\nvalues = { Common = 0, Rare = 1 }\n\n\
+         [columns.Place]\nkind = \"row\"\ntable = \"places\"\n";
+    let description = format!("rows = \"places\"\n\n{}", description);
+    std::fs::write(dir.join("loot.2da.toml"), &description).unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run_steps(2);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.get_by_label_contains("Described by loot.2da.toml: 4 columns");
+    let d = h.state().tables[0].description().expect("the description is read");
+    assert_eq!(d.column("Kinds").unwrap().kind.entries().len(), 2);
+    // Values by their names; the cell out of its range is the one wrong.
+    h.get_by_label("LOOT_KIND_GOLD | LOOT_KIND_GEMS");
+    h.get_by_label("Rare");
+    h.get_by_label("1 cell is wrong").click();
+    h.run_steps(3);
+    assert_eq!(h.state().tables[0].selected, Some((1, 1)));
+    h.get_by_label_contains("500 is above what the column takes");
+    h.get_by_label("In a hundred");
+    // The rows are another table's: the other's row is said with the cell.
+    h.get_by_label_contains("Attic of places.2da");
+    // Find looks through the names shown too.
+    h.state_mut().tables[0].filter = "rare".into();
+    h.run_steps(3);
+    assert!(h.query_by_label("Urn").is_some() && h.query_by_label("Chest").is_none());
+    h.state_mut().tables[0].filter.clear();
+    h.run_steps(3);
+    // A row of the project's own table is chosen by its name.
+    h.state_mut().tables[0].go_to(0, 4);
+    h.run_steps(3);
+    h.get_by_label_contains("a row of places.2da");
+    {
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        let at = h
+            .query_all(combo)
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("Attic")))
+            .map(|n| n.rect().center())
+            .expect("the rows' list");
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    }
+    h.get_by_label_contains("Vault").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Place"), Some("2"));
+    // A list's cell is chosen by name: the table gets the value.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let open = |h: &mut Harness<'_, Moonglow>, shows: &str| {
+        let at = h
+            .query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v == shows))
+            .map(|n| n.rect().center())
+            .unwrap_or_else(|| panic!("the list showing {shows}"));
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    h.get_by_label("Common").click();
+    h.run_steps(3);
+    open(&mut h, "Common");
+    h.get_by_label("Rare  (1)").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("1"));
+    // Flags are ticked: each is a bit of the cell, written as the list's
+    // own values are.
+    h.get_by_label("LOOT_KIND_GOLD").click();
+    h.run_steps(3);
+    open(&mut h, "LOOT_KIND_GOLD");
+    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Kinds"), Some("0x03"));
+    h.get_by_label("LOOT_KIND_GOLD  (0x01)").click();
+    h.run_steps(3);
+    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Kinds"), None, "no flag: an empty cell");
+    // A value no list has, typed in the cell, is a fault said as it is typed.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_all_by_label("Rare").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(h.state().tables[0].selected, Some((0, 3)));
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("7".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("17"));
+    h.get_by_label("2 cells are wrong");
+    // The description is read again when its file changes: with a wider
+    // range, the chance of 500 is not wrong any more.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(dir.join("loot.2da.toml"), description.replace("max = 100", "max = 1000"))
+        .unwrap();
+    // (Looked at once a second, of the time egui gives.)
+    h.run_steps(90);
+    h.get_by_label("1 cell is wrong");
+}
+
+/// With the option, a project's script opens in the external editor alone:
+/// no editor of Moonglow's. A script of a module in one file still opens
+/// in Moonglow's too (that is how the external editor's saves come back).
+#[cfg(unix)]
+#[test]
+fn a_project_s_script_opens_in_the_external_editor_alone() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Alone", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    let base = mg_testkit::scratch_dir("ui-external-alone");
+    let (project, archive) = (base.join("project"), base.join("alone.mod"));
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    for (module, tab_opens) in [(&project, false), (&archive, true)] {
+        if tab_opens {
+            let mut m = Module::open(&project).unwrap();
+            m.save_as(&ModuleLocation::Archive(archive.clone())).unwrap();
+        }
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.settings.no_last_area = true;
+        app.settings.external_editor = Some("/bin/true".into());
+        app.settings.scripts_external = true;
+        app.settings.scripts_external_only = true;
+        app.open_module(module);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 800.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
+        h.run_steps(4);
+        let said = h.state().log.entries.iter().filter(|(_, m)| m.contains("in /bin/true")).count();
+        assert_eq!(said, 1, "{:?}", h.state().log.entries);
+        assert_eq!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), tab_opens, "{module:?}");
+    }
+}
+
+/// Enter in the script editor begins the new line as far in as the line
+/// it is started from, as Aurora does.
+#[test]
+fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
+    let dir = mg_testkit::scratch_dir("ui-script-indent");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let key = ResKey::parse("indented", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int n;\n}\n";
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run_steps(4);
+    // The cursor after "int n;", and Enter, then a letter.
+    let at = text.find("int n;").unwrap() + "int n;".len();
+    let id = egui::Id::new(("script", key));
+    let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+    let cursor = egui::text::CCursor::new(at);
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(cursor)));
+    state.store(&h.ctx, id);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(3);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    h.event(egui::Event::Text("x".into()));
+    h.run_steps(3);
+    let now = h.state().script_text(key).unwrap();
+    assert_eq!(now, "void main()\n{\n    int n;\n    x\n}\n");
+}
+
+/// Scripts open as tabs of one window (the window a script is open in
+/// already), or, with the option off, each in a window of its own.
+#[test]
+fn scripts_open_as_tabs_of_one_window() {
+    let dir = mg_testkit::scratch_dir("ui-scripts-together");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let keys: Vec<ResKey> =
+        ["one", "two", "three"].iter().map(|n| ResKey::parse(n, ResType::NSS).unwrap()).collect();
+    for key in &keys {
+        m.set(*key, b"void main()\n{\n}\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let open = |h: &mut Harness<'_, Moonglow>, key: ResKey| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+        let at = h.state().dock.find_tab(&Tab::Script(key)).expect("the script's tab");
+        (at.surface, at.node)
+    };
+    let first = open(&mut h, keys[0]);
+    let second = open(&mut h, keys[1]);
+    assert_eq!(first, second, "a tab of the first one's window");
+    h.state_mut().settings.scripts_own_windows = true;
+    let third = open(&mut h, keys[2]);
+    assert_ne!(third.0, first.0, "a window of its own");
+}
+
+/// The window's own close button asks before Moonglow closes where there
+/// is nothing unsaved to ask about; with the option off it closes, and
+/// with unsaved work (a table's here) the question is about that.
+#[test]
+fn closing_the_window_asks_first() {
+    let dir = mg_testkit::scratch_dir("ui-close-asks");
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, SMALL_TABLE).unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    assert!(h.state().closing && !h.state().quit_requested);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(!h.state().closing && !h.state().quit_requested);
+    // An unsaved table: asked about that instead.
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(2);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().edit.add_rows(1);
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    assert!(!h.state().closing && h.state().confirm_discard.is_some());
+    h.state_mut().confirm_discard = None;
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    // Nothing unsaved again: asked, and closed on the answer.
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    h.get_by_label("Close Moonglow").click();
+    h.run_steps(3);
+    assert!(h.state().quit_requested);
+    // With the option off, the button closes.
+    h.state_mut().quit_requested = false;
+    h.state_mut().settings.close_without_asking = true;
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    assert!(h.state().quit_requested && !h.state().closing);
+    // File › Exit never asks this.
+    h.state_mut().quit_requested = false;
+    h.state_mut().settings.close_without_asking = false;
+    h.state_mut().actions.push(mg_ui::Action::Quit);
+    h.run_steps(3);
+    assert!(h.state().quit_requested);
+}
+
+/// The 2DA editor on a table of the module's: a cell typed in, rows
+/// added and emptied, each a step of the table's own to take back; Save
+/// is one step of the module's.
+#[test]
+fn a_module_s_table_is_edited_cell_by_cell() {
+    let dir = mg_testkit::scratch_dir("ui-table-module");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // (A description beside the module's file is its tables'.)
+    std::fs::write(
+        path.with_file_name("mystore.2da.toml"),
+        "[columns.Cost]\nkind = \"int\"\nmax = 500\n",
+    )
+    .unwrap();
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    assert!(h.state().tables[0].description().is_some(), "read from beside the .mod");
+    assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
+    h.get_by_label("mystore.2da");
+    // A click selects a cell and F2 (or Enter, or a double click) types
+    // into it; Enter keeps what is typed.
+    h.get_by_label("Cheese").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("y".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
+    h.get_by_label("(unsaved)");
+    // The keys are the grid's: Up and Right to Bread's cost, Delete
+    // empties it; Escape while typing leaves a cell as it was.
+    let key_ = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(2);
+    };
+    let at = |h: &Harness<'_, Moonglow>| h.state().tables[0].selected;
+    key_(&mut h, egui::Key::ArrowUp);
+    key_(&mut h, egui::Key::ArrowRight);
+    assert_eq!(at(&h), Some((0, 1)));
+    key_(&mut h, egui::Key::Delete);
+    assert_eq!(table_of(&h, id).get(0, "Cost"), None);
+    key_(&mut h, egui::Key::F2);
+    h.event(egui::Event::Text("77".into()));
+    h.run_steps(2);
+    key_(&mut h, egui::Key::Escape);
+    assert_eq!(table_of(&h, id).get(0, "Cost"), None, "Escape: not kept");
+    // Add Row puts one at the end; Empty Row empties the selected one,
+    // which stays.
+    h.get_by_label("Add Row").click();
+    h.run_steps(2);
+    assert_eq!((table_of(&h, id).len(), at(&h)), (3, Some((2, 1))));
+    // Delete Row takes the selected row away (here the last), and Add
+    // Row adds as many as its number says, in one step.
+    h.get_by_label("Delete Row").click();
+    h.run_steps(2);
+    assert_eq!((table_of(&h, id).len(), at(&h)), (2, Some((1, 1))));
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 5;
+    h.run_steps(2);
+    h.get_by_label("Add 5 Rows").click();
+    h.run_steps(2);
+    assert_eq!((table_of(&h, id).len(), at(&h)), (7, Some((2, 1))));
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).len(), 2);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 1;
+    h.run_steps(2);
+    h.get_by_label("Add Row").click();
+    h.run_steps(2);
+    // A row between others: those after it move up, and Undo puts it back.
+    h.get_by_label("Cheesey").click();
+    h.run_steps(2);
+    h.get_by_label("Delete Row").click();
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(1, "Label")), (2, None), "the added row is row 1 now");
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).len(), 3);
+    // (The row put back is the one selected.)
+    h.get_by_label("Empty Row").click();
+    h.run_steps(2);
+    let t = table_of(&h, id);
+    assert_eq!((t.len(), t.get(1, "Label"), t.get(1, "Cost")), (3, None, None));
+    // Undo is the table's own, step by step.
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
+    // Save: the module's table is as edited, in one step of the module's.
+    let stored = |h: &mut Harness<'_, Moonglow>| {
+        let data = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
+    };
+    assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"));
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    // (The empty row at the end is not in the file: a table read has no
+    // empty rows after its last.)
+    assert_eq!(stored(&mut h).rows[..], table_of(&h, id).rows[..2]);
+    assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"), "the module's Undo takes the save");
+}
+
+/// A table of a hak open in the hak editor is saved into the hak (a step
+/// of the hak's, written by its own Save); one of a file, to the file.
+#[test]
+fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
+    use mg_module::hak_edit::{Hak, Source};
+    let dir = mg_testkit::scratch_dir("ui-table-hak");
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    let hak_path = dir.join("stuff.hak");
+    let mut hak = Hak::new();
+    hak.add_sources(vec![(key, Source::Bytes(SMALL_TABLE.to_vec().into()))]).unwrap();
+    hak.save(Some(&hak_path)).unwrap();
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, SMALL_TABLE).unwrap();
+    let dialogs = NoDialogs { open: vec![file.clone(), hak_path.clone()], ..Default::default() };
+    let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(dialogs)),
+    );
+    h.run_steps(2);
+    mg_ui::hak_view::open_hak(h.state_mut());
+    h.run_steps(3);
+    let hak_id = h.state().haks[0].id;
+    // (A description beside the hak's file is its tables'.)
+    std::fs::write(dir.join("mystore.2da.toml"), "[columns.Cost]\nkind = \"int\"\nmax = 5\n")
+        .unwrap();
+    let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
+    h.run_steps(3);
+    assert!(h.state().tables[0].description().is_some(), "read from beside the hak");
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        assert_eq!(doc.home, mg_ui::table_view::Home::Hak(hak_id));
+        doc.edit.set(0, 1, Some("9".into())).unwrap();
+    }
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    let in_hak = |h: &Harness<'_, Moonglow>| {
+        let data = h.state().haks[0].hak.data(key).unwrap();
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
+    };
+    assert_eq!(in_hak(&h).get(0, "Cost"), Some("9"));
+    assert!(h.state().haks[0].hak.is_dirty(), "the hak's own Save writes its file");
+    assert!(!h.state().tables[0].edit.is_dirty());
+    h.state_mut().haks[0].hak.undo();
+    assert_eq!(in_hak(&h).get(0, "Cost"), Some("1"), "a step of the hak's");
+
+    // Tools › 2DA File…: a file anywhere.
+    mg_ui::table_view::open_file(h.state_mut());
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.name() == "loose").unwrap();
+    let loose = doc.id;
+    doc.edit.add_rows(1);
+    doc.edit.set(2, 0, Some("Two Words".into())).unwrap();
+    assert!(mg_ui::table_view::save(h.state_mut(), loose));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.ends_with("2  \"Two Words\" ****\r\n"), "{text:?}");
+    // Compact: saved with one space between cells (ticking it is a change
+    // to save), and a file read so is saved so again.
+    assert!(!h.state().tables.iter().find(|d| d.id == loose).unwrap().compact);
+    // (The hak's table is open beside it: the file's is the one opened last.)
+    h.get_all_by_label("Compact").last().unwrap().click();
+    h.run_steps(3);
+    let doc = h.state().tables.iter().find(|d| d.id == loose).unwrap();
+    assert!(doc.compact && doc.edit.is_dirty());
+    assert!(mg_ui::table_view::save(h.state_mut(), loose));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        text,
+        "2DA V2.0\r\n\r\n Label Cost\r\n0 Bread 1\r\n1 Cheese 2\r\n2 \"Two Words\" ****\r\n"
+    );
+    let other = dir.join("tabs.2da");
+    std::fs::write(&other, "2DA V2.0\n\n\tLabel\tCost\n0\tBread\t1\n").unwrap();
+    let tabs = mg_ui::table_view::open_path(h.state_mut(), &other).unwrap();
+    assert!(h.state().tables.iter().find(|d| d.id == tabs).unwrap().compact, "as the file was");
+    h.state_mut().tables.retain(|d| d.id != tabs);
+    // A cell a 2DA cannot hold is refused, and said.
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == loose).unwrap();
+    assert!(doc.edit.set(0, 0, Some("a \"b\"".into())).is_err());
+    // Closing a table with unsaved changes asks first.
+    doc.edit.set(0, 0, Some("Loaf".into())).unwrap();
+    h.run_steps(2);
+    let tab = h.state().dock.find_tab(&Tab::Table(loose)).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(loose)]));
+    h.run_steps(3);
+    let _ = tab;
+    h.get_by_label("loose.2da has unsaved changes.");
+    h.get_by_label("Discard").click();
+    h.run_steps(3);
+    assert!(h.state().tables.iter().all(|d| d.id != loose));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("Bread"), "discarded");
+}
+
+/// With the game's data: a cell is checked by what its column holds as
+/// it is typed, a row of another table is chosen by name, where a row is
+/// named is found, and rows are taken from the game's copy.
+#[test]
+fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-kinds");
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut t = (*game.table("feat").unwrap()).clone();
+    let whole = t.len();
+    let (prereq, label) = (t.column("PREREQFEAT1").unwrap(), t.column("LABEL").unwrap());
+    t.rows.truncate(whole - 25);
+    t.set(5, label, Some("MyOwnShot".into())).unwrap();
+    let file = dir.join("feat.2da");
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    assert!(h.query_by_label_contains("wrong").is_none(), "the game's own table is sound");
+    // A feat that is not there: said, and gone to.
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(3, prereq, Some("4000".into())).unwrap();
+        doc.go_to(0, 0);
+    }
+    // (The table changed under the window: as an edit there would say.)
+    h.get_by_label("Add Row").click();
+    h.run_steps(3);
+    h.get_by_label("1 cell is wrong").click();
+    h.run_steps(4);
+    assert_eq!(h.state().tables[0].selected, Some((3, prereq)));
+    h.get_by_label_contains("row 4000 of feat.2da doesn't exist");
+    // Where row 3 (Armor Proficiency, Heavy) is named: other feats
+    // require it.
+    let own = table_of(&h, id);
+    let found = mg_ui::table_view::references(h.state(), "feat", &own, 3);
+    assert!(found.iter().any(|r| r.table == "feat" && r.column == "PREREQFEAT1"), "{found:?}");
+    assert!(found.len() > 3, "{found:?}");
+    // Take Rows: the game's copy has the 25 rows this one lacks, and two
+    // it has differently (this is the lowest copy: whose change, untold).
+    h.get_by_label("Take Rows…").click();
+    h.run_steps(4);
+    h.get_by_label_contains("25 new, 2 that differ");
+    // (The Differ box ticks the two that differ; Clear Selections unticks;
+    // New, the 25; both boxes, all 27, and a box unticked takes its own away.)
+    h.get_by_label("Differ").click();
+    h.run_steps(2);
+    h.get_by_label("Take 2 Rows");
+    h.get_by_label("Clear Selections").click();
+    h.run_steps(2);
+    h.get_by_label("New").click();
+    h.run_steps(2);
+    h.get_by_label("Differ").click();
+    h.run_steps(2);
+    h.get_by_label("Take 27 Rows");
+    h.get_by_label("Differ").click();
+    h.run_steps(2);
+    h.get_by_label("Take 25 Rows").click();
+    h.run_steps(3);
+    let now = table_of(&h, id);
+    assert_eq!(now.len(), whole);
+    assert_eq!(now.get(whole - 1, "LABEL"), game.table("feat").unwrap().get(whole - 1, "LABEL"));
+    assert_eq!(now.get(5, "LABEL"), Some("MyOwnShot"), "what was not chosen is as it was");
+    assert!(h.state().tables[0].taking.is_none(), "the window closed");
+    // One step to take back (and the row added above, another).
+    h.get_by_label("Undo").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).len(), whole - 24);
+}
+
+/// The game's own tables are not changed: Edit… in the resource browser
+/// makes a copy to edit, in a file, a hak or the module, which is not
+/// there until it is saved.
+#[test]
+fn a_game_table_is_edited_as_a_copy() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-copy");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let file = dir.join("skills.2da");
+    let dialogs = NoDialogs { save: vec![file.clone()], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let key = ResKey::parse("skills", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(4);
+    h.get_by_label("Edit…").click();
+    h.run_steps(2);
+    h.get_by_label("A Copy in the Module");
+    h.get_by_label("A Copy in a File…").click();
+    h.run_steps(4);
+    let doc = &h.state().tables[0];
+    assert_eq!(doc.home, mg_ui::table_view::Home::File(file.clone()));
+    assert!(doc.edit.is_dirty(), "a copy: not there until saved");
+    assert!(!file.exists());
+    let rows = doc.edit.table().len();
+    assert!(rows > 20);
+    let id = doc.id;
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    let written =
+        mg_2da::TwoDa::parse(&std::fs::read(&file).unwrap(), mg_core::Codepage::default());
+    assert_eq!(written.unwrap().len(), rows);
+    // In the module: one step of the module's at Save, the module's own
+    // table from then on.
+    let id =
+        mg_ui::table_view::edit_copy(h.state_mut(), key, mg_ui::table_view::Home::Module).unwrap();
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key));
+    assert!(mg_ui::table_view::save(h.state_mut(), id));
+    h.run_steps(3);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
 }

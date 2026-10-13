@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:19Z }
 ---
 
 # The main window
@@ -19,17 +19,19 @@ close it, **Palettes** on the toolbar brings it back.
 
 | Menu | Commands |
 | --- | --- |
-| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Close, Exit |
-| Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Find References… |
+| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Import Conversation…, Close, Exit |
+| Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References… |
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Hide All Panels, Reset Layout |
-| Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
-| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
+| Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
+| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, About Moonglow Toolset |
 
 **The menus by the keyboard.** Alt, pressed and let go on its own, or
-F10 opens the first menu; the same closes the menus. Left and Right go
+F10 opens the first menu; the same closes the menus. (With the pointer
+over an area's view, F10 is Select Tiles or Objects, as in Aurora: Alt
+opens the menus there.) Left and Right go
 from menu to menu, round the ends; Up and Down from row to row, past the
 lines and the rows that can't be chosen now; Enter or Space chooses the
 row marked. Right on a row with a submenu opens it, Left closes it;
@@ -58,6 +60,7 @@ changes them; the menus show the current keys.
 | Ctrl+S | Save |
 | Ctrl+Z | Undo |
 | Ctrl+Y, Ctrl+Shift+Z | Redo |
+| Ctrl+H | Find and Replace Text |
 | Ctrl+Alt+A | Area Wizard |
 | Ctrl+Alt+F | Faction Editor |
 | Ctrl+Alt+J | Journal Editor |
@@ -74,6 +77,7 @@ changes them; the menus show the current keys.
 | Ctrl+Tab, Ctrl+Page Down | Next tab |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
+| F6, Shift+F6 | The arrow keys to the next pane (the module tree, the middle, the palettes), or the one before |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
@@ -175,7 +179,8 @@ to the first row in it; Left closes a row that is open, else goes to
 the row it is in. Enter opens the row's area, script, conversation or
 blueprint, goes to a placed object in its area's view, and opens or
 closes a group or a kind. A letter or a digit goes to the next row that begins
-with it (a group's name, or a resource's ResRef). F2 renames and Delete deletes the resource of the row
+with it (a group's name, or a resource's name as its row shows it: an
+area's own name where areas are listed by name, else its ResRef). F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). Ctrl+F goes to the Filter; there, Escape
 clears what is typed, and Escape again, or Down, goes back into the
@@ -206,7 +211,10 @@ the module's area list), and its tab with it.
 one tab, else on the main pane's: Ctrl+W (or Ctrl+F4) closes the tab in
 front (File › Close, which closes the module, has no key until you give
 it one in the Options: in Aurora it is Ctrl+F4),
-Ctrl+Tab and Ctrl+Shift+Tab go round them, and Ctrl+Shift+T opens the tab
+Ctrl+Tab and Ctrl+Shift+Tab go round them (with **Ctrl+Tab goes to the
+tab used last** on, in Options › General, in the order they were last
+used for as long as Ctrl is held: one press goes back to the tab before,
+and again returns), and Ctrl+Shift+T opens the tab
 closed last again (the last twenty are kept; one whose area or script is
 gone from the module is passed over). A middle click on a tab closes it.
 A hak or a tileset with unsaved changes asks first, as its close button
@@ -219,6 +227,11 @@ the next conversation, the Faction Editor again) opens there as a tab,
 not as a window over the area. Drag one out to a window of its own and
 the next opens as a window again. This is kept between runs; **View ›
 Reset Layout** forgets it.
+
+**Scripts gather in one window.** A script opened while another's
+window is open becomes a tab of that window, not one more window
+(**Options › Script Editor › Open scripts as tabs of one window**, on by
+default; off, each script has a window of its own).
 
 **With no area open**, the main pane says so and lists the areas opened
 lately in this module, then the module's areas, each to open with a
@@ -271,6 +284,14 @@ Files…** writes all the resources listed into a folder, once a type or
 part of a name narrows the list. Files go out as they are; with
 **Models as text** ticked (shown when models are listed), compiled
 models go out as the text they compile from.
+
+Its **Name** field has the side panes' keys: Ctrl+F, with the pointer
+over the browser, goes to it; Escape clears what is typed, and Escape
+again leaves it; Down goes into the list, where Up and Down (Page Up,
+Page Down, Home, End) choose a row and Enter opens it. A click on a row
+gives the list the keys too. The **Find** fields of the hak editor, the
+tileset editor and the Appearance Gallery take Ctrl+F and Escape the
+same way.
 
 A 2DA shows the copy the game reads, with its StrRef columns (Name,
 Description, StrRef and the like) as their text; **StrRefs as numbers**

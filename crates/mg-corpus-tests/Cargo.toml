@@ -6,6 +6,47 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+autotests = false
+
+# The tests are grouped into a few binaries (tests/groups/, each test file a
+# module of one): a binary per file was 80 links of the whole stack for 129
+# tests, run one binary at a time. The client's tests keep theirs; they are
+# run by hand (all ignored), so `cargo test` builds them only when named
+# (`--test client_render`), and clippy checks them only when named (as CI
+# does).
+[[test]]
+name = "areas"
+path = "tests/groups/areas.rs"
+
+[[test]]
+name = "aurora"
+path = "tests/groups/aurora.rs"
+
+[[test]]
+name = "engine"
+path = "tests/groups/engine.rs"
+
+[[test]]
+name = "formats"
+path = "tests/groups/formats.rs"
+
+[[test]]
+name = "models"
+path = "tests/groups/models.rs"
+
+[[test]]
+name = "scripts"
+path = "tests/groups/scripts.rs"
+
+[[test]]
+name = "client_minimap"
+path = "tests/client_minimap.rs"
+test = false
+
+[[test]]
+name = "client_render"
+path = "tests/client_render.rs"
+test = false
 
 [dev-dependencies]
 fastrand.workspace = true

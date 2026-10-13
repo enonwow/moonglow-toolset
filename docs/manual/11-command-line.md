@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:48:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T02:30:52Z }
 ---
 
 # Command-line tools
@@ -61,8 +61,9 @@ and testing in Aurora/NWN.
 | `mg cat NAME.EXT` | print a resource to standard output; `--text` prints a compiled model (`.mdl`) as the text it compiles from |
 | `mg layers` | the load order's layers and their sizes |
 | `mg tlk STRREF…` | talk-table strings by number |
-| `mg tlk-export TABLE.tlk OUT` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it |
+| `mg tlk-export TABLE.tlk OUT` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it. A CSV's StrRefs are a custom table's, as a module's files name its lines (16777216 and up: line 131 is 16777347); `--base` numbers the lines from 0, as the game's own `dialog.tlk`'s are named. `mg tlk-import` reads either |
 | `mg tlk-import TABLE.tlk FILE` | read a `.json` or `.csv` file of lines into a talk table (made if it isn't there, as an English table) and save it: the lines the file has are set, the others stay; `--dry-run` says what would change |
+| `mg 2da-check FOLDER` | hold your own tables to their descriptions: every `name.2da` under the folder that has a `name.2da.toml` beside it ([what a description says](03-modules.md#a-tables-description): a number's range, a list or flags, read from a script's constants if you like, a row of another table, a cell that must be filled) is checked, and each wrong cell printed with its row and why. It fails if any is, so a build can run it. `mg 2da-check TABLE.2da` checks one. Scripts and tables a description names are found in the folder (for one table, its repository or nasher project; or `--beside FOLDER`), else in the game |
 | `mg 2da-diff A.2da B.2da` | what differs between two tables, by row number and column name (not by layout, case or column order): columns and rows added and removed, and each cell that differs. `--edits FILE` writes an edit file for `mg apply` that sets the table in a module to B |
 | `mg 2da-diff A.2da B.2da --base BASE.2da -o MERGED.2da` | merge two tables that were both made from BASE: what either changed is taken. A cell both changed, each to something else, is a conflict (two rows added under one number are, where they differ): it fails and writes nothing, unless `--prefer a` or `--prefer b` says whose to take. `--edits FILE` writes the merged table as an edit file |
 | `mg tlk-diff A.tlk B.tlk [--base BASE.tlk -o MERGED.tlk]` | the same for talk tables, by line. `--lines FILE.json` writes the lines that differ as a file for `mg tlk-import` |
@@ -81,7 +82,7 @@ and testing in Aurora/NWN.
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest |
 | `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands and checks |
 | `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not. A file is a plugin's archive: checked as the installer checks it, and its code as it is in the archive |
-| `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--file PATH` is the file or folder it gets where it asks for one (in the order it asks), `--yes` agrees where it asks, and to the haks it writes (into `--hak-dir DIR`, else the user folder's `hak`); `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing |
+| `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--file PATH` is the file or folder it gets where it asks for one (in the order it asks), `--yes` agrees where it asks, and to the haks it writes (into `--hak-dir DIR`, else the user folder's `hak`); `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing. With `--event`, COMMAND is the id of what the plugin does by itself when a module is opened or saved, run as the window would run it then; `--changed NAME` names a resource the save changed (as often as needed; none named: all of the module's) |
 | `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files left out |
 | `mg plugin install FILE FOLDER` | install a plugin from its archive into a folder of plugins, as Plugins › Install Plugin from File… does: the archive is checked and nothing of it runs. `--replace` installs over the same plugin installed from an archive before |
 | `mg plugin remove ID FOLDER` | remove a plugin that was installed from an archive from a folder of plugins, by its id; one put there by hand is left alone |
@@ -92,7 +93,7 @@ and testing in Aurora/NWN.
 | `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
 | `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
-| `mg compile MODULE [--uncompiled] [--all]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version |
+| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version; `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
@@ -216,7 +217,10 @@ mg areas mymodule.mod --all --static-placeables --dry-run
 
 `mg serve MODULE` starts `nwserver` (Linux and Windows: the game has none
 for macOS) on a `.mod`, a module folder or a nasher project. A folder or
-a project is packed first: the server loads an archive only.
+a project is packed first: the server loads an archive only. Its
+scripts that have no compiled script are compiled for the packed copy,
+as `mg build` would (the server runs compiled scripts only), and one
+that does not compile is said; the sources are left as they are.
 
 - **Private unless asked.** The server is not listed (`--public` lists
   it) and gets random player, DM and admin passwords, which are printed;
@@ -281,6 +285,12 @@ void main()
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
   out of instructions, or isn't there, is an error and stops no other.
+  So is one that stops inside its `main()` (a division by nothing, a
+  function the server has not got, as an NWNX one with NWNX not loaded):
+  in the copy each test says when its `main()` has returned, and one
+  that never says so did not run to its end, whatever it had asserted.
+  A test that ran to its end and asserted nothing passes, and is said to
+  have made no assertion.
 - `--filter TEXT` runs the tests with that text in their name (`*` for
   any run of characters). `--tests FOLDER` adds a folder's scripts to
   the copy. `--settle SECONDS` waits that long after the last test for
@@ -321,6 +331,9 @@ it reads only at its start.
   then); files of yours in the folder are left alone.
 - `--mod FILE` builds the module to a file, at the start and after every
   change, with every script compiled.
+- `--ndb` makes each compiled script's debug file (`.ndb`) too, for the
+  game's script debugger: put out beside the compiled script, and built
+  into the module.
 - `--serve` also runs the module in the server, as `mg serve` does, on a
   scratch user directory whose `development` folder is the one written
   into: `--dir`, `--port`, `--env`, `--preload` and the arguments after
@@ -371,7 +384,7 @@ and nothing on standard error, for scripts, build pipelines and tools
   (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
   objects `area`, `index` and `position`); `mg verify` its `errors`,
   `warnings`, `missing`, `findings` and `unused`; `mg refs` its `uses`
-  and `script_strings`; `mg compile` its `scripts` (those compiled), `unchanged` (those passed
+  and `script_strings`; `mg compile` its `scripts` (how many were compiled), `unchanged` (how many were passed
   over), `failed` and `errors` (each with `script`, `line` and `message`); and so on.
 - **Notes:** warnings and summaries, otherwise sent to standard error,
   are in `notes`.
@@ -391,7 +404,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | Command | Does |
 | --- | --- |
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
-| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`) |
+| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:
 - `--keep-going` packs the module anyway.

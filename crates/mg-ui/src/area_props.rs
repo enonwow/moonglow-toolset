@@ -33,7 +33,24 @@ const SHARED_PAGES: [&str; 4] = ["Visual", "Audio", "Events", "Advanced"];
 
 /// Area Properties of `area`; with `others`, of them all (Edit Areas
 /// Together): shown as `area`'s, and what is changed is set on each.
+/// Area Properties (of several areas: `others` with the first), over
+/// its OK and Cancel (`blueprint::ok_cancel`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
+    let areas = || std::iter::once(area).chain(others.iter().copied());
+    let targets: Vec<(ResKey, GffPath)> = areas()
+        .flat_map(|a| [ResType::ARE, ResType::GIT].map(|t| (ResKey::new(a, t), GffPath::root())))
+        .collect();
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    pages(app, ui, area, others);
+    let tab = match others {
+        [] => crate::Tab::AreaProperties(area),
+        _ => crate::Tab::AreasProperties(areas().collect()),
+    };
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+}
+
+fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
     let are = ResKey::new(area, ResType::ARE);
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
@@ -650,12 +667,9 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     };
     let (mut open, mut edit, mut cancel) = (true, false, false);
-    egui::Window::new("Edit Areas Together")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+    crate::widgets::dialog(ctx, "Edit Areas Together", &mut open)
         .default_size([460.0, 520.0])
         .collapsible(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Edit Areas Together", &mut open))
         .show(ctx, |ui| {
             ui.label(
                 "Tick the areas to edit; their Area Properties open as one, and what you \

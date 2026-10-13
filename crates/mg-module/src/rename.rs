@@ -363,21 +363,15 @@ const TAG_FIELDS: [&str; 4] = ["Tag", "LinkedTo", "KeyName", "Quest"];
 /// the transitions, locks and conversation lines that name it (compared
 /// exactly, as the game's tag lookups do).
 pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
-    fn walk(s: &Struct, path: &str, tag: &[u8], out: &mut Vec<String>) {
-        for f in &s.fields {
-            let label = f.label.to_string_lossy();
-            let p = format!("{path}/{label}");
-            match &f.value {
-                Value::String(v) if TAG_FIELDS.contains(&label.as_str()) && v == tag => out.push(p),
-                Value::Struct(c) => walk(c, &p, tag, out),
-                Value::List(items) => {
-                    for (i, c) in items.iter().enumerate() {
-                        walk(c, &format!("{p}[{i}]"), tag, out);
-                    }
-                }
-                _ => {}
+    fn walk(s: &Struct, tag: &[u8], out: &mut Vec<String>) {
+        s.walk_fields(&mut |f| {
+            if let Value::String(v) = f.value
+                && TAG_FIELDS.contains(&f.label)
+                && v == tag
+            {
+                out.push(f.path.to_string());
             }
-        }
+        });
     }
     if tag.is_empty() {
         return Vec::new();
@@ -388,7 +382,7 @@ pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
     for key in keys {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
         let mut paths = Vec::new();
-        walk(&gff.root, "", tag.as_bytes(), &mut paths);
+        walk(&gff.root, tag.as_bytes(), &mut paths);
         for path in paths {
             let place = describe(key, Some(&gff), &path);
             out.push(Usage { from: key, path, place });
@@ -561,6 +555,10 @@ pub struct RenameReport {
     /// Scripts whose source changed; their compiled code was removed, to be
     /// compiled again.
     pub recompile: Vec<ResKey>,
+    /// Those of them that had a debug file (`.ndb`): to be compiled with
+    /// one again. A renamed script that had one is among them, changed or
+    /// not: its debug file names it as it was.
+    pub debug: Vec<ResKey>,
 }
 
 /// Renames `from` (with its family: a script's `.ncs` and `.ndb`, an area's
@@ -671,6 +669,17 @@ pub fn rename(
     // differently too.
     let more = crate::refs::includers(module, &report.recompile);
     report.recompile.extend(more);
+    let renamed = ResKey::new(to, ResType::NSS);
+    if from.restype == ResType::NSS
+        && module.contains(&ResKey::new(to, ResType::NDB))
+        && !report.recompile.contains(&renamed)
+    {
+        report.recompile.push(renamed);
+    }
+    report.debug = (report.recompile.iter())
+        .filter(|k| module.contains(&ResKey::new(k.resref, ResType::NDB)))
+        .copied()
+        .collect();
     for key in &report.recompile {
         for t in [ResType::NCS, ResType::NDB] {
             module.remove(&ResKey::new(key.resref, t));
@@ -882,6 +891,25 @@ mod tests {
         index.refresh(&m);
         assert_eq!(index.read, 0);
         same(&index, &m);
+    }
+
+    #[test]
+    fn scripts_that_had_a_debug_file_are_to_get_one_again() {
+        // A script renamed and nothing else changed: it is compiled
+        // again all the same, its debug file naming it as it was.
+        let mut m = Module::new();
+        m.set(key("lone", ResType::NSS), b"void main() { }\n".to_vec());
+        m.set(key("lone", ResType::NCS), b"NCS V1.0".to_vec());
+        m.set(key("lone", ResType::NDB), b"NDB V1.0".to_vec());
+        m.set(key("plain", ResType::NSS), b"void main() { ExecuteScript(\"lone\"); }\n".to_vec());
+        m.set(key("plain", ResType::NCS), b"NCS V1.0".to_vec());
+        let r = rename(&mut m, key("lone", ResType::NSS), rr("alone"), true).unwrap();
+        assert_eq!(r.recompile, [key("alone", ResType::NSS), key("plain", ResType::NSS)]);
+        // (The one that names it had no debug file, and gets none.)
+        assert_eq!(r.debug, [key("alone", ResType::NSS)]);
+        assert!(
+            !m.contains(&key("alone", ResType::NDB)) && !m.contains(&key("lone", ResType::NDB))
+        );
     }
 
     #[test]

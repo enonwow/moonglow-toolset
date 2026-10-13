@@ -78,8 +78,7 @@ impl KeyTable {
         let build_year = r.u32()?;
         let build_day = r.u32()?;
 
-        slice(data, file_table, bif_count.saturating_mul(12))?;
-        let mut ft = Reader::at(data, file_table)?;
+        let mut ft = Reader::table(data, file_table, bif_count, 12)?;
         let mut bifs = Vec::with_capacity(bif_count);
         for _ in 0..bif_count {
             let size = ft.u32()?;
@@ -92,8 +91,7 @@ impl KeyTable {
             bifs.push(BifRef { filename, size, drives });
         }
 
-        slice(data, key_table, key_count.saturating_mul(22))?;
-        let mut kt = Reader::at(data, key_table)?;
+        let mut kt = Reader::table(data, key_table, key_count, 22)?;
         let mut entries = Vec::with_capacity(key_count);
         for index in 0..key_count {
             let name = kt.fixed_str(16)?;
@@ -138,8 +136,7 @@ impl Bif {
         let count = r.u32_usize()?;
         let _fixed_count = r.u32()?; // never used by NWN
         let table = r.u32_usize()?;
-        slice(data, table, count.saturating_mul(16))?;
-        let mut t = Reader::at(data, table)?;
+        let mut t = Reader::table(data, table, count, 16)?;
         let mut resources = Vec::with_capacity(count);
         for _ in 0..count {
             let id = t.u32()?;

@@ -4,7 +4,6 @@
 //! verify.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use mg_gff::{Gff, Value};
 use mg_module::{Module, ModuleLocation};
@@ -37,11 +36,7 @@ fn tag(module: &Path) -> String {
 }
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
-        .args(["--no-user-dir", "--json"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = crate::mg().args(["--no-user-dir", "--json"]).args(args).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
     let json = serde_json::from_slice(&out.stdout)
@@ -97,6 +92,22 @@ fn a_plugin_s_command_runs_on_a_module() {
     assert!(ok, "{done}");
     assert_eq!(done["resources"], json!(["guard.utc"]));
     assert_eq!(tag(&path), "GATE_GUARD");
+
+    // What the plugin does by itself when a module is saved, run from
+    // here: with the resources named, or all of the module's.
+    let (ok, saved) = mg(&["plugin", "run", m, plugin, "saved", "--event"]);
+    assert!(ok, "{saved}");
+    assert_eq!(saved["log"], json!([{ "level": "info", "text": "module-saved: guard.utc" }]));
+    let event = ["plugin", "run", m, plugin, "saved", "--event", "--changed"];
+    let (ok, other) = mg(&[&event[..], &["module.ifo"]].concat());
+    assert!(ok && other["log"] == json!([]), "{other}");
+    let (ok, wrong) = mg(&[&event[..], &["no name"]].concat());
+    assert!(!ok && wrong["error"].as_str().unwrap().contains("no resource's name"), "{wrong}");
+    // A command is no event, nor an event a command.
+    let (ok, wrong) = mg(&["plugin", "run", m, plugin, "fix-tags", "--event"]);
+    assert!(!ok && wrong["error"].as_str().unwrap().contains("event"), "{wrong}");
+    let (ok, wrong) = mg(&["plugin", "run", m, plugin, "saved"]);
+    assert!(!ok && wrong["error"].as_str().unwrap().contains("command"), "{wrong}");
 
     // A form is answered from the arguments: its defaults, and what is
     // given; a question, with --yes.

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:33:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
 ---
 
 # Build, verify and test
@@ -13,7 +13,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:33:44Z }
 **Build › Build Module…** prepares the module for play and checks it, as
 Aurora's Build does:
 
-- **Compile**: the **Scripts**, recalculated **Creature CR** (challenge
+- **Compile**: the **Scripts** (with their debug files, where **Generate
+  Debug Information** is on in Options), recalculated **Creature CR** (challenge
   ratings), **Encounters** (each encounter's creature list updated with
   its creatures' challenge ratings and appearances; creatures that no
   longer exist are removed) and **Palettes** (the custom palettes rebuilt
@@ -92,6 +93,7 @@ crash Aurora with an access violation that names nothing:
 | A 2DA row with more cells than columns (two rows run together) | Aurora's access violation; the game drops the cells |
 | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 | Aurora fails (the game is fine) |
 | A 2DA string reference past the end of its talk table | "Bad Strref" |
+| A hak's 2DA row naming a row of another table that isn't there (a feat's required feat, a spell's feat, a race's appearance, a package's class; some sixty columns of eleven tables, and the feat, skill and spell lists that a class, a race or a package names) | the feat, spell or class is missing or wrong in the game (a warning) |
 | A custom talk table the module names that isn't in its haks, the module or the `tlk` folder (or is named with `.tlk`, or, on Linux, in a different case from the file) | the game won't load the module |
 | A hak's 2DA hiding another hak's longer copy | the rows past it are lost (an older copy?) |
 | A creature, placeable, door or item naming a 2DA row that doesn't exist or whose model is missing | Aurora's area view crashes on it; in the game it has no appearance, or the game crashes (a creature with a class that doesn't exist) |

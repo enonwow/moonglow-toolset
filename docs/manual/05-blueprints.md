@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
 ---
 
 # Blueprints
@@ -19,7 +19,7 @@ The palette pane (right) shows the blueprints by type. Its header, from
 the top:
 
 - **The types**: a row of icons (tiles, creatures, doors, encounters,
-  items, placeables, sounds, merchants, triggers, waypoints, prefabs),
+  items, placeables, sounds, stores, triggers, waypoints, prefabs),
   one click each; the pointer over an icon names it, and the type shown
   is named under the row. The icons go to a second and a third row in
   a pane narrower than the eleven of them, and are a dropdown with their
@@ -114,7 +114,9 @@ The palette's buttons:
   placeables, the types with a model, and waypoints by their flags).
   Whether it is on is kept between sessions. A picture is clicked, dragged and
   right-clicked as a name is; the pictures are made a few at a time as
-  they come into sight.
+  they come into sight. A shield is pictured from its front (its model
+  faces its bearer), and a thing made for a wall from the side that
+  shows it; the light goes round with the view.
 - **Replace Selected with This** (a blueprint's right-click menu): the
   objects of that type selected in the area become ones of this
   blueprint, where they stand and facing as they face. One Undo puts the
@@ -214,8 +216,7 @@ type's wizard asks what Aurora's asks (the base item for an item, the
 appearance for a placeable, the classes for a creature…), a palette
 category and a name, then opens the new blueprint's properties. The Name
 page shows the ResRef and Tag the blueprint gets, made from the name as
-Aurora makes them: type others there to choose your own (not the Creature
-Wizard, yet).
+Aurora makes them: type others there to choose your own.
 
 ## The editors
 
@@ -224,8 +225,23 @@ game's blueprints have) shows in blue with its StrRef beside it; typing
 there gives the blueprint text of its own.
 
 Each blueprint opens as a tab with Aurora's pages. Every change takes
-effect at once and is one undoable step; there is no OK or Cancel.
-Fields Moonglow does not show are kept as they are.
+effect at once and is one undoable step. Under the pages are **OK** and
+**Cancel**: OK closes the window (what was changed is the module's
+already, as it is when the window is closed by its ×); Cancel closes it
+and sets back the fields that were changed in it since it was opened, as
+one step that Undo takes back. What was changed somewhere else meanwhile
+(the same object moved in its area, another field set by a script or a
+plugin) stays. A placed object's Properties have the two as well, and so
+do several blueprints or objects edited together; the game's own
+blueprint, shown to look at, has **Close**. Module Properties, Area
+Properties (of one area or several), the conversation editor, the
+journal and the faction editor have the same two under them. There
+Cancel sets back the fields and lists the window changed (a
+conversation's lines, a journal's categories); a file the window made
+(`module.jrl`, `repute.fac`) is gone again, and where a faction was
+removed, the areas and creatures renumbered for it are set back whole,
+with whatever else was changed in them meanwhile. Fields Moonglow does not
+show are kept as they are.
 
 Shared parts:
 
@@ -264,13 +280,15 @@ Shared parts:
 
 Basic (name, race, gender, portrait, appearance, faction, conversation),
 **Statistics** (abilities, saves, armor class, hit points, speed; the
-arrows after a number make it one more or one less, as Aurora's do),
+arrows after a number make it one more or one less, as Aurora's do; the
+saves are the game's, also past level 20 with several classes, where
+Aurora's are not, and the abilities count the epic Great feats),
 **Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
 (classes and levels, a cleric's domains and a wizard's school, the
 familiar and animal companion; **Levelup Wizard…** levels the creature up
 by the classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
 class and level), **Special Abilities**, **Inventory**, Scripts,
-Advanced, Comments.
+Advanced, Visuals, Comments.
 
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.
@@ -279,8 +297,12 @@ every change, as Aurora does on OK.
   large as the window has room for; its wings, tail and colors, and its
   body parts, are to the right, so a change shows as you make it (a
   body part may be **0 (none)**, which draws nothing). A body part's
-  mesh that is a skin mesh is not drawn, as the game does not draw it:
-  body parts are plain meshes. **Pop
+  mesh that is a skin mesh is drawn as the game draws it: not at all
+  where the model is compiled, as a plain mesh where it is kept as
+  text (body parts are meant to be plain meshes). A creature that had a
+  single model keeps no body parts: given an appearance with a body of
+  parts, it gets them (each 1, no belt or shoulders) in the same step,
+  since the game draws only a head without them. **Pop
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
 - **Feats** shows the feats the creature has beside the list to choose
@@ -350,8 +372,11 @@ A domain or school left **Not set** is the game's to choose.
 cursed, identified; the base item's statistics), **Appearance** (by the
 base item: a model, three weapon parts, or the armor's parts and colors,
 with the inventory icon as the game shows it; a model and each of a
-weapon's three parts are also chosen by picture, the item's icon as it
-would be with each; the item's model shows in the page and follows each
+weapon's three parts are also chosen by picture: a model's by the item's
+icon as it would be with each (what of it is drawn, at most 128 points
+tall), a weapon's part by that part alone, as
+large as it is in the icon, a part with a model and no icon by its
+number; the item's model shows in the page and follows each
 change, beside the fields in a wide window and beside the icon in a
 narrower one; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and its inventory icon is then the one a woman's

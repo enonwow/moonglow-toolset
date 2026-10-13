@@ -218,12 +218,9 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some((mut name, clip)) = app.prefab_save.take() else { return };
     let mut open = true;
     let (mut save, mut cancel) = (false, false);
-    egui::Window::new("Save as Prefab")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+    crate::widgets::dialog(ctx, "Save as Prefab", &mut open)
         .collapsible(false)
         .resizable(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Save as Prefab", &mut open))
         .show(ctx, |ui| {
             ui.label(format!(
                 "{} object(s), placed again from Edit › Prefabs in any area.",

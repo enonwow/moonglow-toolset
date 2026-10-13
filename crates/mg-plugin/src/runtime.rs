@@ -251,14 +251,17 @@ fn text_of(v: &LuaValue, ty: FieldType) -> Result<Vec<u8>, String> {
 fn typed(ty: FieldType, v: &LuaValue, old: Option<&Value>) -> Result<Value, String> {
     let int = |min: i128, max: i128| whole(v, ty, min, max);
     Ok(match ty {
-        FieldType::Byte => Value::Byte(int(0, u8::MAX.into())? as u8),
-        FieldType::Char => Value::Char(int(i8::MIN.into(), i8::MAX.into())? as i8),
-        FieldType::Word => Value::Word(int(0, u16::MAX.into())? as u16),
-        FieldType::Short => Value::Short(int(i16::MIN.into(), i16::MAX.into())? as i16),
-        FieldType::Dword => Value::Dword(int(0, u32::MAX.into())? as u32),
-        FieldType::Int => Value::Int(int(i32::MIN.into(), i32::MAX.into())? as i32),
-        FieldType::Dword64 => Value::Dword64(int(0, u64::MAX.into())? as u64),
-        FieldType::Int64 => Value::Int64(int(i64::MIN.into(), i64::MAX.into())? as i64),
+        FieldType::Byte
+        | FieldType::Char
+        | FieldType::Word
+        | FieldType::Short
+        | FieldType::Dword
+        | FieldType::Int
+        | FieldType::Dword64
+        | FieldType::Int64 => {
+            let (min, max) = ty.int_range().expect("an integer type");
+            ty.int_value(int(min, max)?).expect("within the type's range")
+        }
         FieldType::Float | FieldType::Double => {
             let n = match v {
                 LuaValue::Integer(i) => *i as f64,

@@ -125,6 +125,9 @@ pub struct OpenScript {
     /// Every script there is to open, by name, read when the window
     /// opens.
     pub scripts: Vec<(ResKey, ScriptFrom)>,
+    /// The row Enter opens, among those listed: the first, until Down
+    /// and Up move it.
+    pub cursor: usize,
 }
 
 /// The editor tools' state (shared by the open script editors).
@@ -315,6 +318,15 @@ pub fn word_before(text: &str, chars: usize) -> (usize, String) {
 /// spaces, off each) the lines a selection touches, as Tab and Shift+Tab do
 /// in the script editor. Character indexes in and out; the selection
 /// returned covers the lines, from the first's start.
+/// What a new line begins with, started at character `at`: the spaces and
+/// tabs its line begins with (those before `at`), so that the new line is
+/// as far in as the one it is started from, as in Aurora.
+pub fn new_line_indent(text: &str, at: usize) -> String {
+    let before: String = text.chars().take(at).collect();
+    let line = before.rsplit('\n').next().unwrap_or_default();
+    line.chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+}
+
 pub fn indent_lines(text: &str, from: usize, to: usize, outdent: bool) -> (String, usize, usize) {
     let chars: Vec<char> = text.chars().collect();
     let (from, to) = (from.min(chars.len()), to.min(chars.len()).max(from.min(chars.len())));
@@ -478,6 +490,14 @@ mod tests {
         assert_eq!(super::indent_lines(text, 0, 2, false).0, "\ta\nb\nc\n");
         // Up to four spaces come off.
         assert_eq!(super::indent_lines("      x", 2, 2, true).0, "  x");
+        // A new line begins as far in as the line it is started from.
+        let text = "void main()\n{\n    int n;\n\tint m;\n}\n";
+        let at = |part: &str| text.find(part).unwrap() + part.len();
+        assert_eq!(super::new_line_indent(text, at("int n;")), "    ");
+        assert_eq!(super::new_line_indent(text, at("int m;")), "\t");
+        assert_eq!(super::new_line_indent(text, at("main()")), "");
+        assert_eq!(super::new_line_indent(text, at("{\n  ")), "  ", "within the indent: to there");
+        assert_eq!(super::new_line_indent("", 0), "");
     }
 
     use super::*;

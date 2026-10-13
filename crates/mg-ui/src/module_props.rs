@@ -9,7 +9,7 @@ use mg_gff::{Struct, Value};
 use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
 
-use crate::text::{decode, encode, from_editor, to_editor, with_english};
+use crate::text::{decode, encode, with_english};
 use crate::widgets::{FieldTarget, LocStringEdit, resref_field, variables_button};
 use crate::{Action, Moonglow};
 
@@ -71,19 +71,8 @@ fn edit_field(
     multiline: bool,
 ) -> Option<String> {
     let id = egui::Id::new(("ifo", id));
-    let (shown, crlf) = to_editor(current);
-    let buf = app.buffers.entry(id).or_insert_with(|| shown.clone());
-    let edit = if multiline {
-        egui::TextEdit::multiline(buf).desired_rows(12).desired_width(f32::INFINITY)
-    } else {
-        egui::TextEdit::singleline(buf).desired_width(320.0)
-    };
-    let r = ui.add(edit.id(id));
-    if !r.has_focus() && !r.lost_focus() && *buf != shown {
-        // Changed underneath (undo): show the document's value.
-        *buf = shown.clone();
-    }
-    (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
+    let (rows, width) = if multiline { (Some(12), f32::INFINITY) } else { (None, 320.0) };
+    crate::widgets::commit_text_in(&mut app.buffers, ui, id, current, rows, width)
 }
 
 /// A number with a range, committed when it changes (a drag: when released).
@@ -138,7 +127,17 @@ pub(crate) const EVENTS: [(&str, &str); 22] = [
     ("OnModuleStart", "Mod_OnModStart"),
 ];
 
+/// Module Properties, over its OK and Cancel (`blueprint::ok_cancel`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    let targets = [(info_key(), mg_edit::GffPath::root())];
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    pages(app, ui);
+    let tab = crate::Tab::ModuleProperties;
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+}
+
+fn pages(app: &mut Moonglow, ui: &mut Ui) {
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
         return;
@@ -540,13 +539,8 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 if ui.selectable_label(false, h).clicked() {
                     let mut item = ifo::MOD_HAK_LIST.new_item();
                     item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
-                    let insert = Edit::InsertItem {
-                        key: info_key(),
-                        path: GffPath::root(),
-                        list: list(),
-                        index: haks.len(),
-                        item,
-                    };
+                    let insert =
+                        Edit::insert_item(info_key(), GffPath::root(), list(), haks.len(), item);
                     app.actions.push(command(vec![insert], "Add hak"));
                 }
             }

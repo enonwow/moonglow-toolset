@@ -192,7 +192,37 @@ fn params(s: &Struct, label: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The conversation editor, over its OK and Cancel
+/// (`blueprint::ok_cancel`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    // The editor's text at its own size (Options › Conversation Editor):
+    // every kind of text in it, each as much larger as its lines are; and
+    // in the lists and menus opened from it, which take the window's
+    // style, for as long as the editor is drawn.
+    let usual = ui.ctx().global_style();
+    if let Some(size) = app.settings.dialog_font_size {
+        let by = f32::from(size.clamp(6, 48)) / egui::TextStyle::Body.resolve(ui.style()).size;
+        let mut style = (**ui.style()).clone();
+        for font in style.text_styles.values_mut() {
+            font.size *= by;
+        }
+        style.spacing.interact_size.y *= by;
+        style.spacing.icon_width *= by;
+        ui.set_style(style.clone());
+        ui.ctx().set_global_style(style);
+    }
+    let targets = [(key, mg_edit::GffPath::root())];
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    editor(app, ui, key);
+    let tab = crate::Tab::Dialog(key);
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+    if app.settings.dialog_font_size.is_some() {
+        ui.ctx().set_global_style(usual);
+    }
+}
+
+fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let Some(ws) = &mut app.ws else { return };
     let g = match ws.doc(&key) {
         Ok(g) => g.clone(),
@@ -236,19 +266,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     );
     let (key_find, key_find_next) =
         (pressed(crate::keys::Cmd::DialogFind), pressed(crate::keys::Cmd::DialogFindNext));
-    let (key_copy, key_cut, key_paste) = if here {
-        ui.input(|i| {
-            let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
-            let ctrl = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
-            (
-                event(|e| matches!(e, egui::Event::Copy)) || ctrl(egui::Key::C),
-                event(|e| matches!(e, egui::Event::Cut)) || ctrl(egui::Key::X),
-                event(|e| matches!(e, egui::Event::Paste(_))) || ctrl(egui::Key::V),
-            )
-        })
-    } else {
-        (false, false, false)
-    };
+    let (key_copy, key_cut, key_paste) =
+        if here { crate::widgets::copy_cut_paste(ui) } else { (false, false, false) };
     let (key_copy, key_cut, key_paste) = (
         key_copy || asked == Some(Asked::Copy),
         key_cut || asked == Some(Asked::Cut),
@@ -1091,8 +1110,15 @@ fn script_with_params(
             actions.push(Action::EditScript { name, condition: label == "Active" });
         }
     });
-    if ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices").clicked()
-    {
+    // (As wide as they are, not as the page: the page stretches what is
+    // put in it, which squeezed the parameters' fields to a few letters.)
+    let own_width = egui::Layout::top_down(egui::Align::Min);
+    let wizard = ui
+        .with_layout(own_width, |ui| {
+            ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices")
+        })
+        .inner;
+    if wizard.clicked() {
         app.open_script_wizard(key, path.clone(), label, salt == "cond");
     }
     // The pairs being edited live in a buffer until a field loses focus or a
@@ -1105,27 +1131,40 @@ fn script_with_params(
     let mut commit = false;
     let mut focused = false;
     let mut remove_at = None;
-    egui::Grid::new(("dlg-params", key, salt, path.to_string())).num_columns(3).show(ui, |ui| {
+    // A name's field and a value's, sharing the page's width: the value
+    // the wider.
+    let room = (ui.available_width() - 110.0).max(250.0);
+    let name_width = (room * 0.35).clamp(110.0, 260.0);
+    let value_width = (room - name_width).clamp(140.0, 520.0);
+    let mut add = false;
+    ui.with_layout(own_width, |ui| {
         for (i, (k, v)) in pairs.iter_mut().enumerate() {
-            let rk = ui.add(egui::TextEdit::singleline(k).desired_width(110.0).hint_text("name"));
-            let rv = ui.add(egui::TextEdit::singleline(v).desired_width(140.0).hint_text("value"));
-            commit |= rk.lost_focus() || rv.lost_focus();
-            focused |= rk.has_focus() || rv.has_focus();
-            if ui.small_button("−").clicked() {
-                remove_at = Some(i);
-            }
-            ui.end_row();
+            ui.horizontal(|ui| {
+                // (First in its row: at the row's end it was past the
+                // page's edge where the page is narrow.)
+                if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
+                    remove_at = Some(i);
+                }
+                let name = egui::TextEdit::singleline(k).desired_width(name_width);
+                let rk = ui.add(name.hint_text("name"));
+                let value = egui::TextEdit::singleline(v).desired_width(value_width);
+                let rv = ui.add(value.hint_text("value"));
+                crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
+                crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
+                commit |= rk.lost_focus() || rv.lost_focus();
+                focused |= crate::widgets::has_keys(&rk) || crate::widgets::has_keys(&rv);
+            });
         }
+        add = ui
+            .small_button("+")
+            .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
+            .clicked();
     });
     if let Some(i) = remove_at {
         pairs.remove(i);
         commit = true;
     }
-    if ui
-        .small_button("+")
-        .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
-        .clicked()
-    {
+    if add {
         pairs.push((String::new(), String::new()));
         commit = true;
     }
@@ -1339,47 +1378,29 @@ pub(crate) fn new_file() -> Vec<u8> {
 
 /// The New Conversation window.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
+    use crate::widgets::{NameWindow, Named};
     let Some(mut name) = app.new_dialog.clone() else { return };
-    let mut close = false;
-    egui::Window::new("New Conversation")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ui.ctx().content_rect().center())
-        .collapsible(false)
-        .resizable(false)
-        .show(ui.ctx(), |ui| {
-            ui.label("Name (up to 16 characters)");
-            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
-            crate::widgets::autofocus(ui, &field);
-            let key = ResRef::from_str(name.trim())
-                .ok()
-                .filter(|r| !r.is_empty())
-                .map(|r| ResKey::new(r, ResType::DLG));
-            let exists =
-                key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
-            if exists {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    "The module already has a conversation of this name.",
-                );
-            }
-            ui.horizontal(|ui| {
-                if (ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
-                    || (key.is_some() && !exists && crate::widgets::enter(ui)))
-                    && let Some(k) = key
-                {
-                    app.actions.push(Action::Apply(Command::new(
-                        format!("New conversation {k}"),
-                        vec![Edit::SetResource { key: k, data: Some(new_file()) }],
-                    )));
-                    app.actions.push(Action::OpenTab(Tab::Dialog(k)));
-                    close = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
-            });
-        });
-    app.new_dialog = if close { None } else { Some(name) };
+    let window = NameWindow {
+        title: "New Conversation",
+        label: "Name (up to 16 characters)",
+        restype: ResType::DLG,
+        taken: "The module already has a conversation of this name.",
+        replaces: false,
+        button: "Create",
+    };
+    let module = app.ws.as_ref().map(|w| &w.module);
+    app.new_dialog = match window.show(ui.ctx(), module, &mut name) {
+        Named::Open => Some(name),
+        Named::Cancelled => None,
+        Named::Chosen(k) => {
+            app.actions.push(Action::Apply(Command::new(
+                format!("New conversation {k}"),
+                vec![Edit::SetResource { key: k, data: Some(new_file()) }],
+            )));
+            app.actions.push(Action::OpenTab(Tab::Dialog(k)));
+            None
+        }
+    };
 }
 
 fn matches(text: &str, find: &str, s: &DialogSearch) -> bool {

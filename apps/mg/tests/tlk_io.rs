@@ -5,7 +5,7 @@
 use std::process::Command;
 
 fn mg(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mg")).args(args).output().unwrap()
+    crate::mg().args(args).output().unwrap()
 }
 
 fn ok(args: &[&str]) -> String {
@@ -59,6 +59,17 @@ fn a_talk_table_goes_in_and_out_as_json_and_csv() {
     assert!(said.contains("1 lines changed, 0 added"), "{said}");
     ok(&["tlk-export", &table, &at("again.json")]);
     assert_eq!(read("again.json")["entries"][0]["text"], "Fenwick's Landing");
+    // A CSV's StrRefs are a custom table's (16777216 and up); --base
+    // numbers the lines from 0, as the game's own table's are named, and
+    // either is read back.
+    let first = |csv: &str| csv.lines().nth(1).unwrap().split(',').next().unwrap().to_string();
+    assert_eq!(first(&std::fs::read_to_string(dir.join("out.csv")).unwrap()), "16777216");
+    ok(&["tlk-export", &table, &at("base.csv"), "--base"]);
+    let base = std::fs::read_to_string(dir.join("base.csv")).unwrap();
+    assert_eq!(first(&base), "0");
+    // (Read back by its line numbers: the same lines, nothing changed.)
+    let said = ok(&["tlk-import", &table, &at("base.csv")]);
+    assert!(said.contains("0 lines changed, 0 added"), "{said}");
 
     // Another extension is refused, and a file that can't be read
     // changes nothing.

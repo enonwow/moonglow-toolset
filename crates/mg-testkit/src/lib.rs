@@ -10,8 +10,10 @@ pub mod engine;
 pub mod erf;
 pub mod gpu;
 
+use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The game install to test against, if one can be found.
 ///
@@ -78,6 +80,53 @@ macro_rules! corpus {
     };
 }
 
+/// Whether the corpus tests sweep the whole install (`MOONGLOW_FULL_CORPUS`
+/// set and not `0`: before a release) or a sample of it (every day).
+pub fn full_corpus() -> bool {
+    env::var_os("MOONGLOW_FULL_CORPUS").is_some_and(|v| v != "0")
+}
+
+/// What a sweep covers of `items`: all of them in a full run
+/// ([`full_corpus`]), else every `one_in`-th, from the first (the same ones
+/// each run, so that a failure stays where it was).
+pub fn sweep<T>(items: Vec<T>, one_in: usize) -> Vec<T> {
+    if full_corpus() { items } else { items.into_iter().step_by(one_in.max(1)).collect() }
+}
+
+/// A count that a full sweep reaches (`full`), or what a sweep of every
+/// `one_in`-th item should still reach (somewhat under its share).
+pub fn at_least(full: usize, one_in: usize) -> usize {
+    if full_corpus() { full } else { full / (one_in + one_in / 4 + 1) }
+}
+
+/// A value made once per key in a test binary and shared by the tests that
+/// ask for it (a module unpacked, a server run): the first to ask makes it,
+/// the others wait for it.
+#[derive(Debug)]
+pub struct Shared<K, V>(Mutex<BTreeMap<K, Arc<OnceLock<V>>>>);
+
+impl<K: Ord + Clone, V: Clone> Shared<K, V> {
+    /// An empty one (for a `static`).
+    pub const fn new() -> Self {
+        Self(Mutex::new(BTreeMap::new()))
+    }
+
+    /// The value for `key`, made by `make` if this is the first call for it.
+    pub fn get(&self, key: &K, make: impl FnOnce() -> V) -> V {
+        let slot = {
+            let mut all = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            all.entry(key.clone()).or_default().clone()
+        };
+        slot.get_or_init(make).clone()
+    }
+}
+
+impl<K: Ord + Clone, V: Clone> Default for Shared<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The modules that ship with the game (`data/mod/*.mod`, `data/nwm/*.nwm`),
 /// sorted by path.
 pub fn bundled_modules(root: &Path) -> Vec<PathBuf> {
@@ -105,12 +154,42 @@ pub fn files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     v
 }
 
+/// The test files of a crate that no test binary holds: the `*.rs` files of
+/// `<manifest_dir>/tests` that are neither a `[[test]]` of the crate's
+/// `Cargo.toml` nor a module of a group (`#[path = "../<file>.rs"]` in
+/// `tests/groups/*.rs`). For crates that turn `autotests` off: a file left
+/// out would not be compiled, and its tests would pass by not running.
+pub fn ungrouped_tests(manifest_dir: &str) -> Vec<String> {
+    let dir = Path::new(manifest_dir);
+    let mut named = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
+    for group in files_with_ext(&dir.join("tests/groups"), "rs") {
+        named.push_str(&std::fs::read_to_string(group).unwrap_or_default());
+    }
+    files_with_ext(&dir.join("tests"), "rs")
+        .iter()
+        .filter_map(|p| Some(p.file_name()?.to_str()?.to_string()))
+        .filter(|file| {
+            !named.contains(&format!("\"tests/{file}\""))
+                && !named.contains(&format!("\"../{file}\""))
+        })
+        .collect()
+}
+
 /// A fresh, empty scratch directory for a test under `target/test-output/`.
 pub fn scratch_dir(name: &str) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
     let dir = base.join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create scratch dir");
+    dir
+}
+
+/// A directory under `target/test-output/` that is kept as it is: for
+/// output that several tests add to (the pictures of `screens.rs`), which
+/// [`scratch_dir`] would empty under them.
+pub fn output_dir(name: &str) -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output").join(name);
+    std::fs::create_dir_all(&dir).expect("create output dir");
     dir
 }
 

@@ -21,6 +21,7 @@ use crate::widgets::{
 use crate::{Action, Moonglow, Tab};
 
 mod creature;
+pub(crate) use creature::with_a_body;
 mod creature_lists;
 mod door;
 pub(crate) mod encounter;
@@ -58,6 +59,232 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
 
 /// Each open editor's page, by document and the object's path in it.
 pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
+
+/// What an open window with OK and Cancel has changed, for its Cancel.
+/// By the window's first object (a blueprint, or the document an editor
+/// is of), as [`Pages`].
+pub type Changed = HashMap<(ResKey, GffPath), WindowChanges>;
+
+/// One window's entry of [`Changed`].
+#[derive(Debug, Clone)]
+pub struct WindowChanges {
+    /// The window, to tell when it is closed.
+    pub tab: Tab,
+    /// What it changed, in the order it first changed each.
+    pub was: Vec<Was>,
+}
+
+/// A thing a window changed, as it was before the window's first change
+/// to it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Was {
+    /// A field of one of the window's objects (a list changed in: the
+    /// list): the object's document and path, the field, and what it held
+    /// (`None`: no such field).
+    Field(ResKey, GffPath, String, Option<Value>),
+    /// A whole resource a command of the window's replaced (the journal
+    /// made, the factions' file, what a removed faction renumbered): its
+    /// bytes (`None`: there was none).
+    Resource(ResKey, Option<Vec<u8>>),
+}
+
+/// The field of the object at `form` that an edit at `path` (the object's
+/// own, or further in: an item it holds) changes: `label` at the object
+/// itself, else the field the path goes into from it.
+fn field_changed(form: &GffPath, path: &GffPath, label: &str) -> Option<String> {
+    if !path.0.starts_with(&form.0) {
+        return None;
+    }
+    Some(match path.0.get(form.0.len()) {
+        Some(mg_edit::Step::Field(l) | mg_edit::Step::Item(l, _)) => l.clone(),
+        None => label.to_string(),
+    })
+}
+
+/// Notes what a window's command is about to change (it is not applied
+/// yet), for the window's Cancel: the fields of the window's objects
+/// (`targets`, the first of which names the window) and the resources it
+/// replaces whole.
+pub(crate) fn note_command(
+    app: &mut Moonglow,
+    tab: &Tab,
+    targets: &[(ResKey, GffPath)],
+    cmd: &Command,
+) {
+    let Some((first, ws)) = targets.first().zip(app.ws.as_mut()) else { return };
+    for edit in &cmd.edits {
+        let (key, path, label) = match edit {
+            Edit::SetField { key, path, label, .. } => (key, path, label),
+            Edit::InsertItem { key, path, list, .. } | Edit::RemoveItem { key, path, list, .. } => {
+                (key, path, list)
+            }
+            Edit::SetResource { key, .. } => {
+                let entry = app
+                    .properties_changed
+                    .entry(first.clone())
+                    .or_insert_with(|| WindowChanges { tab: tab.clone(), was: Vec::new() });
+                if !entry.was.iter().any(|w| matches!(w, Was::Resource(k, _) if k == key)) {
+                    // (As the open documents have it, not as last saved.)
+                    let _ = ws.flush();
+                    entry.was.push(Was::Resource(*key, ws.module.get(key).map(<[u8]>::to_vec)));
+                }
+                continue;
+            }
+        };
+        // (The deepest of the window's objects the edit is in: an item a
+        // placed creature holds is not edited with it.)
+        let within = targets
+            .iter()
+            .filter(|(k, form)| k == key && path.0.starts_with(&form.0))
+            .max_by_key(|(_, form)| form.0.len());
+        let Some((k, form)) = within else { continue };
+        let Some(field) = field_changed(form, path, label) else { continue };
+        let entry = app
+            .properties_changed
+            .entry(first.clone())
+            .or_insert_with(|| WindowChanges { tab: tab.clone(), was: Vec::new() });
+        let known = |w: &Was| match w {
+            Was::Field(wk, wp, wl, _) => wk == k && wp == form && *wl == field,
+            // (Set back whole: its fields with it.)
+            Was::Resource(wk, _) => wk == k,
+        };
+        if !entry.was.iter().any(known) {
+            let before = ws.doc(k).ok().and_then(|g| form.get(&g.root)?.get(&field).cloned());
+            entry.was.push(Was::Field(*k, form.clone(), field, before));
+        }
+    }
+}
+
+/// [`note_command`] for the commands a window asked for this frame
+/// (`app.actions` from `pending` on).
+fn note_changes(app: &mut Moonglow, pending: usize, tab: &Tab, targets: &[(ResKey, GffPath)]) {
+    let asked: Vec<Command> = app.actions[pending.min(app.actions.len())..]
+        .iter()
+        .filter_map(|a| match a {
+            Action::Apply(cmd) => Some(cmd.clone()),
+            _ => None,
+        })
+        .collect();
+    for cmd in &asked {
+        note_command(app, tab, targets, cmd);
+    }
+}
+
+/// The command that sets back what a window changed, where it is not as
+/// it was: `None` with nothing to set back. With `all`, every field the
+/// window changed whatever it holds now: a change asked for this frame is
+/// not made yet, and is to be set back once it is.
+fn cancel_command(app: &mut Moonglow, first: &(ResKey, GffPath), all: bool) -> Option<Command> {
+    let changes = app.properties_changed.get(first)?;
+    let ws = app.ws.as_mut()?;
+    if changes.was.iter().any(|w| matches!(w, Was::Resource(..))) {
+        let _ = ws.flush();
+    }
+    let mut edits = Vec::new();
+    // (The last noted first: a resource set back whole, then the fields
+    // of it the window had changed before that.)
+    for was in changes.was.iter().rev() {
+        match was {
+            Was::Field(key, path, label, before) => {
+                let now = ws.doc(key).ok().and_then(|g| path.get(&g.root)?.get(label).cloned());
+                if all || now != *before {
+                    edits.push(Edit::SetField {
+                        key: *key,
+                        path: path.clone(),
+                        label: label.clone(),
+                        value: before.clone(),
+                    });
+                }
+            }
+            Was::Resource(key, before) => {
+                if all || ws.module.get(key) != before.as_deref() {
+                    edits.push(Edit::SetResource { key: *key, data: before.clone() });
+                }
+            }
+        }
+    }
+    (!edits.is_empty()).then(|| Command::new("Cancel Changes", edits))
+}
+
+/// What was pressed under a window.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pressed {
+    Ok,
+    Cancel,
+}
+
+/// OK and Cancel under a window, as Aurora's has: OK closes it (what was
+/// changed is the module's already); Cancel sets back what the window
+/// changed since it was opened, as one step, and closes it
+/// ([`close_window`], once the page is drawn: a field typed in sets its
+/// text as the press takes the keyboard from it, and that is among what
+/// Cancel sets back). The game's blueprint, shown to look at, has Close
+/// alone. Drawn before the window's pages, of whose room it takes the
+/// foot.
+pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
+    let tips = [
+        "Close the window: its changes are kept",
+        "Close the window and set back what was changed in it since it was opened, as one step \
+         that Undo takes back",
+    ];
+    ok_cancel_saying(ui, egui::Id::new(first), viewed, tips)
+}
+
+/// [`ok_cancel`] for a window that says what its two buttons do itself
+/// (`tips`: OK's and Cancel's).
+pub(crate) fn ok_cancel_saying(
+    ui: &mut Ui,
+    id: egui::Id,
+    viewed: bool,
+    tips: [&str; 2],
+) -> Option<Pressed> {
+    let mut pressed = None;
+    egui::Panel::bottom(id.with("ok-cancel"))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
+        .show_separator_line(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if viewed {
+                    if ui.button("Close").clicked() {
+                        pressed = Some(Pressed::Ok);
+                    }
+                    return;
+                }
+                if ui.button("OK").on_hover_text(tips[0]).clicked() {
+                    pressed = Some(Pressed::Ok);
+                }
+                let cancel = ui.button("Cancel").on_hover_text(tips[1]);
+                if cancel.clicked() {
+                    pressed = Some(Pressed::Cancel);
+                }
+            });
+        });
+    pressed
+}
+
+/// After a window with [`ok_cancel`] is drawn: notes what it asked for
+/// this frame (`app.actions` from `pending` on), and closes it if OK or
+/// Cancel was pressed.
+pub(crate) fn window_drawn(
+    app: &mut Moonglow,
+    pending: usize,
+    tab: &Tab,
+    targets: &[(ResKey, GffPath)],
+    pressed: Option<Pressed>,
+) {
+    note_changes(app, pending, tab, targets);
+    let Some((pressed, first)) = pressed.zip(targets.first()) else { return };
+    if pressed == Pressed::Cancel {
+        // What the window asked for this frame is set first, then set
+        // back.
+        let asked = app.actions.len() > pending;
+        if let Some(command) = cancel_command(app, first, asked) {
+            app.actions.push(Action::Apply(command));
+        }
+    }
+    app.properties_changed.remove(first);
+    app.actions.push(Action::CloseTab(tab.clone()));
+}
 
 /// A creature appearance's picture (a plain body of it), for the row the
 /// pointer rests on in the list.
@@ -314,6 +541,12 @@ impl Form<'_> {
 
     /// Sets a field, or removes it (`None`).
     pub(crate) fn set_opt(&mut self, what: &str, label: &str, value: Option<Value>) {
+        let command = self.setting(what, label, value);
+        self.app.actions.push(Action::Apply(command));
+    }
+
+    /// The command that sets a field, or removes it.
+    fn setting(&self, what: &str, label: &str, value: Option<Value>) -> Command {
         let edits = self
             .targets()
             .map(|(key, path)| Edit::SetField {
@@ -323,7 +556,35 @@ impl Form<'_> {
                 value: value.clone(),
             })
             .collect();
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        Command::new(what, edits)
+    }
+
+    /// Holds a text field's typing while it has the keyboard, after the
+    /// field is drawn: `shown` is the field's value as it is stored, and
+    /// `value` what the text typed would be set as. Should the field be
+    /// gone before the keyboard leaves it, that is set
+    /// ([`Moonglow::held_text`]).
+    fn hold_text(
+        &mut self,
+        ui: &Ui,
+        what: &str,
+        label: &str,
+        shown: &str,
+        value: impl Fn(String) -> Value,
+    ) {
+        let id = self.id(label);
+        if !ui.memory(|m| m.has_focus(id)) {
+            if self.app.held_text.as_ref().is_some_and(|(held, ..)| *held == id) {
+                self.app.held_text = None;
+            }
+            return;
+        }
+        let (shown, crlf) = crate::text::to_editor(shown);
+        let typed = (self.app.buffers.get(&id))
+            .filter(|buf| **buf != shown)
+            .map(|buf| crate::text::from_editor(buf, crlf));
+        let command = typed.map(|text| self.setting(what, label, Some(value(text))));
+        self.app.held_text = Some((id, ui.ctx().cumulative_pass_nr(), command));
     }
 
     /// Sets an integer field, keeping its stored type (for a field the
@@ -346,13 +607,15 @@ impl Form<'_> {
         let (shown, _) = crate::text::to_editor(&current);
         let buf = self.app.buffers.entry(id).or_insert_with(|| shown.clone());
         let r = ui.add(egui::TextEdit::singleline(buf).id(id).char_limit(max).desired_width(240.0));
-        if !r.has_focus() && !r.lost_focus() && *buf != shown {
+        crate::widgets::leaves_at_a_press(ui.ctx(), &r);
+        if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != shown {
             *buf = shown.clone();
         }
         if r.lost_focus() && *buf != shown {
             let v = buf.clone();
             self.set(what, label, Value::String(encode(&v)));
         }
+        self.hold_text(ui, what, label, &current, |text| Value::String(encode(&text)));
     }
 
     /// A multi-line text field (`CExoString`), line ends kept.
@@ -362,6 +625,7 @@ impl Form<'_> {
         if let Some(v) = commit_text(self.app, ui, id, &current, true, f32::INFINITY) {
             self.set(what, label, Value::String(encode(&v)));
         }
+        self.hold_text(ui, what, label, &current, |text| Value::String(encode(&text)));
     }
 
     /// A localized name: the English text, and `…` for every language.
@@ -371,6 +635,11 @@ impl Form<'_> {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
                 self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
             }
+            let shown = crate::widgets::loc_shown(self.app, &current).0;
+            let held = current.clone();
+            self.hold_text(ui, what, label, &shown, move |text| {
+                Value::LocString(with_english(held.clone(), &text))
+            });
             if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
@@ -388,8 +657,12 @@ impl Form<'_> {
             }
         });
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
-            self.set(what, label, Value::LocString(with_english(current, &v)));
+            self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
         }
+        let shown = crate::widgets::loc_shown(self.app, &current).0;
+        self.hold_text(ui, what, label, &shown, move |text| {
+            Value::LocString(with_english(current.clone(), &text))
+        });
     }
 
     /// Sets several fields in one command.
@@ -711,28 +984,62 @@ impl Form<'_> {
         } else {
             choices
         };
+        // Just opened: the list is whole and begins at the one chosen, not
+        // at its top (a long list was searched for it every time).
+        let open_id = filter_id.with("open");
+        let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         let list = combo.show_ui(ui, |ui| {
+            if opened {
+                ui.data_mut(|d| {
+                    d.remove_temp::<String>(filter_id);
+                    d.insert_temp(open_id.with("go"), true);
+                });
+            }
+            // (A popup's first pass only measures it: the list is brought
+            // to the chosen row in the first pass that draws it.)
+            let go = !ui.is_sizing_pass()
+                && ui.data_mut(|d| d.remove_temp::<bool>(open_id.with("go"))).is_some();
             let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+            // (What is typed narrows the list from its top, wherever it
+            // had been scrolled to.)
+            let mut narrowed = false;
             if choices.len() > 30 {
-                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
+                narrowed =
+                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
                 ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
             }
             let filter = filter.to_lowercase();
-            for c in choices
-                .iter()
-                .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
-            {
-                let mut r = ui.selectable_label(c.row as i64 == current, &c.text);
-                if let Some(about) = about {
-                    let app = &mut *self.app;
-                    r = r.on_hover_ui_at_pointer(|ui| about(app, ui, c.row));
+            // (The rows scroll under the Filter field, which stays.)
+            let mut rows = |ui: &mut Ui| {
+                for c in choices
+                    .iter()
+                    .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
+                {
+                    let mut r = ui.selectable_label(c.row as i64 == current, &c.text);
+                    if go && c.row as i64 == current {
+                        r.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if let Some(about) = about {
+                        let app = &mut *self.app;
+                        r = r.on_hover_ui_at_pointer(|ui| about(app, ui, c.row));
+                    }
+                    if r.clicked() {
+                        pick = Some(c.row as i64);
+                        ui.close();
+                    }
                 }
-                if r.clicked() {
-                    pick = Some(c.row as i64);
-                    ui.close();
+            };
+            if choices.len() > 30 {
+                let mut area = egui::ScrollArea::vertical().max_height(170.0);
+                if narrowed {
+                    area = area.vertical_scroll_offset(0.0);
                 }
+                area.show(ui, rows);
+            } else {
+                rows(ui);
             }
         });
+        ui.data_mut(|d| d.insert_temp(open_id, list.inner.is_some()));
         // The arrow keys step through it, as in Aurora (in the order
         // shown).
         let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
@@ -961,7 +1268,8 @@ impl Form<'_> {
         let r = ui
             .add(egui::TextEdit::singleline(buf).id(id).char_limit(16).desired_width(160.0))
             .on_hover_text("Edit the Blueprint ResRef");
-        if !r.has_focus() && !r.lost_focus() && *buf != current.to_string() {
+        crate::widgets::leaves_at_a_press(ui.ctx(), &r);
+        if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
             *buf = current.to_string();
         }
         if r.lost_focus() && *buf != current.to_string() {
@@ -1128,6 +1436,20 @@ pub(crate) fn edit_many(
     };
     let restype = instance_type(&path).unwrap_or(key.restype);
     let several = path.0.is_empty() && !also.is_empty();
+    // The window this is, and the objects it edits.
+    let targets: Vec<(ResKey, GffPath)> =
+        std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
+    let tab = match (path.0.is_empty(), also.is_empty()) {
+        (true, true) => Tab::Blueprint(key),
+        (true, false) => Tab::Blueprints(targets.iter().map(|(k, _)| *k).collect()),
+        (false, true) => Tab::Instance { area: key.resref, path: path.clone() },
+        (false, false) => Tab::Instances {
+            area: key.resref,
+            paths: targets.iter().map(|(_, p)| p.clone()).collect(),
+        },
+    };
+    let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
+    let pressed = ok_cancel(ui, &targets[0], is_viewed);
     let pages: Vec<&str> = if several {
         // Lists are edited one blueprint at a time.
         pages(restype).iter().copied().filter(|p| !LIST_PAGES.contains(p)).collect()
@@ -1236,7 +1558,7 @@ pub(crate) fn edit_many(
     // dropped rather than made to one of several blueprints.
     if several {
         let keys: Vec<ResKey> = form.targets().map(|(k, _)| k).collect();
-        let app = form.app;
+        let app = &mut *form.app;
         let mut dropped = false;
         let mut i = pending;
         while i < app.actions.len() {
@@ -1260,6 +1582,7 @@ pub(crate) fn edit_many(
             ui.data_mut(|d| d.insert_temp(note_id, note));
         }
     }
+    window_drawn(form.app, pending, &tab, &targets, pressed);
 }
 
 /// How long the note of a blueprint only looked at says a change was
@@ -1301,3 +1624,24 @@ const LIST_PAGES: [&str; 9] = [
     "Creature List",
     "Restrictions",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_s_change_is_noted_by_its_object_s_field() {
+        let chest = GffPath::root().item("Placeable List", 2);
+        // The object's own field, and one further in: the list it is in.
+        assert_eq!(field_changed(&chest, &chest, "Tag").as_deref(), Some("Tag"));
+        let held = chest.item("ItemList", 0);
+        assert_eq!(field_changed(&chest, &held, "StackSize").as_deref(), Some("ItemList"));
+        assert_eq!(
+            field_changed(&GffPath::root(), &chest, "Tag").as_deref(),
+            Some("Placeable List")
+        );
+        // Another object's is not this one's.
+        let other = GffPath::root().item("Placeable List", 3);
+        assert_eq!(field_changed(&chest, &other, "Tag"), None);
+    }
+}

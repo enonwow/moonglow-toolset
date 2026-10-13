@@ -189,8 +189,13 @@ pub(crate) fn grid(
         all = mg_rules::by_name(all);
     }
     ui.horizontal(|ui| {
+        let field = ui.id().with("gallery-filter-field");
+        crate::widgets::pane_filter_keys(ui, field, &mut state.filter);
         ui.add(
-            egui::TextEdit::singleline(&mut state.filter).hint_text("Find").desired_width(180.0),
+            egui::TextEdit::singleline(&mut state.filter)
+                .id(field)
+                .hint_text("Find")
+                .desired_width(180.0),
         );
         size_slider(app, ui);
         ui.weak(format!("{} appearances ({name}.2da)", all.len()));
@@ -338,7 +343,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             })
             .collect()
     };
-    let edits: Vec<Edit> = match (pick, one, chosen) {
+    let mut edits: Vec<Edit> = match (pick, one, chosen) {
         (Some(row), Some((key, path, ..)), _) => set(key, path, row),
         (Some(row), None, Some((git, list, ..))) => list
             .iter()
@@ -347,6 +352,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         _ => Vec::new(),
     };
     if !edits.is_empty() {
+        crate::blueprint::with_a_body(app, &mut edits);
         app.actions.push(Action::Apply(Command::new("Appearance", edits)));
     }
     app.placeable_gallery = Some(state);

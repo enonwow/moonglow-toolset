@@ -45,6 +45,8 @@ pub enum Id {
     Factions,
     Journal,
     TalkTable,
+    /// Tools › 2DA File…: a table anywhere, in the 2DA editor.
+    OpenTable,
     NewScript,
     NewNui,
     Palettes,
@@ -62,6 +64,8 @@ pub enum Id {
     BuildModule,
     PublishNwsync,
     Verify,
+    /// The area the module starts in, opened at the start location.
+    GoToStart,
     TestModule,
     TestChoose,
     PackTarget,
@@ -82,6 +86,9 @@ pub enum Id {
     NextTab,
     PreviousTab,
     ReopenTab,
+    /// The arrow keys given to the next pane, or the one before.
+    NextPane,
+    PreviousPane,
     /// View: the panes beside the middle shown or folded away.
     ViewTree,
     ViewPalettes,
@@ -155,6 +162,8 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ViewPalettes),
             Do(Id::ViewLog),
             Separator,
+            Do(Id::GoToStart),
+            Separator,
             Do(Id::HidePanels),
             Do(Id::ResetLayout),
         ],
@@ -167,6 +176,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::Factions),
             Do(Id::Journal),
             Do(Id::TalkTable),
+            Do(Id::OpenTable),
             Do(Id::NewScript),
             Do(Id::NewNui),
             Separator,
@@ -200,7 +210,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
 
 /// The toolbar: each command with its button's text and its tip (`None`:
 /// a gap).
-pub const TOOLBAR: [Option<(Id, &str, &str)>; 15] = [
+pub const TOOLBAR: [Option<(Id, &str, &str)>; 16] = [
     Some((Id::NewModule, "🗋 New", "New module")),
     Some((Id::OpenModule, "🗁 Open", "Open module")),
     Some((Id::Save, "💾 Save", "Save module")),
@@ -210,6 +220,11 @@ pub const TOOLBAR: [Option<(Id, &str, &str)>; 15] = [
     None,
     Some((Id::ModuleProperties, "ℹ Properties", "Module properties")),
     Some((Id::AreaWizard, "🗺 New Area", "Area Wizard")),
+    Some((
+        Id::GoToStart,
+        "🏃 Start",
+        "Go to Start Location: opens the area the module starts in, at the start location",
+    )),
     Some((Id::Resources, "🔍 Resources", "Resource browser")),
     Some((Id::Palettes, "📦 Palettes", "Blueprint palettes")),
     Some((
@@ -243,6 +258,7 @@ impl Id {
         }
         out.extend([Id::PreviewWindow, Id::FullScreen]);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
+        out.extend([Id::NextPane, Id::PreviousPane]);
         out
     }
 
@@ -311,6 +327,13 @@ impl Id {
                 "Talk Table",
                 "The module's own talk table (text named by StrRef), or a .tlk file",
             ),
+            Id::OpenTable => (
+                "open-2da",
+                "2DA File…",
+                "Edit a 2DA: the module's tables and its project's or folder's .2da files are \
+                 listed, whatever folder they are in, and Browse… takes a file anywhere (a \
+                 hak's or the game's table: Edit… in the resource browser)",
+            ),
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::NewNui => ("new-nui", "NUI Creator…", "Create a game UI window and its scripts"),
             Id::Palettes => ("palettes", "Palettes", ""),
@@ -349,6 +372,11 @@ impl Id {
                 "The module's haks and talk table, for players' games to download",
             ),
             Id::Verify => ("verify", "Verify Module", ""),
+            Id::GoToStart => (
+                "go-to-start",
+                "Go to Start Location",
+                "Open the area the module starts in, at the start location",
+            ),
             Id::TestModule => ("test-module", "Test Module", ""),
             Id::TestChoose => (
                 "test-choose",
@@ -382,6 +410,14 @@ impl Id {
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
             Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),
+            Id::NextPane => (
+                "next-pane",
+                "Next Pane",
+                "The arrow keys to the next of the module tree, the middle and the palettes",
+            ),
+            Id::PreviousPane => {
+                ("previous-pane", "Previous Pane", "The arrow keys to the pane before")
+            }
             Id::ViewTree => ("view-tree", "Module Tree", "Show the module tree, or fold it away"),
             Id::ViewPalettes => {
                 ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
@@ -435,6 +471,8 @@ impl Id {
             Id::NextTab => Cmd::NextTab,
             Id::PreviousTab => Cmd::PreviousTab,
             Id::ReopenTab => Cmd::ReopenTab,
+            Id::NextPane => Cmd::NextPane,
+            Id::PreviousPane => Cmd::PreviousPane,
             Id::ViewTree => Cmd::ToggleTree,
             Id::ViewPalettes => Cmd::TogglePalettes,
             Id::ViewLog => Cmd::ToggleLog,
@@ -504,6 +542,7 @@ impl Id {
             | Id::OpenTileset
             | Id::NewHak
             | Id::OpenHak
+            | Id::OpenTable
             | Id::BuildHak
             | Id::TalkTable
             | Id::ReloadResources
@@ -516,6 +555,7 @@ impl Id {
             | Id::FullScreen
             | Id::NextTab
             | Id::PreviousTab => true,
+            Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
@@ -558,6 +598,7 @@ impl Id {
             | Id::BuildModule
             | Id::PublishNwsync
             | Id::Verify
+            | Id::GoToStart
             | Id::TestModule
             | Id::TestChoose => open,
         }
@@ -648,6 +689,7 @@ impl Id {
             Id::OpenTileset => return crate::tileset_view::open(app),
             Id::NewHak => return crate::hak_view::new_hak(app),
             Id::OpenHak => return crate::hak_view::open_hak(app),
+            Id::OpenTable => return crate::table_view::open_table_window(app),
             Id::BuildHak => return crate::hak_view::build_from_folder(app),
             Id::BuildModule => {
                 app.build.get_or_insert_with(Default::default);
@@ -675,6 +717,10 @@ impl Id {
                 app.preview_window = !app.preview_window;
                 return;
             }
+            Id::GoToStart => {
+                crate::area_view::go_to_start(app);
+                return;
+            }
             Id::FullScreen => {
                 let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
@@ -687,6 +733,8 @@ impl Id {
             Id::NextTab => return app.step_tab(1),
             Id::PreviousTab => return app.step_tab(-1),
             Id::ReopenTab => return app.reopen_tab(),
+            Id::NextPane => return app.step_pane(ctx, 1),
+            Id::PreviousPane => return app.step_pane(ctx, -1),
             Id::ViewTree | Id::ViewPalettes | Id::ViewLog => {
                 let shown = app.panel_shown(self);
                 return app.show_panel(self, !shown);
@@ -747,14 +795,38 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     if edits {
         app.text_typed = focused;
     }
-    let in_text = app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input();
+    // (A script's editor keeps them whenever it has the keyboard: Enter's
+    // indent, Tab, a completion and a replacement are its steps as much
+    // as typing is, and it has them still after the keyboard went to its
+    // Find field and came back.)
+    let in_text = (app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input())
+        || crate::script_view::has_keys(app, ui.ctx());
+    // (And a 2DA's, while the keys are in its grid: the table's own steps
+    // are taken back there, not the module's last change.)
+    let in_table = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Table);
+    // A command kept from the frame before (see below): run now.
+    if let Some(id) = app.command_after_text.take()
+        && id.enabled(app)
+    {
+        id.run(app, ui.ctx());
+    }
     for id in Id::all() {
-        if in_text && matches!(id, Id::Undo | Id::Redo) {
+        if (in_text || in_table) && matches!(id, Id::Undo | Id::Redo) {
             continue;
         }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));
         if pressed && id.enabled(app) {
-            id.run(app, ui.ctx());
+            // With a text field typed in that sets its text when the
+            // keyboard leaves it, the keyboard leaves it first and the
+            // command is run a frame on: one that closes the field's tab,
+            // goes to another or saves would else be done without what
+            // was typed.
+            if crate::widgets::leave_text(ui.ctx()) {
+                app.command_after_text = Some(id);
+                ui.ctx().request_repaint();
+            } else {
+                id.run(app, ui.ctx());
+            }
         }
     }
     // The plugins' commands, after the window's own: a key both have is
@@ -842,7 +914,8 @@ impl MenuKeys {
 /// The menu bar, from [`MENUS`]. By the mouse as egui has it, and: with a
 /// menu open, the pointer over another menu's name opens that one. By the
 /// keyboard: Alt (pressed and let go alone) or F10 opens the first menu,
-/// and closes the menus; Left and Right go from menu to menu, round the
+/// and closes the menus (F10 over an area's view is Select Tiles there,
+/// while that is its key); Left and Right go from menu to menu, round the
 /// ends; Up and Down from row to row, past separators and rows that can't
 /// be chosen; Enter or Space chooses; Right opens a submenu, Left closes
 /// it; Escape closes the submenu the keys are in, else the menus. Alt and
@@ -901,7 +974,13 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     } else if other || ctx.input(|i| i.modifiers.ctrl || i.modifiers.shift) {
         app.menu_alt_spoiled = true;
     }
-    let toggle = alt_released || ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F10));
+    // F10 with the pointer over an area's view is that view's while it is
+    // Select Tiles' key there (Aurora's), unless a menu is open to close.
+    let areas = std::mem::take(&mut app.area_hovered)
+        && app.menu_open.is_none()
+        && ctx.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles));
+    let toggle =
+        alt_released || (!areas && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F10)));
 
     let mut tops: Vec<(egui::Id, egui::Response)> = Vec::new();
     let mut keys = std::mem::take(&mut app.menu_keys);

@@ -72,8 +72,25 @@ fn walk(s: &Struct, prefix: &str, info: &mut TypeInfo, seen: &mut BTreeSet<Strin
     }
 }
 
+/// The game build of the install: the commit and date in a `build.txt`
+/// under `bin/` (each platform's has the same commit), as "26c6e57 of 6
+/// Oct 2025"-like text, or "unknown".
+fn game_build(root: &std::path::Path) -> String {
+    let text = ["linux-x86", "win32", "macos", "linux-arm64"]
+        .iter()
+        .find_map(|dir| std::fs::read_to_string(root.join("bin").join(dir).join("build.txt")).ok());
+    let Some(text) = text else { return "unknown".into() };
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    match (lines.next(), lines.next()) {
+        (Some(commit), Some(date)) => format!("{commit} ({date})"),
+        (Some(commit), None) => commit.into(),
+        _ => "unknown".into(),
+    }
+}
+
 fn main() {
     let root = mg_testkit::nwn_root().expect("no game install (set NWN_ROOT)");
+    let build = game_build(&root);
     let mut by_type: BTreeMap<String, TypeInfo> = BTreeMap::new();
     let mut add = |bytes: &[u8]| {
         let Ok(g) = Gff::read(bytes) else { return };
@@ -112,8 +129,9 @@ fn main() {
     println!("sources:");
     println!("  - id: game-data");
     println!(
-        "    resource: The GFF files of the installed game (NWN:EE) - base-game keys and the \
-         shipped modules and haks; read by crates/mg-corpus-tests/examples/observed_schema.rs"
+        "    resource: The GFF files of the installed game (NWN:EE, build {build}) - base-game \
+         keys and the shipped modules and haks; read by \
+         crates/mg-corpus-tests/examples/observed_schema.rs"
     );
     println!("    title: Shipped game data");
     println!("---\n");
@@ -125,6 +143,7 @@ fn main() {
     );
     println!("path (`List[]/Field` for list items), its GFF types with occurrence counts, the");
     println!("share of files that have it, and the struct ids seen (first 64 for lists).\n");
+    println!("Game build: {build}.\n");
     for (ty, info) in &by_type {
         println!("## {ty} ({} files)\n", info.files);
         println!("| Path | Types | Files | Struct ids |");

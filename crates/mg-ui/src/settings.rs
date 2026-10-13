@@ -60,6 +60,11 @@ pub struct Settings {
     pub hak_folders: Vec<(PathBuf, PathBuf)>,
     /// Options > General: Open a module on the area opened last is off.
     pub no_last_area: bool,
+    /// Options > General: Ask before the window is closed is off.
+    pub close_without_asking: bool,
+    /// Options > General: Next Tab and Previous Tab (Ctrl+Tab) go through
+    /// a pane's tabs in the order they were last used, not as they lie.
+    pub tabs_by_recent: bool,
     /// Options > General: Write a debug log (`trace`) is off. (It is
     /// written unless switched off: what was done before a crash is there
     /// to send without having asked for it beforehand.)
@@ -73,6 +78,11 @@ pub struct Settings {
     pub window_places: Vec<(String, String)>,
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
+    /// What each plugin's events were allowed, kept between runs: the
+    /// plugin (its id and version), the question as it was asked, and the
+    /// answer (`yes`, or `path:` and the folder chosen). Forgotten when
+    /// the plugin is disabled, removed or installed anew.
+    pub plugin_grants: Vec<(String, String, String)>,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected
@@ -157,6 +167,15 @@ pub struct Settings {
     /// Options > Script Editor: a script opened from the module tree opens
     /// in the external script editor as well.
     pub scripts_external: bool,
+    /// Options > Conversation Editor: its text's size in points (`None`:
+    /// the window's own).
+    pub dialog_font_size: Option<u8>,
+    /// Options > Script Editor: Open each script in a window of its own
+    /// (off: a script opens as a tab of the window scripts are open in).
+    pub scripts_own_windows: bool,
+    /// Options > Script Editor: and not in Moonglow's own editor, where
+    /// the script has a file of its own (a project's, a module folder's).
+    pub scripts_external_only: bool,
     /// Options > Script Editor: Code Templates Directory, listed with the
     /// game's (`data/scr`) and the user's `scripttemplates`.
     pub script_templates: Option<PathBuf>,

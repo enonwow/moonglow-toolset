@@ -75,7 +75,17 @@ fn set_field(what: &str, path: GffPath, label: &str, value: Value) -> Action {
     ))
 }
 
+/// The journal editor, over its OK and Cancel (`blueprint::ok_cancel`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    let targets = [(key(), mg_edit::GffPath::root())];
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    editor(app, ui);
+    let tab = crate::Tab::Journal;
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+}
+
+fn editor(app: &mut Moonglow, ui: &mut Ui) {
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
         return;

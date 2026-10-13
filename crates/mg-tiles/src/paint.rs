@@ -323,10 +323,7 @@ impl Grid {
             .iter()
             .enumerate()
             .map(|(k, tile)| {
-                let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
-                for _ in 0..turns % 4 {
-                    (c, r) = (-r, c);
-                }
+                let (c, r) = crate::group_slot(k, columns, turns);
                 let p = tile.map(|t| Placement { tile: t, orientation: turns % 4, height: 0 });
                 ((c, r), p)
             })

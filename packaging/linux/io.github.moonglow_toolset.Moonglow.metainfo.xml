@@ -45,6 +45,129 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.27.0" date="2026-10-13">
+      <description>
+        <p>The editors' windows have OK and Cancel, as Aurora's do: Cancel
+        sets back what was changed in the window since it was opened. The
+        conversation editor's text has a font size of its own in
+        Options.</p>
+      </description>
+    </release>
+    <release version="1.26.1" date="2026-10-13">
+      <description>
+        <p>Text typed in a field is kept when you switch to another
+        program and back. Shields are pictured from the front in the
+        galleries. The invisible object is selected by its own small
+        box.</p>
+      </description>
+    </release>
+    <release version="1.26.0" date="2026-10-13">
+      <description>
+        <p>A rectangular trigger is drawn by pressing Alt after the first
+        corner and clicking the corner opposite, Alt held or let go: on
+        Linux a click with Alt held often never reached the area. A
+        weapon's parts are chosen from pictures of the part alone. Export
+        Resources lists the module kind by kind. Ctrl+Z in the script
+        editor is always the editor's.</p>
+      </description>
+    </release>
+    <release version="1.25.1" date="2026-10-13">
+      <description>
+        <p>A rectangular trigger painted with the right Alt key held is
+        placed (it showed and was not).</p>
+      </description>
+    </release>
+    <release version="1.25.0" date="2026-10-13">
+      <description>
+        <p>A trigger's outline is drawn as a rectangle by two clicks,
+        with Alt held for the second. The ring that turns a trigger is
+        where the trigger is, and goes round with it.</p>
+      </description>
+    </release>
+    <release version="1.24.3" date="2026-10-13">
+      <description>
+        <p>Save, Close Tab and the other commands by their keys keep
+        what was typed in a field that had not been left.</p>
+      </description>
+    </release>
+    <release version="1.24.2" date="2026-10-13">
+      <description>
+        <p>Text typed in a name, tag or description field is kept when
+        another page is clicked or the window is closed. A new line in
+        the script editor begins as far in as the line before it.</p>
+      </description>
+    </release>
+    <release version="1.24.1" date="2026-10-12">
+      <description>
+        <p>mg tlk-export --base writes a talk table's lines numbered
+        from 0, for the game's own dialog.tlk.</p>
+      </description>
+    </release>
+    <release version="1.24.0" date="2026-10-12">
+      <description>
+        <p>Scripts open as tabs of one window. In the 2DA editor Ctrl+Z
+        takes back the table's own changes and a column is moved by
+        dragging its name. A pasted conversation line keeps the script
+        that says when it appears, and a script's parameters have room
+        to be read.</p>
+      </description>
+    </release>
+    <release version="1.23.1" date="2026-10-12">
+      <description>
+        <p>mg serve compiles the scripts of a module folder or a nasher
+        project before it serves it, and mg test counts a test that
+        stopped partway as an error. The 2DA editor can save a table
+        with one space between cells, and a selection in the script
+        editor ends at each line's last character.</p>
+      </description>
+    </release>
+    <release version="1.23.0" date="2026-10-12">
+      <description>
+        <p>A table of your own says what its columns hold, in a file
+        beside it: the 2DA editor shows values by name, offers lists and
+        flags to choose from and marks what is wrong, and mg 2da-check
+        and Verify Module hold tables to it. Several cells are selected,
+        copied and pasted between tables, a column is renamed or
+        removed, and the window asks before it closes.</p>
+      </description>
+    </release>
+    <release version="1.22.1" date="2026-10-12">
+      <description>
+        <p>A long list in a blueprint's page opens at what is chosen. A
+        creature given an appearance with a body of parts gets its
+        parts. An Ink story's choices are written as Inky reads them.
+        The 2DA editor adds rows by the number and deletes a row.</p>
+      </description>
+    </release>
+    <release version="1.22.0" date="2026-10-12">
+      <description>
+        <p>A 2DA editor: a table of the module, of a hak or in a file is
+        edited cell by cell, checked as it is typed, and takes rows from
+        another copy of itself. F6 goes from pane to pane, tabs can be
+        stepped through by most recent, mg build makes debug files, a
+        character past level 20 has the saves the game gives it, and Go
+        to Start Location on the toolbar opens the area the module
+        starts in.</p>
+      </description>
+    </release>
+    <release version="1.21.3" date="2026-10-12">
+      <description>
+        <p>Verify Module checks the feat, skill and spell lists a class,
+        a race or a package names. Compile All Scripts and mg compile
+        make debug files. The resource browser and Open Script take the
+        keyboard, a letter finds an area by its name in the module tree,
+        and a plugin's permissions are kept between runs.</p>
+      </description>
+    </release>
+    <release version="1.21.2" date="2026-10-11">
+      <description>
+        <p>Verify Module warns of a hak's 2DA row that names a row of
+        another table which is not there. The area's toolbar stays
+        inside a narrow tab, the talk table's list begins right under
+        its buttons, and a body part whose mesh is a skin is drawn as
+        the game draws it. mg watch --ndb makes debug files.</p>
+      </description>
+    </release>
     <release version="1.21.1" date="2026-10-11">
       <description>
         <p>The module tree's keys go into an area's placed objects, and

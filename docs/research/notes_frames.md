@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T02:02:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:29:02Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -14,8 +14,6 @@ sources:
   - id: metal-ci
     resource: https://github.com/jadzziaa/moonglow-toolset/actions/runs/37715321115
     title: The macOS job of a CI run that drew one scene with six variants of the lit shader (8 October 2026)
-verified:
-  - { by: claude-code/claude-opus-5-5, at: 2026-10-08T02:02:47Z }
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -26,6 +24,12 @@ development machine (Ryzen 7 5800X3D, Radeon RX 9070, a 3440×1440 screen at
 [the scale note](notes_scale.md) are of another kind (33 to 50 ms a frame,
 with the accessibility tree built): they say that nothing is slow, not that
 a frame is in time.
+
+The measurements below are of 7 and 8 October 2026 and were not taken
+again. The renderer has changed since: an MTR's `twosided` faces are drawn
+from behind too (d516013), cut-out textures and punch-through particles are
+cut at alpha 0.2 (327ef58, eb6eab3), and the editors copy and gather less
+every frame (b394486).
 
 ## How a frame is timed
 

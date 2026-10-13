@@ -50,3 +50,32 @@ mg-testkit.workspace = true
 
 [lints]
 workspace = true
+
+# Run by hand (every test in them is ignored: pictures and timings), so
+# `cargo test` does not link them; `cargo test -p mg-ui --test screens`
+# builds one as before. Clippy's --all-targets leaves them out too: CI and
+# CLAUDE.md name them to it.
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+test = false
+
+[[test]]
+name = "frame_perf"
+path = "tests/frame_perf.rs"
+test = false
+
+[[test]]
+name = "world_perf"
+path = "tests/world_perf.rs"
+test = false
+
+[[test]]
+name = "campaign_perf"
+path = "tests/campaign_perf.rs"
+test = false
+
+[[test]]
+name = "editor_perf"
+path = "tests/editor_perf.rs"
+test = false

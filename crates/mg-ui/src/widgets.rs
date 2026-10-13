@@ -698,7 +698,7 @@ pub(crate) fn resref_field(
     ui.horizontal(|ui| {
         let buf = app.buffers.entry(id).or_insert_with(|| current.to_string());
         let r = ui.add(egui::TextEdit::singleline(buf).id(id).desired_width(160.0).char_limit(16));
-        if !r.has_focus() && !r.lost_focus() && *buf != current.to_string() {
+        if !has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
             *buf = current.to_string();
         }
         if r.lost_focus() && *buf != current.to_string() {
@@ -860,6 +860,14 @@ pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token
     from_editor(&out, crlf)
 }
 
+/// Whether a widget has the keyboard, the window having it or not. (A
+/// response's own `has_focus` is false while another program has the
+/// keyboard: a field that takes that for "left" throws away what was
+/// typed in it when its window is left for another, by Alt + Tab.)
+pub(crate) fn has_keys(r: &egui::Response) -> bool {
+    r.ctx.memory(|m| m.has_focus(r.id))
+}
+
 /// A text field that commits when focus leaves it (one line, or several
 /// with their line-end style kept). Returns the new text then.
 pub(crate) fn commit_text(
@@ -870,19 +878,80 @@ pub(crate) fn commit_text(
     multiline: bool,
     width: f32,
 ) -> Option<String> {
+    commit_text_in(&mut app.buffers, ui, id, current, multiline.then_some(6), width)
+}
+
+/// [`commit_text`] with the buffers what is typed is kept in until then:
+/// several lines (`rows` of them shown) or one, `width` wide.
+pub(crate) fn commit_text_in(
+    buffers: &mut std::collections::HashMap<egui::Id, String>,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    rows: Option<usize>,
+    width: f32,
+) -> Option<String> {
     let (shown, crlf) = to_editor(current);
-    let buf = app.buffers.entry(id).or_insert_with(|| shown.clone());
-    let edit = if multiline {
-        egui::TextEdit::multiline(buf).desired_rows(6)
-    } else {
-        egui::TextEdit::singleline(buf)
+    let buf = buffers.entry(id).or_insert_with(|| shown.clone());
+    let edit = match rows {
+        Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
+        None => egui::TextEdit::singleline(buf),
     };
     let r = ui.add(edit.id(id).desired_width(width));
-    if !r.has_focus() && !r.lost_focus() && *buf != shown {
+    leaves_at_a_press(ui.ctx(), &r);
+    if !has_keys(&r) && !r.lost_focus() && *buf != shown {
         // Changed underneath (undo, another selection): show the value.
         *buf = shown.clone();
     }
     (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
+}
+
+fn press_leaves_id() -> egui::Id {
+    egui::Id::new("moonglow-text-left-at-a-press")
+}
+
+/// Says of a text field that sets its text when the keyboard leaves it
+/// (`r`, as drawn) that a press of the pointer anywhere else is to take
+/// the keyboard from it at once ([`text_begin`]).
+pub(crate) fn leaves_at_a_press(ctx: &egui::Context, r: &egui::Response) {
+    if has_keys(r) {
+        ctx.data_mut(|d| d.insert_temp(press_leaves_id(), (r.id, r.rect)));
+    }
+}
+
+/// Takes the keyboard from the text field that sets its text when the
+/// keyboard leaves it, if one has it: whether one had. It sets its text in
+/// the frame now drawn (a command that would take it away is run after:
+/// `commands::keys_pressed`).
+pub(crate) fn leave_text(ctx: &egui::Context) -> bool {
+    let held = ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(press_leaves_id()));
+    let Some((id, _)) = held.filter(|(id, _)| ctx.memory(|m| m.has_focus(*id))) else {
+        return false;
+    };
+    ctx.memory_mut(|m| m.surrender_focus(id));
+    true
+}
+
+/// Once a frame, before anything is drawn: a press of the pointer outside
+/// the text field that has the keyboard takes the keyboard from it now,
+/// while it is still drawn, so that it sets what was typed. The field
+/// alone would give the keyboard up at the click's end, by when what was
+/// clicked (another page's tab, its window's close button) may have taken
+/// the field away, and what was typed with it.
+pub(crate) fn text_begin(ctx: &egui::Context) {
+    let Some((id, rect)) = ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(press_leaves_id()))
+    else {
+        return;
+    };
+    if !ctx.memory(|m| m.has_focus(id)) {
+        return;
+    }
+    let pressed_elsewhere = ctx.input(|i| {
+        i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !rect.contains(p))
+    });
+    if pressed_elsewhere {
+        ctx.memory_mut(|m| m.surrender_focus(id));
+    }
 }
 
 /// A number field committed when it changes (a drag: when released). A
@@ -1000,6 +1069,21 @@ pub(crate) fn filter_keys(
     None
 }
 
+/// [`filter_keys`] for the filter field of a tab or a window that has no
+/// keys of its own for its list: Ctrl+F goes to the field while the
+/// pointer is over the tab (what of it shows: `ui`'s clip), and Escape
+/// clears it, then leaves it.
+pub(crate) fn pane_filter_keys(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    text: &mut String,
+) -> Option<FilterLeft> {
+    let find = ui.rect_contains_pointer(ui.clip_rect())
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    filter_keys(ui, id, text, find)
+}
+
 /// Two columns side by side where each gets at least `min` points, else one
 /// above the other (in a narrow tab or window, half the width would squeeze
 /// fixed-width fields into the other column): `add(ui, 0)` fills the first,
@@ -1102,6 +1186,98 @@ pub(crate) fn open_unless_escape<'a>(
         *open = false;
     }
     open
+}
+
+/// Whether copy, cut and paste were asked for this frame: egui's events,
+/// or Ctrl (Cmd) with C, X and V where it sends none.
+pub(crate) fn copy_cut_paste(ui: &egui::Ui) -> (bool, bool, bool) {
+    ui.input(|i| {
+        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
+        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
+        (
+            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
+            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
+            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
+        )
+    })
+}
+
+/// A window that asks for a new resource's name (New Script, New
+/// Conversation, Save Script As).
+pub(crate) struct NameWindow<'a> {
+    pub title: &'a str,
+    pub label: &'a str,
+    pub restype: mg_core::ResType,
+    /// What to say where the module has a resource of the name already.
+    pub taken: &'a str,
+    /// One of the name is replaced (said as a warning), not refused.
+    pub replaces: bool,
+    /// The button that takes the name ("Create", "Save").
+    pub button: &'a str,
+}
+
+/// What a [`NameWindow`] came to this frame.
+pub(crate) enum Named {
+    Open,
+    Cancelled,
+    Chosen(ResKey),
+}
+
+impl NameWindow<'_> {
+    /// Shows the window with `name` to type in: the name chosen (the
+    /// button, or Enter), or that it was cancelled.
+    pub(crate) fn show(
+        &self,
+        ctx: &egui::Context,
+        module: Option<&mg_module::Module>,
+        name: &mut String,
+    ) -> Named {
+        let mut out = Named::Open;
+        egui::Window::new(self.title)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(self.label);
+                let field = ui.add(egui::TextEdit::singleline(name).char_limit(16));
+                autofocus(ui, &field);
+                let key = mg_core::ResRef::from_str(name.trim())
+                    .ok()
+                    .filter(|r| !r.is_empty())
+                    .map(|r| ResKey::new(r, self.restype));
+                let exists = key.is_some_and(|k| module.is_some_and(|m| m.contains(&k)));
+                if exists {
+                    let color = match self.replaces {
+                        true => ui.visuals().warn_fg_color,
+                        false => ui.visuals().error_fg_color,
+                    };
+                    ui.colored_label(color, self.taken);
+                }
+                let may = key.is_some() && (self.replaces || !exists);
+                ui.horizontal(|ui| {
+                    if (ui.add_enabled(may, egui::Button::new(self.button)).clicked()
+                        || (may && enter(ui)))
+                        && let Some(k) = key
+                    {
+                        out = Named::Chosen(k);
+                    }
+                    if cancel(ui) {
+                        out = Named::Cancelled;
+                    }
+                });
+            });
+        out
+    }
+}
+
+/// A dialog: a window in the middle of the application's, which its
+/// close button or Escape closes (`open`).
+pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> egui::Window<'a> {
+    egui::Window::new(title)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .open(open_unless_escape(ctx, title, open))
 }
 
 /// Escape was pressed with no dialog open (for a window of the dock to

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-11T01:03:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T20:22:35Z }
 ---
 
 # Areas
@@ -22,9 +22,10 @@ looking straight down at their middle, north up, as in Aurora.
   way the character faces. To set it, right-click the ground where it
   should be and choose **Set Start Location Here**: it faces the way the
   view looks. Click the marker to select it (a yellow box, as round an
-  object). Drag it by its ring or its arrow to move it; selected, the
+  object; the game's invisible object, which has nothing to draw, has
+  the box its model holds undrawn, 0.6 m across, as Aurora outlines it). Drag it by its ring or its arrow to move it; selected, the
   arrow's tip has a round handle that turns it (both follow the snapping grid and
-  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it.
+  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls), to see and
   place what is under them (Aurora's Environment › Fade Geometry):
@@ -292,7 +293,14 @@ placed facing that way; a door faces as its hook does. Shift + click
 places it and keeps it chosen for another; a right click or Escape lets
 it go. Doors go on a tile's door hook when you click near one. Triggers
 and encounters are drawn point by point: click each corner, double-click
-to close the outline.
+to close the outline. For a rectangle, click one corner, press Alt (the
+rectangle to the pointer shows), then click the corner opposite: its
+sides run east and north, and it is placed at once (the same in
+**Redraw Polygon**). Alt may be held for the click or let go before it:
+on Linux, many window managers keep a click with Alt held for
+themselves, to move the window, and there it is let go first. Escape
+drops the outline, to begin again point by point. Turn the rectangle
+after, by its ring, if it is to lie another way.
 
 **Edit › Find Instance…** lists the placed objects across the module by
 kind, area, blueprint and tag; double-click one to go to it.
@@ -415,15 +423,14 @@ memory its models take.
 Right-click the area in the module tree › **Properties**, or **Area
 Properties** on the viewer's toolbar:
 
-- **Basic**: name, tag, the tileset (fixed once made), the lighting
-  scheme, the load screen, Variables.
-- **Visual**: day and night (or always one), the sun and moon colors,
+- **Basic**: name, the tileset (fixed once made) and the size.
+- **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
   fog colors and amounts, shadows, the skybox, lightning, rain and snow
   chances, as Aurora's Customize Environment sets them.
 - **Audio**: day and night ambient sounds and their volumes, music, battle
   music, the environment's sound effects.
-- **Events**, **Advanced** (flags such as interior, underground, natural,
-  no rest, PvP; **Shader Flags**, the area flags past those three, which
+- **Events**, **Advanced** (the tag, the loading screen, Variables; flags
+  such as interior, underground, natural, no rest, PvP; **Shader Flags**, the area flags past those three, which
   custom shaders read from their `areaFlags` uniform), **Comments**.
 
 ### Several areas together

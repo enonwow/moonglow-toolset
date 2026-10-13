@@ -361,20 +361,12 @@ const LOWER_PARTS: [(&str, &[&str], &str); 3] = [
     ("Robe", &["ArmorPart_Robe"], "parts_robe"),
 ];
 
-/// The colours of layered items and armor, and their palettes.
-const COLORS: [(&str, &str, &str); 6] = [
-    ("Cloth 1", "Cloth1Color", "pal_cloth01"),
-    ("Cloth 2", "Cloth2Color", "pal_cloth01"),
-    ("Leather 1", "Leather1Color", "pal_leath01"),
-    ("Leather 2", "Leather2Color", "pal_leath01"),
-    ("Metal 1", "Metal1Color", "pal_armor01"),
-    ("Metal 2", "Metal2Color", "pal_armor02"),
-];
-
 fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-colors", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-        for (i, (text, label, palette)) in COLORS.iter().enumerate() {
-            crate::widgets::field_label(ui, *text);
+        // The colors of layered items and armor, and their palettes.
+        for (i, channel) in mg_rules::items::ArmorChannel::ALL.into_iter().enumerate() {
+            let (text, label, palette) = (channel.name(), channel.field(), channel.palette());
+            crate::widgets::field_label(ui, text);
             f.palette_color(ui, Some(game), text, label, palette);
             if i % 2 == 1 {
                 ui.end_row();
@@ -412,7 +404,8 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-part-colors", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
         ui,
         |ui| {
-            for (channel, (_, _, palette)) in ArmorChannel::ALL.into_iter().zip(COLORS) {
+            for channel in ArmorChannel::ALL {
+                let palette = channel.palette();
                 let what = format!("{} {}", PARTS[part].1, channel.name());
                 let label = armor_part_color_label(part, channel);
                 let color = armor_part_color(&f.root, part, channel);
@@ -470,19 +463,52 @@ fn icon(f: &mut Form<'_>, ui: &Ui, game: &GameData, item: &Struct) -> Vec<crate:
     loader.item_icon_on(ui.ctx(), item, female)
 }
 
+/// One part of a composite item's icon alone (see
+/// [`crate::images::Loader::item_icon_part`]).
+fn part_icon(
+    f: &mut Form<'_>,
+    ui: &Ui,
+    game: &GameData,
+    item: &Struct,
+    part: (&str, &str),
+) -> Option<crate::images::Picture> {
+    let mut loader = crate::images::Loader {
+        pictures: &mut f.app.pictures,
+        palettes: &mut f.app.palettes,
+        ws: f.app.ws.as_ref(),
+        game,
+    };
+    loader.item_icon_part(ui.ctx(), item, part)
+}
+
 /// Aurora's icon grid: the icon of each model number, a click chooses it.
 fn icon_grid(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, numbers: &[u16]) {
-    part_grid(f, ui, game, numbers, ("Appearance", "ModelPart1"), 220.0);
+    part_grid(f, ui, game, numbers, ("Appearance", "ModelPart1"), None, 220.0);
 }
+
+/// The largest a composite item's part is drawn among its choices: a
+/// great sword's blade is 190 points in its icon, and three lists of those
+/// are more than a window.
+const PART_TALLEST: f32 = 96.0;
+
+/// The tallest the page's icon is drawn (half as large again as it is, a
+/// great sword's 285 points), and a model's among its choices: a hak's
+/// icon may be any size.
+const ICON_TALLEST: f32 = 300.0;
+const CHOICE_TALLEST: f32 = 128.0;
 
 /// The item's icon with each of `numbers` as its part `label` (named
 /// `what`), in a grid at most `height` tall: a click chooses the part.
+/// For a composite item's part (`letter` in its icons' names), that part
+/// alone and no more room than it fills: the icon is the whole item's
+/// size, most of it empty.
 fn part_grid(
     f: &mut Form<'_>,
     ui: &mut Ui,
     game: &GameData,
     numbers: &[u16],
     (what, label): (&str, &str),
+    letter: Option<&str>,
     height: f32,
 ) {
     let current = part_number(&f.root, label).unwrap_or(0);
@@ -504,9 +530,25 @@ fn part_grid(
         ui.horizontal_wrapped(|ui| {
             for &n in numbers {
                 let item = with_model(&f.root, label, n);
-                let layers = icon(f, ui, game, &item);
-                let r = crate::images::stacked(ui, &layers, 1.0, &format!("{what} {n}"))
-                    .on_hover_text(format!("{what} {n}"));
+                let alt = format!("{what} {n}");
+                let alone = letter.and_then(|l| part_icon(f, ui, game, &item, (label, l)));
+                let r = match alone {
+                    Some(p) => crate::images::cropped(ui, &p, PART_TALLEST, &alt),
+                    // A part with a model and no icon: its number.
+                    None if letter.is_some() => {
+                        let text = egui::RichText::new(n.to_string()).weak();
+                        let r = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+                        r.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &alt)
+                        });
+                        r
+                    }
+                    None => {
+                        let layers = icon(f, ui, game, &item);
+                        crate::images::stacked_drawn(ui, &layers, (1.0, CHOICE_TALLEST), &alt)
+                    }
+                }
+                .on_hover_text(alt);
                 tallest = tallest.max(r.rect.height());
                 if i64::from(n) == current {
                     let stroke = ui.visuals().selection.stroke;
@@ -539,12 +581,12 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
     let root = f.root.clone();
     let layers = icon(f, ui, game, &root);
     if beside {
-        crate::images::stacked(ui, &layers, 1.5, "Icon");
+        crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon");
     } else {
         // (The page's visible width: see `situated::beside_model`.)
         let seen = ui.available_width().min(ui.clip_rect().right() - ui.cursor().left());
         ui.horizontal_top(|ui| {
-            let icon = crate::images::stacked(ui, &layers, 1.5, "Icon").rect;
+            let icon = crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon").rect;
             let gap = ui.spacing().item_spacing.x;
             let size = egui::vec2(seen - icon.width() - 2.0 * gap, icon.height().max(MODEL_SHORT));
             ui.vertical(|ui| super::situated::inline_preview(f, ui, size));
@@ -642,7 +684,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                 }
                 ui.separator();
                 crate::widgets::field_label(ui, text);
-                part_grid(f, ui, game, &numbers, (text, label), 150.0);
+                part_grid(f, ui, game, &numbers, (text, label), Some(part), 150.0);
             }
         }
         // Armor: a part per body part (parts_*.2da), the robe and colours.
@@ -690,25 +732,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
         // Simple and layered: one model (layered ones take colours).
         kind => {
             let prefix = if class == "cloak" { String::new() } else { format!("{class}_") };
-            ui.horizontal(|ui| {
-                crate::widgets::field_label(ui, "Appearance");
-                if prefix.is_empty() {
-                    // Cloaks: cloakmodel.2da rows.
-                    let rows: Vec<u16> = game
-                        .table("cloakmodel")
-                        .map(|t| {
-                            (0..t.len())
-                                .filter(|&r| t.get(r, "LABEL").is_some())
-                                .map(|r| r as u16)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    part_choice(f, ui, "Appearance", &["ModelPart1"], &rows, |n| n.to_string());
-                } else {
-                    let numbers = icon_numbers(ui, game, &prefix);
-                    part_choice(f, ui, "Appearance", &["ModelPart1"], &numbers, |n| n.to_string());
-                }
-            });
+            // The numbers to choose from: a cloak's are cloakmodel.2da's
+            // rows, another item's those it has icons for.
             let numbers: Vec<u16> = if prefix.is_empty() {
                 game.table("cloakmodel")
                     .map(|t| {
@@ -721,6 +746,10 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             } else {
                 icon_numbers(ui, game, &prefix).to_vec()
             };
+            ui.horizontal(|ui| {
+                crate::widgets::field_label(ui, "Appearance");
+                part_choice(f, ui, "Appearance", &["ModelPart1"], &numbers, |n| n.to_string());
+            });
             icon_grid(f, ui, game, &numbers);
             if kind == 1 {
                 ui.separator();
@@ -869,20 +898,20 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         }
         f.app.actions.push(Action::Apply(Command::new(
             "Add property",
-            vec![Edit::InsertItem {
+            vec![Edit::insert_item(
                 key,
-                path: here.clone(),
-                list: "PropertiesList".into(),
-                index: assigned.len(),
-                item: property_struct(&p),
-            }],
+                here.clone(),
+                "PropertiesList",
+                assigned.len(),
+                property_struct(&p),
+            )],
         )));
         selected = Some(assigned.len());
     }
     if let Some(i) = remove {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove property",
-            vec![Edit::RemoveItem { key, path: here, list: "PropertiesList".into(), index: i }],
+            vec![Edit::remove_item(key, here, "PropertiesList", i)],
         )));
         selected = None;
     }

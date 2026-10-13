@@ -69,6 +69,19 @@ pub struct CreatureStats {
     pub max_hit_points: i32,
 }
 
+/// The levels a creature's saves come from its classes' tables for; past
+/// them they are epic levels.
+const EPIC_FROM: u32 = 20;
+
+/// The points the epic Great Charisma, Constitution, Dexterity,
+/// Intelligence, Wisdom and Strength feats add (feat.2da rows 764 to 823,
+/// ten of each, each a point), in [`ABILITIES`] order.
+fn great_abilities(feats: &[u16]) -> [i32; 6] {
+    // (Strength, Dexterity, Constitution, Intelligence, Wisdom, Charisma.)
+    const FIRST: [u16; 6] = [814, 784, 774, 794, 804, 764];
+    FIRST.map(|first| feats.iter().filter(|f| (first..first + 10).contains(f)).count() as i32)
+}
+
 /// An ability score's modifier.
 pub fn modifier(score: i32) -> i32 {
     (score - 10).div_euclid(2)
@@ -173,17 +186,34 @@ impl GameData {
     /// The Statistics page's numbers.
     pub fn creature_stats(&self, c: &CreatureSheet) -> CreatureStats {
         let racial = self.racial_adjustments(c.race);
-        let totals: [i32; 6] = std::array::from_fn(|i| c.abilities[i] + racial[i]);
+        // (The epic Great Strength… feats, each a point: the game counts
+        // them into the score itself, `engine_saves.rs`.)
+        let great = great_abilities(&c.feats);
+        let totals: [i32; 6] = std::array::from_fn(|i| c.abilities[i] + racial[i] + great[i]);
         let modifiers = totals.map(modifier);
         let level: u32 = c.classes.iter().map(|&(_, l)| l).sum();
         let has = |f: u16| c.feats.contains(&f);
 
+        // The classes' tables for the first 20 levels, in the classes'
+        // order; past them every two levels are a point on each save,
+        // whatever the classes (measured in the game: `engine_saves.rs`;
+        // Aurora adds each class's table at its full level, nwn-issues
+        // 816).
         let mut saves_base = [0; 3];
+        let mut left = EPIC_FROM;
         for &(class, lvl) in &c.classes {
-            let s = self.class_saves(class, lvl);
-            for i in 0..3 {
-                saves_base[i] += s[i];
+            let counted = lvl.min(left);
+            left -= counted;
+            if counted > 0 {
+                let s = self.class_saves(class, counted);
+                for i in 0..3 {
+                    saves_base[i] += s[i];
+                }
             }
+        }
+        let epic = (level.saturating_sub(EPIC_FROM) / 2) as i32;
+        for s in &mut saves_base {
+            *s += epic;
         }
         // Constitution, Dexterity, Wisdom; the save feats; luck.
         let mut saves_modifier = [modifiers[2], modifiers[1], modifiers[4]];
@@ -211,7 +241,9 @@ impl GameData {
         // Epic Toughness is the engine's to add: the toolset's maximum
         // leaves it out.
         let toughness = if has(feat::TOUGHNESS) { levels } else { 0 };
-        let hp_bonus = modifiers[2] * levels + toughness;
+        // (Nor does it count the Great Constitution feats: the stored
+        // maximum is Aurora's, by the Constitution the blueprint has.)
+        let hp_bonus = modifier(c.abilities[2] + racial[2]) * levels + toughness;
         CreatureStats {
             racial,
             totals,

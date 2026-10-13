@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, the compiler and the NUI Creator.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T19:20:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:16:54Z }
 ---
 
 # Scripts
@@ -32,6 +32,9 @@ Below the text are the **Compiler** messages: click one to go to its line.
 | F3 | find the next |
 | Ctrl+R | Replace |
 | F2, Ctrl+Space | complete the word at the cursor (functions, constants, variables) |
+| Enter | a new line, begun as far in as the line it is started from |
+| Tab, Shift+Tab | indent the selected lines; outdent them, or the cursor's line |
+| Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard |
 | F12, Ctrl+click | go to the definition of the name at the cursor |
 | Shift+F12 | list where the name at the cursor is used |
 | Ctrl+Shift+R | rename the name at the cursor everywhere |
@@ -43,8 +46,9 @@ Below the text are the **Compiler** messages: click one to go to its line.
 **Open…** on a script editor's toolbar opens another script: a list of
 them found by name, of the module's alone, its haks' alone or all of
 them with the game's (Aurora's Resources to Show). A click, or Enter
-for the first listed, opens one; the game's and a hak's open to be
-read. In **Find Text**, Enter finds the next match, again and again.
+for the first listed, opens one; Down and Up (Page Down, Page Up)
+choose another of those listed for Enter while the name is typed. The
+game's and a hak's open to be read. In **Find Text**, Enter finds the next match, again and again.
 **Find In Currently Open Scripts** lists every match in the scripts open
 now under Search Results, and **Find In Files** searches (and replaces
 in) every script in the module. A double click on a function's or a
@@ -139,7 +143,7 @@ doesn't count) isn't compiled on its own: it is compiled into the
 scripts that include it, and may lean on what they bring. (Aurora's
 build compiles include files too, and reports an error for one that
 doesn't compile alone.)
-Compile in its editor says so. **Generate Debug
+Compile, in an include file's own editor, says that it is one. **Generate Debug
 Information** (Options › Script Editor) also stores a `.ndb` with each
 compiled script, for script debuggers.
 

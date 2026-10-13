@@ -16,7 +16,7 @@ use mg_schema::{StructExt, ifo};
 use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, scratch_dir};
 
-mod common;
+use crate::common;
 use common::compile;
 
 #[test]

@@ -38,6 +38,8 @@ pub struct OptionsDraft {
     pub mod_beside_folder: bool,
     pub area_names: bool,
     pub last_area: bool,
+    pub tabs_by_recent: bool,
+    pub ask_before_closing: bool,
     pub debug_log: bool,
     pub name_resrefs: bool,
     pub palette_cr: bool,
@@ -58,6 +60,9 @@ pub struct OptionsDraft {
     pub auto_compile: bool,
     pub debug_info: bool,
     pub scripts_external: bool,
+    pub scripts_external_only: bool,
+    pub scripts_together: bool,
+    pub dialog_font_size: Option<u8>,
     pub script_templates: String,
     pub scratch_dir: String,
     pub external_editor: String,
@@ -119,6 +124,8 @@ impl OptionsDraft {
             mod_beside_folder: !s.no_mod_beside_folder,
             area_names: s.area_names,
             last_area: !s.no_last_area,
+            tabs_by_recent: s.tabs_by_recent,
+            ask_before_closing: !s.close_without_asking,
             debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
@@ -138,6 +145,9 @@ impl OptionsDraft {
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
             scripts_external: s.scripts_external,
+            scripts_external_only: s.scripts_external_only,
+            scripts_together: !s.scripts_own_windows,
+            dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
@@ -176,6 +186,8 @@ impl OptionsDraft {
             no_mod_beside_folder: !self.mod_beside_folder,
             area_names: self.area_names,
             no_last_area: !self.last_area,
+            tabs_by_recent: self.tabs_by_recent,
+            close_without_asking: !self.ask_before_closing,
             no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
@@ -196,6 +208,9 @@ impl OptionsDraft {
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
             scripts_external: self.scripts_external,
+            scripts_external_only: self.scripts_external_only,
+            scripts_own_windows: !self.scripts_together,
+            dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
@@ -252,6 +267,17 @@ enum Browse {
     Scratch,
 }
 
+/// A row for a folder or a program: its path to type, and Browse… to
+/// choose it (`which`, noted in `browse` for after the page is drawn).
+fn path_row(ui: &mut Ui, text: &mut String, browse: &mut Option<Browse>, which: Browse) {
+    ui.horizontal(|ui| {
+        ui.add(egui::TextEdit::singleline(text).desired_width(300.0));
+        if ui.button("Browse…").clicked() {
+            *browse = Some(which);
+        }
+    });
+}
+
 /// The Options tab: the buttons along the bottom, the pages listed beside,
 /// and the page scrolling in what is left. What is set is a draft until OK.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -274,14 +300,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.horizontal(|ui| {
                         if ui.button("OK").clicked() || (over && crate::widgets::enter(ui)) {
                             close = true;
-                            if draft.moves_game(&app.settings) {
+                            if draft.moves_game(&app.settings)
+                                || draft.edit_language != app.settings.edit_language
+                            {
+                                // (Another language: text is read again in
+                                // it, and the game's data where the install
+                                // has that language's.)
                                 app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
                             } else {
                                 // Only looks: no reload.
                                 app.settings = draft.apply(&app.settings);
-                                crate::text::set_edit_language(mg_core::Language(
-                                    app.settings.edit_language.unwrap_or(0),
-                                ));
                             }
                         }
                         // (Escape closes it too, as the window in front:
@@ -319,15 +347,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         OptionsPage::Keyboard => keyboard(ui, draft),
                         OptionsPage::Folders => {
                             crate::widgets::field_label(ui, "Neverwinter Nights installation");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.game_root)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Game);
-                                }
-                            });
+                            path_row(ui, &mut draft.game_root, &mut browse, Browse::Game);
                             match path(&draft.game_root) {
                                 Some(p) if GameInstall::is_install(&p) => {
                                     ui.weak("A game installation.")
@@ -351,15 +371,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ui,
                                 "NWN user folder (haks, override, modules)",
                             );
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.user_dir)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::User);
-                                }
-                            });
+                            path_row(ui, &mut draft.user_dir, &mut browse, Browse::User);
                             if path(&draft.user_dir).is_none() {
                                 match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
                                     Some(u) => ui.weak(format!("Empty: {}", u.display())),
@@ -368,15 +380,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                             ui.add_space(6.0);
                             crate::widgets::field_label(ui, "Scratch folder (To Scratch)");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.scratch_dir)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Scratch);
-                                }
-                            });
+                            path_row(ui, &mut draft.scratch_dir, &mut browse, Browse::Scratch);
                             ui.weak(
                                 "Where To Scratch copies a script (with its compiled script) or \
                                  an area as loose files: a development folder, a server's, or \
@@ -401,7 +405,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "A module opened as a folder is saved into the folder, and as \
                                  <folder>.mod next to it as well, as Aurora saves a module \
                                  directory: the game loads the .mod. (A nasher project has \
-                                 Build › Pack Target for its module file.)",
+                                 Build › Pack for its module file.)",
                             );
                             ui.checkbox(
                                 &mut draft.minimize_on_test,
@@ -442,6 +446,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_hover_text(
                                 "The first time, on the first area the module tree lists",
+                            );
+                            ui.checkbox(
+                                &mut draft.ask_before_closing,
+                                "Ask before the window is closed",
+                            )
+                            .on_hover_text(
+                                "The window's close button asks first, where there are no \
+                                 unsaved changes to ask about (File › Exit does not)",
+                            );
+                            ui.checkbox(
+                                &mut draft.tabs_by_recent,
+                                "Ctrl+Tab goes to the tab used last",
+                            )
+                            .on_hover_text(
+                                "Next Tab and Previous Tab go through a pane's tabs in the \
+                                 order they were last used, for as long as Ctrl is held; off, \
+                                 to the next tab as they lie",
                             );
                             let log = crate::trace::path()
                                 .map(|p| p.display().to_string())
@@ -616,6 +637,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Show popup when creating a new text entry",
                             );
                             ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Font size");
+                                let usual = egui::TextStyle::Body.resolve(ui.style()).size;
+                                let mut size =
+                                    draft.dialog_font_size.unwrap_or(usual.round() as u8);
+                                let field = egui::DragValue::new(&mut size).range(6..=48);
+                                if ui.add(field).changed() {
+                                    draft.dialog_font_size = Some(size);
+                                }
+                                if draft.dialog_font_size.is_some()
+                                    && ui.small_button("Default").clicked()
+                                {
+                                    draft.dialog_font_size = None;
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "The size of the conversation editor's text: its lines and the \
+                                 fields under them",
+                            );
                             for (label, color, default) in [
                                 ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
                                 ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
@@ -690,15 +731,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                         OptionsPage::ScriptEditor => {
                             crate::widgets::field_label(ui, "Code Templates Directory");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.script_templates)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Templates);
-                                }
-                            });
+                            path_row(
+                                ui,
+                                &mut draft.script_templates,
+                                &mut browse,
+                                Browse::Templates,
+                            );
                             ui.weak("Listed with the game's (data/scr) and scripttemplates.");
                             ui.checkbox(
                                 &mut draft.auto_compile,
@@ -709,16 +747,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Generate Debug Information When Compiling Scripts",
                             )
                             .on_hover_text("Store a .ndb with each compiled script, for debuggers");
+                            ui.checkbox(
+                                &mut draft.scripts_together,
+                                "Open scripts as tabs of one window",
+                            )
+                            .on_hover_text(
+                                "A script opens as a tab of the window scripts are open in \
+                                 already; off, each in a window of its own. (A tab dragged out \
+                                 is a window of its own again, and scripts docked in the \
+                                 middle open there either way)",
+                            );
                             crate::widgets::field_label(ui, "External Script Editor");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut draft.external_editor)
-                                        .desired_width(300.0),
-                                );
-                                if ui.button("Browse…").clicked() {
-                                    browse = Some(Browse::Editor);
-                                }
-                            });
+                            path_row(ui, &mut draft.external_editor, &mut browse, Browse::Editor);
                             ui.add_enabled(
                                 !draft.external_editor.trim().is_empty(),
                                 egui::Checkbox::new(
@@ -731,6 +771,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  editor too; what it saves comes back into Moonglow's editor",
                             )
                             .on_disabled_hover_text("Choose an external script editor first");
+                            ui.add_enabled(
+                                draft.scripts_external && !draft.external_editor.trim().is_empty(),
+                                egui::Checkbox::new(
+                                    &mut draft.scripts_external_only,
+                                    "…and not in Moonglow's editor",
+                                ),
+                            )
+                            .on_hover_text(
+                                "Only the external editor opens, for a script kept as a file \
+                                 of its own (a nasher project's, a module folder's), whose \
+                                 saves Moonglow reads as it does files changed outside. A \
+                                 script in a .mod file still opens in Moonglow's editor too: \
+                                 that is how what the external editor saves comes back",
+                            )
+                            .on_disabled_hover_text("With Open scripts in the external editor");
                             crate::widgets::field_label(ui, "External Script Compiler");
                             ui.horizontal(|ui| {
                                 ui.add(
@@ -1029,10 +1084,40 @@ mod tests {
         let s = Settings::default();
         let mut d = OptionsDraft::from_settings(&s);
         d.script_style.colors[3] = Some([255, 0, 0]);
+        d.dialog_font_size = Some(18);
         assert!(!d.moves_game(&s));
         assert_eq!(d.apply(&s).script_style.colors[3], Some([255, 0, 0]));
+        assert_eq!(d.apply(&s).dialog_font_size, Some(18));
         d.game_root = "/games/nwn".into();
         assert!(d.moves_game(&s));
+    }
+
+    /// Options › Language alone, OK: applied as a language is (text fields
+    /// are read again in it), not as a look.
+    #[test]
+    fn another_language_alone_is_applied_as_one() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        // (No game here, whatever this machine has: nothing to read again.)
+        app.settings.game_root = Some(mg_testkit::scratch_dir("ui-options-language"));
+        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h.state_mut().actions.push(Action::OptionsDialog);
+        h.run();
+        let field = egui::Id::new("a field's text, in English");
+        h.state_mut().buffers.insert(field, "English".into());
+        h.get_by_label("Language").click();
+        h.run();
+        h.get_by_label("Specified Language:").click();
+        h.run();
+        h.get_by_label("German").click();
+        h.run();
+        h.get_by_label("OK").click();
+        h.run();
+        crate::text::set_edit_language(mg_core::Language::ENGLISH);
+        assert_eq!(h.state().settings.edit_language, Some(mg_core::Language::GERMAN.0));
+        assert!(!h.state().buffers.contains_key(&field), "its text is the other language's");
     }
 
     #[test]

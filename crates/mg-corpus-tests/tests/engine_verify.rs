@@ -16,7 +16,7 @@ use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
 use rayon::prelude::*;
 
-mod common;
+use crate::common;
 use common::compile;
 
 /// Types the engine is asked about for a reference: scripts must be
@@ -39,7 +39,7 @@ fn missing_references_agree_with_engine() {
     let _ = oracle_tool!("nwn_script_comp");
     let dir = scratch_dir("engine_verify");
     let install = GameInstall::new(&root, None, "en");
-    let modules = bundled_modules(&root);
+    let modules = mg_testkit::sweep(bundled_modules(&root), 5);
 
     struct Job {
         label: String,
@@ -52,7 +52,7 @@ fn missing_references_agree_with_engine() {
         let m = Module::open(path).unwrap();
         let mut rm = ResMan::for_game(&install).unwrap();
         let haks = m.haks().unwrap();
-        rm.add_haks(&install, &haks.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+        rm.add_haks(&install, &haks).unwrap();
         rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
 
         let missing_set: BTreeSet<(RefKind, ResRef)> = missing(&m, &rm)

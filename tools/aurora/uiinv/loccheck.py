@@ -1,9 +1,16 @@
-import json,struct,re,sys
-d=json.load(open('tlk/dialog.json'))
-T={e['id']:e.get('text','') for e in d['entries']}
-b=open('../exe/.data','rb').read()
-L=json.load(open('locbases.json'))
-forms=json.load(open('forms.json'))
+#!/usr/bin/env python3
+"""Show a form's controls against the StrRef table matchloc.py chose for it:
+the DFM caption beside the talk table's (`<<` where they differ). How the
+ambiguous tables were settled by eye (`mapping.py`'s LOC_OVERRIDE).
+
+    python3 tools/aurora/uiinv/loccheck.py TDLGOPTIONS [FORM...]
+"""
+import struct,re,sys
+import common
+T=common.tlk()
+b=common.exe_data()
+L=common.locbases()
+forms=common.forms()
 def norm(s): return re.sub(r'[^a-z0-9]','',s.replace('&','').lower())
 def walk(c,acc):
     p=c['props']; t=p.get('Tag')

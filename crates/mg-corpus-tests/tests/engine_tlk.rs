@@ -17,7 +17,7 @@ use mg_testkit::engine::{run_server, server_binary};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 use mg_tlk::{FLAG_SOUND, Tlk, TlkEntry};
 
-mod common;
+use crate::common;
 use common::probe_module;
 
 const PROBE: &str = r#"void Say(string sName, int nStrRef, int nGender)

@@ -3,7 +3,6 @@
 //! `mg set` prints is a file `mg apply` reads.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use mg_core::{LocString, LocStringKey, StrRef};
 use mg_gff::{Gff, Struct, Value};
@@ -38,11 +37,7 @@ fn guard(module: &Path) -> Struct {
 }
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    let out = Command::new(env!("CARGO_BIN_EXE_mg"))
-        .args(["--no-user-dir", "--json"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = crate::mg().args(["--no-user-dir", "--json"]).args(args).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
     let json = serde_json::from_slice(&out.stdout)

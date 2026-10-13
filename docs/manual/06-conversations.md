@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:20Z }
 ---
 
 # Conversations
@@ -32,7 +32,7 @@ Aurora (Options › Keyboard changes Add's and Delete's keys).
 | --- | --- |
 | Add | a reply to the selected line (an NPC line under Root or a player line, a player line under an NPC line) |
 | Copy, Cut | the selected line and everything under it |
-| Paste | the copied lines as new lines under the selected one |
+| Paste | the copied lines as new lines under the selected one, appearing when the copied line did (its **Text Appears When** script and parameters) |
 | Paste As Link | a link to the copied line under the selected one |
 | ⏶ and ⏷ (Alt+Up, Alt+Down) | move the selected line up or down among its parent's lines: the order the game tries a speaker's lines in and lists a player's replies in |
 | Delete | the selected line and everything under it (a link: just the link) |
@@ -116,8 +116,9 @@ written in those tools and brought in. The mapping:
 - **Player replies** are a passage's links or a knot's choices, leading
   to the next NPC line or to `END`.
   - Twine: `[[Who are you? {if c_curious} {do a_note}->E5]]`.
-  - Ink: `+ {c_curious} [Who are you?] -> E5 # do:a_note`, the condition
-    declared with `VAR c_curious = true`.
+  - Ink: `+ {c_curious} [Who are you?] # do:a_note -> E5`, the condition
+    declared with `VAR c_curious = true` (tags before the divert, as
+    Inky wants them; the other order is read too).
   - An empty reply is `(Continue)`.
 - **Several NPC lines to choose from** (the first whose condition passes
   is said):
