@@ -45,11 +45,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Author NUI windows, check their API contract and compile their scripts.
-    Nui {
-        #[command(subcommand)]
-        cmd: nui::NuiCmd,
-    },
     /// List the contents of an ERF archive (mod, hak, erf, nwm, sav).
     Ls { archive: PathBuf },
     /// Unpack an ERF archive into a directory.
@@ -107,6 +102,12 @@ enum Cmd {
     Plugin {
         #[command(subcommand)]
         cmd: PluginCmd,
+    },
+    /// NUI windows, as the NUI Creator makes them: add one to a module,
+    /// check one, write and compile one's scripts.
+    Nui {
+        #[command(subcommand)]
+        cmd: nui::NuiCmd,
     },
     /// List the checks `verify` makes of custom content: each one's id (a
     /// finding's "check" with --json) and what it holds to be true.
@@ -941,17 +942,6 @@ fn talk_table(path: &Path, make: bool) -> Result<mg_module::talk::Table> {
 }
 
 fn main() -> ExitCode {
-    // `run`'s one match over every command takes more than Windows' 1 MB main
-    // stack in a debug build: it runs on a thread of its own with room.
-    std::thread::Builder::new()
-        .stack_size(16 << 20)
-        .spawn(cli_main)
-        .expect("start the command's thread")
-        .join()
-        .unwrap_or(ExitCode::FAILURE)
-}
-
-fn cli_main() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;
     let result = run(&cli).and_then(|out| {
@@ -1026,7 +1016,6 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
-        Cmd::Nui { cmd } => nui::run(cli, cmd)?,
         Cmd::Ls { archive } => {
             let data = std::fs::read(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
@@ -1261,6 +1250,7 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             PluginCmd::Remove { id, folder } => plugins::remove(id, folder)?,
         },
+        Cmd::Nui { cmd } => nui::run(cli, cmd)?,
         Cmd::Checks => {
             use mg_module::doctor::Check;
             let mut out = Output::new(json!({

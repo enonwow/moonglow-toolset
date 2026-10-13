@@ -14,7 +14,7 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Areas](04-areas.md) - Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 * [Blueprints](05-blueprints.md) - Blueprints - palettes, the blueprint editors and wizards, and instances.
 * [Conversations](06-conversations.md) - Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
-* [Scripts](07-scripts.md) - Scripts - the script editor, finding your way in code, the compiler and the NUI Creator.
+* [Scripts](07-scripts.md) - Scripts - the script editor, finding your way in code, and the compiler.
 * [Journal and factions](08-journal-and-factions.md) - The Journal Editor and the Faction Editor.
 * [Build, verify and test](09-build-and-test.md) - Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 * [Options](10-options.md) - The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
@@ -25,3 +25,4 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Plugins](15-plugins.md) - Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 * [Writing plugins](16-writing-plugins.md) - Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 * [Plugin API reference](17-plugin-api.md) - Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
+* [NUI Creator](18-nui-creator.md) - The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.

@@ -28,6 +28,8 @@ mod minimap;
 mod models;
 #[path = "../nasher.rs"]
 mod nasher;
+#[path = "../nui.rs"]
+mod nui;
 #[path = "../plugins.rs"]
 mod plugins;
 #[path = "../replace.rs"]

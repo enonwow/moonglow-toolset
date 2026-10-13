@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:30:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:39:56Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -148,13 +148,14 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-tiles` | the tile grid over a lattice of corners, tile fitting, and terrain painting with the SET's rules |
 | `mg-module` | module workspace: open/save, working copy, palettes, reference graph, verify and the content doctor, build, import/export, haks/TLK, nasher projects |
 | `mg-edit` | editor core: the undoable workspace, commands with their inverses, edits as JSON (no UI) |
+| `mg-nui` | NUI windows: the JUI document and its settings, the checks against the stock `nw_inc_nui` API and what the client does, and the generated opener and event scripts (`mg nui`; the manual's `18-nui-creator.md`) |
 | `mg-plugin` | plugins: manifests, and a sandboxed Luau runtime in which a plugin's commands and checks read a module and hand back edits and findings (the API in `docs/manual/17-plugin-api.md`; the decisions in `docs/plugin-proposal.md`) |
 | `mg-serve` | the game's headless server run on a module: private unless asked, a user directory of the caller's, its log followed, its console on a pipe (`mg serve`, `mg test`, the engine tests) |
 | `mg-render` | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles |
 | `mg-preview` | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
 | `mg-area` | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area; picking, arranging, reshaping and the walkmesh |
 | `mg-ui` | egui widgets and editors |
-| `apps/mg` | the command line: 43 commands (`mg --help`; the manual's `11-command-line.md`), each able to answer in JSON |
+| `apps/mg` | the command line: 44 commands (`mg --help`; the manual's `11-command-line.md`), each able to answer in JSON |
 | `apps/moonglow` | the GUI application |
 
 Test support: `mg-testkit` (corpus locator, oracle tools, engine runner),

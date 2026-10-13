@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:39:56Z }
 ---
 
 # Options
@@ -193,7 +193,7 @@ changes).
 ## Keyboard
 
 Every command and its keys, by where it works (anywhere, the area view,
-the script editor, the conversation editor). Every command of the menus
+the script editor, the conversation editor, the NUI Creator). Every command of the menus
 is listed, in the menus' order, whether it has a key or not: give Build
 Module or Verify Module one here. **Find a command** narrows the list to
 what you type (a command's name, or its group's).
@@ -207,6 +207,10 @@ what you type (a command's name, or its group's).
   the rest of Options, OK keeps them.
 - **Conflicts:** a key two commands share where both work is named above
   the list. (A key of the whole window wins over the editors' own.)
+- **NUI Creator** holds the keys of its Design page: Delete Element
+  (Delete), Duplicate Element (Ctrl+D), Move Element Up and Down
+  (Alt+Up, Alt+Down), Select Previous and Next Element (Up, Down). See
+  [NUI Creator](18-nui-creator.md).
 - The commands of enabled [plugins](15-plugins.md) are listed under
   **Plugins**, with the key each plugin suggests; they take keys like
   any other.

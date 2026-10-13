@@ -135,6 +135,11 @@ fn every_command_answers_in_json() {
     std::fs::write(dir.join("tcn01.set"), set).unwrap();
     let pal = ok(&["tileset-palette", &at("tcn01.set")]);
     assert!(pal["groups"].as_u64().unwrap() > 10 && dir.join("tcn01palstd.itp").is_file());
+    // A NUI window: added, checked, its scripts written.
+    assert_eq!(ok(&["nui", "new", c, "mg_window"])["saved"], true);
+    assert_eq!(ok(&["nui", "validate", c, "mg_window"])["errors"], 0);
+    let generated = ok(&["nui", "generate", c, "mg_window"]);
+    assert!(generated["resources"].as_array().unwrap().iter().any(|r| r == "mg_window_e.ncs"));
     let synced = ok(&["nwsync", c, &at("repo"), "--with-module"]);
     assert_eq!(synced["sha1"].as_str().unwrap().len(), 40);
     assert!(synced["files"].as_u64().unwrap() > 100);

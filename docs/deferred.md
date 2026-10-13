@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:37:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:42:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1463,6 +1463,99 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Sharing key sets:** Options › Keyboard › Export… and Import… write
   and take the keys chosen as a file; the dialogs themselves weren't
   driven.
+
+## NUI Creator (the review of its pull request, October 2026)
+
+The NUI Creator came as a contributor's pull request and was brought in
+line with the codebase before it was merged. This is what that review
+left, found by reading unless it says so, and after it what the
+contribution itself states as not done or not checked.
+
+- **Build has its own compiler path** (`mg_nui::generate`,
+  `crates/mg-nui/src/script.rs`): it compiles with its own
+  `mg_script::Compiler` instead of `mg_module::build`, so the
+  external-compiler option is ignored, no `.ndb` is written and the
+  compile memory is not updated; the scripts that include the opener are
+  found by a substring search rather than `mg_module::refs::includers`.
+  (M)
+- **Errors as strings, a severity twice** (`crates/mg-nui/src/lib.rs`,
+  `validate.rs`):
+  `mg-nui`'s public API returns `Result<_, String>` rather than a typed
+  error, and its `Severity` duplicates `mg_module::doctor::Severity`. (S)
+- **The settings TXT and the JUI are not edited losslessly**
+  (`crates/mg-nui/src/actions.rs`, `lib.rs`): unknown fields on a
+  handler (`Route`) are dropped and an unknown action tag fails the
+  parse; the JUI reader rejects duplicate keys, and a structured edit
+  prints the whole file again. (M)
+- **Code kept for versions that were never released**
+  (`crates/mg-nui/src/script.rs`, `actions.rs`, `validate.rs`):
+  `LEGACY_EVENTS`, `plain_guards`, the `+` suffix of a handler's key,
+  the warning from before the Close handler, and the "Clip to control"
+  fix-up. The manual's sentences about scripts "an older Moonglow
+  wrote" describe the same. (S)
+- **Functions too long to read:** `Renderer::node`
+  (`crates/mg-ui/src/nui_view/preview.rs`) is 1,350 lines and
+  `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490; pages and
+  operations are magic numbers. (M)
+- **Tests in the wrong places:** about 6,700 lines of tests live under
+  `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
+  `crates/mg-ui/tests/`; `mg-nui`'s unit tests are all in
+  `crates/mg-nui/tests/authoring.rs`, and the ones reading the install
+  belong in `mg-corpus-tests`. (M)
+- **No tests of bad input or of an untouched file:** nothing feeds
+  truncated or garbage text to `Settings::parse`
+  (`crates/mg-nui/src/lib.rs`) and the event script's section parser
+  (`actions.rs`), and nothing shows
+  that an untouched JUI round-trips byte for byte. (S)
+- **What the checks say of the client is tested nowhere**
+  (`crates/mg-nui/src/validate.rs`): the checks that cite the client's
+  behavior (NWN EE 8193.37) have no engine or client test, so a game
+  update that changes one goes unseen. Probes the file names as open:
+  roots other than a row, column or group, window IDs with punctuation,
+  and the shape of an arc's center. (M)
+- **Fields and headings not the toolset's**
+  (`crates/mg-ui/src/nui_view/`): fields commit on every keystroke
+  rather than through `widgets::commit_text` and `drag_number`; labels
+  and headings do not use `widgets::field_label` and `section_heading`;
+  the editor has no OK and Cancel row (`blueprint::ok_cancel`); New NUI
+  is a landing tab rather than `widgets::NameWindow`. (M)
+- **A window's companions do not follow it** (the module tree's Rename
+  and Delete, `crates/mg-ui/src/references.rs`): renaming or deleting a window does not carry
+  its `.txt`, `_o.nss`, `_e.nss` and `_e.ncs`. (S)
+- **Keys taken its own way** (`crates/mg-ui/src/nui_view.rs`): shortcuts
+  are consumed with `keymap.consume` and a hand-made clipboard filter
+  rather than as `dialog_view` does (`widgets::copy_cut_paste`); Left
+  and Right are outside the keymap, so Options › Keyboard cannot change
+  them. (S)
+- **The preview does not clip as the client does**
+  (`crates/mg-ui/src/nui_view/preview.rs`; the manual says so). (M)
+- **Where the preview is known to differ from the game** (stated in
+  [the manual](manual/18-nui-creator.md);
+  `crates/mg-ui/src/nui_view/preview.rs`): after a control with a width
+  of its own, rows of buttons without widths make the game pick a
+  narrower width than the preview's (308 against 462 in the case
+  measured); at a UI scale that isn't whole, the preview's rows drift
+  from the game's by up to a pixel each (the game rounds each scaled
+  size down); an encouraged control shows its hover look and does not
+  pulse; numbers in text are shown to 16 digits. (S each)
+- **Interact does not run the window** (stated in the manual): handlers
+  are NWScript and run only in the game, so event timing, and the
+  game's own layout solver, are seen only in Test Module. (L, if at
+  all)
+- **Resizing leaves bound and template sizes** (stated in the manual;
+  `crates/mg-ui/src/nui_view/design.rs`): a resize gesture does not
+  replace a dimension that is a bind, and a list template's cell gets
+  its width in the cell's settings or the JUI source, not by a handle.
+  (S)
+- **Export leaves pictures behind** (stated in the manual;
+  `crates/mg-ui/src/nui_view.rs`): Export… takes the pictures the
+  module holds; those a window uses from a hak or the game are not
+  copied, and nothing says which a client would miss. (S)
+- **Nothing short of the game proves a window** (`apps/mg/src/nui.rs`,
+  `crates/mg-nui/src/validate.rs`): `mg nui validate` and `generate`,
+  like the checks and Build in the editor, check the document and
+  compile its scripts; that the game builds the window and draws it as
+  previewed is seen only in the client (Test Module). (L, if at all)
 
 ## Automation
 

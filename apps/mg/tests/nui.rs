@@ -1,76 +1,210 @@
-//! Real CLI round trips. Every write stays in a disposable module in target.
+//! `mg nui`, on a module made here: a window is added, checked and its
+//! scripts written and compiled; `validate` changes nothing and reports as
+//! `mg verify` does; what fails, and `--dry-run`, leave the module as it
+//! was.
+
+use std::path::{Path, PathBuf};
+
 use mg_core::ResType;
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
-use serde_json::Value;
-use std::process::Command;
+use mg_resman::ResKey;
+use serde_json::{Value, json};
+
+/// An empty module in a scratch folder of its own.
+fn module(test: &str) -> PathBuf {
+    let path = mg_testkit::scratch_dir(test).join("keep.mod");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    path
+}
+
+fn key(name: &str) -> ResKey {
+    ResKey::from_filename(name).unwrap()
+}
+
+fn output(root: Option<&Path>, args: &[&str]) -> std::process::Output {
+    let mut mg = crate::mg();
+    if let Some(root) = root {
+        mg.arg("--root").arg(root);
+    }
+    mg.arg("--no-user-dir").args(args).output().unwrap()
+}
+
+/// `mg --json nui …`: whether it succeeded, and what it printed. Nothing
+/// goes to standard error.
+fn mg(root: Option<&Path>, args: &[&str]) -> (bool, Value) {
+    let args: Vec<&str> = ["--json", "nui"].iter().chain(args).copied().collect();
+    let out = output(root, &args);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
+    let json = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    (out.status.success(), json)
+}
 
 #[test]
-fn nui_cli_creates_validates_compiles_and_does_not_save_failures() {
-    let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("nui-cli");
-    let path = dir.join("fixture.mod");
-    let mut module = Module::new();
-    module.set_info(&Gff::new(*b"IFO ")).unwrap();
-    module.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let run = |verb: &str| {
-        Command::new(env!("CARGO_BIN_EXE_mg"))
-            .arg("--root")
-            .arg(&root)
-            .args(["--no-user-dir", "--json", "nui", verb])
-            .arg(&path)
-            .arg("cli_window")
-            .output()
-            .unwrap()
-    };
-    assert!(run("new").status.success());
-    let created = std::fs::read(&path).unwrap();
-    let checked = run("validate");
-    assert!(checked.status.success());
-    let json: Value = serde_json::from_slice(&checked.stdout).unwrap();
-    assert_eq!(json["runtime_verified"], false);
-    assert_eq!(std::fs::read(&path).unwrap(), created, "validate is read-only");
-    let compiled = run("generate");
-    assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stdout));
-    let mut module = Module::open(&path).unwrap();
-    assert!(module.get(&mg_nui::key("cli_window_o", ResType::NCS)).is_none());
-    assert!(module.get(&mg_nui::key("cli_window_e", ResType::NCS)).is_some());
-    let generated_bytes = std::fs::read(&path).unwrap();
-    let repeated = run("generate");
-    assert!(repeated.status.success());
-    assert_eq!(serde_json::from_slice::<Value>(&repeated.stdout).unwrap()["saved"], false);
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        generated_bytes,
-        "unchanged generation should not rewrite the archive"
-    );
-    module.set(
-        mg_nui::key("cli_window_e", ResType::NSS),
-        b"void main() { InvalidFunction(); }".to_vec(),
-    );
-    module.save().unwrap();
+fn a_new_window_is_saved_and_passes_the_checks() {
+    let path = module("mg-nui-new");
+    let p = path.to_str().unwrap();
+    let (ok, made) = mg(None, &["new", p, "shop"]);
+    assert!(ok, "{made}");
+    assert_eq!(made["resources"], json!(["shop.jui", "shop.txt"]));
+    assert_eq!((&made["saved"], &made["dry_run"]), (&json!(true), &json!(false)));
+    let m = Module::open(&path).unwrap();
+    assert!(m.contains(&key("shop.jui")) && m.contains(&key("shop.txt")));
+
+    let (ok, checked) = mg(None, &["validate", p, "shop"]);
+    assert!(ok, "{checked}");
+    assert_eq!((&checked["errors"], &checked["warnings"]), (&json!(0), &json!(0)));
+    assert_eq!(checked["findings"], json!([]));
+}
+
+#[test]
+fn new_refuses_a_window_the_module_has_and_a_name_too_long() {
+    let path = module("mg-nui-refused");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
     let before = std::fs::read(&path).unwrap();
-    assert!(!run("generate").status.success());
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        before,
-        "compile failure must not save a partial result"
-    );
-    assert!(!run("new").status.success(), "must reject existing resources");
+    let (ok, again) = mg(None, &["new", p, "shop"]);
+    assert!(!ok && again["error"].as_str().unwrap().contains("shop.jui"), "{again}");
+    // (Fourteen characters at most: the scripts' names add two.)
+    let (ok, long) = mg(None, &["new", p, "a_name_of_15_ch"]);
+    assert!(!ok && long["error"].as_str().unwrap().contains("a_name_of_15_ch"), "{long}");
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    // Module::save may leave its one rollback backup; all files in this
-    // dedicated test directory were produced by this test.
-    let expected = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
-        .join("target/test-output/nui-cli");
-    assert_eq!(dir.canonicalize().unwrap(), expected);
-    assert!(!std::fs::symlink_metadata(&dir).unwrap().file_type().is_symlink());
-    for entry in std::fs::read_dir(&dir).unwrap() {
-        let entry = entry.unwrap();
-        assert!(entry.file_type().unwrap().is_file());
-        std::fs::remove_file(entry.path()).unwrap();
+}
+
+#[test]
+fn validate_reports_problems_as_verify_does_and_changes_nothing() {
+    let path = module("mg-nui-validate");
+    let p = path.to_str().unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(
+        key("broken.jui"),
+        br#"{"version": 2, "root": {"type": "row", "children": []}}"#.to_vec(),
+    );
+    m.save().unwrap();
+    let before = std::fs::read(&path).unwrap();
+
+    let (ok, checked) = mg(None, &["validate", p, "broken"]);
+    assert!(!ok, "{checked}");
+    assert!(checked["errors"].as_u64().unwrap() >= 1, "{checked}");
+    let findings = checked["findings"].as_array().unwrap();
+    assert_eq!(
+        findings.len() as u64,
+        checked["errors"].as_u64().unwrap() + checked["warnings"].as_u64().unwrap()
+    );
+    let version = findings.iter().find(|f| f["path"] == "/version").unwrap();
+    assert_eq!(version["severity"], "error");
+    assert!(version["message"].as_str().unwrap().contains("version 1"));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    // For people: a line each on standard output, and the failure said.
+    let out = output(None, &["nui", "validate", p, "broken"]);
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.lines().any(|l| l.starts_with("error\t/version: ")), "{text}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("broken.jui has errors"));
+
+    let (ok, missing) = mg(None, &["validate", p, "nowhere"]);
+    assert!(!ok && missing["error"].as_str().unwrap().contains("nowhere.jui"), "{missing}");
+}
+
+#[test]
+fn validate_checks_a_window_of_any_name() {
+    let path = module("mg-nui-any-name");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    // Sixteen characters: a name `new` would not give one.
+    let mut m = Module::open(&path).unwrap();
+    for ext in ["jui", "txt"] {
+        let data = m.get(&key(&format!("shop.{ext}"))).unwrap().to_vec();
+        m.set(key(&format!("a_name_of_16_chr.{ext}")), data);
     }
-    std::fs::remove_dir(&dir).unwrap();
+    m.save().unwrap();
+    let (ok, checked) = mg(None, &["validate", p, "a_name_of_16_chr"]);
+    assert!(ok && checked["errors"] == 0, "{checked}");
+    // A name no resource has is an error said, not a crash.
+    let (ok, bad) = mg(None, &["validate", p, "a_name_longer_than_16"]);
+    assert!(!ok && bad["error"].is_string(), "{bad}");
+}
+
+#[test]
+fn generate_writes_the_scripts_and_compiles_the_event_script() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-generate");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{made}");
+    assert_eq!(made["saved"], true);
+    let resources = made["resources"].as_array().unwrap();
+    assert!(resources.contains(&json!("shop_o.nss")) && resources.contains(&json!("shop_e.ncs")));
+    // The opener is an include: it has no compiled script of its own.
+    let m = Module::open(&path).unwrap();
+    assert!(m.contains(&key("shop_o.nss")) && m.contains(&key("shop_e.nss")));
+    assert!(m.contains(&key("shop_e.ncs")) && !m.contains(&key("shop_o.ncs")));
+
+    // For people: the resources and a summary on standard output, and
+    // nothing on standard error.
+    let out = output(Some(&root), &["nui", "generate", p, "shop", "--dry-run"]);
+    assert!(out.status.success());
+    assert!(out.stderr.is_empty(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.lines().last().unwrap().starts_with("shop: would change "), "{text}");
+}
+
+#[test]
+fn a_second_generate_changes_nothing() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-again");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    let before = std::fs::read(&path).unwrap();
+    let (ok, again) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{again}");
+    assert_eq!((&again["resources"], &again["saved"]), (&json!([]), &json!(false)));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_generate_that_fails_saves_nothing() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-failed");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    // The event script, written over with one that isn't the window's.
+    let mut m = Module::open(&path).unwrap();
+    m.set(mg_nui::key("shop_e", ResType::NSS), b"void main() { InvalidFunction(); }".to_vec());
+    m.save().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (ok, failed) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(!ok, "{failed}");
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.contains("keep.mod: window shop: "), "{error}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_dry_run_lists_the_resources_and_writes_nothing() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-dry-run");
+    let p = path.to_str().unwrap();
+    let empty = std::fs::read(&path).unwrap();
+    let (ok, new) = mg(None, &["new", p, "shop", "--dry-run"]);
+    assert!(ok, "{new}");
+    assert_eq!(new["resources"], json!(["shop.jui", "shop.txt"]));
+    assert_eq!((&new["saved"], &new["dry_run"]), (&json!(false), &json!(true)));
+    assert_eq!(std::fs::read(&path).unwrap(), empty);
+
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let before = std::fs::read(&path).unwrap();
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop", "--dry-run"]);
+    assert!(ok, "{made}");
+    assert!(made["resources"].as_array().unwrap().contains(&json!("shop_e.ncs")), "{made}");
+    assert_eq!((&made["saved"], &made["dry_run"]), (&json!(false), &json!(true)));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
 }

@@ -3116,25 +3116,33 @@ impl Moonglow {
 
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
-        // The game opens a NUI window as it was last built: those changed
-        // since are named. (Nothing is built or saved here: Test Module
-        // runs the module as it was saved.)
-        if let Some(ws) = &self.ws {
-            let stale = nui_view::stale_windows(&ws.module);
-            if !stale.is_empty() {
-                self.log.warn(format!(
-                    "NUI windows changed since they were built: {}. The game runs what was \
-                     last built (Build & compile in the NUI Creator, then save)",
-                    stale.join(", ")
-                ));
-            }
-        }
         if test_module::game_running() {
             self.log.warn(
                 "The game started for the last test is still running: close it, then test \
                  again (a second test would write the module under it)",
             );
             return;
+        }
+        // NUI windows changed since their last build are built first, so the
+        // game opens what the Creator shows, and saved with the module (which
+        // Test Module saved before this); one that can't be built is named.
+        let stale =
+            self.ws.as_ref().map(|ws| nui_view::stale_windows(&ws.module)).unwrap_or_default();
+        for name in &stale {
+            nui_view::generate(self, name, false);
+        }
+        if !stale.is_empty() {
+            self.save(None);
+        }
+        if let Some(ws) = &self.ws {
+            let left = nui_view::stale_windows(&ws.module);
+            if !left.is_empty() {
+                self.log.warn(format!(
+                    "NUI windows not built (fix their problems in the NUI Creator): {}; the \
+                     game runs what was last built",
+                    left.join(", ")
+                ));
+            }
         }
         let Some(install) = self.install.clone() else {
             self.log.error("Test Module needs the game");

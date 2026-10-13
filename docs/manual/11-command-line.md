@@ -28,21 +28,6 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 `--no-user-dir` reads the game alone; `--json` prints the result as JSON
 (below). `mg COMMAND --help` describes each command.
 
-NUI authoring uses the same document checks and generator as the GUI:
-
-```text
-mg nui new path/to/module.mod my_window
-mg --json nui validate path/to/module.mod my_window
-mg nui generate path/to/module.mod my_window
-```
-
-`new` and `generate` save the module; `validate` is read-only and exits with an
-error for invalid JSON, settings or API-contract errors. `generate` compiles
-the opener and event handler before saving. An edited opener or a resource
-collision stops generation. Output explicitly leaves runtime verification
-unclaimed. See [NUI Creator](07-scripts.md#nui-creator) for binds, deployment
-and testing in Aurora/NWN.
-
 ## Archives and files
 
 | Command | Does |
@@ -86,6 +71,9 @@ and testing in Aurora/NWN.
 | `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files left out |
 | `mg plugin install FILE FOLDER` | install a plugin from its archive into a folder of plugins, as Plugins › Install Plugin from File… does: the archive is checked and nothing of it runs. `--replace` installs over the same plugin installed from an archive before |
 | `mg plugin remove ID FOLDER` | remove a plugin that was installed from an archive from a folder of plugins, by its id; one put there by hand is left alone |
+| `mg nui new MODULE NAME` | add a NUI window to the module and save: its layout (`NAME.jui`, a window with a Close button) and what the [NUI Creator](18-nui-creator.md) keeps about it (`NAME.txt`). NAME is 1 to 14 lower-case letters, digits or underscores (the scripts add `_o` and `_e`); a name whose resources the module has is refused; `--dry-run` lists the resources and adds none |
+| `mg nui validate MODULE NAME` | check a NUI window as the NUI Creator does (the layout is what the game's NUI functions take, every bind has a value) and print each problem; fails if there are errors, and changes nothing. With `--json`: `errors`, `warnings` and `findings` (each with `severity`, `path` and `message`) |
+| `mg nui generate MODULE NAME` | write the window's scripts and save, as Build does in the NUI Creator: the include that opens it (`NAME_o.nss`) and its event script (`NAME_e.nss`, compiled; the code you wrote in it is kept), and the scripts that include the opener compiled again. All or none: a window with errors, an opener or event script edited by hand, or one that does not compile, changes nothing; `--dry-run` checks and compiles, lists the resources and writes none. To see the window in the game, use Build › Test Module |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`; prints the manifest's hash |

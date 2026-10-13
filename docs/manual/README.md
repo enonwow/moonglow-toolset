@@ -3,7 +3,7 @@ type: Manual
 title: 'Moonglow Toolset: User Manual'
 description: Front page and contents of the Moonglow Toolset user manual, which is also built into the program (Help, User Manual).
 tags: [manual]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:00:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:39:56Z }
 ---
 
 # Moonglow Toolset: User Manual
@@ -52,6 +52,8 @@ deliberately departs.
 16. [Writing plugins](16-writing-plugins.md): a first plugin, and how
     plugins work.
 17. [Plugin API reference](17-plugin-api.md).
+18. [NUI Creator](18-nui-creator.md): designing Enhanced Edition UI
+    windows, their binds and event handlers, and building their scripts.
 
 Moonglow is free software under the GNU General Public License, version 3.
 It contains no game data: it reads the game's files from your
