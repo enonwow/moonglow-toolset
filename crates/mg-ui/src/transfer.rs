@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use egui::Ui;
+use mg_core::ResType;
 use mg_module::transfer::{ImportPlan, plan_export, plan_import};
 use mg_resman::{ResKey, ResMan};
 
@@ -15,6 +16,8 @@ use crate::{Action, FileKind, Moonglow};
 pub struct ExportDraft {
     pub selected: BTreeSet<ResKey>,
     pub filter: String,
+    /// The kind of resource listed; `None`: all of them, kind by kind.
+    pub kind: Option<ResType>,
     /// Also export the module resources the chosen ones use.
     pub dependencies: bool,
     /// Move creatures in the module's own factions to the standard ones.
@@ -295,31 +298,118 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     if let (Some(draft), Some(ws)) = (&mut app.export, &app.ws) {
         let mut close = false;
+        // Kind by kind, those of the module's tree first and in its order.
+        let rank = |t: ResType| {
+            let group = crate::tree::GROUPS.iter().position(|(_, types)| types.contains(&t));
+            (group.unwrap_or(usize::MAX), t.extension().unwrap_or_default())
+        };
+        let kind_name = |t: ResType| {
+            let ext = t.extension().unwrap_or_default();
+            match crate::tree::GROUPS.iter().find(|(_, types)| *types == [t]) {
+                Some((name, _)) => format!("{name} (.{ext})"),
+                None => format!(".{ext}"),
+            }
+        };
         let mut keys: Vec<ResKey> = ws.module.keys().copied().collect();
-        keys.sort_by_key(|k| (k.restype.extension().unwrap_or_default(), k.resref));
+        keys.sort_by_key(|k| (rank(k.restype), k.resref));
+        let mut kinds: Vec<(ResType, usize)> = Vec::new();
+        for k in &keys {
+            match kinds.last_mut() {
+                Some((t, n)) if *t == k.restype => *n += 1,
+                _ => kinds.push((k.restype, 1)),
+            }
+        }
+        if draft.kind.is_some_and(|t| kinds.iter().all(|(k, _)| *k != t)) {
+            draft.kind = None;
+        }
         crate::widgets::window("Export Resources").show(&ctx, |ui| {
+            ui.horizontal(|ui| {
+                crate::widgets::field_label(ui, "Kind");
+                let shown = match draft.kind {
+                    Some(t) => kind_name(t),
+                    None => "All".to_string(),
+                };
+                egui::ComboBox::from_id_salt("export-kind")
+                    .selected_text(shown)
+                    .width(200.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut draft.kind, None, format!("All: {}", keys.len()));
+                        for (t, n) in &kinds {
+                            let text = format!("{}: {n}", kind_name(*t));
+                            ui.selectable_value(&mut draft.kind, Some(*t), text);
+                        }
+                    });
+            });
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");
                 let field = ui.text_edit_singleline(&mut draft.filter);
                 crate::widgets::autofocus(ui, &field);
             });
             let filter = draft.filter.to_ascii_lowercase();
+            let listed: Vec<ResKey> = keys
+                .iter()
+                .filter(|k| draft.kind.is_none_or(|t| k.restype == t))
+                .filter(|k| filter.is_empty() || k.to_string().contains(&filter))
+                .copied()
+                .collect();
+            // The rows: with every kind listed, each under its heading.
+            let mut rows: Vec<Result<ResKey, ResType>> = Vec::with_capacity(listed.len());
+            for k in &listed {
+                let first = !matches!(rows.last(), Some(Ok(l)) if l.restype == k.restype);
+                if draft.kind.is_none() && first {
+                    rows.push(Err(k.restype));
+                }
+                rows.push(Ok(*k));
+            }
             egui::Frame::group(ui.style()).show(ui, |ui| {
-                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                    ui.set_width(320.0);
-                    for k in
-                        keys.iter().filter(|k| filter.is_empty() || k.to_string().contains(&filter))
-                    {
-                        let mut on = draft.selected.contains(k);
-                        if ui.checkbox(&mut on, k.to_string()).changed() {
-                            if on {
-                                draft.selected.insert(*k);
-                            } else {
-                                draft.selected.remove(k);
+                let height = ui.spacing().interact_size.y;
+                egui::ScrollArea::vertical().max_height(260.0).show_rows(
+                    ui,
+                    height,
+                    rows.len(),
+                    |ui, range| {
+                        ui.set_width(320.0);
+                        for row in &rows[range] {
+                            let k = match row {
+                                Ok(k) => k,
+                                Err(t) => {
+                                    let size = egui::vec2(ui.available_width(), height);
+                                    let across = egui::Layout::left_to_right(egui::Align::Center);
+                                    ui.allocate_ui_with_layout(size, across, |ui| {
+                                        ui.strong(kind_name(*t));
+                                    });
+                                    continue;
+                                }
+                            };
+                            let mut on = draft.selected.contains(k);
+                            if ui.checkbox(&mut on, k.to_string()).changed() {
+                                if on {
+                                    draft.selected.insert(*k);
+                                } else {
+                                    draft.selected.remove(k);
+                                }
                             }
                         }
+                    },
+                );
+            });
+            ui.horizontal(|ui| {
+                let all = listed.iter().all(|k| draft.selected.contains(k));
+                if ui
+                    .add_enabled(
+                        !all,
+                        egui::Button::new(format!("Select the {} Listed", listed.len())),
+                    )
+                    .clicked()
+                {
+                    draft.selected.extend(listed.iter().copied());
+                }
+                let any = listed.iter().any(|k| draft.selected.contains(k));
+                if ui.add_enabled(any, egui::Button::new("Clear Them")).clicked() {
+                    for k in &listed {
+                        draft.selected.remove(k);
                     }
-                });
+                }
             });
             ui.checkbox(&mut draft.dependencies, "Include the resources they use");
             ui.checkbox(&mut draft.reset_factions, "Put creatures in the standard factions");

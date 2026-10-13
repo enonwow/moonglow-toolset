@@ -18,7 +18,7 @@ const STATIC_TIP: &str = "Sets Static on the placeables that lose nothing by it:
     scaled or moved by a visual transform, or have a script, a conversation, a trap, an \
     inventory or an animation switched on";
 
-const GROUPS: &[(&str, &[ResType])] = &[
+pub(crate) const GROUPS: &[(&str, &[ResType])] = &[
     ("Areas", &[ResType::ARE]),
     ("Conversations", &[ResType::DLG]),
     ("Scripts", &[ResType::NSS]),

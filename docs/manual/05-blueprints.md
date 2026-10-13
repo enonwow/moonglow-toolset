@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:37:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:22:22Z }
 ---
 
 # Blueprints
@@ -355,8 +355,11 @@ A domain or school left **Not set** is the game's to choose.
 cursed, identified; the base item's statistics), **Appearance** (by the
 base item: a model, three weapon parts, or the armor's parts and colors,
 with the inventory icon as the game shows it; a model and each of a
-weapon's three parts are also chosen by picture, the item's icon as it
-would be with each; the item's model shows in the page and follows each
+weapon's three parts are also chosen by picture: a model's by the item's
+icon as it would be with each (what of it is drawn, at most 128 points
+tall), a weapon's part by that part alone, as
+large as it is in the icon, a part with a model and no icon by its
+number; the item's model shows in the page and follows each
 change, beside the fields in a wide window and beside the icon in a
 narrower one; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and its inventory icon is then the one a woman's

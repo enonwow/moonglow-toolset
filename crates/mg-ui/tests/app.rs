@@ -716,6 +716,49 @@ fn options_leave_the_module_open() {
     assert!(!h.state().has_unsaved_work());
 }
 
+/// Export Resources lists the module kind by kind, and one kind alone
+/// when it is chosen: the buttons under the list are for those listed.
+#[test]
+fn export_lists_a_kind() {
+    let dir = mg_testkit::scratch_dir("ui-export-kinds");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    for name in ["mg_one", "mg_two"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
+    h.run();
+    // Every kind, each under its heading, the tree's kinds first.
+    assert!(h.query_by_label("Areas (.are)").is_some());
+    assert!(h.query_by_label("Scripts (.nss)").is_some());
+    assert!(h.query_by_label("start.are").is_some());
+    h.state_mut().export.as_mut().unwrap().kind = Some(ResType::NSS);
+    h.run();
+    assert!(h.query_by_label("start.are").is_none(), "scripts alone");
+    assert!(h.query_by_label("mg_one.nss").is_some());
+    let scripts =
+        h.state().ws.as_ref().unwrap().module.keys().filter(|k| k.restype == ResType::NSS);
+    let scripts: std::collections::BTreeSet<ResKey> = scripts.copied().collect();
+    // (The window settles round its shorter list first.)
+    h.run_steps(3);
+    h.get_by_label(&format!("Select the {} Listed", scripts.len())).click();
+    h.run();
+    assert_eq!(h.state().export.as_ref().unwrap().selected, scripts);
+    // With the filter, those it leaves.
+    h.state_mut().export.as_mut().unwrap().filter = "mg_t".into();
+    h.run_steps(3);
+    h.get_by_label("Clear Them").click();
+    h.run();
+    let left = &h.state().export.as_ref().unwrap().selected;
+    assert_eq!(left.len(), scripts.len() - 1);
+    assert!(!left.contains(&ResKey::parse("mg_two", ResType::NSS).unwrap()));
+}
+
 #[test]
 fn export_then_import_into_another_module() {
     let dir = mg_testkit::scratch_dir("ui-transfer");
@@ -3500,6 +3543,47 @@ fn undo_in_a_text_field_is_the_field_s() {
     assert_eq!(undoable(&h), None, "the module's Undo");
 }
 
+/// In a script's editor Undo is the editor's whatever was done last: a
+/// new line (with its indent) is no typed text, and Ctrl+Z after it undid
+/// the module's last change, somewhere else, and left the script as it
+/// was.
+#[test]
+fn undo_in_a_script_is_the_script_s() {
+    let dir = mg_testkit::scratch_dir("ui-undo-in-script");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int a;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run();
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    h.state_mut().script_tools.jump = Some((key, text.find("a;").unwrap() + 2));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let edited = h.state().script_text(key).unwrap();
+    assert!(edited.contains("int a;\n    \n}"), "{edited:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(h.state().script_text(key).as_deref(), Some(text), "the new line is taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run();
+    assert_eq!(h.state().script_text(key), Some(edited), "and Redo gives it again");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+}
+
 fn filter_type(h: &mut Harness<'_, Moonglow>, text: &str) {
     h.event(egui::Event::Text(text.into()));
     h.run_steps(2);
@@ -4985,6 +5069,27 @@ fn classes_page_sets_domains_and_associates() {
     assert!(h.query_by_label_contains("companion only for a creature with a divine").is_some());
 }
 
+/// A weapon's parts are chosen from pictures of the part alone: the
+/// icon's texture is the whole weapon's size (256 points for a great
+/// sword), and three lists of those were more than a window.
+#[test]
+fn a_weapon_s_parts_are_pictured_alone() {
+    let Some((mut h, key)) = blueprint_harness("nw_wswgs001", "sword_copy", ResType::UTI) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Appearance").click();
+    h.run_steps(4);
+    for part in ["Top", "Middle", "Bottom"] {
+        let size = h.get_by_label(&format!("{part} 12")).rect().size();
+        assert!(size.y <= 96.0 && size.x <= 64.0, "{part}: {size:?}");
+    }
+    // A click on one chooses it.
+    h.get_by_label("Middle 21").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("ModelPart2"), Some(21));
+}
+
 #[test]
 fn item_editor_adds_properties_and_keeps_the_cost() {
     let Some((mut h, key)) = blueprint_harness("nw_wswls001", "sword_copy", ResType::UTI) else {
@@ -5663,6 +5768,43 @@ fn area_viewer_places_draws_boxes_and_turns() {
     assert_eq!(points.len(), 4);
     assert!((points[2].float("PointX").unwrap() - 4.0).abs() < 0.2);
     assert!((points[2].float("PointY").unwrap() - 3.0).abs() < 0.2);
+
+    // And with Alt pressed and let go before the click: many Linux window
+    // managers keep an Alt + click to move the window, so the view never
+    // hears of the click, and of Alt no longer. The rectangle stays.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(20.0, 10.0, 0.0));
+    let opposite = screen(&h, area, Vec3::new(23.0, 12.0, 0.0));
+    h.hover_at(opposite);
+    h.run_steps(1);
+    h.event_modifiers(egui::Event::PointerMoved(opposite), egui::Modifiers::ALT);
+    h.run_steps(2);
+    press(&h, opposite, true, egui::Modifiers::NONE);
+    press(&h, opposite, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let triggers = git_list(&mut h, "TriggerList");
+    assert_eq!(triggers.len(), 3, "Alt, let go, and a click place the rectangle");
+    let points = triggers[2].list("Geometry").unwrap();
+    assert_eq!(points.len(), 4);
+    assert!((points[2].float("PointX").unwrap() - 3.0).abs() < 0.2);
+    assert!((points[2].float("PointY").unwrap() - 2.0).abs() < 0.2);
+    // Alt held to lead the view about (a middle drag) asks for none: the
+    // next click is the outline's second corner.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(20.0, 20.0, 0.0));
+    let (button, alt) = (egui::PointerButton::Middle, egui::Modifiers::ALT);
+    for pressed in [true, false] {
+        let event = egui::Event::PointerButton { pos: opposite, button, pressed, modifiers: alt };
+        h.event_modifiers(event, alt);
+    }
+    h.run_steps(2);
+    click(&mut h, Vec3::new(23.0, 22.0, 0.0));
+    assert_eq!(h.state().area_views[&area].outline.len(), 2, "a corner, not a rectangle");
+    assert_eq!(git_list(&mut h, "TriggerList").len(), 3);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
 
     // A box around the first two waypoints selects them.
     let (a, b) = (

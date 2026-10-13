@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T22:17:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:16:53Z }
 ---
 
 # Modules
@@ -572,7 +572,11 @@ plugin reads a description with `mg.twoda.describe`
   Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
   creatures out of the module's own factions into the standard ones.
-  Right-click a resource in the tree to export it. With **Add to the
+  Right-click a resource in the tree to export it. The window lists the
+  module kind by kind (areas, conversations, scripts, the blueprints,
+  then the rest by extension); **Kind** lists one kind alone, **Filter**
+  those whose names hold what is typed, and **Select the Listed** and
+  **Clear Them** tick and untick what the two leave. With **Add to the
   file if it exists**, choosing an archive that is already there adds
   the resources to it (those of the same names are replaced, the rest
   and its description stay) instead of replacing the file.

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T03:53:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:22:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1728,12 +1728,30 @@ unless it says so.
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 
+## Left from the builders' reports on 1.25.1
+
+- **Edit › Undo and the toolbar's Undo in a script:** they are the
+  module's still; only the keys are the script editor's while it has
+  the keyboard. A script's own history as steps of the module's would
+  make them one. (M) (a builder's report, October 2026)
+- **Export Resources lists an area as three kinds** (`.are` under
+  Areas, its `.git` and `.gic` among the rest by extension), as it did
+  in one list; exporting the `.are` takes the other two only with
+  **Include the resources they use**. (S)
+
 ## Questions asked, unanswered
 
 Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
 log.
 
+- **The rectangle by two clicks on a builder's Linux:** 1.25.1 made the
+  right Alt place it, which was not his trouble; the next release has Alt
+  pressed and let go before the click, on the reading that his window
+  manager keeps a click with Alt held (the rectangle went when he
+  clicked and came back when Alt was pressed again). Not seen on his
+  system: his word that it places would settle it. (a builder's report,
+  October 2026)
 - **Creature Properties' overlapping elements:** reported, not
   reproduced: every page is checked for widgets drawn over each other at
   four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)

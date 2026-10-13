@@ -236,6 +236,13 @@ fn editor_id(key: ResKey) -> egui::Id {
     egui::Id::new(("script", key))
 }
 
+/// Whether a script's editor has the keyboard: Undo and Redo are its own
+/// then, whatever was done in it last.
+pub(crate) fn has_keys(app: &Moonglow, ctx: &egui::Context) -> bool {
+    let Some(focused) = ctx.memory(|m| m.focused()) else { return false };
+    app.scripts.keys().any(|k| editor_id(*k) == focused)
+}
+
 /// Moves an editor's cursor (and selection) and focuses it.
 fn set_cursor(ctx: &egui::Context, key: ResKey, from: usize, to: usize) {
     let id = editor_id(key);

@@ -790,7 +790,12 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     if edits {
         app.text_typed = focused;
     }
-    let in_text = app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input();
+    // (A script's editor keeps them whenever it has the keyboard: Enter's
+    // indent, Tab, a completion and a replacement are its steps as much
+    // as typing is, and it has them still after the keyboard went to its
+    // Find field and came back.)
+    let in_text = (app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input())
+        || crate::script_view::has_keys(app, ui.ctx());
     // (And a 2DA's, while the keys are in its grid: the table's own steps
     // are taken back there, not the module's last change.)
     let in_table = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Table);

@@ -383,6 +383,15 @@ pub struct AreaView {
     pub turn_ring: bool,
     /// The outline being drawn for a trigger or encounter.
     pub outline: Vec<Vec3>,
+    /// Alt was pressed with the outline's first corner set: the next click
+    /// makes the rectangle to there, Alt held or not. (Many Linux window
+    /// managers keep an Alt + click for themselves, to move the window:
+    /// the view is never told of it, and of Alt no longer.)
+    rectangle: bool,
+    /// Alt is held, since the pointer was over the view: and whether it
+    /// led the view about meanwhile (a middle or right button), which is
+    /// not asking for a rectangle.
+    alt_held: Option<bool>,
     /// The copied objects follow the pointer, to be placed with a click.
     pub pasting: bool,
     /// How many of them were drawn, see-through, last frame.
@@ -535,6 +544,8 @@ impl AreaView {
             held: Held::default(),
             turn_ring: true,
             outline: Vec::new(),
+            rectangle: false,
+            alt_held: None,
             pasting: false,
             pasted_shown: 0,
             particles: std::collections::HashMap::new(),
@@ -1733,16 +1744,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let at = crate::terrain_mode::status(view).unwrap_or_default();
         format!("{}: {how}; Escape: stop. {at}", b.label)
     } else if view.redraw.is_some() {
-        "Redraw Polygon: click its corners, double click to close (Alt + click after the first: \
-         a rectangle to there); right click or Escape: stop"
+        "Redraw Polygon: click its corners, double click to close (after the first, press Alt: \
+         the next click makes a rectangle to there); right click or Escape: stop"
             .to_string()
     } else if view.pasting {
         "Pasting: click to place the copies; right click or Escape: stop".to_string()
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
-                "click its corners, double click to close (Alt + click after the first: a \
-                 rectangle to there); right click or Escape: stop"
+                "click its corners, double click to close (after the first, press Alt: the next \
+                 click makes a rectangle to there); right click or Escape: stop"
             }
             _ => "click to place (Shift + click: place more); right click or Escape: stop",
         };
@@ -2742,7 +2753,7 @@ fn overlays(
         let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
         // (With Alt held after the first corner: the rectangle a click
         // would make.)
-        let alt = ui.input(|i| i.modifiers.alt);
+        let alt = view.rectangle || view.alt_held == Some(false);
         match pointer.and_then(|p| rectangle_to(&view.outline, p, alt)) {
             Some(corners) => {
                 for k in 0..4 {
@@ -2816,6 +2827,23 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
+    // Alt with an outline's first corner set: a rectangle from there on,
+    // until the outline is done or dropped; while it is held, and after
+    // it was let go (or taken away with the click, see `rectangle`).
+    let leading = ui.input(|i| {
+        i.pointer.button_down(egui::PointerButton::Middle)
+            || i.pointer.button_down(egui::PointerButton::Secondary)
+    });
+    view.alt_held = match (alt, view.alt_held) {
+        (true, Some(led)) => Some(led || leading),
+        (true, None) => response.hovered().then_some(leading),
+        (false, held) => {
+            view.rectangle |= held == Some(false);
+            None
+        }
+    };
+    view.rectangle &= view.outline.len() == 1;
+    let rectangle = view.rectangle || view.alt_held == Some(false);
     // (Whether something was in hand when the frame began: Escape drops it
     // and no more.)
     let in_hand = view.drag.is_some() || view.pasting || brush(app).is_some() || view.held.on;
@@ -2919,7 +2947,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         {
             // Alt and a click after the first corner: the rectangle from
             // there to here, closed at once.
-            if let Some(corners) = rectangle_to(&view.outline, at, alt) {
+            if let Some(corners) = rectangle_to(&view.outline, at, rectangle) {
                 view.outline.clear();
                 redraw_outline(app, view, kind, index, &corners);
                 view.redraw = None;
@@ -2951,7 +2979,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         // too it is the right Alt of many keyboards, AltGr, which Windows
         // reports as Ctrl and Alt together: the rectangle's click.)
         if response.clicked()
-            && (!command || alt)
+            && (!command || alt || rectangle)
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(at) = view.ground_at(pos, 0.0)
         {
@@ -2959,7 +2987,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             if kind.has_outline() {
                 // Alt and a click after the first corner: the rectangle
                 // from there to here, placed at once.
-                if let Some(corners) = rectangle_to(&view.outline, at, alt) {
+                if let Some(corners) = rectangle_to(&view.outline, at, rectangle) {
                     view.outline.clear();
                     place(app, view, key, corners[0], 0.0, &corners);
                     if !shift {
@@ -4101,8 +4129,8 @@ fn faces(kind: ObjectKind) -> bool {
     !kind.has_outline() && kind != ObjectKind::Sound
 }
 
-/// The rectangle an outline begun with one corner becomes at an Alt +
-/// click at `to`: its sides along the area's own (east and north), the
+/// The rectangle an outline begun with one corner becomes at a click at
+/// `to` once Alt was pressed: its sides along the area's own (east and north), the
 /// two corners clicked opposite each other, the other two at their
 /// heights' middle. `None` unless `alt` is held with one corner set, or
 /// for a rectangle with no width or depth.

@@ -564,6 +564,78 @@ fn item_general_widths() {
     }
 }
 
+/// A weapon's Appearance page: its parts' pictures, at two window sizes.
+#[test]
+#[ignore]
+fn weapon_parts() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let t = ResType::UTI;
+    for (name, size) in [
+        ("nw_wswgs001", egui::vec2(1300.0, 1500.0)),
+        ("nw_wswgs001", egui::vec2(1000.0, 640.0)),
+        ("nw_wswdg001", egui::vec2(1000.0, 640.0)),
+    ] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get_named(name, t).unwrap().into_owned();
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), data);
+        let path = dir.join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(size)
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(4);
+        h.get_by_label("Appearance").click();
+        h.run_steps(6);
+        shoot(&mut h, &dir, &format!("weapon-parts-{name}-{}", size.y));
+    }
+}
+
+/// Export Resources: the module kind by kind.
+#[test]
+#[ignore]
+fn export_resources() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-export");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    for (name, t) in [
+        ("guard", ResType::UTC),
+        ("smith", ResType::UTC),
+        ("longsword", ResType::UTI),
+        ("chest", ResType::UTP),
+        ("on_enter", ResType::NSS),
+        ("on_enter", ResType::NCS),
+        ("spells", ResType::TWODA),
+    ] {
+        m.set(ResKey::parse(name, t).unwrap(), Vec::new());
+    }
+    let path = dir.join("e.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(Vec::new()));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "export-resources");
+}
+
 /// A creature's Appearance list, opened: at the appearance it has, its
 /// Filter field above the rows.
 #[test]
