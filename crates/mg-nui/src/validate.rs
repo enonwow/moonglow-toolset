@@ -165,6 +165,17 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             }
         }
     }
+    // A new window's Close button comes with the handler that closes the
+    // window; with that handler removed the button does nothing in the game.
+    if names.ids.contains("mg_close")
+        && !settings.actions.iter().any(|r| r.event == "click" && r.element == "mg_close")
+    {
+        c.warn(
+            "/actions",
+            "The mg_close button has no Clicked handler: in game it does nothing. Add one that \
+             closes the window.",
+        );
+    }
     if settings.window_id.as_ref().is_some_and(|id| id.is_empty() || id.contains('\0')) {
         c.error("/settings/window_id", "Window ID must be nonempty and contain no NUL");
     }
@@ -1593,5 +1604,17 @@ mod tests {
         for name in [" a", "a ", "a\n", "a\tb", "a\r"] {
             assert!(!plain_name(name), "{name:?}");
         }
+    }
+
+    #[test]
+    fn a_close_button_without_its_handler_is_warned_of() {
+        let w = crate::window();
+        let said = |s: &Settings| {
+            validate(&w, s).iter().any(|d| d.message.starts_with("The mg_close button has no"))
+        };
+        assert!(said(&Settings::default()));
+        let mut handled = Settings::default();
+        handled.actions.push(crate::Route::new("click", "mg_close", Action::Close));
+        assert!(!said(&handled));
     }
 }

@@ -7,7 +7,7 @@ use egui_kittest::{
 };
 
 fn key() -> ResKey {
-    mg_nui::key("form_test", ResType::JUI)
+    ResKey::parse("form_test", ResType::JUI).unwrap()
 }
 
 fn harness() -> Harness<'static, Moonglow> {

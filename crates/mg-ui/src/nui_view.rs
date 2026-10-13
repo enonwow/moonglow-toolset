@@ -2878,24 +2878,24 @@ mod tests {
     fn nui_delete_takes_the_windows_companions() {
         let mut app = app();
         app.run(Action::NewNui("gone".into()));
-        let key = mg_nui::key("gone", ResType::JUI);
-        let script = mg_nui::key("gone_e", ResType::NSS);
+        let key = ResKey::parse("gone", ResType::JUI).unwrap();
+        let script = ResKey::parse("gone_e", ResType::NSS).unwrap();
         let module = |app: &Moonglow| app.ws.as_ref().unwrap().module.keys().count();
         let before = module(&app);
         app.ws.as_mut().unwrap().module.set(script, b"void main() {}".to_vec());
         app.delete_resource(key);
         let left = &app.ws.as_ref().unwrap().module;
         assert!(!left.contains(&key) && !left.contains(&script));
-        assert!(!left.contains(&mg_nui::key("gone", ResType::TXT)));
+        assert!(!left.contains(&ResKey::parse("gone", ResType::TXT).unwrap()));
         assert_eq!(module(&app), before - 2);
         app.ws.as_mut().unwrap().undo().unwrap();
         assert!(app.ws.as_ref().unwrap().module.contains(&script));
 
-        let notes = mg_nui::key("notes", ResType::TXT);
+        let notes = ResKey::parse("notes", ResType::TXT).unwrap();
         let module = &mut app.ws.as_mut().unwrap().module;
-        module.set(mg_nui::key("notes", ResType::JUI), b"{}".to_vec());
+        module.set(ResKey::parse("notes", ResType::JUI).unwrap(), b"{}".to_vec());
         module.set(notes, b"not settings".to_vec());
-        app.delete_resource(mg_nui::key("notes", ResType::JUI));
+        app.delete_resource(ResKey::parse("notes", ResType::JUI).unwrap());
         assert!(app.ws.as_ref().unwrap().module.contains(&notes));
     }
 
@@ -2905,7 +2905,7 @@ mod tests {
     fn nui_cancel_sets_back_what_the_tab_changed() {
         let mut h = keyboard_harness();
         // (What a tab changed is kept while the tab is open.)
-        let tab = Tab::Nui(Some(mg_nui::key("nui_test", ResType::JUI)));
+        let tab = Tab::Nui(Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
         h.state_mut().run(Action::OpenTab(tab));
         h.run();
         let opened = keyboard_document(&h);
