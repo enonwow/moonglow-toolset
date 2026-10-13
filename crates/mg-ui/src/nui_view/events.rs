@@ -247,10 +247,12 @@ fn explanation(event: &str) -> &str {
         "click" => "Runs when the button is clicked.",
         "open" => "Runs when the window opens.",
         "close" => {
-            "Runs when the player closes the window with its X. Closing it from a script does not send it."
+            "Runs when the player closes the window with its X. Closing it from a script does not \
+             send it."
         }
         "watch" => {
-            "Runs when the value changes, from the player or from a script setting it (at once, inside that script). sElement is the bind's name."
+            "Runs when the value changes, from the player or from a script setting it (at once, \
+             inside that script). sElement is the bind's name."
         }
         "focus" | "blur" => "Runs when the text input gains or loses the keyboard.",
         "range" => "Runs when the rows in view change (scrolling, and when the window opens).",
@@ -340,7 +342,9 @@ fn element(target: &Target, event: &str, doc: &mut Value, s: &Settings, state: &
                 id = format!("{base}_{n}");
                 n += 1;
             }
-            doc.pointer_mut(path).unwrap()["id"] = json!(id);
+            if let Some(node) = doc.pointer_mut(path) {
+                node["id"] = json!(id);
+            }
             id
         }
     }
@@ -456,8 +460,10 @@ pub(super) fn editor(
 ) {
     ui.push_id(("events", format!("{:?}", scope), &state.edit_view.clone()), |ui| {
         if scope.is_none() {
-            ui.heading("Events");
-            ui.weak("Each event you handle is a section of the event script, where you write what it does.");
+            widgets::section_heading(ui, "Events");
+            ui.weak(
+                "Each event handled is a section of the event script, where its code is written.",
+            );
         }
         let shown = |r: &mg_nui::Route, doc: &Value| match &scope {
             None => true,
@@ -475,12 +481,13 @@ pub(super) fn editor(
         for (i, route) in s.actions.clone().iter().enumerate().filter(|(_, r)| shown(r, doc)) {
             ui.push_id(i, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.strong(label(&route.event));
+                    widgets::field_label(ui, label(&route.event));
                     if scope.is_none() || route.event == "watch" {
                         ui.weak(target_name(&route_target(route), doc));
                     }
                     let handler = mg_nui::handler_key(route);
-                    if ui.button("Edit code").on_hover_text("Open the event script here").clicked() {
+                    if ui.button("Edit code").on_hover_text("Open the event script here").clicked()
+                    {
                         state.event_script = Some(EventScript {
                             settings: s.clone(),
                             handler: Some(handler.clone()),
@@ -488,10 +495,17 @@ pub(super) fn editor(
                         });
                     }
                     if let Some(code) = insert_menu(ui, route, s) {
-                        state.event_script =
-                            Some(EventScript { settings: s.clone(), handler: Some(handler), code: Some(code) });
+                        state.event_script = Some(EventScript {
+                            settings: s.clone(),
+                            handler: Some(handler),
+                            code: Some(code),
+                        });
                     }
-                    if ui.small_button("Remove").on_hover_text("What you wrote for it stays in the script, commented out").clicked() {
+                    if ui
+                        .small_button("Remove")
+                        .on_hover_text("Its code stays in the script, commented out")
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -512,10 +526,12 @@ pub(super) fn editor(
             target = scope.clone();
         }
         ui.horizontal_wrapped(|ui| {
-            ui.label("Add:");
+            widgets::field_label(ui, "Add");
             if scope.is_none() {
                 egui::ComboBox::from_id_salt("event-target")
-                    .selected_text(target.as_ref().map_or("Choose…".into(), |t| target_name(t, doc)))
+                    .selected_text(
+                        target.as_ref().map_or("Choose…".into(), |t| target_name(t, doc)),
+                    )
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut target, Some(Target::Window), "Window");
                         let mut ids = mg_nui::element_ids(doc);
@@ -523,10 +539,18 @@ pub(super) fn editor(
                             ids.extend(mg_nui::element_ids(v));
                         }
                         for id in ids {
-                            ui.selectable_value(&mut target, Some(Target::Id(id.clone())), format!("Control: {id}"));
+                            ui.selectable_value(
+                                &mut target,
+                                Some(Target::Id(id.clone())),
+                                format!("Control: {id}"),
+                            );
                         }
                         for name in s.bindings.keys() {
-                            ui.selectable_value(&mut target, Some(Target::Bind(name.clone())), format!("Bind: {name}"));
+                            ui.selectable_value(
+                                &mut target,
+                                Some(Target::Bind(name.clone())),
+                                format!("Bind: {name}"),
+                            );
                         }
                     });
             }
@@ -537,10 +561,15 @@ pub(super) fn editor(
                 .filter(|e| {
                     let element = match (t, *e) {
                         (Target::Window, _) => String::new(),
-                        (_, "watch") => node(t, doc, s)
-                            .and_then(|n| n["value"]["bind"].as_str())
-                            .map_or_else(|| if let Target::Bind(b) = t { b.clone() } else { String::new() }, Into::into),
-                        (Target::Control(p), _) => doc.pointer(p).and_then(|n| n["id"].as_str()).unwrap_or_default().into(),
+                        (_, "watch") => {
+                            node(t, doc, s).and_then(|n| n["value"]["bind"].as_str()).map_or_else(
+                                || if let Target::Bind(b) = t { b.clone() } else { String::new() },
+                                Into::into,
+                            )
+                        }
+                        (Target::Control(p), _) => {
+                            doc.pointer(p).and_then(|n| n["id"].as_str()).unwrap_or_default().into()
+                        }
                         (Target::Id(id) | Target::Bind(id), _) => id.clone(),
                     };
                     let key = mg_nui::handler_key(&mg_nui::Route {
@@ -560,20 +589,28 @@ pub(super) fn editor(
                 event = free[0].into();
             }
             offered = now;
-            egui::ComboBox::from_id_salt("event-type")
-                .selected_text(label(&event))
-                .show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("event-type").selected_text(label(&event)).show_ui(
+                ui,
+                |ui| {
                     for e in &free {
-                        ui.selectable_value(&mut event, (*e).into(), label(e)).on_hover_text(explanation(e));
+                        ui.selectable_value(&mut event, (*e).into(), label(e))
+                            .on_hover_text(explanation(e));
                     }
-                });
+                },
+            );
             if ui.button("+ Add handler").on_hover_text(explanation(&event)).clicked() {
                 let element = element(t, &event, doc, s, state);
-                s.actions.push(mg_nui::Route { event: event.clone(), element, action: mg_nui::Action::Code });
+                s.actions.push(mg_nui::Route {
+                    event: event.clone(),
+                    element,
+                    action: mg_nui::Action::Code,
+                });
             }
         });
-        if scope.as_ref().is_some_and(|t| matches!(t, Target::Control(_)))
-            && node(scope.as_ref().unwrap(), doc, s).is_some_and(|n| !n["value"]["bind"].is_string() && n.get("value").is_some_and(|v| !v.is_null()))
+        if let Some(control @ Target::Control(_)) = &scope
+            && node(control, doc, s).is_some_and(|n| {
+                !n["value"]["bind"].is_string() && n.get("value").is_some_and(|v| !v.is_null())
+            })
         {
             ui.weak("Bind its value to react when it changes.");
         }

@@ -54,20 +54,33 @@ fn show(ui: &mut Ui, f: &mut Fixture) {
     );
 }
 
+/// Properties stays in its panel: what it shows (found by its labels) is
+/// between the canvas and the window's edge. Content wider than the panel
+/// makes the panel grow, under the canvas.
 fn assert_inspector_fits(h: &Harness<'_, Fixture>) {
-    let (rect, content) = h.ctx.data_mut(|d| {
-        d.get_temp::<(egui::Rect, egui::Vec2)>(egui::Id::new("nui-inspector-layout-test")).unwrap()
-    });
-    assert!(
-        content.x <= rect.width() + 1.0,
-        "Properties content grew beyond its allocated panel: content={content:?}, panel={rect:?}"
-    );
-    let heading = h.get_by_label("Content").rect();
     let canvas = h.state().state.preview_rect.unwrap();
-    assert!(
-        heading.left() >= canvas.right(),
-        "Properties is under the canvas: {heading:?} vs {canvas:?}"
-    );
+    let edge = h.ctx.content_rect().right();
+    let mut seen = 0;
+    for label in [
+        "Content",
+        "Size & layout",
+        "+ Add property",
+        "Option 1 label",
+        "Option 2 label",
+        "+ Add option",
+        "Property binding",
+        "Bind formatting",
+        "Events",
+    ] {
+        for rect in h.query_all_by_label(label).map(|n| n.rect()) {
+            seen += 1;
+            assert!(
+                rect.left() >= canvas.right() && rect.right() <= edge + 1.0,
+                "{label} is outside Properties: {rect:?}, canvas {canvas:?}, edge {edge}"
+            );
+        }
+    }
+    assert!(seen >= 3, "Properties shows its sections");
 }
 
 #[test]

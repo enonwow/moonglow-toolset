@@ -18,7 +18,7 @@ pub(super) fn has_clipboard(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<Clipboard>(clipboard_id()).is_some())
 }
 
-pub(super) fn can_edit(v: &Value, selected: &str, op: usize) -> bool {
+pub(super) fn can_edit(v: &Value, selected: &str, op: Op) -> bool {
     let Some((parent, i, _)) = array_position(selected) else { return false };
     let Some(a) = v.pointer(&parent).and_then(Value::as_array) else { return false };
     if i >= a.len() {
@@ -31,12 +31,12 @@ pub(super) fn can_edit(v: &Value, selected: &str, op: usize) -> bool {
         .and_then(|p| v.pointer(p))
         .is_some_and(|n| n["type"] == "group")
     {
-        return op == 3 && a[i] != mg_nui::template("col");
+        return op == Op::Delete && a[i] != mg_nui::template("col");
     }
     match op {
-        0 => i > 0,
-        1 => i + 1 < a.len(),
-        _ => true,
+        Op::MoveUp => i > 0,
+        Op::MoveDown => i + 1 < a.len(),
+        Op::Duplicate | Op::Delete => true,
     }
 }
 
@@ -48,7 +48,7 @@ pub(super) fn clipboard(
     op: usize,
 ) {
     if op < 2 {
-        if selected.is_empty() || (op == 1 && !can_edit(v, selected, 3)) {
+        if selected.is_empty() || (op == 1 && !can_edit(v, selected, Op::Delete)) {
             return;
         }
         let Some(node) = v.pointer(selected) else { return };
@@ -65,7 +65,7 @@ pub(super) fn clipboard(
         });
         crate::widgets::mark_clipboard(ctx, "NUI element");
         if op == 1 {
-            rearrange(v, selected, 3);
+            rearrange(v, selected, Op::Delete);
         }
         return;
     }
@@ -146,11 +146,14 @@ pub(super) fn keys(
     {
         return;
     }
-    for (cmd, op) in
-        [(Cmd::NuiDelete, 3), (Cmd::NuiDuplicate, 2), (Cmd::NuiMoveUp, 0), (Cmd::NuiMoveDown, 1)]
-    {
+    for (cmd, op) in [
+        (Cmd::NuiDelete, Op::Delete),
+        (Cmd::NuiDuplicate, Op::Duplicate),
+        (Cmd::NuiMoveUp, Op::MoveUp),
+        (Cmd::NuiMoveDown, Op::MoveDown),
+    ] {
         if ui.input_mut(|i| keymap.consume(i, cmd)) && can_edit(v, &state.selected, op) {
-            if op == 3 {
+            if op == Op::Delete {
                 structure::delete_selected(v, state);
             } else {
                 rearrange(v, &mut state.selected, op);

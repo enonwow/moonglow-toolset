@@ -242,7 +242,7 @@ pub(super) fn insert(v: &mut Value, selected: &mut String, ty: &str) {
     let Some(parent_path) = insertion_parent(v, selected) else { return };
     let mut node = mg_nui::template(ty);
     assign_ids(&mut node, v);
-    let parent = v.pointer_mut(&parent_path).unwrap();
+    let Some(parent) = v.pointer_mut(&parent_path) else { return };
     fit_into(parent, &mut node);
     if parent["type"] == "list" {
         if let Some(cells) = parent["row_template"].as_array_mut() {
@@ -356,21 +356,39 @@ pub(super) fn editor(
     // Remembered panel widths must leave a usable canvas after the host window
     // narrows. Otherwise even its toolbar can push into the inspector.
     const MIN_CANVAS: f32 = 280.0;
-    let palette_max = (width - 220.0 - MIN_CANVAS).clamp(170.0, 300.0);
+    // Properties is drawn before Layers: a field being typed in is still there,
+    // to be set, in the frame a click in Layers selects another control.
+    let inspector_max = (width - 170.0 - MIN_CANVAS).clamp(220.0, 360.0);
+    egui::Panel::right(ui.id().with("nui-inspector"))
+        .default_size(268.0)
+        .size_range(220.0..=inspector_max)
+        .resizable(true)
+        .frame(egui::Frame::NONE.inner_margin(14).fill(ui.visuals().panel_fill))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("nui-properties")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    inspector(ui, v, s, state, keymap, assets);
+                });
+        });
+    let palette_max = (ui.available_width() - MIN_CANVAS).clamp(170.0, 300.0);
     egui::Panel::left(ui.id().with("nui-palette"))
         .default_size(210.0)
         .size_range(170.0..=palette_max)
         .resizable(true)
         .frame(egui::Frame::NONE.inner_margin(10).fill(ui.visuals().panel_fill))
         .show(ui, |ui| {
-            ui.strong("Components");
-            ui.add_space(6.0);
+            widgets::section_heading(ui, "Components");
+            // (Ctrl+F with the pointer over the pane goes to it.)
+            let field = ui.id().with("nui-palette-filter");
+            widgets::pane_filter_keys(ui, field, &mut state.search);
             ui.add(
                 egui::TextEdit::singleline(&mut state.search)
+                    .id(field)
                     .hint_text("Find a control…")
                     .desired_width(f32::INFINITY),
             );
-            ui.add_space(6.0);
             egui::ScrollArea::vertical()
                 .id_salt("nui-palette-scroll")
                 .max_height((ui.available_height() * 0.48).max(120.0))
@@ -378,10 +396,9 @@ pub(super) fn editor(
                 .show(ui, |ui| {
                     palette(ui, v, s, state);
                 });
-            ui.add_space(8.0);
             ui.separator();
             ui.horizontal(|ui| {
-                ui.strong("Layers");
+                widgets::table_heading(ui, "Layers");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("…", |ui| {
                         edit_actions(ui, v, s, state, keymap);
@@ -394,30 +411,6 @@ pub(super) fn editor(
                     layers(ui, v, s, state);
                 },
             );
-        });
-    let inspector_max = (ui.available_width() - MIN_CANVAS).clamp(220.0, 360.0);
-    egui::Panel::right(ui.id().with("nui-inspector"))
-        .default_size(268.0)
-        .size_range(220.0..=inspector_max)
-        .resizable(true)
-        .frame(egui::Frame::NONE.inner_margin(14).fill(ui.visuals().panel_fill))
-        .show(ui, |ui| {
-            #[cfg(test)]
-            let allocated_rect = ui.max_rect();
-            let scroll = egui::ScrollArea::vertical()
-                .id_salt("nui-properties")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    inspector(ui, v, s, state, keymap, assets);
-                });
-            #[cfg(test)]
-            ui.ctx().data_mut(|d| {
-                d.insert_temp(
-                    egui::Id::new("nui-inspector-layout-test"),
-                    (allocated_rect, scroll.content_size),
-                );
-            });
-            let _ = scroll;
         });
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.inner_margin(12).fill(ui.visuals().extreme_bg_color))
@@ -443,18 +436,18 @@ fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
         if matches.is_empty() {
             continue;
         }
-        ui.add_space(8.0);
-        ui.label(RichText::new(*category).small().color(ui.visuals().weak_text_color()));
+        widgets::table_heading(ui, *category);
         for (ty, name, description) in matches {
             let response = ui
                 .add_enabled(
                     can_add,
                     egui::Button::new(*name)
-                        .min_size(vec2(ui.available_width(), 28.0))
+                        .min_size(vec2(ui.available_width(), ui.spacing().interact_size.y))
                         .sense(Sense::click_and_drag()),
                 )
                 .on_hover_text(format!(
-                    "{description}\nClick to add to the selected layout, or drag into Layers or the preview."
+                    "{description}\nClick to add to the selected layout, or drag into Layers or \
+                     the preview."
                 ));
             response.dnd_set_drag_payload(Insert(ty));
             if response.clicked() {
@@ -484,14 +477,14 @@ fn edit_actions(
         return;
     }
     for (label, op, cmd) in [
-        ("Move up", 0, Cmd::NuiMoveUp),
-        ("Move down", 1, Cmd::NuiMoveDown),
-        ("Duplicate element", 2, Cmd::NuiDuplicate),
-        ("Delete element", 3, Cmd::NuiDelete),
+        ("Move up", Op::MoveUp, Cmd::NuiMoveUp),
+        ("Move down", Op::MoveDown, Cmd::NuiMoveDown),
+        ("Duplicate element", Op::Duplicate, Cmd::NuiDuplicate),
+        ("Delete element", Op::Delete, Cmd::NuiDelete),
     ] {
         let button = egui::Button::new(label).shortcut_text(keymap.label(cmd, ui.ctx()));
         if ui.add_enabled(shortcuts::can_edit(v, &state.selected, op), button).clicked() {
-            if op == 3 {
+            if op == Op::Delete {
                 structure::delete_selected(v, state);
             } else {
                 rearrange(v, &mut state.selected, op);
@@ -510,7 +503,7 @@ fn edit_actions(
     ui.separator();
     for (label, key, op, enabled) in [
         ("Copy element", egui::Key::C, 0, !state.selected.is_empty()),
-        ("Cut element", egui::Key::X, 1, shortcuts::can_edit(v, &state.selected, 3)),
+        ("Cut element", egui::Key::X, 1, shortcuts::can_edit(v, &state.selected, Op::Delete)),
         (
             "Paste element",
             egui::Key::V,
@@ -528,8 +521,11 @@ fn edit_actions(
 }
 
 fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
+    let field = ui.id().with("nui-layers-filter");
+    widgets::filter_keys(ui, field, &mut state.layer_search, false);
     ui.add(
         egui::TextEdit::singleline(&mut state.layer_search)
+            .id(field)
             .hint_text("Find a layer or ID…")
             .desired_width(ui.available_width()),
     );
@@ -838,15 +834,16 @@ fn inspector(
     assets: &mut skin::Assets,
 ) {
     let Some(node) = v.pointer(&state.selected) else { return };
+    fields::of(ui.ctx(), egui::Id::new((&state.edit_view, &state.selected)));
     let swap = layouts::is_swap(s, node);
-    ui.heading(if state.selected.is_empty() {
+    let name = if state.selected.is_empty() {
         "Window".into()
     } else if swap {
         format!("Swap layout · {}", node["id"].as_str().unwrap_or_default())
     } else {
         node_name(node)
-    });
-    ui.add_space(8.0);
+    };
+    widgets::section_heading(ui, name);
     // What the selection is first: a swap layout's variants, any control's
     // own properties; then how it changes (binds, events, drawing).
     if swap {
@@ -872,7 +869,6 @@ fn inspector(
         ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
     }
     if !state.selected.is_empty() {
-        ui.add_space(12.0);
         ui.separator();
         ui.add_enabled_ui(state.resize.is_none(), |ui| {
             ui.menu_button("Element actions", |ui| {
@@ -889,87 +885,42 @@ pub(super) fn bindings(
     state: &mut State,
 ) {
     egui::ScrollArea::vertical().id_salt("nui-bindings").show(ui, |ui| {
-        ui.add_space(10.0);
-        ui.heading("Bindings");
-        ui.label("Bind a property to a value your event script can change.");
-        ui.weak("Create a named value here, then choose it for a control property in Design.");
+        widgets::section_heading(ui, "Bindings");
+        ui.label("A bind is a named value the event script can change.");
+        ui.weak("Made here, it is chosen for a control's property in Design.");
         workflow::create_bind(ui, &mut s.bindings);
-        ui.add_space(16.0);
         let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
-        for view in s.views.values() { used.extend(mg_nui::bind_names(view)); }
+        for view in s.views.values() {
+            used.extend(mg_nui::bind_names(view));
+        }
         for name in &used {
             if !s.bindings.contains_key(name) {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} needs an initial value"));
-                    if ui.button("Add value").clicked() { s.bindings.insert(name.clone(), Binding::default()); }
+                    if ui.button("Add value").clicked() {
+                        s.bindings.insert(name.clone(), Binding::default());
+                    }
                 });
             }
         }
         if s.bindings.is_empty() && used.is_empty() {
-            egui::Frame::group(ui.style()).inner_margin(18).show(ui, |ui| {
-                ui.strong("No dynamic values yet");
-                ui.label("Start with a static layout. Add binds when a control needs to change during play.");
-            });
+            ui.weak("No binds yet.");
         }
         let names: Vec<_> = s.bindings.keys().cloned().collect();
         let doc = v.as_deref().cloned().unwrap_or_else(mg_nui::window);
         for name in names {
-            egui::CollapsingHeader::new(&name).id_salt(("bind", &name)).default_open(true).show(ui, |ui| {
-                let binding = s.bindings.get_mut(&name).unwrap();
-                ui.label("Initial value");
-                fields::value(ui, &mut binding.value, 0);
-                if !used.contains(&name) { ui.weak("Not used by any property yet: choose it on a property in Design."); }
-                bindings::watch(ui, &name, &doc, s, state);
-                ui.horizontal(|ui| {
-                    let draft_id = ui.make_persistent_id(("rename-bind", &name));
-                    let mut to: String = ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.clone());
-                    let label = ui.label("Name");
-                    ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
-                        .labelled_by(label.id)
-                        .on_hover_text("A new name for this bind");
-                    let taken = to != name && s.bindings.contains_key(&to);
-                    let plain = !to.is_empty() && mg_nui::plain_name(&to);
-                    if ui.add_enabled(to != name && plain && !taken, egui::Button::new("Rename")).on_disabled_hover_text(if taken { "Another bind has that name" } else { "Type a new name: no spaces at either end, no + at the end" }).clicked() {
-                        // Every property, variant and handler using it follows.
-                        let names = std::collections::BTreeMap::from([(name.clone(), to.clone())]);
-                        if let Some(doc) = v.as_deref_mut() { shortcuts::rename_binds(doc, &names); }
-                        for view in s.views.values_mut() { shortcuts::rename_binds(view, &names); }
-                        if let Some(b) = s.bindings.remove(&name) { s.bindings.insert(to.clone(), b); }
-                        for route in s.actions.iter_mut().filter(|r| r.event == "watch" && r.element == name) {
-                            route.element = to.clone();
-                        }
-                    }
-                    ui.ctx().data_mut(|d| d.insert_temp(draft_id, to));
-                    let use_count = used.contains(&name);
-                    if ui.add_enabled(!use_count, egui::Button::new("Delete")).on_disabled_hover_text("Properties use it (listed below): give them a constant value first").on_hover_text("Its handlers go too; their code stays in the event script, commented out").clicked() {
-                        s.bindings.remove(&name);
-                        s.actions.retain(|r| !(r.event == "watch" && r.element == name));
-                    }
-                });
-                if used.contains(&name) {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.weak("Used by");
-                        let mut paths = Vec::new();
-                        bind_uses(&doc, &name, String::new(), &mut paths);
-                        for path in paths {
-                            let (target, place) = super::describe_path(&doc, &path);
-                            if ui.link(place).on_hover_text("Select it").clicked() && let Some(target) = target {
-                                state.selected = target;
-                                state.page = 0;
-                            }
-                        }
-                        if s.views.values().any(|view| mg_nui::bind_names(view).contains(&name)) {
-                            ui.weak("a swap layout variant");
-                        }
-                    });
-                }
-            });
-            ui.add_space(8.0);
+            let in_use = used.contains(&name);
+            egui::CollapsingHeader::new(&name)
+                .id_salt(("bind", &name))
+                .default_open(true)
+                .show(ui, |ui| bind(ui, &name, in_use, &doc, s, v.as_deref_mut(), state));
         }
-        ui.add_space(16.0);
         egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
             ui.checkbox(&mut s.from_resref, "Load JUI from the client by resource name");
-            ui.weak("Requires distributing the JUI to clients. Leave off to send the layout from the opener script.");
+            ui.weak(
+                "The players' clients must have the JUI then (from a hak or NWSync). Off, the \
+                 opener script sends the layout.",
+            );
         });
         egui::CollapsingHeader::new("Window identity").show(ui, |ui| {
             let mut custom = s.window_id.is_some();
@@ -977,9 +928,102 @@ pub(super) fn bindings(
                 s.window_id = custom.then(|| "my_window".into());
             }
             if let Some(id) = &mut s.window_id {
-                ui.text_edit_singleline(id);
+                fields::text(ui, id, ui.spacing().text_edit_width);
             }
-            ui.weak("The resource name remains unchanged. A custom ID controls NuiFindWindow/NuiCreate identity.");
+            ui.weak(
+                "The ID NuiCreate gives the window and NuiFindWindow finds it by. The resource \
+                 keeps its name.",
+            );
         });
     });
+}
+
+/// One bind on the Bindings page: its initial value, its handlers, its name
+/// and where it is used (`doc` is the window as it was when the page began).
+fn bind(
+    ui: &mut Ui,
+    name: &str,
+    in_use: bool,
+    doc: &Value,
+    s: &mut Settings,
+    v: Option<&mut Value>,
+    state: &mut State,
+) {
+    let Some(binding) = s.bindings.get_mut(name) else { return };
+    widgets::field_label(ui, "Initial value");
+    fields::value(ui, &mut binding.value, 0);
+    if !in_use {
+        ui.weak("Not used by any property yet: choose it on a property in Design.");
+    }
+    bindings::watch(ui, name, doc, s, state);
+    ui.horizontal(|ui| {
+        let draft_id = ui.make_persistent_id(("rename-bind", name));
+        let mut to: String =
+            ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.to_owned());
+        let label = widgets::field_label(ui, "Name");
+        ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
+            .labelled_by(label.id)
+            .on_hover_text("A new name for this bind");
+        let taken = to != name && s.bindings.contains_key(&to);
+        let plain = !to.is_empty() && mg_nui::plain_name(&to);
+        let why_not = if taken {
+            "Another bind has that name"
+        } else {
+            "Type a new name: no spaces at either end, no + at the end"
+        };
+        if ui
+            .add_enabled(to != name && plain && !taken, egui::Button::new("Rename"))
+            .on_disabled_hover_text(why_not)
+            .clicked()
+        {
+            // Every property, variant and handler using it follows.
+            let names = std::collections::BTreeMap::from([(name.to_owned(), to.clone())]);
+            if let Some(doc) = v {
+                shortcuts::rename_binds(doc, &names);
+            }
+            for view in s.views.values_mut() {
+                shortcuts::rename_binds(view, &names);
+            }
+            if let Some(b) = s.bindings.remove(name) {
+                s.bindings.insert(to.clone(), b);
+            }
+            for handler in s.actions.iter_mut().filter(|r| r.event == "watch" && r.element == name)
+            {
+                handler.element = to.clone();
+            }
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(draft_id, to));
+        if ui
+            .add_enabled(!in_use, egui::Button::new("Delete"))
+            .on_disabled_hover_text(
+                "Properties use it (listed below): give them a constant value first",
+            )
+            .on_hover_text(
+                "Its handlers go too; their code stays in the event script, commented out",
+            )
+            .clicked()
+        {
+            s.bindings.remove(name);
+            s.actions.retain(|r| !(r.event == "watch" && r.element == name));
+        }
+    });
+    if in_use {
+        ui.horizontal_wrapped(|ui| {
+            ui.weak("Used by");
+            let mut paths = Vec::new();
+            bind_uses(doc, name, String::new(), &mut paths);
+            for path in paths {
+                let (target, place) = super::describe_path(doc, &path);
+                if ui.link(place).on_hover_text("Select it").clicked()
+                    && let Some(target) = target
+                {
+                    state.selected = target;
+                    state.page = Page::Design;
+                }
+            }
+            if s.views.values().any(|view| mg_nui::bind_names(view).contains(name)) {
+                ui.weak("a swap layout variant");
+            }
+        });
+    }
 }

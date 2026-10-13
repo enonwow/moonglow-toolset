@@ -7,7 +7,10 @@ pub(super) const KINDS: &[&str] =
     &["Polyline", "Curve", "Circle", "Arc", "Text", "Image", "Line", "Rectangle"];
 
 fn template(kind: usize) -> Value {
-    let mut item = json!({"type":kind,"enabled":true,"color":{"r":220,"g":180,"b":80,"a":255},"fill":false,"line_thickness":2.0,"order":1,"render":0,"arrayBinds":false});
+    let mut item = json!({
+        "type":kind,"enabled":true,"color":{"r":220,"g":180,"b":80,"a":255},"fill":false,
+        "line_thickness":2.0,"order":1,"render":0,"arrayBinds":false
+    });
     match kind {
         0 => item["points"] = json!([10.0, 10.0, 80.0, 70.0, 140.0, 10.0]),
         1 | 6 => {
@@ -473,7 +476,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                             node["draw_list_scissor"] = false.into();
                         }
                     }
-                    node["draw_list"].as_array_mut().unwrap().push(template(kind));
+                    if let Some(items) = node["draw_list"].as_array_mut() {
+                        items.push(template(kind));
+                    }
                     ui.close();
                 }
             }
@@ -491,9 +496,8 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
             let header = egui::CollapsingHeader::new(format!("{} · {name}", i + 1))
                 .id_salt(i)
                 .open((reveal == Some(i)).then_some(true));
-            if reveal.is_some() && reveal != Some(i) {
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), reveal.unwrap()));
+            if let Some(other) = reveal.filter(|r| *r != i) {
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), other));
             }
             header.show(ui, |ui| {
                 let id = ui.id().with("draw-gesture");
@@ -506,7 +510,8 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 let width = ui.available_width().max(100.0);
                 let scale = width / 300.0;
                 let (area, _) = ui.allocate_exact_size(vec2(width, 160.0), egui::Sense::hover());
-                ui.painter().rect_filled(area, 0, Color32::from_gray(18));
+                ui.painter().rect_filled(area, 0, ui.visuals().extreme_bg_color);
+                let handle = ui.visuals().selection.bg_fill;
                 if let Some(g) = &mut drag
                     && let Some(p) = ui.input(|i| i.pointer.latest_pos())
                 {
@@ -554,7 +559,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                             egui::Sense::drag(),
                         )
                         .on_hover_cursor(egui::CursorIcon::Grab);
-                    ui.painter().circle_filled(p, 4.0, Color32::LIGHT_BLUE);
+                    ui.painter().circle_filled(p, 4.0, handle);
                     if r.drag_started()
                         && let Some(origin) = ui.input(|i| i.pointer.press_origin())
                     {
@@ -576,7 +581,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                             egui::Sense::drag(),
                         )
                         .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
-                    ui.painter().rect_filled(r.rect.shrink(2.0), 0, Color32::LIGHT_BLUE);
+                    ui.painter().rect_filled(r.rect.shrink(2.0), 0, handle);
                     if r.drag_started()
                         && let Some(origin) = ui.input(|i| i.pointer.press_origin())
                     {
@@ -640,8 +645,10 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                         ui.push_id(key, |ui| match key.as_str() {
                             "type" => {}
                             "order" => {
-                                let mut n = value.as_i64().unwrap_or(1);
-                                egui::ComboBox::from_label("Paint order")
+                                let was = value.as_i64().unwrap_or(1);
+                                let mut n = was;
+                                let label = widgets::field_label(ui, "Paint order");
+                                egui::ComboBox::from_id_salt("order")
                                     .selected_text(if n < 0 {
                                         "Before control"
                                     } else {
@@ -650,11 +657,17 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                     .show_ui(ui, |ui| {
                                         ui.selectable_value(&mut n, -1, "Before control");
                                         ui.selectable_value(&mut n, 1, "After control");
-                                    });
-                                *value = json!(n);
+                                    })
+                                    .response
+                                    .labelled_by(label.id);
+                                // Only a choice writes: looking at a layer never edits it.
+                                if n != was {
+                                    *value = json!(n);
+                                }
                             }
                             "render" => {
-                                let mut n = value.as_u64().unwrap_or(0) as usize;
+                                let was = value.as_u64().unwrap_or(0) as usize;
+                                let mut n = was;
                                 let choices = [
                                     "Always",
                                     "Mouse outside",
@@ -663,24 +676,25 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                     "Right held",
                                     "Middle held",
                                 ];
-                                egui::ComboBox::from_label("Show when")
+                                let label = widgets::field_label(ui, "Show when");
+                                egui::ComboBox::from_id_salt("render")
                                     .selected_text(*choices.get(n).unwrap_or(&"Unknown"))
                                     .show_ui(ui, |ui| {
                                         for (i, label) in choices.iter().enumerate() {
                                             ui.selectable_value(&mut n, i, *label);
                                         }
-                                    });
-                                *value = json!(n);
+                                    })
+                                    .response
+                                    .labelled_by(label.id);
+                                if n != was {
+                                    *value = json!(n);
+                                }
                             }
                             "image" if value.is_string() => {
-                                ui.label("Image");
+                                widgets::field_label(ui, "Image");
                                 let Value::String(picture) = value else { return };
                                 ui.horizontal(|ui| {
-                                    ui.add(
-                                        egui::TextEdit::singleline(picture)
-                                            .desired_width(140.0)
-                                            .hint_text("Picture name"),
-                                    );
+                                    fields::text(ui, picture, 140.0);
                                     if let Some(name) = images::from_disk(ui) {
                                         *picture = name;
                                     }

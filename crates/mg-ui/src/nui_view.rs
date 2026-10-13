@@ -1,7 +1,9 @@
 //! JUI authoring in the same Workspace/Undo/recovery path as other editors.
-//! Only transient selection lives in egui memory; even invalid JSON drafts
-//! remain in the module and are recoverable. No lossy fallback widgets.
-use crate::{Action, Moonglow, Tab};
+//! A field's value is set when the field is left (a drag: when let go), one
+//! Undo step each (`fields`); a source page's text likewise, and one that
+//! doesn't read as JSON is kept in the module as typed, where it is
+//! recoverable. No lossy fallback widgets.
+use crate::{Action, Moonglow, Tab, widgets};
 use egui::Ui;
 use mg_core::ResType;
 use mg_edit::{Command, Edit};
@@ -70,13 +72,63 @@ pub(crate) struct State {
     issues: bool,
     /// The errors there were last frame, to open the list when more come.
     issues_seen: usize,
-    page: usize,
+    page: Page,
     /// The hak Images adds pictures to: one the module uses, or None for a new one.
     images_hak: Option<String>,
-    view_mode: usize,
+    view_mode: ViewMode,
     name: String,
     load_search: String,
     checks: Option<Checks>,
+    /// The source field being typed in.
+    source_draft: Option<SourceDraft>,
+}
+
+/// A page of the Creator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+enum Page {
+    #[default]
+    Design,
+    Bindings,
+    /// The window's JSON as text.
+    JuiSource,
+    /// The settings' JSON as text.
+    BindingJson,
+    /// Events & variants.
+    Events,
+    Images,
+}
+
+/// How the Design page shows the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ViewMode {
+    /// The palette, the canvas and the properties.
+    #[default]
+    Editor,
+    /// The canvas alone.
+    Preview,
+    /// The canvas beside the source.
+    Split,
+}
+
+impl ViewMode {
+    const ALL: [ViewMode; 3] = [ViewMode::Editor, ViewMode::Preview, ViewMode::Split];
+
+    fn label(self) -> &'static str {
+        match self {
+            ViewMode::Editor => "Editor",
+            ViewMode::Preview => "Preview only",
+            ViewMode::Split => "Split source",
+        }
+    }
+}
+
+/// What is done to the selected control among its siblings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Op {
+    MoveUp,
+    MoveDown,
+    Duplicate,
+    Delete,
 }
 
 /// The API checks and build status of what the tab last showed.
@@ -270,7 +322,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     };
     let Ok(source) = std::str::from_utf8(bytes) else {
         ui.label(
-            "JUI is not UTF-8. Its original bytes are retained; structured editing is unavailable.",
+            "This window's JUI is not UTF-8 text: it is kept as it is and can't be edited here.",
         );
         return;
     };
@@ -282,12 +334,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         match std::str::from_utf8(config_bytes) {
             Ok(s) => s.to_owned(),
             Err(_) => {
-                ui.label("Companion TXT is not UTF-8; it is retained without changes.");
+                ui.label(
+                    "This window's settings (its TXT) are not UTF-8 text: they are kept as they \
+                     are.",
+                );
                 return;
             }
         }
     } else {
-        String::from_utf8(Settings::default().bytes()).unwrap()
+        String::from_utf8(Settings::default().bytes()).unwrap_or_default()
     };
     let config_original = config_raw.clone();
     // Parsed when the module holds other bytes than last frame, not every
@@ -334,14 +389,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         + usize::from(parsed.is_err())
         + usize::from(settings.is_err());
     let warnings = findings.iter().filter(|d| d.severity == Severity::Warning).count();
-    ui.spacing_mut().button_padding = egui::vec2(10.0, 5.0);
     // Narrow, the build controls take a row of their own: right-aligned they
     // would be drawn over the ones on the left.
     let wide = ui.available_width() >= 900.0;
     ui.horizontal_wrapped(|ui| {
-        ui.heading("NUI Creator");
-        ui.weak("/");
-        ui.strong(&name);
         design::document_actions(ui, &mut state, &ws.module, &mut app.actions);
         let layout = if wide {
             egui::Layout::right_to_left(egui::Align::Center)
@@ -352,7 +403,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         ui.with_layout(layout, |ui| {
             if ui
                 .button("Export…")
-                .on_hover_text("Validate and export the window, bind settings, opener include and compiled event script")
+                .on_hover_text(
+                    "Builds the window, then exports it with its settings, its opener include \
+                     and its compiled event script",
+                )
                 .clicked()
             {
                 app.actions.push(Action::GenerateNui { name: name.clone(), export: true });
@@ -363,7 +417,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     egui::Button::new("Build & compile").fill(ui.visuals().selection.bg_fill),
                 )
                 .on_hover_text(
-                    "Validate the opener include and compile the event script. Connect the opener manually in your own script.",
+                    "Checks the opener include and compiles the event script. The window opens \
+                     from a script of yours: How to open it… shows what to write.",
                 )
                 .on_disabled_hover_text(format!(
                     "Fix the {} first: the list under the tabs shows them",
@@ -377,12 +432,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 ui.colored_label(ui.visuals().error_fg_color, "Build failed").on_hover_text(why);
             } else if needs_build {
                 ui.weak("Not built")
-                    .on_hover_text("Build before testing this layout or these bind values in NWN");
+                    .on_hover_text("Build before testing: the game runs what was last built");
             }
             // The window opens from a script of yours: what to put in it.
             ui.menu_button("How to open it…", |ui| {
                 let code = format!(
-                    "#include \"{name}_o\"\n\nvoid main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
+                    "#include \"{name}_o\"\n\n\
+                     void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
                 );
                 ui.label("Open it from a script of yours, for example the module's OnClientEnter:");
                 ui.add(egui::TextEdit::multiline(&mut code.as_str()).code_editor().desired_rows(6));
@@ -394,16 +450,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             });
         });
     });
-    ui.add_space(6.0);
     egui::ScrollArea::horizontal().id_salt("nui-navigation").auto_shrink([false, true]).show(
         ui,
         |ui| {
             ui.horizontal(|ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                ui.spacing_mut().interact_size.y = 28.0;
-                ui.selectable_value(&mut state.page, 0, "Design");
-                ui.selectable_value(&mut state.page, 1, "Bindings");
-                ui.selectable_value(&mut state.page, 4, "Events & variants");
+                ui.selectable_value(&mut state.page, Page::Design, "Design");
+                ui.selectable_value(&mut state.page, Page::Bindings, "Bindings");
+                ui.selectable_value(&mut state.page, Page::Events, "Events & variants");
                 if ui.add_enabled(settings.is_ok(), egui::Button::new("Event script…")).clicked()
                     && let Ok(s) = &settings
                 {
@@ -413,28 +467,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                         code: None,
                     });
                 }
-                if state.page == 0 {
+                if state.page == Page::Design {
                     egui::ComboBox::from_id_salt("nui-layout-mode")
-                        .selected_text(["Editor", "Preview only", "Split source"][state.view_mode])
+                        .selected_text(state.view_mode.label())
                         .show_ui(ui, |ui| {
-                            for (i, label) in
-                                ["Editor", "Preview only", "Split source"].iter().enumerate()
-                            {
-                                ui.selectable_value(&mut state.view_mode, i, *label);
+                            for mode in ViewMode::ALL {
+                                ui.selectable_value(&mut state.view_mode, mode, mode.label());
                             }
                         });
                 }
                 ui.menu_button("Advanced", |ui| {
-                    if ui.selectable_label(state.page == 2, "JUI source").clicked() {
-                        state.page = 2;
+                    if ui.selectable_label(state.page == Page::JuiSource, "JUI source").clicked() {
+                        state.page = Page::JuiSource;
                         ui.close();
                     }
-                    if ui.selectable_label(state.page == 3, "Binding JSON").clicked() {
-                        state.page = 3;
+                    if ui
+                        .selectable_label(state.page == Page::BindingJson, "Binding JSON")
+                        .clicked()
+                    {
+                        state.page = Page::BindingJson;
                         ui.close();
                     }
-                    if ui.selectable_label(state.page == 5, "Images").clicked() {
-                        state.page = 5;
+                    if ui.selectable_label(state.page == Page::Images, "Images").clicked() {
+                        state.page = Page::Images;
                         ui.close();
                     }
                     ui.separator();
@@ -454,7 +509,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     format!("{} · {}", count(errors, "error"), count(warnings, "warning"))
                 };
                 ui.toggle_value(&mut state.issues, label)
-                    .on_hover_text("API checks; native NWN testing is still required");
+                    .on_hover_text("What the checks of the window found");
             });
         },
     );
@@ -492,7 +547,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             Some(path) => {
                                 if ui.link(place).on_hover_text("Select it").clicked() {
                                     state.selected = path.clone();
-                                    state.page = 0;
+                                    state.page = Page::Design;
                                 }
                             }
                             None => {
@@ -518,8 +573,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 s.bindings
                                     .insert(bind.clone(), Binding { value, ..Default::default() });
                                 node["value"] = json!({"bind": bind});
-                                raw = serde_json::to_string_pretty(&doc).unwrap();
-                                config_raw = String::from_utf8(s.bytes()).unwrap();
+                                write_window(&mut raw, &doc);
+                                write_settings(&mut config_raw, &s);
                             }
                         }
                         // Clip to control does nothing but harm, so it isn't
@@ -539,8 +594,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             };
                             if let Some(flag) = flag {
                                 *flag = json!(false);
-                                raw = serde_json::to_string_pretty(&doc).unwrap();
-                                config_raw = String::from_utf8(s.bytes()).unwrap();
+                                write_window(&mut raw, &doc);
+                                write_settings(&mut config_raw, &s);
                             }
                         }
                         if d.message.starts_with("The mg_close button has no Clicked handler")
@@ -553,91 +608,117 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 element: "mg_close".into(),
                                 action: mg_nui::Action::Close,
                             });
-                            config_raw = String::from_utf8(s.bytes()).unwrap();
+                            write_settings(&mut config_raw, &s);
                         }
                     })
                 });
             }
             if errors + warnings == 0 {
-                ui.weak("No API issues found. Verify the final appearance and events in NWN.");
+                ui.weak("The checks found nothing.");
             }
         });
         ui.separator();
     }
     let mut page_edits = Vec::new();
+    fields::begin(ui.ctx());
+    leave_source(&mut state, &mut raw, &mut config_raw);
     match state.page {
-        5 => {
+        Page::Images => {
             if let (Ok(mut v), Ok(s)) = (parsed, settings) {
                 let before = v.clone();
                 page_edits = images::page(ui, app, &name, &mut v, &s, &mut state);
                 if v != before {
-                    raw = serde_json::to_string_pretty(&v).unwrap();
+                    write_window(&mut raw, &v);
                 }
             } else {
                 repair(ui, &mut state);
             }
         }
-        4 => {
+        Page::Events => {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
                 let config_before = s.clone();
                 let script = ResKey::parse(&format!("{name}_e"), ResType::NSS)
                     .and_then(|k| events::current_script(app, &k));
                 workflow::ui(ui, &mut v, &mut s, &mut state, &name, script.as_deref());
+                fields::put_back(ui.ctx(), &before, &mut v);
+                fields::put_back_settings(ui.ctx(), &config_before, &mut s);
                 if v != before {
-                    raw = serde_json::to_string_pretty(&v).unwrap();
+                    write_window(&mut raw, &v);
                 }
                 if s != config_before {
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                    write_settings(&mut config_raw, &s);
                 }
             } else {
                 repair(ui, &mut state);
             }
         }
-        2 | 3 => {
-            let is_jui = state.page == 2;
-            ui.strong(if is_jui { "JUI source" } else { "Binding JSON" });
-            ui.weak("Drafts are included in module Save and Undo, even while incomplete.");
+        Page::JuiSource | Page::BindingJson => {
+            let is_jui = state.page == Page::JuiSource;
+            widgets::section_heading(ui, if is_jui { "JUI source" } else { "Binding JSON" });
+            ui.weak(
+                "What is typed is set when the field is left. Text that doesn't read as JSON is \
+                 kept in the module as typed, and Undo takes it back.",
+            );
+            let (of, text) = if is_jui {
+                (SourceOf::Window, &mut raw)
+            } else {
+                (SourceOf::Settings, &mut config_raw)
+            };
             egui::ScrollArea::both().id_salt(("nui-source", state.page)).show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(if is_jui { &mut raw } else { &mut config_raw })
-                        .code_editor()
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(26),
-                );
+                if let Some(typed) = source_field(ui, &mut state.source_draft, of, text, 26) {
+                    *text = typed;
+                }
             });
         }
-        1 => {
+        Page::Bindings => {
             if let Ok(mut s) = settings {
                 let before = s.clone();
                 let mut doc = parsed.as_ref().ok().cloned();
                 let doc_before = doc.clone();
                 design::bindings(ui, &mut s, doc.as_mut(), &mut state);
+                fields::put_back_settings(ui.ctx(), &before, &mut s);
+                if let (Some(was), Some(doc)) = (&doc_before, &mut doc) {
+                    fields::put_back(ui.ctx(), was, doc);
+                }
                 if s != before {
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                    write_settings(&mut config_raw, &s);
                 }
                 if doc != doc_before
                     && let Some(doc) = doc
                 {
-                    raw = serde_json::to_string_pretty(&doc).unwrap();
+                    write_window(&mut raw, &doc);
                 }
             } else {
-                ui.label("Settings need repair before editing bindings.");
-                if ui.button("Open binding JSON").clicked() {
-                    state.page = 3;
+                ui.label("The window's settings don't read as JSON: Binding JSON shows them.");
+                if ui.button("Open Binding JSON").clicked() {
+                    state.page = Page::BindingJson;
                 }
             }
         }
-        _ => {
+        Page::Design => {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
                 let before_settings = s.clone();
                 layouts::bar(ui, &s, &mut state);
+                // (The bar may have left the variant whose source was typed in.)
+                leave_source(&mut state, &mut raw, &mut config_raw);
                 let edited_view = state.edit_view.clone();
                 // A variant is edited in the window's place, and put back after.
                 let mut base_root = None;
                 if let Some(view) = state.edit_view.as_ref().and_then(|n| s.views.get(n)) {
                     base_root = Some(std::mem::replace(&mut v["root"], view.clone()));
+                }
+                // A selection whose control is gone (Undo took it back, the
+                // source was edited) is no selection.
+                if v.pointer(&state.selected).is_none() {
+                    state.selected.clear();
+                }
+                state.selected_many.retain(|path| v.pointer(path).is_some());
+                if let Some((path, layer)) = &state.draw_item
+                    && v.pointer(&format!("{path}/draw_list/{layer}")).is_none()
+                {
+                    state.draw_item = None;
                 }
                 let (asset_doc, asset_settings) = state
                     .runtime
@@ -655,8 +736,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 app.nui_assets.prepare_strings(app.game.as_deref(), asset_doc, asset_settings);
                 let mut split_raw = None;
                 match state.view_mode {
-                    1 => preview::canvas(ui, &mut v, &s, &mut state, &mut app.nui_assets),
-                    2 => ui.columns(2, |columns| {
+                    ViewMode::Preview => {
+                        preview::canvas(ui, &mut v, &s, &mut state, &mut app.nui_assets)
+                    }
+                    ViewMode::Split => ui.columns(2, |columns| {
                         preview::canvas(
                             &mut columns[0],
                             &mut v,
@@ -664,31 +747,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             &mut state,
                             &mut app.nui_assets,
                         );
-                        let mut source = if state.edit_view.is_some() {
-                            serde_json::to_string_pretty(&s).unwrap()
+                        let (of, source, title) = if state.edit_view.is_some() {
+                            (
+                                SourceOf::Variants,
+                                serde_json::to_string_pretty(&s).unwrap_or_default(),
+                                "Variants and binding JSON",
+                            )
                         } else {
-                            serde_json::to_string_pretty(&v).unwrap()
+                            (
+                                SourceOf::SplitWindow,
+                                serde_json::to_string_pretty(&v).unwrap_or_default(),
+                                "JUI source",
+                            )
                         };
-                        columns[1].strong(if state.edit_view.is_some() {
-                            "Views & binding JSON"
-                        } else {
-                            "JUI source"
-                        });
+                        widgets::section_heading(&mut columns[1], title);
                         egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
-                            if ui
-                                .add(
-                                    egui::TextEdit::multiline(&mut source)
-                                        .code_editor()
-                                        .desired_width(f32::INFINITY)
-                                        .desired_rows(28),
-                                )
-                                .changed()
-                            {
-                                split_raw = Some(source);
-                            }
+                            split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
                         });
                     }),
-                    _ => design::editor(
+                    ViewMode::Editor => design::editor(
                         ui,
                         &mut v,
                         &mut s,
@@ -705,11 +782,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     };
                     s.views.insert(name.clone(), root);
                 }
+                fields::put_back(ui.ctx(), &before, &mut v);
+                fields::put_back_settings(ui.ctx(), &before_settings, &mut s);
                 if v != before {
-                    raw = serde_json::to_string_pretty(&v).unwrap();
+                    write_window(&mut raw, &v);
                 }
                 if s != before_settings {
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                    write_settings(&mut config_raw, &s);
                 }
                 if let Some(source) = split_raw {
                     if edited_view.is_some() {
@@ -761,7 +840,100 @@ fn array_position(path: &str) -> Option<(String, usize, bool)> {
     Some((parent.into(), index.parse().ok()?, cell))
 }
 
-fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
+/// A source field: the text a page shows to be edited as text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum SourceOf {
+    /// The JUI source page: the window's text as the module holds it.
+    Window,
+    /// The Binding JSON page: the settings' text as the module holds it.
+    Settings,
+    /// Split source: the window, written out.
+    SplitWindow,
+    /// Split source while a variant is edited: the settings, written out.
+    Variants,
+}
+
+/// What is typed in a source field, until the field is left: a draft that
+/// doesn't read yet isn't written to the module at every key.
+struct SourceDraft {
+    of: SourceOf,
+    text: String,
+    /// Typed in since it was last set.
+    typed: bool,
+}
+
+/// A source field that isn't shown any more (another page, another view,
+/// another thing edited) was left: what was typed in it is set.
+fn leave_source(state: &mut State, raw: &mut String, config_raw: &mut String) {
+    let shows = match (state.page, state.view_mode) {
+        (Page::JuiSource, _) => Some(SourceOf::Window),
+        (Page::BindingJson, _) => Some(SourceOf::Settings),
+        (Page::Design, ViewMode::Split) if state.edit_view.is_some() => Some(SourceOf::Variants),
+        (Page::Design, ViewMode::Split) => Some(SourceOf::SplitWindow),
+        _ => None,
+    };
+    if let Some(draft) = state.source_draft.take_if(|d| Some(d.of) != shows)
+        && draft.typed
+    {
+        match draft.of {
+            SourceOf::Window | SourceOf::SplitWindow => *raw = draft.text,
+            SourceOf::Settings | SourceOf::Variants => *config_raw = draft.text,
+        }
+    }
+}
+
+/// A source field showing `current`, `rows` high: the text typed in it,
+/// once, when the keyboard leaves it (also one that doesn't read as JSON:
+/// it is kept in the module as typed, where Undo takes it back).
+fn source_field(
+    ui: &mut Ui,
+    held: &mut Option<SourceDraft>,
+    of: SourceOf,
+    current: &str,
+    rows: usize,
+) -> Option<String> {
+    let draft = held.take_if(|d| d.of == of).unwrap_or_else(|| SourceDraft {
+        of,
+        text: current.to_owned(),
+        typed: false,
+    });
+    let draft = held.insert(draft);
+    let field = ui.add(
+        egui::TextEdit::multiline(&mut draft.text)
+            .id(ui.id().with(("nui-source-field", of)))
+            .code_editor()
+            .desired_width(f32::INFINITY)
+            .desired_rows(rows),
+    );
+    crate::widgets::leaves_at_a_press(ui.ctx(), &field);
+    draft.typed |= field.changed();
+    if crate::widgets::has_keys(&field) {
+        return None;
+    }
+    let typed = std::mem::take(&mut draft.typed) && draft.text != current;
+    if !typed && draft.text != current {
+        // Changed underneath (Undo, the form): show it.
+        draft.text = current.to_owned();
+    }
+    typed.then(|| draft.text.clone())
+}
+
+/// The window's JSON text into `raw`. (Left as it is should it not write,
+/// which a document of JSON values always does.)
+fn write_window(raw: &mut String, v: &Value) {
+    if let Ok(text) = serde_json::to_string_pretty(v) {
+        *raw = text;
+    }
+}
+
+/// The settings' text into `config_raw`, as [`write_window`].
+fn write_settings(config_raw: &mut String, s: &Settings) {
+    if let Ok(text) = String::from_utf8(s.bytes()) {
+        *config_raw = text;
+    }
+}
+
+fn rearrange(v: &mut Value, selected: &mut String, op: Op) {
     let Some((parent, i, cell)) = array_position(selected) else { return };
     let Some(a) = v.pointer(&parent).and_then(Value::as_array) else { return };
     if i >= a.len() {
@@ -778,22 +950,22 @@ fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
     }
     let mut copy = a[i].clone();
     assign_ids(&mut copy, v);
-    let a = v.pointer_mut(&parent).unwrap().as_array_mut().unwrap();
+    let Some(a) = v.pointer_mut(&parent).and_then(Value::as_array_mut) else { return };
     let mut at = i;
     match op {
-        0 if i > 0 => {
+        Op::MoveUp if i > 0 => {
             a.swap(i, i - 1);
             at -= 1;
         }
-        1 if i + 1 < a.len() => {
+        Op::MoveDown if i + 1 < a.len() => {
             a.swap(i, i + 1);
             at += 1;
         }
-        2 => {
+        Op::Duplicate => {
             a.insert(i + 1, copy);
             at += 1;
         }
-        3 => {
+        Op::Delete => {
             a.remove(i);
             *selected = if a.is_empty() {
                 parent.rsplit_once('/').map_or("/root", |(p, _)| p).into()
@@ -802,25 +974,27 @@ fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
             };
             return;
         }
-        _ => {}
+        Op::MoveUp | Op::MoveDown => {}
     }
     *selected = format!("{parent}/{at}{}", if cell { "/0" } else { "" });
 }
 
 /// A page that needs the window's JSON when it doesn't read.
 fn repair(ui: &mut Ui, state: &mut State) {
-    ui.add_space(24.0);
-    ui.heading("Let's repair the source first");
-    ui.label("Use the source/settings tabs to repair JSON. Original contents are retained.");
+    ui.label(REPAIR);
     ui.horizontal(|ui| {
         if ui.button("Open JUI source").clicked() {
-            state.page = 2;
+            state.page = Page::JuiSource;
         }
-        if ui.button("Open binding JSON").clicked() {
-            state.page = 3;
+        if ui.button("Open Binding JSON").clicked() {
+            state.page = Page::BindingJson;
         }
     });
 }
+
+/// What a page says when the window's JSON doesn't read.
+const REPAIR: &str = "The window's JSON doesn't read: JUI source and Binding JSON show it as it \
+                      is, to be put right.";
 
 /// IDs for a copy going into `document`: one it already has is kept unless
 /// the document uses it (a paste into another window keeps its handlers' names).
@@ -874,6 +1048,10 @@ fn assign_ids(node: &mut Value, document: &Value) {
     ids(document, &mut used);
     assign(node, &mut used);
 }
+
+/// The room under a property: its label is over its field, so one property
+/// stands apart from the next by more than a label from its field.
+const FIELD_GAP: f32 = 8.0;
 
 fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     let Some(obj) = node.as_object_mut() else {
@@ -993,7 +1171,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                         let (label, fixed) =
                             if *key == "width" { ("Width", 150.0) } else { ("Height", 30.0) };
                         ui.horizontal(|ui| {
-                            ui.label(label);
+                            widgets::field_label(ui, label);
                             // It has none: the layout decides; the button gives it one.
                             ui.weak("Automatic");
                             if ui
@@ -1004,7 +1182,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                                 obj.insert((*key).into(), json!(fitting_size(obj, key, fixed)));
                             }
                         });
-                        ui.add_space(8.0);
+                        ui.add_space(FIELD_GAP);
                         continue;
                     }
                     if let Some(value) = obj.get_mut(*key)
@@ -1016,7 +1194,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                     {
                         let field = ui.push_id(*key, |ui| {
                             property(ui, key, &ty, value, s, &mut remove);
-                            ui.add_space(8.0);
+                            ui.add_space(FIELD_GAP);
                         });
                         if reveal.as_deref() == Some(*key) {
                             field.response.scroll_to_me(Some(egui::Align::Center));
@@ -1025,7 +1203,6 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                 }
             });
     }
-    ui.add_space(8.0);
     let (fit_width, fit_height) =
         (fitting_size(obj, "width", 150.0), fitting_size(obj, "height", 30.0));
     ui.menu_button("+ Add property", |ui| {
@@ -1094,10 +1271,9 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         })
         .collect();
     if !advanced_keys.is_empty() {
-        ui.add_space(8.0);
         egui::CollapsingHeader::new("Advanced properties").show(ui, |ui| {
             for key in &advanced_keys {
-                let value = obj.get_mut(key).unwrap();
+                let Some(value) = obj.get_mut(key) else { continue };
                 ui.push_id(key, |ui| {
                     property(ui, key, &ty, value, s, &mut remove);
                 });
@@ -1313,7 +1489,7 @@ fn property(
             let heading = if let Value::Bool(flag) = value {
                 ui.checkbox(flag, &label)
             } else {
-                ui.label(&label)
+                widgets::field_label(ui, &label)
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button("…", |ui| {
@@ -1391,18 +1567,19 @@ fn property(
             egui::RichText::new(format!("Dynamic · {name}")).color(ui.visuals().selection.bg_fill),
         );
         if let Some(binding) = s.bindings.get_mut(&name) {
-            ui.weak("Initial value");
+            widgets::field_label(ui, "Initial value");
             fields::value(ui, &mut binding.value, 0);
         } else {
             ui.weak("Add an initial value in Bindings.");
         }
         fields::binding_options(ui, value);
     } else if let Value::String(text) = value {
-        ui.add(egui::TextEdit::singleline(text).desired_width(f32::INFINITY))
-            .labelled_by(heading.id);
+        if let Some(field) = fields::text(ui, text, f32::INFINITY) {
+            field.labelled_by(heading.id);
+        }
     } else if let Some(id) = value.get_mut("strref") {
         ui.horizontal(|ui| {
-            ui.label("TLK StrRef");
+            widgets::field_label(ui, "TLK StrRef");
             scalar(ui, id);
         });
     } else if key == "elements"
@@ -1417,8 +1594,10 @@ fn property(
             ("h", "Maximum height"),
         ] {
             ui.horizontal(|ui| {
-                ui.label(label);
-                scalar(ui, &mut value[field]);
+                let label = widgets::field_label(ui, label);
+                if let Some(field) = scalar(ui, &mut value[field]) {
+                    field.labelled_by(label.id);
+                }
             });
         }
         ui.weak("0 leaves that limit unrestricted.");
@@ -1428,7 +1607,7 @@ fn property(
                 *value = default;
             }
         } else {
-            ui.weak("Unset/custom value. Edit in Advanced › JUI source.");
+            ui.weak("Not set, or a value of another kind: edit it in Advanced › JUI source.");
         }
     } else if let Some(names) = named_choices(key)
         && let Some(n) = value.as_i64()
@@ -1445,8 +1624,10 @@ fn property(
             .response
             .labelled_by(heading.id);
         *value = json!(n);
-    } else if !value.is_boolean() {
-        scalar(ui, value);
+    } else if !value.is_boolean()
+        && let Some(field) = scalar(ui, value)
+    {
+        field.labelled_by(heading.id);
     }
 }
 
@@ -1464,23 +1645,17 @@ fn named_choices(key: &str) -> Option<&'static [&'static str]> {
     })
 }
 
-fn scalar(ui: &mut Ui, v: &mut Value) {
+/// A value's field: text, a number or a color, set as the other editors set
+/// theirs (see `fields`). The response of a field that is one widget.
+fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
     match v {
-        Value::String(text) => {
-            ui.add(egui::TextEdit::singleline(text).desired_width(ui.available_width().max(0.0)));
-        }
-        Value::Bool(b) => {
-            ui.checkbox(b, "On");
-        }
+        Value::String(text) => return fields::text(ui, text, ui.available_width().max(0.0)),
+        Value::Bool(b) => return Some(ui.checkbox(b, "On")),
         Value::Number(n) => {
-            if let Some(mut i) = n.as_i64() {
-                if ui.add(egui::DragValue::new(&mut i)).changed() {
-                    *v = json!(i);
-                }
-            } else if let Some(mut f) = n.as_f64()
-                && ui.add(egui::DragValue::new(&mut f).speed(0.1)).changed()
-            {
-                *v = json!(f);
+            if let Some(i) = n.as_i64() {
+                return Some(fields::number(ui, v, i, |d| d));
+            } else if let Some(f) = n.as_f64() {
+                return Some(fields::number(ui, v, f, |d| d.speed(0.1)));
             }
         }
         // A colour as the rest of Moonglow shows one: a swatch that opens a picker.
@@ -1488,29 +1663,26 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
             if o.len() == 4
                 && ["r", "g", "b", "a"].iter().all(|k| o.get(*k).is_some_and(Value::is_number)) =>
         {
-            let channel = |k: &str| o[k].as_u64().unwrap_or(255).min(255) as u8;
-            let mut rgba = [channel("r"), channel("g"), channel("b"), channel("a")];
-            if ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed() {
-                for (k, c) in ["r", "g", "b", "a"].iter().zip(rgba) {
-                    o.insert((*k).into(), json!(c));
-                }
-            }
+            fields::color(ui, o);
         }
         // Lined up in a grid, so the values start at one edge.
         Value::Object(o) if o.len() <= 4 && o.values().all(Value::is_number) => {
             egui::Grid::new(ui.id().with("numbers")).num_columns(2).show(ui, |ui| {
                 for (k, v) in o {
-                    ui.label(match k.as_str() {
-                        "w" => "Width",
-                        "h" => "Height",
-                        "x" => "X",
-                        "y" => "Y",
-                        "r" => "Red",
-                        "g" => "Green",
-                        "b" => "Blue",
-                        "a" => "Alpha",
-                        _ => k,
-                    });
+                    widgets::field_label(
+                        ui,
+                        match k.as_str() {
+                            "w" => "Width",
+                            "h" => "Height",
+                            "x" => "X",
+                            "y" => "Y",
+                            "r" => "Red",
+                            "g" => "Green",
+                            "b" => "Blue",
+                            "a" => "Alpha",
+                            _ => k,
+                        },
+                    );
                     scalar(ui, v);
                     ui.end_row();
                 }
@@ -1518,6 +1690,7 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
         }
         Value::Null | Value::Array(_) | Value::Object(_) => fields::value(ui, v, 0),
     }
+    None
 }
 
 fn resolved<'a>(v: &'a Value, s: &'a Settings) -> &'a Value {
@@ -1555,18 +1728,18 @@ mod tests {
         v["root"]["children"][0]["id"] = "first".into();
         v["root"]["children"][0]["extension"] = json!({"untouched":[1,2,3]});
         let mut selected = "/root/children/0".to_string();
-        rearrange(&mut v, &mut selected, 2);
+        rearrange(&mut v, &mut selected, Op::Duplicate);
         assert_eq!(selected, "/root/children/1");
         assert_eq!(v["root"]["children"][1]["extension"], json!({"untouched":[1,2,3]}));
         assert_ne!(v["root"]["children"][0]["id"], v["root"]["children"][1]["id"]);
-        rearrange(&mut v, &mut selected, 1);
+        rearrange(&mut v, &mut selected, Op::MoveDown);
         assert_eq!(selected, "/root/children/2");
-        rearrange(&mut v, &mut selected, 3);
+        rearrange(&mut v, &mut selected, Op::Delete);
         assert_eq!(v["root"]["children"].as_array().unwrap().len(), 2);
         v["root"] = mg_nui::template("list");
         selected = "/root/row_template/0/0".into();
         v["root"]["row_template"] = json!([[mg_nui::template("label"), 150.0, true]]);
-        rearrange(&mut v, &mut selected, 2);
+        rearrange(&mut v, &mut selected, Op::Duplicate);
         assert_eq!(v["root"]["row_template"].as_array().unwrap().len(), 2);
     }
 
@@ -1710,12 +1883,12 @@ mod tests {
         let before = keyboard_document(&h);
         h.get_by_label("+ New bind for property").click();
         h.run();
-        h.get_by_label("Cancel bind").click();
+        h.get_by_label("Cancel").click();
         h.run();
         assert_eq!(keyboard_document(&h), before);
         h.get_by_label("+ New bind for property").click();
         h.run();
-        h.get_by_label("Create & connect").click();
+        h.get_by_label("Create").click();
         h.run();
         assert_eq!(
             keyboard_document(&h)["root"]["children"][0]["value"],
@@ -1779,6 +1952,9 @@ mod tests {
         h.get_by_label("Element ID").click();
         h.run();
         h.get_by_label("Element ID").type_text("_x");
+        h.run();
+        // (Set when the field is left.)
+        h.key_press(egui::Key::Tab);
         h.run();
         assert!(routes(&h).iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
         assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
@@ -1940,9 +2116,11 @@ mod tests {
         tga.extend([255u8; 3]);
         let picture = dir.join("my_bg.tga");
         std::fs::write(&picture, &tga).unwrap();
+        let second = dir.join("my_icon.tga");
+        std::fs::write(&second, &tga).unwrap();
         let hak = user.join("hak").join("nui_images.hak");
         let dialogs = crate::NoDialogs {
-            open_many: vec![vec![picture]],
+            open_many: vec![vec![second.clone()], vec![picture]],
             save: vec![hak.clone()],
             ..Default::default()
         };
@@ -1994,6 +2172,37 @@ mod tests {
         assert_eq!(images::listed_haks(ws), ["nui_images"]);
         let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
         assert!(written.items().iter().any(|i| i.key == key));
+        let logged =
+            |h: &Harness<'_, Moonglow>, what: &str| {
+                h.state().log.entries.iter().any(|(_, line)| {
+                    line.contains(what) && line.contains(&hak.display().to_string())
+                })
+            };
+        assert!(logged(&h, "Added 1 picture to"), "the log names the hak written");
+        // Into the hak the module now lists, in place: the log names it and
+        // the copy kept of what it was.
+        let jui = Some(jui);
+        h.state_mut().nui_views.get_mut(&jui).unwrap().images_hak = Some("nui_images".into());
+        h.run();
+        h.get_by_label("Add images to nui_images.hak…").click();
+        h.run();
+        let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
+        let icon = ResKey::parse("my_icon", ResType::TGA).unwrap();
+        assert!(written.items().iter().any(|i| i.key == icon));
+        assert!(written.items().iter().any(|i| i.key == key), "what it held stays");
+        let bak = hak.with_extension("hak.bak");
+        assert!(mg_module::hak_edit::Hak::open(&bak).unwrap().items().iter().all(|i| i.key == key));
+        assert!(logged(&h, "nui_images.hak.bak"), "the log names the copy kept");
+        // One open in the hak editor is left to its Save there.
+        crate::hak_view::open_at(h.state_mut(), &hak).expect("the hak opens");
+        h.state_mut().actions.clear();
+        let before = std::fs::read(&hak).unwrap();
+        h.state_mut().dialogs =
+            Box::new(crate::NoDialogs { open_many: vec![vec![second]], ..Default::default() });
+        h.get_by_label("Add images to nui_images.hak…").click();
+        h.run();
+        assert_eq!(std::fs::read(&hak).unwrap(), before);
+        assert!(h.state().log.entries.iter().any(|(_, line)| line.contains("hak editor")));
     }
 
     #[test]
@@ -2760,9 +2969,9 @@ mod tests {
         assert_eq!(cell[0]["value"]["bind"], "caption_2");
         assert_eq!(target_settings.bindings["caption"].value, "Target");
         assert_eq!(target_settings.bindings["caption_2"], settings.bindings["caption"]);
-        assert!(!shortcuts::can_edit(&target, "/root", 3));
+        assert!(!shortcuts::can_edit(&target, "/root", Op::Delete));
         target["root"] = mg_nui::template("group");
-        assert!(!shortcuts::can_edit(&target, "/root/children/0", 3));
+        assert!(!shortcuts::can_edit(&target, "/root/children/0", Op::Delete));
     }
 
     #[test]
@@ -2863,6 +3072,11 @@ mod tests {
             .unwrap()
             .type_text("invalid draft");
         h.run();
+        // A draft is the tab's until its field is left: then it is the
+        // module's, also one that doesn't read.
+        assert_eq!(h.state().ws.as_ref().unwrap().module.get(&key).unwrap(), before);
+        h.key_press(egui::Key::Escape);
+        h.run();
         let ws = h.state_mut().ws.as_mut().unwrap();
         let draft = ws.module.get(&key).unwrap().to_vec();
         assert_ne!(draft, before);
@@ -2873,9 +3087,7 @@ mod tests {
         assert_eq!(ws.module.get(&key).unwrap(), draft);
         h.get_by_label("Design").click();
         h.run();
-        h.get_by_label(
-            "Use the source/settings tabs to repair JSON. Original contents are retained.",
-        );
+        h.get_by_label(REPAIR);
     }
 
     #[test]
