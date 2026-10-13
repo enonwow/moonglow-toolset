@@ -133,7 +133,7 @@ impl Tab {
             // (Room for the text beside the lists, which open as wide as
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
-            Tab::Nui(_) => (1140.0, 760.0),
+            Tab::Nui(_) => (1140.0, 792.0),
             Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),

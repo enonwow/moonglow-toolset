@@ -481,7 +481,8 @@ mod tests {
         assert!(is_swap(&initial.1, slot));
         h.get_by_label("+ Add variant").click();
         h.run();
-        h.get_by_label("Cancel").click();
+        // (The dialog's Cancel, drawn after the one under the editor.)
+        h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
         assert_eq!(read(&h), initial);
         h.get_by_label("+ Add variant").click();
@@ -761,7 +762,8 @@ mod tests {
         let converted = read(&h);
         h.get_by_label("Copy initial contents").click();
         h.run();
-        h.get_by_label("Cancel").click();
+        // (The dialog's Cancel, drawn after the one under the editor.)
+        h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
         assert_eq!(read(&h), converted);
         h.get_by_label("Copy initial contents").click();

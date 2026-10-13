@@ -298,12 +298,30 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
     }
 }
 
+/// The NUI Creator, over its OK and Cancel (`blueprint::ok_cancel`): Cancel
+/// sets the window and its settings back to what they were when the tab was
+/// opened (what Build made of them is built again from those).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
+    let Some(window) = key.filter(|_| app.ws.is_some()) else {
+        return editor(app, ui, key);
+    };
+    let targets = [(window, mg_edit::GffPath::root())];
+    let pressed = crate::blueprint::ok_cancel(ui, &targets[0], false);
+    let pending = app.actions.len();
+    editor(app, ui, key);
+    crate::blueprint::window_drawn(app, pending, &Tab::Nui(key), &targets, pressed);
+}
+
+fn editor(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
+    // What the tab asks for this frame starts here (its OK and Cancel note it).
+    let asked = app.actions.len();
     let id = ui.id().with(("nui", key));
     // Floating dock windows have no native title bar, so egui permits dragging
     // their background. Absorb body drags before registering controls; child
     // text selections, sliders and canvas handles retain their own drag sense.
-    ui.interact(ui.max_rect(), id.with("body-drag-guard"), egui::Sense::drag());
+    // (Its own room only: OK and Cancel under it are not its body.)
+    let body = ui.available_rect_before_wrap();
+    ui.interact(body, id.with("body-drag-guard"), egui::Sense::drag());
     let mut state = app.nui_views.remove(&key).unwrap_or_default();
     let Some(ws) = &app.ws else {
         ui.label("Open a module first.");
@@ -825,7 +843,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     if !edits.is_empty() {
         // Apply before a generation requested in this frame, including a text
         // field losing focus when its button was clicked.
-        app.actions.insert(0, Action::Apply(Command::new(format!("Edit NUI {name}"), edits)));
+        app.actions.insert(asked, Action::Apply(Command::new(format!("Edit NUI {name}"), edits)));
     }
     app.nui_views.insert(Some(key), state);
 }
@@ -1883,7 +1901,8 @@ mod tests {
         let before = keyboard_document(&h);
         h.get_by_label("+ New bind for property").click();
         h.run();
-        h.get_by_label("Cancel").click();
+        // (The dialog's Cancel, drawn after the one under the editor.)
+        h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
         assert_eq!(keyboard_document(&h), before);
         h.get_by_label("+ New bind for property").click();
@@ -2867,6 +2886,28 @@ mod tests {
         assert_eq!(keyboard_document(&h), resized);
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         assert_eq!(keyboard_document(&h), doc);
+    }
+
+    /// Cancel under the editor sets the window back to what it was when the
+    /// tab was opened, as one step that Undo takes back.
+    #[test]
+    fn nui_cancel_sets_back_what_the_tab_changed() {
+        let mut h = keyboard_harness();
+        // (What a tab changed is kept while the tab is open.)
+        let tab = Tab::Nui(Some(mg_nui::key("nui_test", ResType::JUI)));
+        h.state_mut().run(Action::OpenTab(tab));
+        h.run();
+        let opened = keyboard_document(&h);
+        h.get_all_by_label("Button · Close").next().unwrap().click();
+        h.run();
+        h.key_press(egui::Key::Delete);
+        h.run();
+        assert_ne!(keyboard_document(&h), opened);
+        h.get_by_label("Cancel").click();
+        h.run();
+        assert_eq!(keyboard_document(&h), opened);
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        assert_ne!(keyboard_document(&h), opened);
     }
 
     #[test]
