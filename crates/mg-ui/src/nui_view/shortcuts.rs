@@ -135,6 +135,8 @@ pub(super) fn keys(
     state: &mut State,
     keymap: &Keymap,
 ) {
+    // Keys, with the pointer over the editor and no text being typed:
+    // Options › Keyboard's (left for others, as the other editors' are).
     if (state.preview_interactive
         && state.preview_rect.is_some_and(|rect| ui.rect_contains_pointer(rect)))
         || state.resize.is_some()
@@ -152,7 +154,7 @@ pub(super) fn keys(
         (Cmd::NuiMoveUp, Op::MoveUp),
         (Cmd::NuiMoveDown, Op::MoveDown),
     ] {
-        if ui.input_mut(|i| keymap.consume(i, cmd)) && can_edit(v, &state.selected, op) {
+        if ui.input(|i| keymap.pressed(i, cmd)) && can_edit(v, &state.selected, op) {
             if op == Op::Delete {
                 structure::delete_selected(v, state);
             } else {
@@ -161,14 +163,14 @@ pub(super) fn keys(
         }
     }
     for (cmd, forward) in [(Cmd::NuiPrevious, false), (Cmd::NuiNext, true)] {
-        if ui.input_mut(|i| keymap.consume(i, cmd)) {
+        if ui.input(|i| keymap.pressed(i, cmd)) {
             navigate(v, state, forward);
         }
     }
     let branch = v.pointer(&state.selected).is_some_and(|n| {
         state.selected.is_empty() || n["children"].is_array() || n["row_template"].is_array()
     });
-    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)) {
+    if ui.input(|i| i.modifiers.is_none() && i.key_pressed(egui::Key::ArrowLeft)) {
         if branch && !state.collapsed.contains(&state.selected) {
             state.collapsed.insert(state.selected.clone());
         } else if let Some((parent, _, _)) = array_position(&state.selected) {
@@ -177,39 +179,15 @@ pub(super) fn keys(
             state.selected.clear();
         }
     }
-    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight))
+    if ui.input(|i| i.modifiers.is_none() && i.key_pressed(egui::Key::ArrowRight))
         && branch
         && !state.collapsed.remove(&state.selected)
     {
         navigate(v, state, true);
     }
-    let mut clip = [false; 3];
-    ui.input_mut(|i| {
-        i.events.retain(|event| {
-            let op = match event {
-                egui::Event::Copy => Some(0),
-                egui::Event::Cut => Some(1),
-                egui::Event::Paste(_) => Some(2),
-                egui::Event::Key { key, modifiers, pressed: true, .. }
-                    if modifiers.command && !modifiers.shift && !modifiers.alt =>
-                {
-                    match key {
-                        egui::Key::C => Some(0),
-                        egui::Key::X => Some(1),
-                        egui::Key::V => Some(2),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-            if let Some(op) = op {
-                clip[op] = true;
-                false
-            } else {
-                true
-            }
-        })
-    });
+    // The platform's Copy, Cut and Paste, as the conversation editor takes them.
+    let (copy, cut, paste) = crate::widgets::copy_cut_paste(ui);
+    let clip = [copy, cut, paste];
     for (op, pressed) in clip.into_iter().enumerate() {
         if pressed {
             clipboard(ui.ctx(), v, s, &mut state.selected, op);
