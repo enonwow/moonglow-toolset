@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.28.0" date="2026-10-13">
+      <description>
+        <p>Properties windows and conversations open as tabs of one window
+        of their kind, as scripts do, each with an option to open in a
+        window of its own.</p>
+      </description>
+    </release>
     <release version="1.27.0" date="2026-10-13">
       <description>
         <p>The editors' windows have OK and Cancel, as Aurora's do: Cancel
