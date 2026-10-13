@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.27.0" date="2026-10-13">
+      <description>
+        <p>The editors' windows have OK and Cancel, as Aurora's do: Cancel
+        sets back what was changed in the window since it was opened. The
+        conversation editor's text has a font size of its own in
+        Options.</p>
+      </description>
+    </release>
     <release version="1.26.1" date="2026-10-13">
       <description>
         <p>Text typed in a field is kept when you switch to another
