@@ -857,6 +857,13 @@ fn shown(
                 // As it stands in the area: in its pause (a dragon at
                 // rest lies stretched out, wings spread).
                 let bounds = composed.bounds_in(composed.idle.as_deref(), 0.0);
+                // (A model of nothing drawn is the size of what it holds
+                // undrawn, where that is something: the invisible
+                // object's box, as Aurora outlines it.)
+                let hidden =
+                    composed.hidden_bounds().filter(|_| !composed.has_meshes() || bare(bounds));
+                let bounds =
+                    hidden.filter(|h| h.0.is_finite() && h.1.is_finite()).unwrap_or(bounds);
                 Arc::new(Shown { composed, bounds })
             })
         })

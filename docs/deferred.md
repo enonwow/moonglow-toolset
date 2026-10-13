@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:22:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T20:22:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1738,6 +1738,15 @@ unless it says so.
   Areas, its `.git` and `.gic` among the rest by extension), as it did
   in one list; exporting the `.are` takes the other two only with
   **Include the resources they use**. (S)
+
+- **Save and Cancel on what is edited:** a builder's wish, after text
+  lost in a field: every change is the module's at once here, and Undo
+  takes it back, where Aurora's Properties window has OK and Cancel. A
+  Cancel for a window (its changes since it was opened taken back as
+  one) is the part that could be built on what there is; the owner's to
+  decide. Not begun. (M) (a builder's ask, October 2026)
+- **The model viewer's and a Properties page's view of a shield:** from
+  the back still (the galleries' pictures are from the front). (S)
 
 ## Questions asked, unanswered
 

@@ -1429,7 +1429,7 @@ fn grid(
                                         ui.new_child(egui::UiBuilder::new().max_rect(rect));
                                     let field = within.add_sized(rect.size(), edit);
                                     crate::widgets::leaves_at_a_press(ui.ctx(), &field);
-                                    if !field.has_focus() && !field.lost_focus() {
+                                    if !crate::widgets::has_keys(&field) && !field.lost_focus() {
                                         field.request_focus();
                                     }
                                     if field.lost_focus() {

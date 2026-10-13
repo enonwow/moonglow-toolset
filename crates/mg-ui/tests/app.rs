@@ -4196,6 +4196,39 @@ fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Description"));
 }
 
+/// Text typed in a field is kept while another program has the keyboard
+/// (Alt + Tab away and back): the field took its window's loss of the
+/// keyboard for its own, and showed what was stored again.
+#[test]
+fn text_typed_is_kept_while_another_program_has_the_keyboard() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_away", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let tag = field(&mut h, &key).string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    let tag = tag.unwrap_or_default();
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(&*tag)
+    };
+    let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_X".into()));
+    h.run_steps(2);
+    for focused in [false, true] {
+        h.input_mut().focused = focused;
+        h.event(egui::Event::WindowFocused(focused));
+        h.run_steps(3);
+    }
+    h.get_by_label("Lock").click();
+    h.run_steps(4);
+    let now = format!("{tag}_X");
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
+}
+
 /// The same in the other windows: Module Properties' description, typed
 /// in, is kept when another of its pages is clicked.
 #[test]
@@ -13995,6 +14028,43 @@ fn an_area_is_copied_with_its_objects() {
     assert!(!ws.module.contains(&ResKey::new(new, ResType::GIT)));
 }
 
+/// The game's invisible object is selected by the box its model holds
+/// undrawn (0.6 m across, 0.18 m tall), as Aurora outlines it: it was a
+/// marker's, a metre each way.
+#[test]
+fn an_invisible_object_is_selected_by_its_own_box() {
+    let Some((mut h, area)) = area_harness("invisible-object") else { return };
+    h.run_steps(3);
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let mut utp = {
+        let game = h.state().game.as_deref().unwrap();
+        Gff::read(&game.resman.get(&chest).unwrap()).unwrap().root
+    };
+    utp.set("Appearance", mg_gff::Value::Dword(157));
+    for (label, v) in [("X", 15.0), ("Y", 15.0), ("Z", 0.0), ("Bearing", 0.0)] {
+        utp.set(label, mg_gff::Value::Float(v));
+    }
+    let edit = mg_edit::Edit::InsertItem {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: utp,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Place", vec![edit])));
+    h.run_steps(5);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    let placeable = |o: &mg_area::AreaObject| o.kind == mg_area::ObjectKind::Placeable;
+    let i = view.model.as_ref().unwrap().objects.iter().position(placeable).unwrap();
+    view.selection = vec![(mg_area::ObjectKind::Placeable, 0)];
+    let (min, max) = view.box_of(i).expect("a box");
+    let across = max - min;
+    assert!((across.x - 0.6).abs() < 0.05 && (across.y - 0.6).abs() < 0.05, "{across:?}");
+    assert!(across.z < 0.3, "{across:?}");
+    h.run_steps(3);
+    h.render().unwrap().save(mg_testkit::scratch_dir("ui-invisible-object").join("a.png")).unwrap();
+}
+
 /// A right click on the ground offers a light: one of the game's
 /// invisible light placeables is put there, a little above the ground,
 /// and its menu gives it another color.
@@ -14815,6 +14885,22 @@ fn look_gallery_pictures() {
     h.run_steps(60);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-gallery-look").join("look.png")).unwrap();
+}
+
+#[test]
+#[ignore = "a look at the palette's gallery of items"]
+fn look_item_gallery() {
+    let Some((mut h, _area)) = area_harness("gallery-items") else { return };
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Item;
+        (p.tiles, p.custom) = (false, false);
+        p.filter = std::env::var("MG_FILTER").unwrap_or_else(|_| "shield".into());
+    }
+    h.state_mut().settings.palette_gallery = true;
+    h.run_steps(60);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-gallery-items").join("look.png")).unwrap();
 }
 
 #[test]

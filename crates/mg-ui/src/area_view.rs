@@ -772,6 +772,12 @@ impl AreaView {
             .collect()
     }
 
+    /// The box object `i` is selected and clicked by, in its own space:
+    /// for the tests.
+    pub fn box_of(&self, i: usize) -> Option<(Vec3, Vec3)> {
+        Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
+    }
+
     /// Where the turning rings are and which way each is marked: for the
     /// tests.
     pub fn ring_places(&self) -> Vec<(Vec3, f32)> {

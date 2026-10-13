@@ -1122,7 +1122,7 @@ fn script_with_params(
                 crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
                 crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
                 commit |= rk.lost_focus() || rv.lost_focus();
-                focused |= rk.has_focus() || rv.has_focus();
+                focused |= crate::widgets::has_keys(&rk) || crate::widgets::has_keys(&rv);
             });
         }
         add = ui

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:22:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T20:22:35Z }
 ---
 
 # Blueprints
@@ -114,7 +114,9 @@ The palette's buttons:
   placeables, the types with a model, and waypoints by their flags).
   Whether it is on is kept between sessions. A picture is clicked, dragged and
   right-clicked as a name is; the pictures are made a few at a time as
-  they come into sight.
+  they come into sight. A shield is pictured from its front (its model
+  faces its bearer), and a thing made for a wall from the side that
+  shows it; the light goes round with the view.
 - **Replace Selected with This** (a blueprint's right-click menu): the
   objects of that type selected in the area become ones of this
   blueprint, where they stand and facing as they face. One Undo puts the

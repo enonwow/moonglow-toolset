@@ -382,7 +382,7 @@ impl Form<'_> {
         let buf = self.app.buffers.entry(id).or_insert_with(|| shown.clone());
         let r = ui.add(egui::TextEdit::singleline(buf).id(id).char_limit(max).desired_width(240.0));
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
-        if !r.has_focus() && !r.lost_focus() && *buf != shown {
+        if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != shown {
             *buf = shown.clone();
         }
         if r.lost_focus() && *buf != shown {
@@ -1043,7 +1043,7 @@ impl Form<'_> {
             .add(egui::TextEdit::singleline(buf).id(id).char_limit(16).desired_width(160.0))
             .on_hover_text("Edit the Blueprint ResRef");
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
-        if !r.has_focus() && !r.lost_focus() && *buf != current.to_string() {
+        if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
             *buf = current.to_string();
         }
         if r.lost_focus() && *buf != current.to_string() {

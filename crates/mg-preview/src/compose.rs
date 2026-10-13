@@ -300,6 +300,29 @@ impl Composed {
         self.bounds_with(&self.base.gpu.rest, None)
     }
 
+    /// The box around the base model's meshes that are not drawn (`render
+    /// 0`), at rest: what a model of nothing to see is still the size of.
+    /// The game's invisible object is a box 0.6 m across and 0.18 m tall
+    /// that is never drawn, which Aurora outlines where it is selected.
+    /// `None` for a model with none.
+    pub fn hidden_bounds(&self) -> Option<(Vec3, Vec3)> {
+        let gm = &self.base.gpu;
+        let mut bounds: Option<(Vec3, Vec3)> = None;
+        for (i, node) in gm.model.nodes.iter().enumerate() {
+            let mg_mdl::NodeKind::Mesh(mesh) = &node.kind else { continue };
+            if mesh.render {
+                continue;
+            }
+            let at = gm.rest.get(i).copied().unwrap_or(Mat4::IDENTITY);
+            for v in &mesh.vertices {
+                let v = at.transform_point3(Vec3::from(*v));
+                let (min, max) = bounds.unwrap_or((v, v));
+                bounds = Some((min.min(v), max.max(v)));
+            }
+        }
+        bounds
+    }
+
     /// [`Composed::bounds`] as it stands in `animation` at `t`: a creature
     /// whose skeleton plays another body's animations at a scale stands
     /// taller or shorter than at rest, and a picture framed by its rest

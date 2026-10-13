@@ -698,7 +698,7 @@ pub(crate) fn resref_field(
     ui.horizontal(|ui| {
         let buf = app.buffers.entry(id).or_insert_with(|| current.to_string());
         let r = ui.add(egui::TextEdit::singleline(buf).id(id).desired_width(160.0).char_limit(16));
-        if !r.has_focus() && !r.lost_focus() && *buf != current.to_string() {
+        if !has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
             *buf = current.to_string();
         }
         if r.lost_focus() && *buf != current.to_string() {
@@ -860,6 +860,14 @@ pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token
     from_editor(&out, crlf)
 }
 
+/// Whether a widget has the keyboard, the window having it or not. (A
+/// response's own `has_focus` is false while another program has the
+/// keyboard: a field that takes that for "left" throws away what was
+/// typed in it when its window is left for another, by Alt + Tab.)
+pub(crate) fn has_keys(r: &egui::Response) -> bool {
+    r.ctx.memory(|m| m.has_focus(r.id))
+}
+
 /// A text field that commits when focus leaves it (one line, or several
 /// with their line-end style kept). Returns the new text then.
 pub(crate) fn commit_text(
@@ -891,7 +899,7 @@ pub(crate) fn commit_text_in(
     };
     let r = ui.add(edit.id(id).desired_width(width));
     leaves_at_a_press(ui.ctx(), &r);
-    if !r.has_focus() && !r.lost_focus() && *buf != shown {
+    if !has_keys(&r) && !r.lost_focus() && *buf != shown {
         // Changed underneath (undo, another selection): show the value.
         *buf = shown.clone();
     }
@@ -906,7 +914,7 @@ fn press_leaves_id() -> egui::Id {
 /// (`r`, as drawn) that a press of the pointer anywhere else is to take
 /// the keyboard from it at once ([`text_begin`]).
 pub(crate) fn leaves_at_a_press(ctx: &egui::Context, r: &egui::Response) {
-    if r.has_focus() {
+    if has_keys(r) {
         ctx.data_mut(|d| d.insert_temp(press_leaves_id(), (r.id, r.rect)));
     }
 }
