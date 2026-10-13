@@ -5,7 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-use mg_core::ResType;
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
 use mg_resman::ResKey;
@@ -178,7 +177,7 @@ fn a_generate_that_fails_saves_nothing() {
     assert!(mg(Some(&root), &["generate", p, "shop"]).0);
     // The event script, written over with one that isn't the window's.
     let mut m = Module::open(&path).unwrap();
-    m.set(mg_nui::key("shop_e", ResType::NSS), b"void main() { InvalidFunction(); }".to_vec());
+    m.set(key("shop_e.nss"), b"void main() { InvalidFunction(); }".to_vec());
     m.save().unwrap();
     let before = std::fs::read(&path).unwrap();
     let (ok, failed) = mg(Some(&root), &["generate", p, "shop"]);
@@ -207,4 +206,96 @@ fn a_dry_run_lists_the_resources_and_writes_nothing() {
     assert!(made["resources"].as_array().unwrap().contains(&json!("shop_e.ncs")), "{made}");
     assert_eq!((&made["saved"], &made["dry_run"]), (&json!(false), &json!(true)));
     assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn code_that_does_not_compile_in_a_handlers_section_saves_nothing() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-bad-section");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    // Bad code between the markers of the Close button's handler, a
+    // change to the window, and a script that includes the opener: none
+    // of what Build would write for them may be saved.
+    let mut m = Module::open(&path).unwrap();
+    let script = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    let broken =
+        mg_nui::insert_code(&script, "click mg_close", "        NoSuchFunction(oPlayer);\n")
+            .unwrap();
+    m.set(key("shop_e.nss"), broken.into_bytes());
+    let mut window: Value = serde_json::from_slice(m.get(&key("shop.jui")).unwrap()).unwrap();
+    window["title"] = json!("Another title");
+    m.set(key("shop.jui"), serde_json::to_vec(&window).unwrap());
+    m.set(
+        key("my_enter.nss"),
+        b"#include \"shop_o\"\nvoid main() { Open_shop(GetEnteringObject()); }\n".to_vec(),
+    );
+    m.save().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (ok, failed) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(!ok, "{failed}");
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.contains("keep.mod: window shop: ") && error.contains("shop_e.nss("), "{error}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(!Module::open(&path).unwrap().contains(&key("my_enter.ncs")));
+}
+
+#[test]
+fn a_script_that_includes_the_opener_and_fails_is_printed_and_the_window_is_built() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-bad-caller");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    m.set(
+        key("my_broken.nss"),
+        b"#include \"shop_o\"\nvoid main() { Open_shop(NoSuchFunction()); }\n".to_vec(),
+    );
+    m.set(key("my_broken.ncs"), b"NCS as it was".to_vec());
+    m.set(
+        key("my_enter.nss"),
+        b"#include \"shop_o\"\nvoid main() { Open_shop(GetEnteringObject()); }\n".to_vec(),
+    );
+    m.save().unwrap();
+    // As `mg compile` does of a script that fails: said, the rest saved.
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{made}");
+    assert_eq!((&made["saved"], &made["failed"]), (&json!(true), &json!(1)), "{made}");
+    assert_eq!(made["errors"][0]["script"], "my_broken", "{made}");
+    let resources = made["resources"].as_array().unwrap();
+    assert!(resources.contains(&json!("my_enter.ncs")), "{made}");
+    assert!(!resources.contains(&json!("my_broken.ncs")), "{made}");
+    let m = Module::open(&path).unwrap();
+    assert!(m.contains(&key("shop_e.ncs")) && m.contains(&key("my_enter.ncs")));
+    assert_eq!(m.get(&key("my_broken.ncs")).unwrap(), b"NCS as it was");
+    // For people: the compiler's line on standard output.
+    let out = output(Some(&root), &["nui", "generate", p, "shop", "--dry-run"]);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.lines().any(|l| l.starts_with("my_broken.nss(")), "{text}");
+}
+
+/// What `mg nui generate` compiled, `mg compile` passes over: both keep
+/// what they compiled in one place.
+#[test]
+fn compile_passes_over_what_generate_compiled() {
+    let root = mg_testkit::corpus!();
+    // (A module no earlier run compiled: what is remembered goes by its path.)
+    let made = module("mg-nui-remembered");
+    let stamp = std::time::SystemTime::UNIX_EPOCH.elapsed().unwrap().as_nanos();
+    let path = made.with_file_name(format!("fresh{stamp}.mod"));
+    std::fs::rename(&made, &path).unwrap();
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    let out = output(Some(&root), &["--json", "compile", p]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let compiled: Value = serde_json::from_slice(&out.stdout).unwrap();
+    // (The opener is looked at, an include: the event script is not.)
+    assert_eq!(
+        (&compiled["scripts"], &compiled["unchanged"]),
+        (&json!(1), &json!(1)),
+        "{compiled}"
+    );
 }

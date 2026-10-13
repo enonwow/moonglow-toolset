@@ -191,7 +191,7 @@ fn nui_saved_module_preview() {
         Box::new(crate::NoDialogs::default()),
     );
     app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(path).unwrap()));
-    let key = mg_nui::key(&name, ResType::JUI);
+    let key = ResKey::parse(&name, ResType::JUI).unwrap();
     assert!(app.ws.as_ref().unwrap().module.get(&key).is_some());
     let mut h = Harness::builder()
         .with_size(egui::vec2(1600.0, 1040.0))

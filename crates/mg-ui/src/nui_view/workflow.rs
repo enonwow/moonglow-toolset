@@ -237,18 +237,14 @@ pub(super) fn ui(
         }
         if let Some(name) = remove {
             s.views.remove(&name);
-            if let Some(targets) = s.extra.get_mut("view_targets").and_then(Value::as_object_mut) {
-                targets.remove(&name);
-            }
+            s.view_targets.remove(&name);
         }
         if let Some((from, to)) = rename
             && let Some(view) = s.views.remove(&from)
         {
             s.views.insert(to.clone(), view);
-            if let Some(targets) = s.extra.get_mut("view_targets").and_then(Value::as_object_mut)
-                && let Some(target) = targets.remove(&from)
-            {
-                targets.insert(to.clone(), target);
+            if let Some(target) = s.view_targets.remove(&from) {
+                s.view_targets.insert(to.clone(), target);
             }
             for route in &mut s.actions {
                 if let mg_nui::Action::View { view, .. } = &mut route.action

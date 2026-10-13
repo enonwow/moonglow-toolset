@@ -1961,6 +1961,7 @@ dependencies = [
  "mg-key",
  "mg-mdl",
  "mg-module",
+ "mg-nui",
  "mg-render",
  "mg-resman",
  "mg-rules",
@@ -2080,6 +2081,7 @@ dependencies = [
  "mg-testkit",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

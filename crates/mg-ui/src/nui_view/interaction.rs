@@ -159,6 +159,8 @@ impl Session {
             mg_nui::Action::Code => {
                 self.last_event = format!("{} {element}: your handler runs in the game", event);
             }
+            // (An action this version does not know does nothing here.)
+            mg_nui::Action::Other(_) => {}
             mg_nui::Action::Close => self.closed = true,
             mg_nui::Action::Toggle { bind } => {
                 if let Some(binding) = self.settings.bindings.get_mut(&bind) {
