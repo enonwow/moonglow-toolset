@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.26.0" date="2026-10-13">
+      <description>
+        <p>A rectangular trigger is drawn by pressing Alt after the first
+        corner and clicking the corner opposite, Alt held or let go: on
+        Linux a click with Alt held often never reached the area. A
+        weapon's parts are chosen from pictures of the part alone. Export
+        Resources lists the module kind by kind. Ctrl+Z in the script
+        editor is always the editor's.</p>
+      </description>
+    </release>
     <release version="1.25.1" date="2026-10-13">
       <description>
         <p>A rectangular trigger painted with the right Alt key held is
