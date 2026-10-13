@@ -242,7 +242,7 @@ pub(super) fn insert(v: &mut Value, selected: &mut String, ty: &str) {
     let Some(parent_path) = insertion_parent(v, selected) else { return };
     let mut node = mg_nui::template(ty);
     assign_ids(&mut node, v);
-    let parent = v.pointer_mut(&parent_path).unwrap();
+    let Some(parent) = v.pointer_mut(&parent_path) else { return };
     fit_into(parent, &mut node);
     if parent["type"] == "list" {
         if let Some(cells) = parent["row_template"].as_array_mut() {
@@ -485,14 +485,14 @@ fn edit_actions(
         return;
     }
     for (label, op, cmd) in [
-        ("Move up", 0, Cmd::NuiMoveUp),
-        ("Move down", 1, Cmd::NuiMoveDown),
-        ("Duplicate element", 2, Cmd::NuiDuplicate),
-        ("Delete element", 3, Cmd::NuiDelete),
+        ("Move up", Op::MoveUp, Cmd::NuiMoveUp),
+        ("Move down", Op::MoveDown, Cmd::NuiMoveDown),
+        ("Duplicate element", Op::Duplicate, Cmd::NuiDuplicate),
+        ("Delete element", Op::Delete, Cmd::NuiDelete),
     ] {
         let button = egui::Button::new(label).shortcut_text(keymap.label(cmd, ui.ctx()));
         if ui.add_enabled(shortcuts::can_edit(v, &state.selected, op), button).clicked() {
-            if op == 3 {
+            if op == Op::Delete {
                 structure::delete_selected(v, state);
             } else {
                 rearrange(v, &mut state.selected, op);
@@ -511,7 +511,7 @@ fn edit_actions(
     ui.separator();
     for (label, key, op, enabled) in [
         ("Copy element", egui::Key::C, 0, !state.selected.is_empty()),
-        ("Cut element", egui::Key::X, 1, shortcuts::can_edit(v, &state.selected, 3)),
+        ("Cut element", egui::Key::X, 1, shortcuts::can_edit(v, &state.selected, Op::Delete)),
         (
             "Paste element",
             egui::Key::V,
@@ -955,7 +955,7 @@ fn bind(
     in_use: bool,
     doc: &Value,
     s: &mut Settings,
-    mut v: Option<&mut Value>,
+    v: Option<&mut Value>,
     state: &mut State,
 ) {
     let Some(binding) = s.bindings.get_mut(name) else { return };
@@ -987,7 +987,7 @@ fn bind(
         {
             // Every property, variant and handler using it follows.
             let names = std::collections::BTreeMap::from([(name.to_owned(), to.clone())]);
-            if let Some(doc) = v.as_deref_mut() {
+            if let Some(doc) = v {
                 shortcuts::rename_binds(doc, &names);
             }
             for view in s.views.values_mut() {
@@ -1027,7 +1027,7 @@ fn bind(
                     && let Some(target) = target
                 {
                     state.selected = target;
-                    state.page = 0;
+                    state.page = Page::Design;
                 }
             }
             if s.views.values().any(|view| mg_nui::bind_names(view).contains(name)) {

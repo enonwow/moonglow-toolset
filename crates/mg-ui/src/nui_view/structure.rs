@@ -42,7 +42,7 @@ fn after_remove(path: &str, parent: &str, index: usize) -> String {
 pub(super) fn relocate(doc: &mut Value, from: &str, target: &str, pos: Position) -> Option<String> {
     if from == target
         || target.starts_with(&format!("{from}/"))
-        || !shortcuts::can_edit(doc, from, 3)
+        || !shortcuts::can_edit(doc, from, Op::Delete)
     {
         return None;
     }
@@ -179,11 +179,13 @@ pub(super) fn delete_selected(doc: &mut Value, state: &mut State) {
             .rsplit_once("/children/")
             .and_then(|(group, _)| doc.pointer(group))
             .is_some_and(|n| n["type"] == "group");
-        if in_group && shortcuts::can_edit(doc, &path, 3) {
-            *doc.pointer_mut(&path).unwrap() = mg_nui::template("col");
+        if in_group && shortcuts::can_edit(doc, &path, Op::Delete) {
+            if let Some(node) = doc.pointer_mut(&path) {
+                *node = mg_nui::template("col");
+            }
             state.selected = path;
-        } else if shortcuts::can_edit(doc, &path, 3) {
-            rearrange(doc, &mut path, 3);
+        } else if shortcuts::can_edit(doc, &path, Op::Delete) {
+            rearrange(doc, &mut path, Op::Delete);
             state.selected = path;
         }
     }
@@ -198,7 +200,9 @@ pub(super) fn wrap(doc: &mut Value, selected: &str, ty: &str) {
     let mut wrapper = mg_nui::template(ty);
     assign_ids(&mut wrapper, doc);
     wrapper["children"] = json!([node]);
-    *doc.pointer_mut(selected).unwrap() = wrapper;
+    if let Some(node) = doc.pointer_mut(selected) {
+        *node = wrapper;
+    }
 }
 
 #[cfg(test)]
@@ -324,12 +328,15 @@ mod tests {
             {"type":"row","children":[{"type":"check","label":"Option"}]}]}]);
         let mut state = State::default();
         let contents = "/root/children/0/children/0";
-        assert!(super::super::shortcuts::can_edit(&d, contents, 3));
-        assert!(!super::super::shortcuts::can_edit(&d, contents, 2), "no second child");
+        assert!(super::super::shortcuts::can_edit(&d, contents, Op::Delete));
+        assert!(!super::super::shortcuts::can_edit(&d, contents, Op::Duplicate), "no second child");
         select(&mut state, contents, false);
         delete_selected(&mut d, &mut state);
         assert_eq!(d.pointer(contents), Some(&mg_nui::template("col")));
-        assert!(!super::super::shortcuts::can_edit(&d, contents, 3), "nothing left to delete");
+        assert!(
+            !super::super::shortcuts::can_edit(&d, contents, Op::Delete),
+            "nothing left to delete"
+        );
     }
 
     #[test]

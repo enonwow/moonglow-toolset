@@ -476,7 +476,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                             node["draw_list_scissor"] = false.into();
                         }
                     }
-                    node["draw_list"].as_array_mut().unwrap().push(template(kind));
+                    if let Some(items) = node["draw_list"].as_array_mut() {
+                        items.push(template(kind));
+                    }
                     ui.close();
                 }
             }
@@ -494,9 +496,8 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
             let header = egui::CollapsingHeader::new(format!("{} · {name}", i + 1))
                 .id_salt(i)
                 .open((reveal == Some(i)).then_some(true));
-            if reveal.is_some() && reveal != Some(i) {
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), reveal.unwrap()));
+            if let Some(other) = reveal.filter(|r| *r != i) {
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), other));
             }
             header.show(ui, |ui| {
                 let id = ui.id().with("draw-gesture");

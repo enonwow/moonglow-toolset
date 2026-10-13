@@ -42,7 +42,9 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
     if ui.add_enabled(!combo || next.is_some(), egui::Button::new("+ Add option").small()).clicked()
     {
         if combo {
-            elements.push(json!(["Option", next.unwrap()]));
+            if let Some(next) = next {
+                elements.push(json!(["Option", next]));
+            }
         } else {
             elements.push("Option".into());
         }
@@ -227,7 +229,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
         }
         let count = arrays
             .iter()
-            .filter_map(|n| s.bindings[n].value.as_array().map(Vec::len))
+            .filter_map(|n| s.bindings.get(n)?.value.as_array().map(Vec::len))
             .max()
             .unwrap_or(0);
         let mut remove = None;
@@ -239,7 +241,11 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
                     for name in &arrays {
                         ui.push_id(name, |ui| {
                             ui.label(name);
-                            let a = s.bindings.get_mut(name).unwrap().value.as_array_mut().unwrap();
+                            let Some(a) =
+                                s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
+                            else {
+                                return;
+                            };
                             if let Some(v) = a.get_mut(row) {
                                 value(ui, v, 0);
                             } else if ui.small_button("Fill missing cell").clicked() {
@@ -261,7 +267,9 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
         let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add row")).clicked();
         if add || remove.is_some() || duplicate.is_some() {
             for name in arrays {
-                let a = s.bindings.get_mut(&name).unwrap().value.as_array_mut().unwrap();
+                let Some(a) = s.bindings.get_mut(&name).and_then(|b| b.value.as_array_mut()) else {
+                    continue;
+                };
                 a.resize(count, Value::Null);
                 if let Some(row) = remove {
                     a.remove(row);

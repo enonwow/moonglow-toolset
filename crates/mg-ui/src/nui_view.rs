@@ -70,13 +70,61 @@ pub(crate) struct State {
     issues: bool,
     /// The errors there were last frame, to open the list when more come.
     issues_seen: usize,
-    page: usize,
+    page: Page,
     /// The hak Images adds pictures to: one the module uses, or None for a new one.
     images_hak: Option<String>,
-    view_mode: usize,
+    view_mode: ViewMode,
     name: String,
     load_search: String,
     checks: Option<Checks>,
+}
+
+/// A page of the Creator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+enum Page {
+    #[default]
+    Design,
+    Bindings,
+    /// The window's JSON as text.
+    JuiSource,
+    /// The settings' JSON as text.
+    BindingJson,
+    /// Events & variants.
+    Events,
+    Images,
+}
+
+/// How the Design page shows the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ViewMode {
+    /// The palette, the canvas and the properties.
+    #[default]
+    Editor,
+    /// The canvas alone.
+    Preview,
+    /// The canvas beside the source.
+    Split,
+}
+
+impl ViewMode {
+    const ALL: [ViewMode; 3] = [ViewMode::Editor, ViewMode::Preview, ViewMode::Split];
+
+    fn label(self) -> &'static str {
+        match self {
+            ViewMode::Editor => "Editor",
+            ViewMode::Preview => "Preview only",
+            ViewMode::Split => "Split source",
+        }
+    }
+}
+
+/// What is done to the selected control among its siblings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Op {
+    MoveUp,
+    MoveDown,
+    Duplicate,
+    Delete,
 }
 
 /// The API checks and build status of what the tab last showed.
@@ -290,7 +338,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             }
         }
     } else {
-        String::from_utf8(Settings::default().bytes()).unwrap()
+        String::from_utf8(Settings::default().bytes()).unwrap_or_default()
     };
     let config_original = config_raw.clone();
     // Parsed when the module holds other bytes than last frame, not every
@@ -409,9 +457,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             ui.horizontal(|ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 ui.spacing_mut().interact_size.y = 28.0;
-                ui.selectable_value(&mut state.page, 0, "Design");
-                ui.selectable_value(&mut state.page, 1, "Bindings");
-                ui.selectable_value(&mut state.page, 4, "Events & variants");
+                ui.selectable_value(&mut state.page, Page::Design, "Design");
+                ui.selectable_value(&mut state.page, Page::Bindings, "Bindings");
+                ui.selectable_value(&mut state.page, Page::Events, "Events & variants");
                 if ui.add_enabled(settings.is_ok(), egui::Button::new("Event script…")).clicked()
                     && let Ok(s) = &settings
                 {
@@ -421,28 +469,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                         code: None,
                     });
                 }
-                if state.page == 0 {
+                if state.page == Page::Design {
                     egui::ComboBox::from_id_salt("nui-layout-mode")
-                        .selected_text(["Editor", "Preview only", "Split source"][state.view_mode])
+                        .selected_text(state.view_mode.label())
                         .show_ui(ui, |ui| {
-                            for (i, label) in
-                                ["Editor", "Preview only", "Split source"].iter().enumerate()
-                            {
-                                ui.selectable_value(&mut state.view_mode, i, *label);
+                            for mode in ViewMode::ALL {
+                                ui.selectable_value(&mut state.view_mode, mode, mode.label());
                             }
                         });
                 }
                 ui.menu_button("Advanced", |ui| {
-                    if ui.selectable_label(state.page == 2, "JUI source").clicked() {
-                        state.page = 2;
+                    if ui.selectable_label(state.page == Page::JuiSource, "JUI source").clicked() {
+                        state.page = Page::JuiSource;
                         ui.close();
                     }
-                    if ui.selectable_label(state.page == 3, "Binding JSON").clicked() {
-                        state.page = 3;
+                    if ui
+                        .selectable_label(state.page == Page::BindingJson, "Binding JSON")
+                        .clicked()
+                    {
+                        state.page = Page::BindingJson;
                         ui.close();
                     }
-                    if ui.selectable_label(state.page == 5, "Images").clicked() {
-                        state.page = 5;
+                    if ui.selectable_label(state.page == Page::Images, "Images").clicked() {
+                        state.page = Page::Images;
                         ui.close();
                     }
                     ui.separator();
@@ -500,7 +549,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             Some(path) => {
                                 if ui.link(place).on_hover_text("Select it").clicked() {
                                     state.selected = path.clone();
-                                    state.page = 0;
+                                    state.page = Page::Design;
                                 }
                             }
                             None => {
@@ -526,8 +575,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 s.bindings
                                     .insert(bind.clone(), Binding { value, ..Default::default() });
                                 node["value"] = json!({"bind": bind});
-                                raw = serde_json::to_string_pretty(&doc).unwrap();
-                                config_raw = String::from_utf8(s.bytes()).unwrap();
+                                write_window(&mut raw, &doc);
+                                write_settings(&mut config_raw, &s);
                             }
                         }
                         // Clip to control does nothing but harm, so it isn't
@@ -547,8 +596,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             };
                             if let Some(flag) = flag {
                                 *flag = json!(false);
-                                raw = serde_json::to_string_pretty(&doc).unwrap();
-                                config_raw = String::from_utf8(s.bytes()).unwrap();
+                                write_window(&mut raw, &doc);
+                                write_settings(&mut config_raw, &s);
                             }
                         }
                         if d.message.starts_with("The mg_close button has no Clicked handler")
@@ -561,7 +610,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 element: "mg_close".into(),
                                 action: mg_nui::Action::Close,
                             });
-                            config_raw = String::from_utf8(s.bytes()).unwrap();
+                            write_settings(&mut config_raw, &s);
                         }
                     })
                 });
@@ -574,18 +623,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     }
     let mut page_edits = Vec::new();
     match state.page {
-        5 => {
+        Page::Images => {
             if let (Ok(mut v), Ok(s)) = (parsed, settings) {
                 let before = v.clone();
                 page_edits = images::page(ui, app, &name, &mut v, &s, &mut state);
                 if v != before {
-                    raw = serde_json::to_string_pretty(&v).unwrap();
+                    write_window(&mut raw, &v);
                 }
             } else {
                 repair(ui, &mut state);
             }
         }
-        4 => {
+        Page::Events => {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
                 let config_before = s.clone();
@@ -593,17 +642,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     .and_then(|k| events::current_script(app, &k));
                 workflow::ui(ui, &mut v, &mut s, &mut state, &name, script.as_deref());
                 if v != before {
-                    raw = serde_json::to_string_pretty(&v).unwrap();
+                    write_window(&mut raw, &v);
                 }
                 if s != config_before {
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                    write_settings(&mut config_raw, &s);
                 }
             } else {
                 repair(ui, &mut state);
             }
         }
-        2 | 3 => {
-            let is_jui = state.page == 2;
+        Page::JuiSource | Page::BindingJson => {
+            let is_jui = state.page == Page::JuiSource;
             ui.strong(if is_jui { "JUI source" } else { "Binding JSON" });
             ui.weak("Drafts are included in module Save and Undo, even while incomplete.");
             egui::ScrollArea::both().id_salt(("nui-source", state.page)).show(ui, |ui| {
@@ -615,28 +664,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 );
             });
         }
-        1 => {
+        Page::Bindings => {
             if let Ok(mut s) = settings {
                 let before = s.clone();
                 let mut doc = parsed.as_ref().ok().cloned();
                 let doc_before = doc.clone();
                 design::bindings(ui, &mut s, doc.as_mut(), &mut state);
                 if s != before {
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                    write_settings(&mut config_raw, &s);
                 }
                 if doc != doc_before
                     && let Some(doc) = doc
                 {
-                    raw = serde_json::to_string_pretty(&doc).unwrap();
+                    write_window(&mut raw, &doc);
                 }
             } else {
                 ui.label("The window's settings don't read as JSON: Binding JSON shows them.");
                 if ui.button("Open Binding JSON").clicked() {
-                    state.page = 3;
+                    state.page = Page::BindingJson;
                 }
             }
         }
-        _ => {
+        Page::Design => {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
                 let before_settings = s.clone();
@@ -646,6 +695,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 let mut base_root = None;
                 if let Some(view) = state.edit_view.as_ref().and_then(|n| s.views.get(n)) {
                     base_root = Some(std::mem::replace(&mut v["root"], view.clone()));
+                }
+                // A selection whose control is gone (Undo took it back, the
+                // source was edited) is no selection.
+                if v.pointer(&state.selected).is_none() {
+                    state.selected.clear();
+                }
+                state.selected_many.retain(|path| v.pointer(path).is_some());
+                if let Some((path, layer)) = &state.draw_item
+                    && v.pointer(&format!("{path}/draw_list/{layer}")).is_none()
+                {
+                    state.draw_item = None;
                 }
                 let (asset_doc, asset_settings) = state
                     .runtime
@@ -663,8 +723,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 app.nui_assets.prepare_strings(app.game.as_deref(), asset_doc, asset_settings);
                 let mut split_raw = None;
                 match state.view_mode {
-                    1 => preview::canvas(ui, &mut v, &s, &mut state, &mut app.nui_assets),
-                    2 => ui.columns(2, |columns| {
+                    ViewMode::Preview => {
+                        preview::canvas(ui, &mut v, &s, &mut state, &mut app.nui_assets)
+                    }
+                    ViewMode::Split => ui.columns(2, |columns| {
                         preview::canvas(
                             &mut columns[0],
                             &mut v,
@@ -673,9 +735,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             &mut app.nui_assets,
                         );
                         let mut source = if state.edit_view.is_some() {
-                            serde_json::to_string_pretty(&s).unwrap()
+                            serde_json::to_string_pretty(&s).unwrap_or_default()
                         } else {
-                            serde_json::to_string_pretty(&v).unwrap()
+                            serde_json::to_string_pretty(&v).unwrap_or_default()
                         };
                         columns[1].strong(if state.edit_view.is_some() {
                             "Variants and binding JSON"
@@ -696,7 +758,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             }
                         });
                     }),
-                    _ => design::editor(
+                    ViewMode::Editor => design::editor(
                         ui,
                         &mut v,
                         &mut s,
@@ -714,10 +776,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     s.views.insert(name.clone(), root);
                 }
                 if v != before {
-                    raw = serde_json::to_string_pretty(&v).unwrap();
+                    write_window(&mut raw, &v);
                 }
                 if s != before_settings {
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                    write_settings(&mut config_raw, &s);
                 }
                 if let Some(source) = split_raw {
                     if edited_view.is_some() {
@@ -769,7 +831,22 @@ fn array_position(path: &str) -> Option<(String, usize, bool)> {
     Some((parent.into(), index.parse().ok()?, cell))
 }
 
-fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
+/// The window's JSON text into `raw`. (Left as it is should it not write,
+/// which a document of JSON values always does.)
+fn write_window(raw: &mut String, v: &Value) {
+    if let Ok(text) = serde_json::to_string_pretty(v) {
+        *raw = text;
+    }
+}
+
+/// The settings' text into `config_raw`, as [`write_window`].
+fn write_settings(config_raw: &mut String, s: &Settings) {
+    if let Ok(text) = String::from_utf8(s.bytes()) {
+        *config_raw = text;
+    }
+}
+
+fn rearrange(v: &mut Value, selected: &mut String, op: Op) {
     let Some((parent, i, cell)) = array_position(selected) else { return };
     let Some(a) = v.pointer(&parent).and_then(Value::as_array) else { return };
     if i >= a.len() {
@@ -786,22 +863,22 @@ fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
     }
     let mut copy = a[i].clone();
     assign_ids(&mut copy, v);
-    let a = v.pointer_mut(&parent).unwrap().as_array_mut().unwrap();
+    let Some(a) = v.pointer_mut(&parent).and_then(Value::as_array_mut) else { return };
     let mut at = i;
     match op {
-        0 if i > 0 => {
+        Op::MoveUp if i > 0 => {
             a.swap(i, i - 1);
             at -= 1;
         }
-        1 if i + 1 < a.len() => {
+        Op::MoveDown if i + 1 < a.len() => {
             a.swap(i, i + 1);
             at += 1;
         }
-        2 => {
+        Op::Duplicate => {
             a.insert(i + 1, copy);
             at += 1;
         }
-        3 => {
+        Op::Delete => {
             a.remove(i);
             *selected = if a.is_empty() {
                 parent.rsplit_once('/').map_or("/root", |(p, _)| p).into()
@@ -810,7 +887,7 @@ fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
             };
             return;
         }
-        _ => {}
+        Op::MoveUp | Op::MoveDown => {}
     }
     *selected = format!("{parent}/{at}{}", if cell { "/0" } else { "" });
 }
@@ -820,10 +897,10 @@ fn repair(ui: &mut Ui, state: &mut State) {
     ui.label(REPAIR);
     ui.horizontal(|ui| {
         if ui.button("Open JUI source").clicked() {
-            state.page = 2;
+            state.page = Page::JuiSource;
         }
         if ui.button("Open Binding JSON").clicked() {
-            state.page = 3;
+            state.page = Page::BindingJson;
         }
     });
 }
@@ -1107,7 +1184,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         ui.add_space(8.0);
         egui::CollapsingHeader::new("Advanced properties").show(ui, |ui| {
             for key in &advanced_keys {
-                let value = obj.get_mut(key).unwrap();
+                let Some(value) = obj.get_mut(key) else { continue };
                 ui.push_id(key, |ui| {
                     property(ui, key, &ty, value, s, &mut remove);
                 });
@@ -1565,19 +1642,57 @@ mod tests {
         v["root"]["children"][0]["id"] = "first".into();
         v["root"]["children"][0]["extension"] = json!({"untouched":[1,2,3]});
         let mut selected = "/root/children/0".to_string();
-        rearrange(&mut v, &mut selected, 2);
+        rearrange(&mut v, &mut selected, Op::Duplicate);
         assert_eq!(selected, "/root/children/1");
         assert_eq!(v["root"]["children"][1]["extension"], json!({"untouched":[1,2,3]}));
         assert_ne!(v["root"]["children"][0]["id"], v["root"]["children"][1]["id"]);
-        rearrange(&mut v, &mut selected, 1);
+        rearrange(&mut v, &mut selected, Op::MoveDown);
         assert_eq!(selected, "/root/children/2");
-        rearrange(&mut v, &mut selected, 3);
+        rearrange(&mut v, &mut selected, Op::Delete);
         assert_eq!(v["root"]["children"].as_array().unwrap().len(), 2);
         v["root"] = mg_nui::template("list");
         selected = "/root/row_template/0/0".into();
         v["root"]["row_template"] = json!([[mg_nui::template("label"), 150.0, true]]);
-        rearrange(&mut v, &mut selected, 2);
+        rearrange(&mut v, &mut selected, Op::Duplicate);
         assert_eq!(v["root"]["row_template"].as_array().unwrap().len(), 2);
+    }
+
+    /// Undo takes back the control that is selected: the next frame draws
+    /// without it, and nothing is selected.
+    #[test]
+    fn nui_selection_left_by_undo_is_cleared() {
+        let key = Some(mg_nui::key("nui_test", ResType::JUI));
+        let mut h = keyboard_harness();
+        h.run();
+        h.get_by_label("Toggle button").click();
+        h.run();
+        let selected = h.state().nui_views[&key].selected.clone();
+        assert!(keyboard_document(&h).pointer(&selected).is_some_and(|n| n["type"] != "window"));
+        h.get_by_label("Draw layers").click();
+        h.run();
+        h.get_by_label("+ Draw primitive").scroll_to_me();
+        h.run();
+        h.get_by_label("+ Draw primitive").click();
+        h.run();
+        h.get_by_label("Rectangle").click();
+        h.run();
+        h.get_by_label("Draw layer 1 · Rectangle").click();
+        h.run();
+        assert!(h.state().nui_views[&key].draw_item.is_some());
+        // The draw layer, then the control.
+        for _ in 0..2 {
+            h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        }
+        h.run();
+        assert!(keyboard_document(&h).pointer(&selected).is_none());
+        let state = &h.state().nui_views[&key];
+        assert_eq!(state.selected, "");
+        assert!(state.selected_many.is_empty() && state.draw_item.is_none());
+        // The pages that don't show the selection draw too.
+        for page in ["Bindings", "Events & variants", "Design"] {
+            h.get_by_label(page).click();
+            h.run();
+        }
     }
 
     #[test]
@@ -2770,9 +2885,9 @@ mod tests {
         assert_eq!(cell[0]["value"]["bind"], "caption_2");
         assert_eq!(target_settings.bindings["caption"].value, "Target");
         assert_eq!(target_settings.bindings["caption_2"], settings.bindings["caption"]);
-        assert!(!shortcuts::can_edit(&target, "/root", 3));
+        assert!(!shortcuts::can_edit(&target, "/root", Op::Delete));
         target["root"] = mg_nui::template("group");
-        assert!(!shortcuts::can_edit(&target, "/root/children/0", 3));
+        assert!(!shortcuts::can_edit(&target, "/root/children/0", Op::Delete));
     }
 
     #[test]

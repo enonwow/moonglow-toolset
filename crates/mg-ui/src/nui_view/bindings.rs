@@ -70,7 +70,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 }
             });
         let key = state.binding_property.clone();
-        let current = doc.pointer(&path).unwrap()[&key].clone();
+        let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
         let bound = current["bind"].as_str().map(str::to_owned);
         let rows = row_count(doc, &path, settings);
         ui.push_id((&path, &key), |ui| {
@@ -98,7 +98,8 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     }
                 });
             if chosen != bound.clone().unwrap_or_default() {
-                let target = &mut doc.pointer_mut(&path).unwrap()[&key];
+                let Some(node) = doc.pointer_mut(&path) else { return };
+                let target = &mut node[&key];
                 if chosen.is_empty() {
                     let value = bound
                         .as_ref()
@@ -144,7 +145,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 };
                 let base = format!(
                     "{}_{}",
-                    doc.pointer(&path).unwrap()["id"].as_str().unwrap_or(&ty),
+                    doc.pointer(&path).and_then(|n| n["id"].as_str()).unwrap_or(&ty),
                     key
                 );
                 let mut name = base.clone();
@@ -192,7 +193,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                                 name.into(),
                                 Binding { value: draft.value.clone(), ..Default::default() },
                             );
-                            doc.pointer_mut(&path).unwrap()[&key] = json!({"bind":name});
+                            if let Some(node) = doc.pointer_mut(&path) {
+                                node[&key] = json!({"bind":name});
+                            }
                             finish = true;
                         }
                         if ui.button("Cancel bind").clicked() {
@@ -214,7 +217,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 ui.ctx().request_repaint();
             }
             if let Some(name) =
-                doc.pointer(&path).unwrap()[&key]["bind"].as_str().map(str::to_owned)
+                doc.pointer(&path).and_then(|n| n[&key]["bind"].as_str()).map(str::to_owned)
             {
                 if let Some(binding) = settings.bindings.get_mut(&name) {
                     ui.weak("Initial value · shared by controls using this bind");

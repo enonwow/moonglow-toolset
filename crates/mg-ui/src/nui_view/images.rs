@@ -73,7 +73,7 @@ fn from_file(
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
         .collect();
     let stem = if stem.trim_matches('_').is_empty() { "picture".to_owned() } else { stem };
-    for n in 1.. {
+    for n in 1..10_000 {
         let suffix = if n == 1 { String::new() } else { format!("_{n}") };
         let name = format!("{}{suffix}", &stem[..stem.len().min(16 - suffix.len())]);
         let key = ResKey::parse(&name, restype).ok_or_else(|| format!("{name}: not a name"))?;
@@ -81,7 +81,7 @@ fn from_file(
             return Ok((key, bytes, Some(name)));
         }
     }
-    unreachable!()
+    Err(format!("{}: the module has too many pictures named like it", path.display()))
 }
 
 /// One file into the module: its edit, or why not (logged).
@@ -168,7 +168,9 @@ pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
     if !root["draw_list"].is_array() {
         root["draw_list"] = json!([]);
     }
-    root["draw_list"].as_array_mut().unwrap().insert(0, item);
+    if let Some(layers) = root["draw_list"].as_array_mut() {
+        layers.insert(0, item);
+    }
 }
 
 /// The hak pictures go into: the one chosen (in the user's hak folder) or a

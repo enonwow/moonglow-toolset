@@ -19,7 +19,7 @@ fn unique(base: &str, taken: impl Fn(&str) -> bool) -> String {
 
 pub(super) fn edit(state: &mut State, view: Option<String>) {
     state.edit_view = view;
-    state.page = 0;
+    state.page = Page::Design;
     state.selected = "/root".into();
     state.selected_many.clear();
     state.runtime = None;
@@ -235,11 +235,11 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
     if draft.is_none() {
         ui.horizontal_wrapped(|ui| {
             let empty = ui.button("+ Add variant").clicked();
-            let duplicate = copy.is_some() && ui.button("Copy initial contents").clicked();
-            if empty || duplicate {
+            let copied = copy.filter(|_| ui.button("Copy initial contents").clicked()).cloned();
+            if empty || copied.is_some() {
                 draft = Some(Draft {
                     name: unique("variant", |n| s.views.contains_key(n)),
-                    root: if duplicate { copy.unwrap().clone() } else { mg_nui::template("col") },
+                    root: copied.unwrap_or_else(|| mg_nui::template("col")),
                 });
             }
         });
@@ -391,7 +391,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
                         ids.extend(mg_nui::element_ids(v));
                     }
                     group = unique("swap_group", |n| ids.contains(n));
-                    doc.pointer_mut(&path).unwrap()["id"] = json!(group);
+                    if let Some(node) = doc.pointer_mut(&path) {
+                        node["id"] = json!(group);
+                    }
                 }
                 // Registration is editor metadata only; generation still uses Action::View.
                 remember_target(s, &name, &group);

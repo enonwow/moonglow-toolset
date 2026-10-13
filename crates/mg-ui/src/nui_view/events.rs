@@ -342,7 +342,9 @@ fn element(target: &Target, event: &str, doc: &mut Value, s: &Settings, state: &
                 id = format!("{base}_{n}");
                 n += 1;
             }
-            doc.pointer_mut(path).unwrap()["id"] = json!(id);
+            if let Some(node) = doc.pointer_mut(path) {
+                node["id"] = json!(id);
+            }
             id
         }
     }
@@ -605,8 +607,8 @@ pub(super) fn editor(
                 });
             }
         });
-        if scope.as_ref().is_some_and(|t| matches!(t, Target::Control(_)))
-            && node(scope.as_ref().unwrap(), doc, s).is_some_and(|n| {
+        if let Some(control @ Target::Control(_)) = &scope
+            && node(control, doc, s).is_some_and(|n| {
                 !n["value"]["bind"].is_string() && n.get("value").is_some_and(|v| !v.is_null())
             })
         {
