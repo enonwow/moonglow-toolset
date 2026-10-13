@@ -335,7 +335,11 @@ mod tests {
     #[test]
     fn nui_multi_delete_handles_numeric_indices_and_nested_selections() {
         let mut d = mg_nui::window();
-        d["root"]["children"]=Value::Array((0..12).map(|i|json!({"type":"col","id":format!("node_{i}"),"children":[{"type":"label","value":"keep"}]})).collect());
+        let column = |i: usize| {
+            json!({"type":"col","id":format!("node_{i}"),
+                "children":[{"type":"label","value":"keep"}]})
+        };
+        d["root"]["children"] = Value::Array((0..12).map(column).collect());
         let mut state = State::default();
         for path in ["/root/children/2", "/root/children/10", "/root/children/2/children/0"] {
             select(&mut state, path, true);

@@ -270,7 +270,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     };
     let Ok(source) = std::str::from_utf8(bytes) else {
         ui.label(
-            "JUI is not UTF-8. Its original bytes are retained; structured editing is unavailable.",
+            "This window's JUI is not UTF-8 text: it is kept as it is and can't be edited here.",
         );
         return;
     };
@@ -282,7 +282,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         match std::str::from_utf8(config_bytes) {
             Ok(s) => s.to_owned(),
             Err(_) => {
-                ui.label("Companion TXT is not UTF-8; it is retained without changes.");
+                ui.label(
+                    "This window's settings (its TXT) are not UTF-8 text: they are kept as they \
+                     are.",
+                );
                 return;
             }
         }
@@ -352,7 +355,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         ui.with_layout(layout, |ui| {
             if ui
                 .button("Export…")
-                .on_hover_text("Validate and export the window, bind settings, opener include and compiled event script")
+                .on_hover_text(
+                    "Builds the window, then exports it with its settings, its opener include \
+                     and its compiled event script",
+                )
                 .clicked()
             {
                 app.actions.push(Action::GenerateNui { name: name.clone(), export: true });
@@ -363,7 +369,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     egui::Button::new("Build & compile").fill(ui.visuals().selection.bg_fill),
                 )
                 .on_hover_text(
-                    "Validate the opener include and compile the event script. Connect the opener manually in your own script.",
+                    "Checks the opener include and compiles the event script. The window opens \
+                     from a script of yours: How to open it… shows what to write.",
                 )
                 .on_disabled_hover_text(format!(
                     "Fix the {} first: the list under the tabs shows them",
@@ -377,12 +384,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 ui.colored_label(ui.visuals().error_fg_color, "Build failed").on_hover_text(why);
             } else if needs_build {
                 ui.weak("Not built")
-                    .on_hover_text("Build before testing this layout or these bind values in NWN");
+                    .on_hover_text("Build before testing: the game runs what was last built");
             }
             // The window opens from a script of yours: what to put in it.
             ui.menu_button("How to open it…", |ui| {
                 let code = format!(
-                    "#include \"{name}_o\"\n\nvoid main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
+                    "#include \"{name}_o\"\n\n\
+                     void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
                 );
                 ui.label("Open it from a script of yours, for example the module's OnClientEnter:");
                 ui.add(egui::TextEdit::multiline(&mut code.as_str()).code_editor().desired_rows(6));
@@ -454,7 +462,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     format!("{} · {}", count(errors, "error"), count(warnings, "warning"))
                 };
                 ui.toggle_value(&mut state.issues, label)
-                    .on_hover_text("API checks; native NWN testing is still required");
+                    .on_hover_text("What the checks of the window found");
             });
         },
     );
@@ -559,7 +567,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 });
             }
             if errors + warnings == 0 {
-                ui.weak("No API issues found. Verify the final appearance and events in NWN.");
+                ui.weak("The checks found nothing.");
             }
         });
         ui.separator();
@@ -622,8 +630,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     raw = serde_json::to_string_pretty(&doc).unwrap();
                 }
             } else {
-                ui.label("Settings need repair before editing bindings.");
-                if ui.button("Open binding JSON").clicked() {
+                ui.label("The window's settings don't read as JSON: Binding JSON shows them.");
+                if ui.button("Open Binding JSON").clicked() {
                     state.page = 3;
                 }
             }
@@ -670,7 +678,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             serde_json::to_string_pretty(&v).unwrap()
                         };
                         columns[1].strong(if state.edit_view.is_some() {
-                            "Views & binding JSON"
+                            "Variants and binding JSON"
                         } else {
                             "JUI source"
                         });
@@ -809,18 +817,20 @@ fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
 
 /// A page that needs the window's JSON when it doesn't read.
 fn repair(ui: &mut Ui, state: &mut State) {
-    ui.add_space(24.0);
-    ui.heading("Let's repair the source first");
-    ui.label("Use the source/settings tabs to repair JSON. Original contents are retained.");
+    ui.label(REPAIR);
     ui.horizontal(|ui| {
         if ui.button("Open JUI source").clicked() {
             state.page = 2;
         }
-        if ui.button("Open binding JSON").clicked() {
+        if ui.button("Open Binding JSON").clicked() {
             state.page = 3;
         }
     });
 }
+
+/// What a page says when the window's JSON doesn't read.
+const REPAIR: &str = "The window's JSON doesn't read: JUI source and Binding JSON show it as it \
+                      is, to be put right.";
 
 /// IDs for a copy going into `document`: one it already has is kept unless
 /// the document uses it (a paste into another window keeps its handlers' names).
@@ -1428,7 +1438,7 @@ fn property(
                 *value = default;
             }
         } else {
-            ui.weak("Unset/custom value. Edit in Advanced › JUI source.");
+            ui.weak("Not set, or a value of another kind: edit it in Advanced › JUI source.");
         }
     } else if let Some(names) = named_choices(key)
         && let Some(n) = value.as_i64()
@@ -2873,9 +2883,7 @@ mod tests {
         assert_eq!(ws.module.get(&key).unwrap(), draft);
         h.get_by_label("Design").click();
         h.run();
-        h.get_by_label(
-            "Use the source/settings tabs to repair JSON. Original contents are retained.",
-        );
+        h.get_by_label(REPAIR);
     }
 
     #[test]

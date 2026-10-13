@@ -144,24 +144,45 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     if node["type"] != "chart" {
         return;
     }
-    ui.collapsing("Chart series",|ui| {
-        let Some(slots)=node["value"].as_array_mut() else {ui.weak("Edit bound series in Bindings.");return};
-        let mut remove=None;
-        for (i,slot) in slots.iter_mut().enumerate() {
-            ui.push_id(i,|ui| {
-                ui.strong(format!("Series {}",i+1));
-                let before=slot["type"].as_i64().unwrap_or(0);
-                let mut kind=before;
-                ui.horizontal(|ui|{ui.selectable_value(&mut kind,0,"Lines");ui.selectable_value(&mut kind,1,"Columns");});
+    ui.collapsing("Chart series", |ui| {
+        let Some(slots) = node["value"].as_array_mut() else {
+            ui.weak("Bound series are edited in Bindings.");
+            return;
+        };
+        let mut remove = None;
+        for (i, slot) in slots.iter_mut().enumerate() {
+            ui.push_id(i, |ui| {
+                ui.strong(format!("Series {}", i + 1));
+                let before = slot["type"].as_i64().unwrap_or(0);
+                let mut kind = before;
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut kind, 0, "Lines");
+                    ui.selectable_value(&mut kind, 1, "Columns");
+                });
                 // Only a choice writes: looking at a series never edits it.
-                if kind!=before {slot["type"]=json!(kind);}
-                let mut ignored=None;
-                for field in ["legend","color","data"]{ui.push_id(field,|ui|property(ui,field,"chart_slot",&mut slot[field],s,&mut ignored));}
-                if ui.button("Remove series").clicked(){remove=Some(i);}
+                if kind != before {
+                    slot["type"] = json!(kind);
+                }
+                let mut ignored = None;
+                for field in ["legend", "color", "data"] {
+                    ui.push_id(field, |ui| {
+                        property(ui, field, "chart_slot", &mut slot[field], s, &mut ignored)
+                    });
+                }
+                if ui.button("Remove series").clicked() {
+                    remove = Some(i);
+                }
             });
         }
-        if let Some(i)=remove {slots.remove(i);}
-        if ui.button("+ Add series").clicked(){slots.push(json!({"type":0,"legend":"Series","color":{"r":80,"g":180,"b":240,"a":255},"data":[0.0,1.0]}));}
+        if let Some(i) = remove {
+            slots.remove(i);
+        }
+        if ui.button("+ Add series").clicked() {
+            slots.push(json!({
+                "type":0,"legend":"Series","color":{"r":80,"g":180,"b":240,"a":255},
+                "data":[0.0,1.0]
+            }));
+        }
     });
 }
 

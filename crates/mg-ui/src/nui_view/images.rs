@@ -91,7 +91,10 @@ fn add_file(app: &mut Moonglow, path: &Path) -> Option<(ResKey, Edit)> {
         Ok((key, bytes, renamed)) => {
             if let Some(name) = renamed {
                 let file = path.file_name().unwrap_or_default().to_string_lossy();
-                app.log.info(format!("{file} is added as {name}: the game reads names of up to 16 letters, digits, _ and -"));
+                app.log.info(format!(
+                    "{file} is added as {name}: the game reads names of up to 16 letters, \
+                     digits, _ and -"
+                ));
             }
             Some((key, Edit::SetResource { key, data: Some(bytes) }))
         }
@@ -181,7 +184,10 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         Some(hak) => {
             let path = folder.join(format!("{hak}.hak"));
             if !path.is_file() {
-                app.log.error(format!("{hak}.hak isn't in the game's hak folder, so it can't take pictures: choose a new hak"));
+                app.log.error(format!(
+                    "{hak}.hak isn't in the game's hak folder, so it can't take pictures: choose \
+                     a new hak"
+                ));
                 return None;
             }
             Some(path)
@@ -254,51 +260,73 @@ pub(super) fn page(
         .collect();
     egui::ScrollArea::vertical().id_salt("nui-images-page").show(ui, |ui| {
         ui.heading("Images");
-        ui.label("The pictures this window shows and where the game finds each. Add your own from disk into the module while you work; players get them from a hak the module uses.");
+        ui.label(
+            "The pictures this window shows and where the game finds each. Pictures from disk go \
+             into the module while you work; players get them from a hak the module uses.",
+        );
         ui.add_space(6.0);
         if names.is_empty() && unused.is_empty() {
-            ui.weak("No pictures yet: an Image, an Image button or a draw layer's Image names one.");
+            ui.weak(
+                "No pictures yet: an Image, an Image button or a draw layer's Image names one.",
+            );
         }
         let background_now = current_background(doc).map(str::to_owned);
         let module_names: BTreeSet<String> =
             module_images.iter().map(|k| k.resref.to_string().to_lowercase()).collect();
-        egui::Grid::new("nui-images").striped(true).num_columns(3).spacing([12.0, 6.0]).show(ui, |ui| {
-            if !names.is_empty() || !unused.is_empty() {
-                ui.strong("Picture");
-                ui.strong("Found in");
-                ui.label("");
-                ui.end_row();
-            }
-            for picture in names.iter().chain(&unused) {
-                ui.label(picture);
-                let origin = app
-                    .nui_assets
-                    .origins
-                    .iter()
-                    .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
-                    .map(|(_, o)| o.clone());
-                let in_module = module_names.contains(picture);
-                let missing = origin.is_none() && !in_module && !unused.contains(picture);
-                match origin {
-                    Some(origin) => ui.label(origin_name(&origin)).on_hover_text(origin),
-                    None if unused.contains(picture) => ui.label("Module (not shown yet)"),
-                    None if in_module => ui.label("Module"),
-                    None => ui.colored_label(ui.visuals().error_fg_color, "Missing: the game shows its gui_error picture"),
-                };
-                let is_background = background_now.as_deref() == Some(picture.as_str());
-                if ui
-                    .add_enabled(!missing && !is_background, egui::Button::new("Use as background").small())
-                    .on_hover_text("Stretched under the window's controls")
-                    .on_disabled_hover_text(if is_background { "It is the background" } else { "The picture is missing" })
-                    .clicked()
-                {
-                    background(doc, s, picture);
+        egui::Grid::new("nui-images").striped(true).num_columns(3).spacing([12.0, 6.0]).show(
+            ui,
+            |ui| {
+                if !names.is_empty() || !unused.is_empty() {
+                    ui.strong("Picture");
+                    ui.strong("Found in");
+                    ui.label("");
+                    ui.end_row();
                 }
-                ui.end_row();
-            }
-        });
+                for picture in names.iter().chain(&unused) {
+                    ui.label(picture);
+                    let origin = app
+                        .nui_assets
+                        .origins
+                        .iter()
+                        .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
+                        .map(|(_, o)| o.clone());
+                    let in_module = module_names.contains(picture);
+                    let missing = origin.is_none() && !in_module && !unused.contains(picture);
+                    match origin {
+                        Some(origin) => ui.label(origin_name(&origin)).on_hover_text(origin),
+                        None if unused.contains(picture) => ui.label("Module (not shown yet)"),
+                        None if in_module => ui.label("Module"),
+                        None => ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            "Missing: the game shows its gui_error picture",
+                        ),
+                    };
+                    let is_background = background_now.as_deref() == Some(picture.as_str());
+                    if ui
+                        .add_enabled(
+                            !missing && !is_background,
+                            egui::Button::new("Use as background").small(),
+                        )
+                        .on_hover_text("Stretched under the window's controls")
+                        .on_disabled_hover_text(if is_background {
+                            "It is the background"
+                        } else {
+                            "The picture is missing"
+                        })
+                        .clicked()
+                    {
+                        background(doc, s, picture);
+                    }
+                    ui.end_row();
+                }
+            },
+        );
         ui.add_space(8.0);
-        if ui.button("Add images from disk…").on_hover_text("Into the module, named as their files").clicked() {
+        if ui
+            .button("Add images from disk…")
+            .on_hover_text("Into the module, named as their files")
+            .clicked()
+        {
             for path in app.dialogs.open_files(FileKind::Images, None) {
                 edits.extend(add_file(app, &path).map(|(_, edit)| edit));
             }
@@ -308,7 +336,8 @@ pub(super) fn page(
         if state.images_hak.as_ref().is_some_and(|h| !haks.contains(h)) {
             state.images_hak = None;
         }
-        let target = state.images_hak.as_ref().map_or("a new hak".to_owned(), |h| format!("{h}.hak"));
+        let target =
+            state.images_hak.as_ref().map_or("a new hak".to_owned(), |h| format!("{h}.hak"));
         ui.horizontal_wrapped(|ui| {
             // Only a module with haks has a choice to make.
             if !haks.is_empty() {
@@ -317,7 +346,11 @@ pub(super) fn page(
                     .selected_text(&target)
                     .show_ui(ui, |ui| {
                         for hak in &haks {
-                            ui.selectable_value(&mut state.images_hak, Some(hak.clone()), format!("{hak}.hak"));
+                            ui.selectable_value(
+                                &mut state.images_hak,
+                                Some(hak.clone()),
+                                format!("{hak}.hak"),
+                            );
                         }
                         ui.selectable_value(&mut state.images_hak, None, "a new hak");
                     })
@@ -333,7 +366,9 @@ pub(super) fn page(
                     // Named as in the module: one the game can't read is shortened.
                     let resources: Result<Vec<_>, _> = files
                         .iter()
-                        .map(|f| from_file(f, &ws.module).map(|(k, b, _)| (k, Source::Bytes(b.into()))))
+                        .map(|f| {
+                            from_file(f, &ws.module).map(|(k, b, _)| (k, Source::Bytes(b.into())))
+                        })
                         .collect();
                     match resources.and_then(|r| write_into(&path, r)) {
                         Ok(_) => {
@@ -344,8 +379,14 @@ pub(super) fn page(
                 }
             }
             if ui
-                .add_enabled(!module_images.is_empty(), egui::Button::new(format!("Move module images into {target}")))
-                .on_hover_text("This window's pictures leave the module for the hak; Undo brings them back, the hak keeps them")
+                .add_enabled(
+                    !module_images.is_empty(),
+                    egui::Button::new(format!("Move module images into {target}")),
+                )
+                .on_hover_text(
+                    "This window's pictures leave the module for the hak; Undo brings them back, \
+                     the hak keeps them",
+                )
                 .on_disabled_hover_text("None of this window's pictures is in the module")
                 .clicked()
                 && let Some(path) = chosen_hak(app, name, &state.images_hak)
@@ -358,14 +399,18 @@ pub(super) fn page(
                 match write_into(&path, resources) {
                     // The module keeps its pictures unless the hak is in use.
                     Ok(_) if use_hak(app, &path, &mut edits) => {
-                        edits.extend(module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }));
+                        edits.extend(
+                            module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                        );
                     }
                     Ok(_) => {}
                     Err(e) => app.log.error(e),
                 }
             }
         });
-        ui.weak("A new hak is made in the game's hak folder and added at the top of the module's haks.");
+        ui.weak(
+            "A new hak is made in the game's hak folder and added at the top of the module's haks.",
+        );
     });
     edits
 }

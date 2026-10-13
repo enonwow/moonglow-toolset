@@ -353,9 +353,14 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     let Some(node) = doc.pointer(&path) else { return };
     let ty = node["type"].as_str().unwrap_or_default();
     if !ty.is_empty() && (ty != "group" || !is_swap(s, node)) {
-        if ui.button("Convert to Swap layout").on_hover_text(
-            "Wrap this fragment in an unbordered Group so an event can replace only its contents.").clicked()
-            && let Some(id) = make_group(doc, s, &path) {
+        if ui
+            .button("Convert to Swap layout")
+            .on_hover_text(
+                "Wraps it in a Group without a border, whose contents a handler can replace",
+            )
+            .clicked()
+            && let Some(id) = make_group(doc, s, &path)
+        {
             state.layout_target = id;
         }
         return;
@@ -364,9 +369,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
         let contents = node["children"].get(0).cloned();
         let mut group = node["id"].as_str().unwrap_or_default().to_owned();
         egui::CollapsingHeader::new("Variants").default_open(true).show(ui, |ui| {
-            ui.weak("One area, multiple contents. Its position and size stay the same.");
+            ui.weak("One area with several contents. Its position and size stay the same.");
             if group.is_empty() {
-                ui.weak("A target ID will be assigned when you create a layout.");
+                ui.weak("It gets an ID when its first variant is made.");
             } else {
                 ui.label(format!("Target: {group}"));
             }
@@ -413,7 +418,8 @@ mod tests {
         app.actions.clear();
         let ws = app.ws.as_mut().unwrap();
         let mut doc = mg_nui::window();
-        doc["root"]["children"][0] = json!({"type":"group","height":100.0,"children":[{"type":"col","children":[{"type":"label","value":"Original content"}]}]});
+        doc["root"]["children"][0] = json!({"type":"group","height":100.0,"children":[
+            {"type":"col","children":[{"type":"label","value":"Original content"}]}]});
         ws.module.set(mg_nui::key("swap_test", ResType::JUI), serde_json::to_vec(&doc).unwrap());
         ws.module.set(mg_nui::key("swap_test", ResType::TXT), settings.bytes());
         Harness::builder().with_size(egui::vec2(1300.0, 1200.0)).build_ui_state(
@@ -528,7 +534,8 @@ mod tests {
         let mut h = harness(s);
         let mut doc = mg_nui::window();
         doc["root"]["children"] = json!([
-            {"type":"group","id":"content","height":100.0,"children":[{"type":"col","children":[]}]},
+            {"type":"group","id":"content","height":100.0,
+                "children":[{"type":"col","children":[]}]},
             {"type":"label","value":"Fixed footer"}
         ]);
         h.state_mut()

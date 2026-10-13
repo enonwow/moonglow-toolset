@@ -1,4 +1,5 @@
-//! Views and event routes are authoring metadata lowered to stock NUI calls.
+//! Variants and event handlers: the Creator's own settings, written out as
+//! stock NUI calls.
 use super::*;
 
 #[cfg(test)]
@@ -72,7 +73,8 @@ impl BindDraft {
             Some("Enter a bind name.")
         } else if !mg_nui::plain_name(name) {
             Some(
-                "The name can't end with + or hold a line break or tab: the event script couldn't name it.",
+                "The name can't end with + or hold a line break or tab: the event script \
+                 couldn't name it.",
             )
         } else if bindings.contains_key(name) {
             Some("This bind already exists. Choose it above or use another name.")
@@ -101,32 +103,65 @@ pub(super) fn create_bind(
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.strong("New bind");
                 let name = ui.label("Bind name");
-                let name_edit = ui.add(egui::TextEdit::singleline(&mut draft.name).hint_text("e.g. is_open").desired_width(ui.available_width().clamp(0.0, 220.0))).labelled_by(name.id);
-                if opened { name_edit.request_focus(); }
+                let name_edit = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut draft.name)
+                            .hint_text("e.g. is_open")
+                            .desired_width(ui.available_width().clamp(0.0, 220.0)),
+                    )
+                    .labelled_by(name.id);
+                if opened {
+                    name_edit.request_focus();
+                }
                 let before = draft.kind;
-                egui::ComboBox::from_label("Type").selected_text(draft.kind.label()).show_ui(ui, |ui| {
-                    for kind in BindType::ALL {
-                        ui.selectable_value(&mut draft.kind, kind, kind.label());
-                    }
-                });
-                if before != draft.kind { draft.value = draft.kind.value(); }
+                egui::ComboBox::from_label("Type").selected_text(draft.kind.label()).show_ui(
+                    ui,
+                    |ui| {
+                        for kind in BindType::ALL {
+                            ui.selectable_value(&mut draft.kind, kind, kind.label());
+                        }
+                    },
+                );
+                if before != draft.kind {
+                    draft.value = draft.kind.value();
+                }
                 ui.label("Initial value");
                 fields::value(ui, &mut draft.value, 0);
-                ui.checkbox(&mut draft.rows, "List row array").on_hover_text("Create a value per list row, starting with one row. Edit more rows in Bindings or Row data.");
-                if let Some(error) = draft.error(bindings) { ui.weak(error); }
+                ui.checkbox(&mut draft.rows, "List row array").on_hover_text(
+                    "A value for each row of a list, starting with one row. Bindings and Row \
+                     data edit the rows.",
+                );
+                if let Some(error) = draft.error(bindings) {
+                    ui.weak(error);
+                }
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(draft.error(bindings).is_none(), egui::Button::new("Create")).clicked() {
+                    if ui
+                        .add_enabled(draft.error(bindings).is_none(), egui::Button::new("Create"))
+                        .clicked()
+                    {
                         let name = draft.name.trim().to_owned();
-                        let value = if draft.rows { json!([draft.value.clone()]) } else { draft.value.clone() };
+                        let value = if draft.rows {
+                            json!([draft.value.clone()])
+                        } else {
+                            draft.value.clone()
+                        };
                         bindings.insert(name.clone(), Binding { value, ..Default::default() });
                         created = Some(name);
                         finish = true;
                     }
-                    if ui.button("Cancel").clicked() { finish = true; }
+                    if ui.button("Cancel").clicked() {
+                        finish = true;
+                    }
                 });
             });
         }
-        ui.ctx().data_mut(|d| if finish { d.remove::<BindDraft>(id); } else if let Some(draft) = draft { d.insert_temp(id, draft); });
+        ui.ctx().data_mut(|d| {
+            if finish {
+                d.remove::<BindDraft>(id);
+            } else if let Some(draft) = draft {
+                d.insert_temp(id, draft);
+            }
+        });
     });
     created
 }
@@ -141,7 +176,10 @@ pub(super) fn ui(
 ) {
     egui::ScrollArea::vertical().id_salt("nui-workflow").show(ui, |ui| {
         ui.heading("Swap layout variants");
-        ui.label("Add a Swap layout in Design, then create and edit its variants in Properties or Layers.");
+        ui.label(
+            "A Swap layout is added in Design; its variants are made and edited in Properties \
+             or Layers.",
+        );
         let (mut remove, mut rename) = (None, None);
         for name in s.views.keys() {
             ui.horizontal(|ui| {
@@ -159,14 +197,19 @@ pub(super) fn ui(
                 // The handlers showing it, and its function's calls, follow.
                 ui.menu_button("Rename…", |ui| {
                     let id = ui.make_persistent_id(("rename-variant", name));
-                    let mut to: String = ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());
+                    let mut to: String =
+                        ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());
                     let label = ui.label("Name");
                     ui.text_edit_singleline(&mut to).labelled_by(label.id);
                     let taken = to != *name && s.views.contains_key(&to);
                     let ok = to != *name && !to.is_empty() && mg_nui::plain_name(&to) && !taken;
                     if ui
                         .add_enabled(ok, egui::Button::new("Rename"))
-                        .on_disabled_hover_text(if taken { "Another variant has that name" } else { "Type a new name: no spaces at either end" })
+                        .on_disabled_hover_text(if taken {
+                            "Another variant has that name"
+                        } else {
+                            "Type a new name: no spaces at either end"
+                        })
                         .clicked()
                     {
                         rename = Some((name.clone(), to.clone()));
@@ -176,11 +219,21 @@ pub(super) fn ui(
                 });
                 // A handler that shows it calls its function: removing it would break the build.
                 let call = format!("{}(", mg_nui::variant_function(window, name));
-                let shown = script.is_some_and(|t| t.lines().any(|l| !l.trim_start().starts_with("//") && l.contains(&call)))
-                    || s.actions.iter().any(|r| matches!(&r.action, mg_nui::Action::View{view,..} if view==name));
-                if ui.add_enabled(!shown, egui::Button::new("Remove"))
-                    .on_disabled_hover_text("A handler shows it: take that call out of the event script first")
-                    .clicked() { remove=Some(name.clone()); }
+                let shown = script.is_some_and(|t| {
+                    t.lines().any(|l| !l.trim_start().starts_with("//") && l.contains(&call))
+                }) || s
+                    .actions
+                    .iter()
+                    .any(|r| matches!(&r.action, mg_nui::Action::View{view,..} if view==name));
+                if ui
+                    .add_enabled(!shown, egui::Button::new("Remove"))
+                    .on_disabled_hover_text(
+                        "A handler shows it: take that call out of the event script first",
+                    )
+                    .clicked()
+                {
+                    remove = Some(name.clone());
+                }
             });
         }
         if let Some(name) = remove {

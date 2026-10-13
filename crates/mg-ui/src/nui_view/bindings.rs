@@ -59,7 +59,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             .into();
     }
     egui::CollapsingHeader::new("Property binding").default_open(true).show(ui, |ui| {
-        ui.weak("Connect this property to a value that can change in game.");
+        ui.weak("A bound property takes its value from a bind, which a script can change.");
         ui.label("Property");
         egui::ComboBox::from_id_salt("bind-property")
             .selected_text(label(&state.binding_property, &ty))
@@ -94,7 +94,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         ui.selectable_value(&mut chosen, name.clone(), name);
                     }
                     if choices.is_empty() {
-                        ui.weak("No matching binds. Create one below.");
+                        ui.weak("No bind holds a value of this kind: make one below.");
                     }
                 });
             if chosen != bound.clone().unwrap_or_default() {
@@ -119,16 +119,25 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 draft = None;
             }
             if rows.is_some_and(|n| n > 10000) {
-                ui.weak("For more than 10000 rows, prepare the bind in Binding JSON and select it here.");
+                ui.weak(
+                    "For more than 10000 rows, write the bind in Binding JSON and choose it here.",
+                );
             }
-            if draft.is_none() && ui.add_enabled(rows.is_none_or(|n|n<=10000),egui::Button::new("+ New bind for property")).clicked() {
+            if draft.is_none()
+                && ui
+                    .add_enabled(
+                        rows.is_none_or(|n| n <= 10000),
+                        egui::Button::new("+ New bind for property"),
+                    )
+                    .clicked()
+            {
                 let source = resolved(&current, settings).clone();
                 let source = if source.is_null() {
                     property_default(&ty, &key).unwrap_or(json!(""))
                 } else {
                     source
                 };
-                let initial = if let Some(count) = rows.filter(|_|bound.is_none()) {
+                let initial = if let Some(count) = rows.filter(|_| bound.is_none()) {
                     Value::Array(vec![source; count])
                 } else {
                     source
@@ -163,11 +172,11 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     fields::value(ui, &mut draft.value, 0);
                     let name = draft.name.trim();
                     let error = if name.is_empty() || name.contains('\0') {
-                        Some("Enter a nonempty bind name.")
+                        Some("The bind needs a name.")
                     } else if settings.bindings.contains_key(name) {
-                        Some("Name already exists. Choose it above or change the name.")
+                        Some("A bind has that name: choose it above, or another name.")
                     } else if !compatible(doc, &path, &key, settings, &draft.value) {
-                        Some("This value does not match the property type.")
+                        Some("The property doesn't take a value of this kind.")
                     } else {
                         None
                     };
@@ -201,7 +210,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     d.remove::<Draft>(draft_id);
                 }
             });
-            if finish { ui.ctx().request_repaint(); }
+            if finish {
+                ui.ctx().request_repaint();
+            }
             if let Some(name) =
                 doc.pointer(&path).unwrap()[&key]["bind"].as_str().map(str::to_owned)
             {
@@ -211,7 +222,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 } else {
                     ui.colored_label(
                         ui.visuals().error_fg_color,
-                        "Missing bind. Create or choose a value above.",
+                        "There is no such bind: make it, or choose another above.",
                     );
                 }
             }

@@ -454,7 +454,8 @@ fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
                         .sense(Sense::click_and_drag()),
                 )
                 .on_hover_text(format!(
-                    "{description}\nClick to add to the selected layout, or drag into Layers or the preview."
+                    "{description}\nClick to add to the selected layout, or drag into Layers or \
+                     the preview."
                 ));
             response.dnd_set_drag_payload(Insert(ty));
             if response.clicked() {
@@ -896,80 +897,39 @@ pub(super) fn bindings(
         workflow::create_bind(ui, &mut s.bindings);
         ui.add_space(16.0);
         let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
-        for view in s.views.values() { used.extend(mg_nui::bind_names(view)); }
+        for view in s.views.values() {
+            used.extend(mg_nui::bind_names(view));
+        }
         for name in &used {
             if !s.bindings.contains_key(name) {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} needs an initial value"));
-                    if ui.button("Add value").clicked() { s.bindings.insert(name.clone(), Binding::default()); }
+                    if ui.button("Add value").clicked() {
+                        s.bindings.insert(name.clone(), Binding::default());
+                    }
                 });
             }
         }
         if s.bindings.is_empty() && used.is_empty() {
-            egui::Frame::group(ui.style()).inner_margin(18).show(ui, |ui| {
-                ui.strong("No dynamic values yet");
-                ui.label("Start with a static layout. Add binds when a control needs to change during play.");
-            });
+            ui.weak("No binds yet.");
         }
         let names: Vec<_> = s.bindings.keys().cloned().collect();
         let doc = v.as_deref().cloned().unwrap_or_else(mg_nui::window);
         for name in names {
-            egui::CollapsingHeader::new(&name).id_salt(("bind", &name)).default_open(true).show(ui, |ui| {
-                let binding = s.bindings.get_mut(&name).unwrap();
-                ui.label("Initial value");
-                fields::value(ui, &mut binding.value, 0);
-                if !used.contains(&name) { ui.weak("Not used by any property yet: choose it on a property in Design."); }
-                bindings::watch(ui, &name, &doc, s, state);
-                ui.horizontal(|ui| {
-                    let draft_id = ui.make_persistent_id(("rename-bind", &name));
-                    let mut to: String = ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.clone());
-                    let label = ui.label("Name");
-                    ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
-                        .labelled_by(label.id)
-                        .on_hover_text("A new name for this bind");
-                    let taken = to != name && s.bindings.contains_key(&to);
-                    let plain = !to.is_empty() && mg_nui::plain_name(&to);
-                    if ui.add_enabled(to != name && plain && !taken, egui::Button::new("Rename")).on_disabled_hover_text(if taken { "Another bind has that name" } else { "Type a new name: no spaces at either end, no + at the end" }).clicked() {
-                        // Every property, variant and handler using it follows.
-                        let names = std::collections::BTreeMap::from([(name.clone(), to.clone())]);
-                        if let Some(doc) = v.as_deref_mut() { shortcuts::rename_binds(doc, &names); }
-                        for view in s.views.values_mut() { shortcuts::rename_binds(view, &names); }
-                        if let Some(b) = s.bindings.remove(&name) { s.bindings.insert(to.clone(), b); }
-                        for route in s.actions.iter_mut().filter(|r| r.event == "watch" && r.element == name) {
-                            route.element = to.clone();
-                        }
-                    }
-                    ui.ctx().data_mut(|d| d.insert_temp(draft_id, to));
-                    let use_count = used.contains(&name);
-                    if ui.add_enabled(!use_count, egui::Button::new("Delete")).on_disabled_hover_text("Properties use it (listed below): give them a constant value first").on_hover_text("Its handlers go too; their code stays in the event script, commented out").clicked() {
-                        s.bindings.remove(&name);
-                        s.actions.retain(|r| !(r.event == "watch" && r.element == name));
-                    }
-                });
-                if used.contains(&name) {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.weak("Used by");
-                        let mut paths = Vec::new();
-                        bind_uses(&doc, &name, String::new(), &mut paths);
-                        for path in paths {
-                            let (target, place) = super::describe_path(&doc, &path);
-                            if ui.link(place).on_hover_text("Select it").clicked() && let Some(target) = target {
-                                state.selected = target;
-                                state.page = 0;
-                            }
-                        }
-                        if s.views.values().any(|view| mg_nui::bind_names(view).contains(&name)) {
-                            ui.weak("a swap layout variant");
-                        }
-                    });
-                }
-            });
+            let in_use = used.contains(&name);
+            egui::CollapsingHeader::new(&name)
+                .id_salt(("bind", &name))
+                .default_open(true)
+                .show(ui, |ui| bind(ui, &name, in_use, &doc, s, v.as_deref_mut(), state));
             ui.add_space(8.0);
         }
         ui.add_space(16.0);
         egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
             ui.checkbox(&mut s.from_resref, "Load JUI from the client by resource name");
-            ui.weak("Requires distributing the JUI to clients. Leave off to send the layout from the opener script.");
+            ui.weak(
+                "The players' clients must have the JUI then (from a hak or NWSync). Off, the \
+                 opener script sends the layout.",
+            );
         });
         egui::CollapsingHeader::new("Window identity").show(ui, |ui| {
             let mut custom = s.window_id.is_some();
@@ -979,7 +939,100 @@ pub(super) fn bindings(
             if let Some(id) = &mut s.window_id {
                 ui.text_edit_singleline(id);
             }
-            ui.weak("The resource name remains unchanged. A custom ID controls NuiFindWindow/NuiCreate identity.");
+            ui.weak(
+                "The ID NuiCreate gives the window and NuiFindWindow finds it by. The resource \
+                 keeps its name.",
+            );
         });
     });
+}
+
+/// One bind on the Bindings page: its initial value, its handlers, its name
+/// and where it is used (`doc` is the window as it was when the page began).
+fn bind(
+    ui: &mut Ui,
+    name: &str,
+    in_use: bool,
+    doc: &Value,
+    s: &mut Settings,
+    mut v: Option<&mut Value>,
+    state: &mut State,
+) {
+    let Some(binding) = s.bindings.get_mut(name) else { return };
+    ui.label("Initial value");
+    fields::value(ui, &mut binding.value, 0);
+    if !in_use {
+        ui.weak("Not used by any property yet: choose it on a property in Design.");
+    }
+    bindings::watch(ui, name, doc, s, state);
+    ui.horizontal(|ui| {
+        let draft_id = ui.make_persistent_id(("rename-bind", name));
+        let mut to: String =
+            ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.to_owned());
+        let label = ui.label("Name");
+        ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
+            .labelled_by(label.id)
+            .on_hover_text("A new name for this bind");
+        let taken = to != name && s.bindings.contains_key(&to);
+        let plain = !to.is_empty() && mg_nui::plain_name(&to);
+        let why_not = if taken {
+            "Another bind has that name"
+        } else {
+            "Type a new name: no spaces at either end, no + at the end"
+        };
+        if ui
+            .add_enabled(to != name && plain && !taken, egui::Button::new("Rename"))
+            .on_disabled_hover_text(why_not)
+            .clicked()
+        {
+            // Every property, variant and handler using it follows.
+            let names = std::collections::BTreeMap::from([(name.to_owned(), to.clone())]);
+            if let Some(doc) = v.as_deref_mut() {
+                shortcuts::rename_binds(doc, &names);
+            }
+            for view in s.views.values_mut() {
+                shortcuts::rename_binds(view, &names);
+            }
+            if let Some(b) = s.bindings.remove(name) {
+                s.bindings.insert(to.clone(), b);
+            }
+            for handler in s.actions.iter_mut().filter(|r| r.event == "watch" && r.element == name)
+            {
+                handler.element = to.clone();
+            }
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(draft_id, to));
+        if ui
+            .add_enabled(!in_use, egui::Button::new("Delete"))
+            .on_disabled_hover_text(
+                "Properties use it (listed below): give them a constant value first",
+            )
+            .on_hover_text(
+                "Its handlers go too; their code stays in the event script, commented out",
+            )
+            .clicked()
+        {
+            s.bindings.remove(name);
+            s.actions.retain(|r| !(r.event == "watch" && r.element == name));
+        }
+    });
+    if in_use {
+        ui.horizontal_wrapped(|ui| {
+            ui.weak("Used by");
+            let mut paths = Vec::new();
+            bind_uses(doc, name, String::new(), &mut paths);
+            for path in paths {
+                let (target, place) = super::describe_path(doc, &path);
+                if ui.link(place).on_hover_text("Select it").clicked()
+                    && let Some(target) = target
+                {
+                    state.selected = target;
+                    state.page = 0;
+                }
+            }
+            if s.views.values().any(|view| mg_nui::bind_names(view).contains(name)) {
+                ui.weak("a swap layout variant");
+            }
+        });
+    }
 }

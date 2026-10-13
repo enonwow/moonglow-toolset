@@ -7,7 +7,10 @@ pub(super) const KINDS: &[&str] =
     &["Polyline", "Curve", "Circle", "Arc", "Text", "Image", "Line", "Rectangle"];
 
 fn template(kind: usize) -> Value {
-    let mut item = json!({"type":kind,"enabled":true,"color":{"r":220,"g":180,"b":80,"a":255},"fill":false,"line_thickness":2.0,"order":1,"render":0,"arrayBinds":false});
+    let mut item = json!({
+        "type":kind,"enabled":true,"color":{"r":220,"g":180,"b":80,"a":255},"fill":false,
+        "line_thickness":2.0,"order":1,"render":0,"arrayBinds":false
+    });
     match kind {
         0 => item["points"] = json!([10.0, 10.0, 80.0, 70.0, 140.0, 10.0]),
         1 | 6 => {
