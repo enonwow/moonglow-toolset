@@ -1,5 +1,5 @@
 //! Stock draw-list primitives and a local coordinate editor.
-use super::preview::{draw_image, flag, num, rgba, string, text, val};
+use super::preview::{Props, TextStyle, draw_image, flag, num, rgba, string, text, val};
 use super::*;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 
@@ -52,49 +52,6 @@ fn coord(v: &Value, s: &Settings, row: Option<usize>) -> Vec2 {
     vec2(num(&v["x"], s, row, 0.0), num(&v["y"], s, row, 0.0))
 }
 
-#[test]
-fn native_draw_circle_uses_width_radius_and_outline_arc_closes_chord() {
-    // Exact geometry from Creator-authored nui_draw_a, observed in NWN
-    // 89.8193.37-17. Test paint output, not just a geometry helper.
-    let ctx = egui::Context::default();
-    let s = Settings::default();
-    let assets = skin::Assets::default();
-    for kind in [2, 3] {
-        let item = template(kind);
-        let mut output = ctx.run_ui(Default::default(), |ui| {
-            paint(
-                &ui.ctx().layer_painter(egui::LayerId::background()),
-                &json!({"draw_list":[item]}),
-                Rect::from_min_size(pos2(100.0, 100.0), vec2(200.0, 110.0)),
-                1.0,
-                &s,
-                &assets,
-                None,
-                false,
-                [false; 4],
-            );
-        });
-        output.textures_delta.clear();
-        let path = output
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Path(path) => Some(path),
-                _ => None,
-            })
-            .unwrap();
-        assert!(path.closed, "native outline must close, kind {kind}");
-        assert_eq!(path.fill, Color32::TRANSPARENT);
-        let bounds = Rect::from_points(&path.points);
-        if kind == 2 {
-            assert_eq!(bounds.center(), pos2(180.0, 145.0));
-            assert_eq!(bounds.size(), vec2(140.0, 140.0));
-        } else {
-            assert!((bounds.width() - 100.0).abs() < 0.01);
-            assert!((bounds.height() - 50.0).abs() < 0.01);
-        }
-    }
-}
 fn rect(v: &Value, s: &Settings, row: Option<usize>, origin: Pos2, scale: f32) -> Rect {
     Rect::from_min_size(
         origin + coord(v, s, row) * scale,
@@ -117,32 +74,6 @@ fn instance_settings(item: &Value, settings: &Settings, index: usize) -> Setting
         })
         .collect();
     Settings { bindings, ..Default::default() }
-}
-
-#[test]
-fn repeated_draw_text_preserves_bind_formatting() {
-    let mut settings = Settings::default();
-    for (name, value) in [
-        ("values", json!([15, 255])),
-        ("decimals", json!([1.25, 2.75])),
-        ("labels", json!(["Mixed", "Case"])),
-    ] {
-        settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
-    }
-    for (bind, flags, expected) in [
-        ("values", json!({"number_flags":1,"text_flags":2}), ["F", "FF"]),
-        ("decimals", json!({"number_precision":2}), ["1.25", "2.75"]),
-        ("labels", json!({"text_flags":1}), ["mixed", "case"]),
-    ] {
-        let mut text = flags;
-        text["bind"] = bind.into();
-        let item = json!({"type":4,"arrayBinds":true,"text":text});
-        for (index, expected) in expected.iter().enumerate() {
-            let instance = instance_settings(&item, &settings, index);
-            assert_eq!(string(&item["text"], &instance, None), *expected);
-        }
-    }
-    assert_eq!(settings.bindings["values"].value, json!([15, 255]));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -292,11 +223,13 @@ pub(super) fn paint(
                 assets,
                 r,
                 &super::preview::localized_string(&item["text"], s, row, assets),
-                &string(&item["font"], s, row),
-                scale,
-                color,
-                egui::Align2::LEFT_TOP,
-                true,
+                TextStyle {
+                    font: &string(&item["font"], s, row),
+                    scale,
+                    color,
+                    align: egui::Align2::LEFT_TOP,
+                    wrap: true,
+                },
             ),
             5 => {
                 draw_image(
@@ -304,9 +237,7 @@ pub(super) fn paint(
                     assets,
                     &string(&item["image"], s, row),
                     r,
-                    item,
-                    s,
-                    row,
+                    Props { node: item, s, row },
                     scale,
                     // Native Draw B ignores a retained legacy color field.
                     Color32::WHITE,
@@ -754,4 +685,79 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
             items.swap(a, b);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_draw_circle_uses_width_radius_and_outline_arc_closes_chord() {
+        // Exact geometry from Creator-authored nui_draw_a, observed in NWN
+        // 89.8193.37-17. Test paint output, not just a geometry helper.
+        let ctx = egui::Context::default();
+        let s = Settings::default();
+        let assets = skin::Assets::default();
+        for kind in [2, 3] {
+            let item = template(kind);
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                paint(
+                    &ui.ctx().layer_painter(egui::LayerId::background()),
+                    &json!({"draw_list":[item]}),
+                    Rect::from_min_size(pos2(100.0, 100.0), vec2(200.0, 110.0)),
+                    1.0,
+                    &s,
+                    &assets,
+                    None,
+                    false,
+                    [false; 4],
+                );
+            });
+            output.textures_delta.clear();
+            let path = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Path(path) => Some(path),
+                    _ => None,
+                })
+                .unwrap();
+            assert!(path.closed, "native outline must close, kind {kind}");
+            assert_eq!(path.fill, Color32::TRANSPARENT);
+            let bounds = Rect::from_points(&path.points);
+            if kind == 2 {
+                assert_eq!(bounds.center(), pos2(180.0, 145.0));
+                assert_eq!(bounds.size(), vec2(140.0, 140.0));
+            } else {
+                assert!((bounds.width() - 100.0).abs() < 0.01);
+                assert!((bounds.height() - 50.0).abs() < 0.01);
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_draw_text_preserves_bind_formatting() {
+        let mut settings = Settings::default();
+        for (name, value) in [
+            ("values", json!([15, 255])),
+            ("decimals", json!([1.25, 2.75])),
+            ("labels", json!(["Mixed", "Case"])),
+        ] {
+            settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
+        }
+        for (bind, flags, expected) in [
+            ("values", json!({"number_flags":1,"text_flags":2}), ["F", "FF"]),
+            ("decimals", json!({"number_precision":2}), ["1.25", "2.75"]),
+            ("labels", json!({"text_flags":1}), ["mixed", "case"]),
+        ] {
+            let mut text = flags;
+            text["bind"] = bind.into();
+            let item = json!({"type":4,"arrayBinds":true,"text":text});
+            for (index, expected) in expected.iter().enumerate() {
+                let instance = instance_settings(&item, &settings, index);
+                assert_eq!(string(&item["text"], &instance, None), *expected);
+            }
+        }
+        assert_eq!(settings.bindings["values"].value, json!([15, 255]));
+    }
 }

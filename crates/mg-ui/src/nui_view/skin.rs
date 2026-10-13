@@ -37,6 +37,163 @@ fn pixel_height_to_em(bytes: &[u8]) -> Option<f32> {
     (height > 0.0 && em > 0.0).then_some(em / height)
 }
 
+/// What a laid-out text was made from. `width` is where it wraps or is cut
+/// (infinite when neither), `shape` which of the preview's layouts it is.
+#[derive(Clone, Copy)]
+pub(super) struct TextKey<'a> {
+    pub text: &'a str,
+    pub font: &'a FontId,
+    pub spacing: f32,
+    pub color: Color32,
+    pub line_height: Option<f32>,
+    pub width: f32,
+    pub shape: u8,
+}
+
+impl TextKey<'_> {
+    fn hash(&self) -> u64 {
+        egui::util::hash((
+            self.text,
+            self.font,
+            self.spacing.to_bits(),
+            self.color,
+            self.line_height.map(f32::to_bits),
+            self.width.to_bits(),
+            self.shape,
+        ))
+    }
+}
+
+struct KeptText {
+    text: Box<str>,
+    font: FontId,
+    spacing: f32,
+    color: Color32,
+    line_height: Option<f32>,
+    width: f32,
+    shape: u8,
+    galley: Arc<egui::Galley>,
+    /// The pass it was last drawn in.
+    used: u32,
+}
+
+impl KeptText {
+    fn is(&self, key: &TextKey<'_>) -> bool {
+        self.shape == key.shape
+            && self.width.to_bits() == key.width.to_bits()
+            && self.spacing.to_bits() == key.spacing.to_bits()
+            && self.line_height.map(f32::to_bits) == key.line_height.map(f32::to_bits)
+            && self.color == key.color
+            && self.font == *key.font
+            && *self.text == *key.text
+    }
+}
+
+/// The preview's texts as they were laid out, kept from one pass to the next:
+/// laying one out anew costs a section a glyph (`preview::native_job`).
+///
+/// A galley holds positions in egui's font atlas, and is garbage once egui
+/// builds that atlas again: for new or added fonts, changed text options or
+/// an atlas that filled up, always at the start of a pass, and each time it
+/// empties its own cache of galleys (`epaint::Fonts::begin_pass`; a change
+/// of pixels per point makes its galleys new ones too). So a mark is laid
+/// out in every pass: egui keeps what was laid out in the pass before, and
+/// while it hands the same mark back, its atlas is the one these galleys
+/// were made for. When it is another (also after a pass that drew no
+/// preview), everything kept goes.
+#[derive(Default)]
+struct TextCache {
+    pass: Option<u64>,
+    mark: Option<Arc<egui::Galley>>,
+    generation: u32,
+    kept: std::collections::HashMap<u64, KeptText>,
+}
+
+impl TextCache {
+    /// Once a pass: drops everything if egui's atlas is not the same one,
+    /// and otherwise what the pass before did not draw.
+    fn begin_pass(&mut self, ctx: &egui::Context) {
+        let pass = ctx.cumulative_pass_nr();
+        if self.pass == Some(pass) {
+            return;
+        }
+        self.pass = Some(pass);
+        let mark = ctx.fonts_mut(|f| {
+            f.layout_job(egui::text::LayoutJob::simple_singleline(
+                "nui".into(),
+                FontId::default(),
+                Color32::PLACEHOLDER,
+            ))
+        });
+        if self.mark.as_ref().is_some_and(|kept| Arc::ptr_eq(kept, &mark)) {
+            let generation = self.generation;
+            self.kept.retain(|_, t| t.used == generation);
+        } else {
+            self.kept.clear();
+        }
+        self.mark = Some(mark);
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    fn get(
+        &mut self,
+        ctx: &egui::Context,
+        key: &TextKey<'_>,
+        hash: u64,
+    ) -> Option<Arc<egui::Galley>> {
+        self.begin_pass(ctx);
+        let kept = self.kept.get_mut(&hash).filter(|t| t.is(key))?;
+        kept.used = self.generation;
+        Some(kept.galley.clone())
+    }
+
+    fn keep(&mut self, key: &TextKey<'_>, hash: u64, galley: Arc<egui::Galley>) {
+        self.kept.insert(
+            hash,
+            KeptText {
+                text: key.text.into(),
+                font: key.font.clone(),
+                spacing: key.spacing,
+                color: key.color,
+                line_height: key.line_height,
+                width: key.width,
+                shape: key.shape,
+                galley,
+                used: self.generation,
+            },
+        );
+    }
+}
+
+/// A value of the skin, read once: as a number, or as a string that is a
+/// color or names a picture (the key of `Assets::pictures`).
+struct Leaf {
+    number: Option<f32>,
+    color: Option<Color32>,
+    picture: Option<String>,
+}
+
+/// The values under `table`, by their dotted paths. A key with a dot in it
+/// is one no path leads to.
+fn leaves(prefix: &str, table: &toml::Table, out: &mut std::collections::HashMap<String, Leaf>) {
+    for (key, value) in table.iter().filter(|(key, _)| !key.contains('.')) {
+        let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        if let toml::Value::Table(table) = value {
+            leaves(&path, table, out);
+            continue;
+        }
+        let text = value.as_str();
+        out.insert(
+            path,
+            Leaf {
+                number: toml_number(value),
+                color: text.and_then(color),
+                picture: text.map(str::to_lowercase),
+            },
+        );
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Assets {
     dirty: bool,
@@ -56,9 +213,13 @@ pub(crate) struct Assets {
     pub(super) catalog: Vec<String>,
     requested: BTreeSet<String>,
     style: toml::Table,
+    /// `style` by dotted path ("button.normal"), as the preview asks for it
+    /// with every control it paints.
+    leaves: std::collections::HashMap<String, Leaf>,
     pictures: BTreeMap<String, Picture>,
     fonts: BTreeMap<String, Font>,
     default_font: String,
+    text: std::cell::RefCell<TextCache>,
     strings: BTreeMap<i64, String>,
     pub(super) origins: BTreeMap<String, String>,
     pub(super) issues: Vec<String>,
@@ -116,32 +277,112 @@ fn image_resource(
         .map(|(ty, (bytes, origin))| (ty, bytes, origin))
 }
 
+/// The longest side a picture of a window may have.
+const MAX_SIDE: u32 = 4096;
+
 fn image(bytes: &[u8], ty: ResType) -> Result<egui::ColorImage, String> {
     if bytes.len() > 64 * 1024 * 1024 {
         return Err("image exceeds 64 MiB".into());
     }
-    if ty == ResType::DDS {
-        let t = mg_image::read(ty, bytes).map_err(|e| e.to_string())?;
-        if u64::from(t.width) * u64::from(t.height) > 16_777_216 {
-            return Err("image exceeds 16 megapixels".into());
+    match ty {
+        ResType::DDS => {
+            let t = mg_image::read(ty, bytes).map_err(|e| e.to_string())?;
+            if u64::from(t.width) * u64::from(t.height) > 16_777_216 {
+                return Err("image exceeds 16 megapixels".into());
+            }
+            let rgba = t.to_rgba().top_down();
+            Ok(egui::ColorImage::from_rgba_unmultiplied(
+                [rgba.width as usize, rgba.height as usize],
+                &rgba.data,
+            ))
         }
-        let rgba = t.to_rgba().top_down();
-        return Ok(egui::ColorImage::from_rgba_unmultiplied(
-            [rgba.width as usize, rgba.height as usize],
-            &rgba.data,
-        ));
+        ResType::TGA => read_tga(bytes),
+        ResType::PNG => read_png(bytes),
+        ResType::JPG => other(bytes, image::ImageFormat::Jpeg),
+        ResType::BMP => other(bytes, image::ImageFormat::Bmp),
+        _ => Err(format!("Unsupported NUI image: {ty}")),
     }
-    let format = match ty {
-        ResType::TGA => image::ImageFormat::Tga,
-        ResType::PNG => image::ImageFormat::Png,
-        ResType::JPG => image::ImageFormat::Jpeg,
-        ResType::BMP => image::ImageFormat::Bmp,
-        _ => return Err(format!("Unsupported NUI image: {ty}")),
+}
+
+/// A TGA, through the workspace's reader. That one keeps rows and columns
+/// as they are stored, which is how the game takes a texture for a model;
+/// a window's picture is drawn by the origin its file declares.
+fn read_tga(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+    // The size its header declares, before anything is read by it: the
+    // reader takes textures up to 16,384 a side, and a run-length encoded
+    // file of a few bytes may declare that.
+    let side =
+        |at: usize| bytes.get(at..at + 2).map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])));
+    if side(12).is_some_and(|w| w > MAX_SIDE) || side(14).is_some_and(|h| h > MAX_SIDE) {
+        return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
+    }
+    let t = mg_image::read(ResType::TGA, bytes).map_err(|e| e.to_string())?;
+    let descriptor = bytes.get(17).copied().unwrap_or(0);
+    let mut rgba = t.to_rgba();
+    if descriptor & 0x20 == 0 {
+        rgba = rgba.top_down();
+    }
+    if descriptor & 0x10 != 0 {
+        for row in rgba.data.chunks_exact_mut(rgba.width as usize * 4) {
+            let (pixels, _) = row.as_chunks_mut::<4>();
+            pixels.reverse();
+        }
+    }
+    Ok(egui::ColorImage::from_rgba_unmultiplied(
+        [rgba.width as usize, rgba.height as usize],
+        &rgba.data,
+    ))
+}
+
+/// A PNG of any color type and depth as RGBA8: 16-bit samples rounded to
+/// the nearest 8-bit one.
+fn read_png(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+    let limits = png::Limits { bytes: 128 * 1024 * 1024 };
+    let mut decoder = png::Decoder::new_with_limits(std::io::Cursor::new(bytes), limits);
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let (width, height) = (reader.info().width, reader.info().height);
+    if width > MAX_SIDE || height > MAX_SIDE {
+        return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
+    }
+    let size = reader.output_buffer_size().ok_or("image is too large")?;
+    let mut buffer = vec![0; size];
+    let info = reader.next_frame(&mut buffer).map_err(|e| e.to_string())?;
+    let data = buffer.get(..info.buffer_size()).ok_or("image is cut short")?;
+    // The samples of a pixel, each as 8 bits.
+    let samples: Vec<u8> = match info.bit_depth {
+        png::BitDepth::Sixteen => data
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|s| ((u32::from(u16::from_be_bytes(*s)) + 128) / 257) as u8)
+            .collect(),
+        _ => data.to_vec(),
     };
+    let rgba: Vec<u8> = match info.color_type {
+        png::ColorType::Grayscale => samples.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+        png::ColorType::GrayscaleAlpha => {
+            samples.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
+        }
+        png::ColorType::Rgb => {
+            samples.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect()
+        }
+        png::ColorType::Rgba => samples,
+        png::ColorType::Indexed => return Err("the image's palette was not unpacked".into()),
+    };
+    let size = [width as usize, height as usize];
+    if rgba.len() != size[0] * size[1] * 4 {
+        return Err("image is cut short".into());
+    }
+    Ok(egui::ColorImage::from_rgba_unmultiplied(size, &rgba))
+}
+
+/// A JPEG or BMP.
+fn other(bytes: &[u8], format: image::ImageFormat) -> Result<egui::ColorImage, String> {
     let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(4096);
-    limits.max_image_height = Some(4096);
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
     limits.max_alloc = Some(128 * 1024 * 1024);
     reader.limits(limits);
     let rgba = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
@@ -300,7 +541,11 @@ impl Assets {
         self.issues.clear();
         self.origins.clear();
         self.fonts.clear();
+        // (egui builds its atlas again for the fonts added below, which
+        // `TextCache` sees for itself; these are only no longer wanted.)
+        self.text.get_mut().kept.clear();
         self.style.clear();
+        self.leaves.clear();
         self.loaded = false;
         let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         if let Some((b, origin)) = resource(rm, module, key) {
@@ -309,6 +554,7 @@ impl Assets {
                 .and_then(|t| t.parse::<toml::Table>().map_err(|e| e.to_string()))
             {
                 Ok(style) => {
+                    leaves("", &style, &mut self.leaves);
                     self.style = style;
                     self.loaded = true;
                     self.origins.insert(key.to_string(), origin);
@@ -425,25 +671,22 @@ impl Assets {
         ctx.request_repaint();
     }
 
-    fn value(&self, path: &str) -> Option<&toml::Value> {
-        let mut parts = path.split('.');
-        let mut v = self.style.get(parts.next()?)?;
-        for p in parts {
-            v = v.get(p)?;
-        }
-        Some(v)
-    }
     pub(super) fn number(&self, path: &str, default: f32) -> f32 {
-        self.value(path).and_then(toml_number).unwrap_or(default)
+        self.leaves.get(path).and_then(|v| v.number).unwrap_or(default)
     }
     pub(super) fn color(&self, path: &str, default: Color32) -> Color32 {
-        self.value(path).and_then(toml::Value::as_str).and_then(color).unwrap_or(default)
+        self.leaves.get(path).and_then(|v| v.color).unwrap_or(default)
     }
     pub(super) fn picture(&self, name: &str) -> Option<&Picture> {
-        self.pictures.get(&name.to_lowercase())
+        // Pictures are kept by lowercase name, which most names already are.
+        if name.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
+            self.pictures.get(name)
+        } else {
+            self.pictures.get(&name.to_lowercase())
+        }
     }
     pub(super) fn style_picture(&self, path: &str) -> Option<&Picture> {
-        self.picture(self.value(path)?.as_str()?)
+        self.pictures.get(self.leaves.get(path)?.picture.as_ref()?)
     }
     pub(super) fn font(&self, ctx: &egui::Context, name: &str, scale: f32) -> (FontId, f32) {
         let f = self.fonts.get(if name.is_empty() { self.default_font.as_str() } else { name });
@@ -454,6 +697,23 @@ impl Assets {
         }
         (FontId::proportional(17.0 * scale), 0.0)
     }
+    /// The galley for `key`: the one kept if it was drawn in the pass
+    /// before or in this one, and otherwise what `lay_out` makes of it.
+    pub(super) fn galley(
+        &self,
+        ctx: &egui::Context,
+        key: &TextKey<'_>,
+        lay_out: impl FnOnce() -> Arc<egui::Galley>,
+    ) -> Arc<egui::Galley> {
+        let hash = key.hash();
+        if let Some(galley) = self.text.borrow_mut().get(ctx, key, hash) {
+            return galley;
+        }
+        let galley = lay_out();
+        self.text.borrow_mut().keep(key, hash, galley.clone());
+        galley
+    }
+
     pub(super) fn font_height(&self, name: &str) -> f32 {
         self.fonts
             .get(if name.is_empty() { self.default_font.as_str() } else { name })
@@ -468,14 +728,14 @@ impl Assets {
         sliced: bool,
         tint: Color32,
     ) -> bool {
-        let Some(value) = self.value(path).and_then(toml::Value::as_str) else {
+        let Some(value) = self.leaves.get(path) else {
             return false;
         };
-        if let Some(c) = color(value) {
+        if let Some(c) = value.color {
             p.rect_filled(rect, 0, c * tint);
             return true;
         }
-        let Some(image) = self.picture(value) else {
+        let Some(image) = value.picture.as_ref().and_then(|name| self.pictures.get(name)) else {
             return false;
         };
         if sliced {
@@ -503,9 +763,7 @@ impl Assets {
         horizontal: bool,
         tint: Color32,
     ) -> bool {
-        let Some(image) =
-            self.value(path).and_then(toml::Value::as_str).and_then(|v| self.picture(v))
-        else {
+        let Some(image) = self.style_picture(path) else {
             return self.paint(p, path, rect, scale, true, tint);
         };
         let axis = usize::from(!horizontal);
@@ -633,6 +891,41 @@ mod tests {
     }
 
     #[test]
+    fn the_skin_is_read_by_dotted_path() {
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        module.set(
+            ResKey::parse("nui_skin", ResType::TML).unwrap(),
+            b"[window]\nscrollbar_size_x = 20\nbackground = \"#102030ff\"\n\
+              [window.header]\nnormal = \"Test_Image\"\nratio = 1.5\n\
+              [odd]\n\"a.b\" = 7\n[odd.a]\nb = 8\n"
+                .to_vec(),
+        );
+        module.set(ResKey::parse("test_image", ResType::TGA).unwrap(), tga(true));
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &mg_nui::window(), &Settings::default());
+        assert!(assets.loaded, "{:?}", assets.issues);
+        assert_eq!(assets.number("window.scrollbar_size_x", 18.0), 20.0);
+        assert_eq!(assets.number("window.header.ratio", 0.0), 1.5);
+        assert_eq!(assets.number("window.scrollbar_size_y", 18.0), 18.0);
+        // A table, a string and a path through a value are no numbers.
+        assert_eq!(assets.number("window.header", 3.0), 3.0);
+        assert_eq!(assets.number("window.background", 3.0), 3.0);
+        assert_eq!(assets.number("window.background.x", 3.0), 3.0);
+        assert_eq!(
+            assets.color("window.background", Color32::RED),
+            Color32::from_rgba_unmultiplied(0x10, 0x20, 0x30, 0xff)
+        );
+        assert_eq!(assets.color("window.header.normal", Color32::RED), Color32::RED);
+        // A picture is found whatever the case the skin names it in.
+        assert!(assets.style_picture("window.header.normal").is_some());
+        assert!(assets.style_picture("window.background").is_none());
+        assert!(assets.picture("TEST_image").is_some());
+        // A path's dots only ever separate tables.
+        assert_eq!(assets.number("odd.a.b", 0.0), 8.0);
+    }
+
+    #[test]
     fn nui_resources_observe_hak_live_module_override_order_and_dds_fallback() {
         let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         let mut rm = ResMan::new();
@@ -739,9 +1032,7 @@ mod tests {
                     &assets,
                     "test_image",
                     target,
-                    &json!({"type":ty}),
-                    &s,
-                    None,
+                    crate::nui_view::preview::Props { node: &json!({"type":ty}), s: &s, row: None },
                     1.0,
                     Color32::WHITE,
                 ));
@@ -782,9 +1073,11 @@ mod tests {
                     &assets,
                     "test_image",
                     Rect::from_min_size(pos2(20.0, 20.0), vec2(150.0, 64.0)),
-                    &json!({"type":ty,"image_region":{"x":0.0,"y":1.0,"w":1.0,"h":1.0}}),
-                    &s,
-                    None,
+                    crate::nui_view::preview::Props {
+                        node: &json!({"type":ty,"image_region":{"x":0.0,"y":1.0,"w":1.0,"h":1.0}}),
+                        s: &s,
+                        row: None,
+                    },
                     1.0,
                     Color32::WHITE,
                 ));
@@ -818,6 +1111,138 @@ mod tests {
             assert!(uv.windows(2).all(|w| w[1] >= w[0]));
             assert_eq!(x[3], 7.0 + target);
         }
+    }
+
+    /// A TGA header: no ID, no color map.
+    fn tga_header(kind: u8, width: u16, height: u16, bits: u8, descriptor: u8) -> Vec<u8> {
+        let mut b = vec![0, 0, kind, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        b.extend(width.to_le_bytes());
+        b.extend(height.to_le_bytes());
+        b.extend([bits, descriptor]);
+        b
+    }
+
+    /// The workspace's TGA reader keeps rows and columns as stored; a
+    /// window's picture is the one its file's origin declares, as the
+    /// `image` crate read it (compared pixel for pixel when the reader was
+    /// changed: 8-bit gray, 24- and 32-bit and color-mapped, plain and
+    /// run-length encoded, from all four corners).
+    #[test]
+    fn nui_tga_is_read_from_the_corner_it_declares() {
+        let [red, green, blue, white] = [[0, 0, 255], [0, 255, 0], [255, 0, 0], [255, 255, 255]];
+        let want = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::WHITE];
+        // The same picture (red, green over blue, white) stored from each corner.
+        for (descriptor, stored) in [
+            (0x20, [red, green, blue, white]),
+            (0x00, [blue, white, red, green]),
+            (0x30, [green, red, white, blue]),
+            (0x10, [white, blue, green, red]),
+        ] {
+            let mut plain = tga_header(2, 2, 2, 24, descriptor);
+            plain.extend(stored.as_flattened());
+            assert_eq!(image(&plain, ResType::TGA).unwrap().pixels, want, "{descriptor:#x}");
+            // Run-length encoded, with alpha: a raw packet of three, a run of one.
+            let mut packed = tga_header(10, 2, 2, 32, descriptor | 8);
+            packed.push(2);
+            for pixel in &stored[..3] {
+                packed.extend(pixel);
+                packed.push(255);
+            }
+            packed.push(0x80);
+            packed.extend(stored[3]);
+            packed.push(255);
+            assert_eq!(image(&packed, ResType::TGA).unwrap().pixels, want, "{descriptor:#x}");
+        }
+        let mut gray = tga_header(3, 2, 1, 8, 0x20);
+        gray.extend([0, 200]);
+        let gray = image(&gray, ResType::TGA).unwrap();
+        assert_eq!(gray.pixels, [Color32::BLACK, Color32::from_gray(200)]);
+        let mut translucent = tga_header(2, 1, 1, 32, 8);
+        translucent.extend([10, 20, 30, 128]);
+        assert_eq!(
+            image(&translucent, ResType::TGA).unwrap().pixels,
+            [Color32::from_rgba_unmultiplied(30, 20, 10, 128)]
+        );
+        // Bad input is an issue to show, never a panic.
+        assert!(image(&tga_header(2, 4097, 1, 24, 0), ResType::TGA).is_err());
+        // A few bytes that declare a gigabyte of pixels are refused by their
+        // header, not unpacked.
+        let mut bomb = tga_header(10, 16_384, 16_384, 32, 8);
+        bomb.extend([0xff, 1, 2, 3, 4].repeat(4));
+        let refused = image(&bomb, ResType::TGA).unwrap_err();
+        assert!(refused.contains("4096 pixels a side"), "{refused}");
+        assert!(image(&plain_tga_cut_short(), ResType::TGA).is_err());
+        assert!(image(b"", ResType::TGA).is_err());
+    }
+
+    fn plain_tga_cut_short() -> Vec<u8> {
+        let mut b = tga_header(2, 2, 2, 24, 0);
+        b.extend([1, 2, 3]);
+        b
+    }
+
+    fn png_of(
+        color: png::ColorType,
+        depth: png::BitDepth,
+        palette: Option<(&[u8], &[u8])>,
+        data: &[u8],
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, 2, 1);
+        encoder.set_color(color);
+        encoder.set_depth(depth);
+        if let Some((palette, alpha)) = palette {
+            encoder.set_palette(palette.to_vec());
+            encoder.set_trns(alpha.to_vec());
+        }
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(data).unwrap();
+        drop(writer);
+        out
+    }
+
+    /// PNGs of every color type become RGBA8 as the `image` crate made them
+    /// (compared pixel for pixel when the reader was changed): 16-bit
+    /// samples rounded, palettes and their transparency unpacked.
+    #[test]
+    fn nui_png_of_any_kind_is_read_as_rgba() {
+        use png::{BitDepth, ColorType};
+        // (As the picture holds them: a color multiplied by its alpha.)
+        let pixels = |bytes: &[u8]| {
+            let image = image(bytes, ResType::PNG).unwrap();
+            assert_eq!(image.size, [2, 1]);
+            image.pixels
+        };
+        let colors = |c: [[u8; 4]; 2]| {
+            c.map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a)).to_vec()
+        };
+        let rgb = png_of(ColorType::Rgb, BitDepth::Eight, None, &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(pixels(&rgb), colors([[1, 2, 3, 255], [4, 5, 6, 255]]));
+        let rgba = png_of(ColorType::Rgba, BitDepth::Eight, None, &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(pixels(&rgba), colors([[1, 2, 3, 4], [5, 6, 7, 8]]));
+        let gray = png_of(ColorType::Grayscale, BitDepth::One, None, &[0b0100_0000]);
+        assert_eq!(pixels(&gray), colors([[0, 0, 0, 255], [255, 255, 255, 255]]));
+        let gray_alpha = png_of(ColorType::GrayscaleAlpha, BitDepth::Eight, None, &[9, 8, 7, 6]);
+        assert_eq!(pixels(&gray_alpha), colors([[9, 9, 9, 8], [7, 7, 7, 6]]));
+        // 0x0080 is nearer 0 than 1, 0x0081 nearer 1; 0xff7f is 254.5 and a bit.
+        let deep = png_of(ColorType::Grayscale, BitDepth::Sixteen, None, &[0, 0x80, 0, 0x81]);
+        assert_eq!(pixels(&deep), colors([[0, 0, 0, 255], [1, 1, 1, 255]]));
+        let deep = png_of(
+            ColorType::Rgba,
+            BitDepth::Sixteen,
+            None,
+            &[0xff, 0x7f, 0x80, 0, 0x12, 0x34, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0],
+        );
+        assert_eq!(pixels(&deep), colors([[255, 128, 18, 255], [0, 0, 0, 0]]));
+        let indexed = png_of(
+            ColorType::Indexed,
+            BitDepth::Eight,
+            Some((&[10, 20, 30, 40, 50, 60], &[77])),
+            &[1, 0],
+        );
+        assert_eq!(pixels(&indexed), colors([[40, 50, 60, 255], [10, 20, 30, 77]]));
+        assert!(image(&rgb[..rgb.len() / 2], ResType::PNG).is_err());
+        assert!(image(b"not a picture", ResType::PNG).is_err());
     }
 
     #[test]

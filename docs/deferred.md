@@ -1512,6 +1512,67 @@ contribution itself states as not done or not checked.
 - **Functions too long to read:** `Renderer::node`
   (`crates/mg-ui/src/nui_view/preview.rs`) is 1,350 lines and
   `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490. (M)
+- **Build has its own compiler path** (`mg_nui::generate`,
+  `crates/mg-nui/src/script.rs`): it compiles with its own
+  `mg_script::Compiler` instead of `mg_module::build`, so the
+  external-compiler option is ignored, no `.ndb` is written and the
+  compile memory is not updated; the scripts that include the opener are
+  found by a substring search rather than `mg_module::refs::includers`.
+  (M)
+- **Pictures go into a hak without asking** (`crates/mg-ui/src/nui_view/images.rs`):
+  Images writes a picture into a listed hak in the user's hak folder in
+  place (`mg_module::hak_edit::write_into`, which keeps a `.bak`), with no
+  prompt; the hak editor's own save path was not compared. (S)
+- **Unwraps on a stale selection** (`crates/mg-ui/src/nui_view/bindings.rs`,
+  `events.rs`, `shortcuts.rs`, `design.rs`, `structure.rs`, `fields.rs`):
+  about twenty `unwrap()`s on JSON pointers, `paths.len() - 1` in
+  `shortcuts.rs` and an `unreachable!()` in `images.rs`; a selection left
+  stale by Undo is the likely way into them. Not reproduced. (S)
+- **`mg_nui::key` panics** (`crates/mg-nui/src/lib.rs`): public, and
+  `expect`s a name that is a ResRef. (S)
+- **A caller that fails to compile is passed over** (`crates/mg-nui/src/script.rs`):
+  Build leaves a script that includes the opener with its old `.ncs` and
+  says nothing; the failing-compile path of `mg nui generate` has no test.
+  (S)
+- **Test instrumentation in a draw function** (`crates/mg-ui/src/nui_view/design.rs`):
+  a `#[cfg(test)]` block writes layout rectangles into egui's memory for
+  `layout_tests.rs`. (S)
+- **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
+  `skin::Assets` keeps its textures beside `images::Loader`
+  (`crates/mg-ui/src/images.rs`). The two look pictures up differently:
+  a window's are JPG, TGA, PNG, BMP, then DDS, with a live module below
+  its haks, read again when their bytes change and reported with where
+  they came from; the loader's are DDS or TGA, the module first, kept by
+  name. JPEG and BMP are still read with the `image` crate (nothing else
+  here reads them). 15- and 16-bit TGAs, which were read with the
+  `image` crate before, come out of `mg-image` a level off in places
+  and with their attribute bit as alpha. (M)
+- **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
+  `crates/mg-nui/src/validate.rs`, `docs/manual/18-nui-creator.md`): the
+  checks still say "route", "action" and "view"; the hover text "native
+  NWN testing is still required" and the manual's sentences about scripts
+  "an older Moonglow" wrote describe versions never released. (S)
+- **Errors as strings, a severity twice** (`crates/mg-nui/src/lib.rs`,
+  `validate.rs`):
+  `mg-nui`'s public API returns `Result<_, String>` rather than a typed
+  error, and its `Severity` duplicates `mg_module::doctor::Severity`. (S)
+- **The settings TXT and the JUI are not edited losslessly**
+  (`crates/mg-nui/src/actions.rs`, `lib.rs`): unknown fields on a
+  handler (`Route`) are dropped and an unknown action tag fails the
+  parse; the JUI reader rejects duplicate keys, and a structured edit
+  prints the whole file again. (M)
+- **Code kept for versions that were never released**
+  (`crates/mg-nui/src/script.rs`, `actions.rs`, `validate.rs`):
+  `LEGACY_EVENTS`, `plain_guards`, the `+` suffix of a handler's key,
+  the warning from before the Close handler, and the "Clip to control"
+  fix-up. The manual's sentences about scripts "an older Moonglow
+  wrote" describe the same. (S)
+- **Functions too long to read:** `nui_view::ui`
+  (`crates/mg-ui/src/nui_view.rs`) is 490 lines; pages and operations
+  are magic numbers. Of the preview (`crates/mg-ui/src/nui_view/preview/`),
+  split by kind of control, `Renderer::node` is still 180 lines and
+  `list` and `text_block` 140 each, and `draw::paint` takes nine arguments
+  (its callers in the draw-layer editor pass them). (S)
 - **Tests in the wrong places:** about 6,700 lines of tests live under
   `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
   `crates/mg-ui/tests/`. (M)

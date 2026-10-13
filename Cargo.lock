@@ -2267,6 +2267,7 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "png",
  "serde",
  "serde_json",
  "skrifa",

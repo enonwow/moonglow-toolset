@@ -29,14 +29,33 @@ pub(super) struct WindowMove {
     pub scale: f32,
 }
 
+/// `value[key]` to write to, as `serde_json` gives it (an absent key is
+/// added, null becomes an object), but `None` and no panic where `value` is
+/// something else: a window written by hand may hold a string or a number
+/// where an object belongs.
+fn field<'a>(value: &'a mut Value, key: &str) -> Option<&'a mut Value> {
+    if value.is_null() {
+        *value = Value::Object(Default::default());
+    }
+    Some(value.as_object_mut()?.entry(key).or_insert(Value::Null))
+}
+
+fn set(value: &mut Value, key: &str, new: Value) {
+    if let Some(slot) = field(value, key) {
+        *slot = new;
+    }
+}
+
 impl WindowMove {
     pub(super) fn update(&mut self, pointer: Pos2) {
         self.position =
             (self.initial + (pointer - self.origin) / self.scale).round().max(Vec2::ZERO);
     }
     pub(super) fn apply(&self, doc: &mut Value) {
-        doc["geometry"]["x"] = json!(self.position.x);
-        doc["geometry"]["y"] = json!(self.position.y);
+        if let Some(geometry) = field(doc, "geometry") {
+            set(geometry, "x", json!(self.position.x));
+            set(geometry, "y", json!(self.position.y));
+        }
     }
 }
 
@@ -69,8 +88,8 @@ impl Session {
         let Some(bind) = self.doc["geometry"]["bind"].as_str() else { return };
         let Some(binding) = self.settings.bindings.get_mut(bind) else { return };
         if binding.value.is_object() {
-            binding.value["w"] = json!(size.x);
-            binding.value["h"] = json!(size.y);
+            set(&mut binding.value, "w", json!(size.x));
+            set(&mut binding.value, "h", json!(size.y));
         }
     }
 
@@ -81,7 +100,7 @@ impl Session {
                 self.dispatch("watch", &bind, None, 0);
             }
         } else {
-            self.doc["collapsed"] = json!(collapsed);
+            set(&mut self.doc, "collapsed", json!(collapsed));
         }
     }
 
@@ -118,7 +137,7 @@ impl Session {
                 if let Some(row) = change.row {
                     self.row_values.insert((change.path.clone(), row), value);
                 } else {
-                    node["value"] = value;
+                    set(node, "value", value);
                 }
             }
         }
@@ -169,8 +188,10 @@ impl Session {
                     } else {
                         Some(&mut binding.value)
                     };
-                    if let Some(v) = value.filter(|v| v.is_boolean()) {
-                        *v = json!(!v.as_bool().unwrap());
+                    if let Some(v) = value
+                        && let Some(on) = v.as_bool()
+                    {
+                        *v = json!(!on);
                         changed = Some(bind);
                     }
                 }
@@ -185,7 +206,7 @@ impl Session {
                 if let Some(layout) = self.settings.views.get(&view) {
                     fn replace(node: &mut Value, id: &str, layout: &Value) {
                         if node["type"] == "group" && node["id"] == id {
-                            node["children"] = json!([layout]);
+                            set(node, "children", json!([layout]));
                             return;
                         }
                         match node {
@@ -203,9 +224,11 @@ impl Session {
                         }
                     }
                     if group == "_window_" {
-                        self.doc["root"] = layout.clone();
+                        set(&mut self.doc, "root", layout.clone());
                     } else {
-                        replace(&mut self.doc["root"], &group, layout);
+                        if let Some(root) = self.doc.get_mut("root") {
+                            replace(root, &group, layout);
+                        }
                     }
                     self.row_values.clear();
                 }
@@ -340,18 +363,18 @@ impl Resize {
     }
 
     pub(super) fn apply(&self, doc: &mut Value) {
-        if let Some(node) = doc.pointer_mut(&self.path) {
-            let (node, width, height) = if self.path.is_empty() {
-                (&mut node["geometry"], "w", "h")
-            } else {
-                (node, "width", "height")
-            };
-            if self.horizontal {
-                node[width] = json!(self.size.x);
-            }
-            if self.vertical {
-                node[height] = json!(self.size.y);
-            }
+        let Some(node) = doc.pointer_mut(&self.path) else { return };
+        let (node, width, height) = if self.path.is_empty() {
+            (field(node, "geometry"), "w", "h")
+        } else {
+            (Some(node), "width", "height")
+        };
+        let Some(node) = node else { return };
+        if self.horizontal {
+            set(node, width, json!(self.size.x));
+        }
+        if self.vertical {
+            set(node, height, json!(self.size.y));
         }
     }
 }
