@@ -347,6 +347,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 .desired_width(480.0)
                 .hint_text("for people: the game doesn't show it"),
         );
+        crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if r.lost_focus() && *text != doc.hak.description {
             let t = text.clone();
             doc.hak.set_description(&t);

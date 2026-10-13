@@ -794,13 +794,29 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // (And a 2DA's, while the keys are in its grid: the table's own steps
     // are taken back there, not the module's last change.)
     let in_table = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Table);
+    // A command kept from the frame before (see below): run now.
+    if let Some(id) = app.command_after_text.take()
+        && id.enabled(app)
+    {
+        id.run(app, ui.ctx());
+    }
     for id in Id::all() {
         if (in_text || in_table) && matches!(id, Id::Undo | Id::Redo) {
             continue;
         }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));
         if pressed && id.enabled(app) {
-            id.run(app, ui.ctx());
+            // With a text field typed in that sets its text when the
+            // keyboard leaves it, the keyboard leaves it first and the
+            // command is run a frame on: one that closes the field's tab,
+            // goes to another or saves would else be done without what
+            // was typed.
+            if crate::widgets::leave_text(ui.ctx()) {
+                app.command_after_text = Some(id);
+                ui.ctx().request_repaint();
+            } else {
+                id.run(app, ui.ctx());
+            }
         }
     }
     // The plugins' commands, after the window's own: a key both have is

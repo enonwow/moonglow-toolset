@@ -911,6 +911,19 @@ pub(crate) fn leaves_at_a_press(ctx: &egui::Context, r: &egui::Response) {
     }
 }
 
+/// Takes the keyboard from the text field that sets its text when the
+/// keyboard leaves it, if one has it: whether one had. It sets its text in
+/// the frame now drawn (a command that would take it away is run after:
+/// `commands::keys_pressed`).
+pub(crate) fn leave_text(ctx: &egui::Context) -> bool {
+    let held = ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(press_leaves_id()));
+    let Some((id, _)) = held.filter(|(id, _)| ctx.memory(|m| m.has_focus(*id))) else {
+        return false;
+    };
+    ctx.memory_mut(|m| m.surrender_focus(id));
+    true
+}
+
 /// Once a frame, before anything is drawn: a press of the pointer outside
 /// the text field that has the keyboard takes the keyboard from it now,
 /// while it is still drawn, so that it sets what was typed. The field

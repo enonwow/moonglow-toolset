@@ -1119,6 +1119,8 @@ fn script_with_params(
                 let rk = ui.add(name.hint_text("name"));
                 let value = egui::TextEdit::singleline(v).desired_width(value_width);
                 let rv = ui.add(value.hint_text("value"));
+                crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
+                crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
                 commit |= rk.lost_focus() || rv.lost_focus();
                 focused |= rk.has_focus() || rv.has_focus();
             });

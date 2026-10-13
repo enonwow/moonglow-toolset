@@ -449,6 +449,9 @@ pub struct Moonglow {
     /// The text field typed in since it got the keyboard: Undo and Redo
     /// are its own there (`commands::keys_pressed`).
     pub(crate) text_typed: Option<egui::Id>,
+    /// A command asked for by its key while a text field was typed in:
+    /// run in the next frame, after the field has set its text.
+    pub(crate) command_after_text: Option<commands::Id>,
     pub(crate) script_stamps: mg_module::build::Remembered,
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
@@ -702,6 +705,7 @@ impl Moonglow {
             start_focus: None,
             references: Default::default(),
             text_typed: None,
+            command_after_text: None,
             script_stamps: Default::default(),
             compiled_dir: None,
             rename: None,

@@ -4149,8 +4149,39 @@ fn text_typed_in_module_properties_is_kept_when_its_page_is_left() {
     h.run_steps(1);
     press(&h, basic, false, egui::Modifiers::NONE);
     h.run_steps(4);
-    assert!(h.query(memo).is_none(), "the other page is shown");
+    assert!(h.query(memo.clone()).is_none(), "the other page is shown");
     assert!(described(&mut h), "what was typed is kept");
+
+    // And when a key does it: Save, with more typed in and the field not
+    // left, saves that too; then the key that closes the tab keeps it.
+    let type_more = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        h.get_by_label("Description").click();
+        h.run_steps(3);
+        let at = h.get(memo.clone()).rect().center();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(2);
+    };
+    let has = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+        let root = h.state_mut().ws.as_mut().unwrap().doc(&ifo).unwrap().root.clone();
+        let d = root.locstring("Mod_Description").cloned().unwrap_or_default();
+        d.strings.iter().any(|(_, t)| String::from_utf8_lossy(t).contains(text))
+    };
+    type_more(&mut h, "Saved by a key. ");
+    assert!(!has(&mut h, "Saved by a key. "));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(5);
+    assert!(has(&mut h, "Saved by a key. "));
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "and saved with it");
+    type_more(&mut h, "Closed by a key. ");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_none(), "the tab is closed");
+    assert!(has(&mut h, "Closed by a key. "));
 }
 
 /// A long dropdown opens at the one chosen, not at its top, and whole:
