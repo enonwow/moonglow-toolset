@@ -1334,9 +1334,11 @@ impl Renderer<'_> {
         if editable && response.clicked() && !live && self.state.resize.is_none() {
             structure::select(self.state, path, ui.input(|i| i.modifiers.command));
         }
-        if editable && !live {
-            response
-                .dnd_set_drag_payload(structure::Drag { path: path.into(), node: node.clone() });
+        if editable && !live && response.drag_started() {
+            egui::DragAndDrop::set_payload(
+                ui.ctx(),
+                structure::Drag { path: path.into(), node: node.clone() },
+            );
         }
         if editable && layout {
             structure::drag_target(ui, &response, path, self.state, true);

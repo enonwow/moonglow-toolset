@@ -222,6 +222,7 @@ impl Moonglow {
         for (_, tab) in self.dock.iter_all_tabs_mut() {
             match tab {
                 Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => moved(k),
+                Tab::Nui(Some(k)) => moved(k),
                 Tab::Area(r) | Tab::AreaProperties(r) => moved_ref(r),
                 Tab::Instance { area, .. }
                 | Tab::Instances { area, .. }
@@ -241,6 +242,13 @@ impl Moonglow {
         for k in old_keys {
             if let Some(v) = self.dialog_views.remove(&k) {
                 self.dialog_views.insert(ResKey::new(to, k.restype), v);
+            }
+        }
+        let old_keys: Vec<ResKey> =
+            self.nui_views.keys().flatten().filter(|k| k.resref == from).copied().collect();
+        for k in old_keys {
+            if let Some(v) = self.nui_views.remove(&Some(k)) {
+                self.nui_views.insert(Some(ResKey::new(to, k.restype)), v);
             }
         }
         // An area's view is rebuilt under its new name.
@@ -307,6 +315,7 @@ impl Moonglow {
             Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
                 *k != key && !(area == Some(k.resref) && with.contains(&k.restype))
             }
+            Tab::Nui(Some(k)) => *k != key,
             Tab::Area(r) | Tab::AreaProperties(r) => area != Some(*r),
             Tab::Instance { area: r, .. }
             | Tab::Instances { area: r, .. }

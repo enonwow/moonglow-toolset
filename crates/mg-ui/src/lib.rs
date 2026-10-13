@@ -311,7 +311,12 @@ pub struct Moonglow {
     pub speaker: Box<dyn audio::Speaker>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
+    /// The game's NUI skin, its fonts and the pictures the open windows
+    /// use, as the NUI Creator's preview draws them.
     pub(crate) nui_assets: nui_view::skin::Assets,
+    /// What each NUI Creator tab shows of its window (the launcher's under
+    /// `None`): the selection, the preview's settings, the checks.
+    pub(crate) nui_views: HashMap<Option<ResKey>, nui_view::State>,
     palettes: images::Palettes,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
@@ -655,6 +660,7 @@ impl Moonglow {
             speaker: Box::new(audio::Silence::default()),
             pictures: HashMap::new(),
             nui_assets: Default::default(),
+            nui_views: HashMap::new(),
             palettes: HashMap::new(),
             area_audio: Default::default(),
             heard: None,

@@ -549,12 +549,12 @@ fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
             state.selected.clear();
         }
     });
-    let tree = if state.edit_view.is_some() {
-        state.main_doc.as_ref().unwrap_or(v).clone()
-    } else {
-        v.clone()
-    };
-    layer(ui, &tree, "", s, state, 0, true, &v["root"]);
+    // While a variant is edited, the tree is still the window's own.
+    let main = state.edit_view.as_ref().and_then(|_| state.main_doc.take());
+    layer(ui, main.as_ref().unwrap_or(v), "", s, state, 0, true, &v["root"]);
+    if main.is_some() {
+        state.main_doc = main;
+    }
     state.tree_selection.clone_from(&state.selected);
 }
 
@@ -624,11 +624,13 @@ fn layer(
                 .truncate()
                 .sense(Sense::click_and_drag()),
             );
-            if !path.is_empty() && (!main || state.edit_view.is_none()) {
-                response.dnd_set_drag_payload(structure::Drag {
-                    path: path.into(),
-                    node: node.clone(),
-                });
+            // (Made when a drag starts: every row copying its control each
+            // frame was a sixth of the frame.)
+            if !path.is_empty() && (!main || state.edit_view.is_none()) && response.drag_started() {
+                egui::DragAndDrop::set_payload(
+                    ui.ctx(),
+                    structure::Drag { path: path.into(), node: node.clone() },
+                );
             }
             if !main || state.edit_view.is_none() {
                 structure::drag_target(ui, &response, path, state, false);

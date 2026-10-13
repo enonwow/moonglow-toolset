@@ -182,6 +182,7 @@ impl Tab {
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
             Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => Some(*k),
+            Tab::Nui(k) => *k,
             Tab::Area(r) | Tab::AreaProperties(r) => Some(ResKey::new(*r, ResType::ARE)),
             _ => None,
         }

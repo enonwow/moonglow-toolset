@@ -25,8 +25,9 @@ pub(crate) mod skin;
 mod structure;
 mod workflow;
 
-#[derive(Clone, Default)]
-struct State {
+/// What a NUI Creator tab keeps between frames.
+#[derive(Default)]
+pub(crate) struct State {
     selected: String,
     search: String,
     zoom: f32,
@@ -58,6 +59,8 @@ struct State {
     new_swap_slot: Option<String>,
     layout_groups: std::collections::BTreeSet<String>,
     main_doc: Option<Value>,
+    /// The window and its settings as last parsed, and what they were parsed from.
+    source: Option<Source>,
     event_script: Option<events::EventScript>,
     binding_property: String,
     asset_search: String,
@@ -77,11 +80,31 @@ struct State {
 }
 
 /// The API checks and build status of what the tab last showed.
-#[derive(Clone, Default)]
 struct Checks {
-    key: u64,
-    findings: Vec<mg_nui::Diagnostic>,
+    /// The window, its settings and its scripts when they were checked.
+    of: Vec<Held>,
+    findings: std::rc::Rc<[mg_nui::Diagnostic]>,
     needs_build: bool,
+}
+
+/// A resource as the module held it (or did not): the same again while
+/// nothing replaced it, which costs a pointer's comparison to find out.
+type Held = Option<std::sync::Arc<[u8]>>;
+
+fn same(a: &[Held], b: &[Held]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|pair| match pair {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        })
+}
+
+/// The window's document and settings, parsed once for the bytes they are.
+struct Source {
+    of: [Held; 2],
+    window: Result<Value, String>,
+    settings: Result<Settings, String>,
 }
 
 impl State {
@@ -229,7 +252,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     // their background. Absorb body drags before registering controls; child
     // text selections, sliders and canvas handles retain their own drag sense.
     ui.interact(ui.max_rect(), id.with("body-drag-guard"), egui::Sense::drag());
-    let mut state = ui.ctx().data_mut(|d| d.get_temp::<State>(id).unwrap_or_default());
+    let mut state = app.nui_views.remove(&key).unwrap_or_default();
     let Some(ws) = &app.ws else {
         ui.label("Open a module first.");
         return;
@@ -238,7 +261,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         let existing: Vec<_> =
             ws.module.keys().filter(|k| k.restype == ResType::JUI).copied().collect();
         design::landing(ui, &mut state, &ws.module, &existing, &mut app.actions);
-        ui.ctx().data_mut(|d| d.insert_temp(id, state));
+        app.nui_views.insert(None, state);
         return;
     };
     let Some(bytes) = ws.module.get(&key) else {
@@ -267,38 +290,46 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         String::from_utf8(Settings::default().bytes()).unwrap()
     };
     let config_original = config_raw.clone();
-    let parsed = mg_nui::parse(raw.as_bytes());
-    let settings = Settings::parse(config_raw.as_bytes());
-    if let Ok(doc) = &parsed {
-        state.main_doc = Some(doc.clone());
-        state.layout_groups = mg_nui::group_ids(doc);
+    // Parsed when the module holds other bytes than last frame, not every
+    // frame: the pages below work on copies of it.
+    let held = |key: Option<ResKey>| key.and_then(|k| ws.module.shared(&k).cloned());
+    let of = [held(Some(key)), held(Some(config_key))];
+    if state.source.as_ref().is_none_or(|s| !same(&s.of, &of)) {
+        let window = mg_nui::parse(raw.as_bytes());
+        if let Ok(doc) = &window {
+            state.main_doc = Some(doc.clone());
+            state.layout_groups = mg_nui::group_ids(doc);
+        }
+        let settings = Settings::parse(config_raw.as_bytes());
+        state.source = Some(Source { of: of.clone(), window, settings });
     }
+    let (parsed, settings) =
+        state.source.as_ref().map(|s| (s.window.clone(), s.settings.clone())).expect("just set");
     // Checking the whole document is not free: only redo it when the window,
     // its settings or its generated scripts change.
-    let checks_key = {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        (&raw, &config_raw).hash(&mut h);
-        for (suffix, ty) in [("_o", ResType::NSS), ("_o", ResType::NCS), ("_e", ResType::NSS)] {
-            ResKey::parse(&format!("{name}{suffix}"), ty)
-                .and_then(|k| ws.module.get(&k))
-                .hash(&mut h);
-        }
-        ResKey::parse(&format!("{name}_e"), ResType::NCS)
-            .is_some_and(|k| ws.module.contains(&k))
-            .hash(&mut h);
-        h.finish()
-    };
-    if state.checks.as_ref().is_none_or(|c| c.key != checks_key) {
+    let checked: Vec<Held> = of
+        .into_iter()
+        .chain(
+            [
+                ("_o", ResType::NSS),
+                ("_o", ResType::NCS),
+                ("_e", ResType::NSS),
+                ("_e", ResType::NCS),
+            ]
+            .map(|(suffix, ty)| held(ResKey::parse(&format!("{name}{suffix}"), ty))),
+        )
+        .collect();
+    if state.checks.as_ref().is_none_or(|c| !same(&c.of, &checked)) {
         let (findings, needs_build) = match (&parsed, &settings) {
             (Ok(v), Ok(s)) => {
                 (mg_nui::validate(v, s), !mg_nui::is_current(&ws.module, &name, v, s))
             }
             _ => (Vec::new(), false),
         };
-        state.checks = Some(Checks { key: checks_key, findings, needs_build });
+        state.checks = Some(Checks { of: checked, findings: findings.into(), needs_build });
     }
-    let Checks { findings, needs_build, .. } = state.checks.clone().unwrap_or_default();
+    let (findings, needs_build) =
+        state.checks.as_ref().map(|c| (c.findings.clone(), c.needs_build)).expect("just set");
     let errors = findings.iter().filter(|d| d.severity == Severity::Error).count()
         + usize::from(parsed.is_err())
         + usize::from(settings.is_err());
@@ -603,9 +634,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 let before_settings = s.clone();
                 layouts::bar(ui, &s, &mut state);
                 let edited_view = state.edit_view.clone();
-                let base_root = v["root"].clone();
+                // A variant is edited in the window's place, and put back after.
+                let mut base_root = None;
                 if let Some(view) = state.edit_view.as_ref().and_then(|n| s.views.get(n)) {
-                    v["root"] = view.clone();
+                    base_root = Some(std::mem::replace(&mut v["root"], view.clone()));
                 }
                 let (asset_doc, asset_settings) = state
                     .runtime
@@ -667,8 +699,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 }
                 layouts::finish_insert(&v, &mut s, &mut state);
                 if let Some(name) = &edited_view {
-                    s.views.insert(name.clone(), v["root"].clone());
-                    v["root"] = base_root;
+                    let root = match base_root {
+                        Some(base) => std::mem::replace(&mut v["root"], base),
+                        None => v["root"].clone(),
+                    };
+                    s.views.insert(name.clone(), root);
                 }
                 if v != before {
                     raw = serde_json::to_string_pretty(&v).unwrap();
@@ -713,7 +748,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         // field losing focus when its button was clicked.
         app.actions.insert(0, Action::Apply(Command::new(format!("Edit NUI {name}"), edits)));
     }
-    ui.ctx().data_mut(|d| d.insert_temp(id, state));
+    app.nui_views.insert(Some(key), state);
 }
 
 fn array_position(path: &str) -> Option<(String, usize, bool)> {
