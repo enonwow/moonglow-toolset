@@ -1961,6 +1961,7 @@ dependencies = [
  "mg-key",
  "mg-mdl",
  "mg-module",
+ "mg-nui",
  "mg-render",
  "mg-resman",
  "mg-rules",

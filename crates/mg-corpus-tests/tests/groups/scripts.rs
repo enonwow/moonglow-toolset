@@ -7,6 +7,8 @@
 #[path = "../script_common/mod.rs"]
 mod script_common;
 
+#[path = "../nui.rs"]
+mod nui;
 #[path = "../nwscript_spec.rs"]
 mod nwscript_spec;
 #[path = "../script_analysis.rs"]

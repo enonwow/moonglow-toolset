@@ -62,6 +62,7 @@ mg-image.workspace = true
 mg-key.workspace = true
 mg-mdl.workspace = true
 mg-module.workspace = true
+mg-nui.workspace = true
 mg-render.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true
