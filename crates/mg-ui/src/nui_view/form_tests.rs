@@ -17,6 +17,8 @@ fn harness() -> Harness<'static, Moonglow> {
     app.actions.clear();
     let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(
         |ui, app: &mut Moonglow| {
+            // (As the app's frame begins: a press elsewhere leaves a field.)
+            crate::widgets::text_begin(ui.ctx());
             super::super::ui(app, ui, Some(key()));
             app.run_actions();
         },
@@ -79,6 +81,30 @@ fn text_typed_for_one_control_is_not_set_on_the_next() {
     let after = document(&h);
     assert_eq!(after["root"]["children"][0], before["root"]["children"][0], "the label's own");
     assert!(!after.to_string().contains("mg_close_typed_typed"));
+}
+
+/// A click in Layers on another control sets what was typed for the control
+/// selected before it: the press leaves the field (`widgets::text_begin`),
+/// which is still drawn then.
+#[test]
+fn text_typed_is_set_when_layers_selects_another_control() {
+    let mut h = harness();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Element ID").click();
+    h.run();
+    h.get_by_label("Element ID").type_text("_typed");
+    h.run();
+    let row = h.get_all_by_label("Label · Label").next().expect("its row in Layers").rect();
+    h.hover_at(row.center());
+    h.run();
+    h.drag_at(row.center());
+    h.drop_at(row.center());
+    h.run();
+    let after = document(&h);
+    assert_eq!(after["root"]["children"][1]["id"], "mg_close_typed");
+    assert_eq!(h.state().nui_views[&Some(key())].selected, "/root/children/0");
+    assert!(after["root"]["children"][0]["id"].is_null(), "the label has no ID of its own");
 }
 
 /// A drag across a number is one change, made when it is let go; the number

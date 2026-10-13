@@ -1547,7 +1547,10 @@ contribution itself states as not done or not checked.
   Cancel. Split source shows what is typed on the canvas only once its
   field is left; the option and picture name fields lost their hint
   text (`widgets::commit_text_in` has none); a color being picked has no
-  test. (S)
+  test. A field being typed in is set by the press that leaves it
+  (`widgets::text_begin`): a press and release within one frame on a
+  check's "Select it" link, drawn before the form, would select another
+  control first and lose what was typed. (S)
 - **A window's companions do not follow it** (the module tree's Rename
   and Delete, `crates/mg-ui/src/references.rs`): renaming or deleting a window does not carry
   its `.txt`, `_o.nss`, `_e.nss` and `_e.ncs`. (S)

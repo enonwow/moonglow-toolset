@@ -621,23 +621,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     }
     let mut page_edits = Vec::new();
     fields::begin(ui.ctx());
-    // A source field that isn't shown any more (another page, another view)
-    // was left: what was typed in it is set.
-    let shows = match (state.page, state.view_mode) {
-        (Page::JuiSource, _) => Some(SourceOf::Window),
-        (Page::BindingJson, _) => Some(SourceOf::Settings),
-        (Page::Design, ViewMode::Split) if state.edit_view.is_some() => Some(SourceOf::Variants),
-        (Page::Design, ViewMode::Split) => Some(SourceOf::SplitWindow),
-        _ => None,
-    };
-    if let Some(draft) = state.source_draft.take_if(|d| Some(d.of) != shows)
-        && draft.typed
-    {
-        match draft.of {
-            SourceOf::Window | SourceOf::SplitWindow => raw = draft.text,
-            SourceOf::Settings | SourceOf::Variants => config_raw = draft.text,
-        }
-    }
+    leave_source(&mut state, &mut raw, &mut config_raw);
     match state.page {
         Page::Images => {
             if let (Ok(mut v), Ok(s)) = (parsed, settings) {
@@ -717,6 +701,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 let before = v.clone();
                 let before_settings = s.clone();
                 layouts::bar(ui, &s, &mut state);
+                // (The bar may have left the variant whose source was typed in.)
+                leave_source(&mut state, &mut raw, &mut config_raw);
                 let edited_view = state.edit_view.clone();
                 // A variant is edited in the window's place, and put back after.
                 let mut base_root = None;
@@ -874,6 +860,26 @@ struct SourceDraft {
     text: String,
     /// Typed in since it was last set.
     typed: bool,
+}
+
+/// A source field that isn't shown any more (another page, another view,
+/// another thing edited) was left: what was typed in it is set.
+fn leave_source(state: &mut State, raw: &mut String, config_raw: &mut String) {
+    let shows = match (state.page, state.view_mode) {
+        (Page::JuiSource, _) => Some(SourceOf::Window),
+        (Page::BindingJson, _) => Some(SourceOf::Settings),
+        (Page::Design, ViewMode::Split) if state.edit_view.is_some() => Some(SourceOf::Variants),
+        (Page::Design, ViewMode::Split) => Some(SourceOf::SplitWindow),
+        _ => None,
+    };
+    if let Some(draft) = state.source_draft.take_if(|d| Some(d.of) != shows)
+        && draft.typed
+    {
+        match draft.of {
+            SourceOf::Window | SourceOf::SplitWindow => *raw = draft.text,
+            SourceOf::Settings | SourceOf::Variants => *config_raw = draft.text,
+        }
+    }
 }
 
 /// A source field showing `current`, `rows` high: the text typed in it,

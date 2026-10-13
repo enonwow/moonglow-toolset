@@ -356,7 +356,23 @@ pub(super) fn editor(
     // Remembered panel widths must leave a usable canvas after the host window
     // narrows. Otherwise even its toolbar can push into the inspector.
     const MIN_CANVAS: f32 = 280.0;
-    let palette_max = (width - 220.0 - MIN_CANVAS).clamp(170.0, 300.0);
+    // Properties is drawn before Layers: a field being typed in is still there,
+    // to be set, in the frame a click in Layers selects another control.
+    let inspector_max = (width - 170.0 - MIN_CANVAS).clamp(220.0, 360.0);
+    egui::Panel::right(ui.id().with("nui-inspector"))
+        .default_size(268.0)
+        .size_range(220.0..=inspector_max)
+        .resizable(true)
+        .frame(egui::Frame::NONE.inner_margin(14).fill(ui.visuals().panel_fill))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("nui-properties")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    inspector(ui, v, s, state, keymap, assets);
+                });
+        });
+    let palette_max = (ui.available_width() - MIN_CANVAS).clamp(170.0, 300.0);
     egui::Panel::left(ui.id().with("nui-palette"))
         .default_size(210.0)
         .size_range(170.0..=palette_max)
@@ -395,20 +411,6 @@ pub(super) fn editor(
                     layers(ui, v, s, state);
                 },
             );
-        });
-    let inspector_max = (ui.available_width() - MIN_CANVAS).clamp(220.0, 360.0);
-    egui::Panel::right(ui.id().with("nui-inspector"))
-        .default_size(268.0)
-        .size_range(220.0..=inspector_max)
-        .resizable(true)
-        .frame(egui::Frame::NONE.inner_margin(14).fill(ui.visuals().panel_fill))
-        .show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("nui-properties")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    inspector(ui, v, s, state, keymap, assets);
-                });
         });
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.inner_margin(12).fill(ui.visuals().extreme_bg_color))
