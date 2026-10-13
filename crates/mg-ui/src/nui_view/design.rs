@@ -403,22 +403,12 @@ pub(super) fn editor(
         .resizable(true)
         .frame(egui::Frame::NONE.inner_margin(14).fill(ui.visuals().panel_fill))
         .show(ui, |ui| {
-            #[cfg(test)]
-            let allocated_rect = ui.max_rect();
-            let scroll = egui::ScrollArea::vertical()
+            egui::ScrollArea::vertical()
                 .id_salt("nui-properties")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     inspector(ui, v, s, state, keymap, assets);
                 });
-            #[cfg(test)]
-            ui.ctx().data_mut(|d| {
-                d.insert_temp(
-                    egui::Id::new("nui-inspector-layout-test"),
-                    (allocated_rect, scroll.content_size),
-                );
-            });
-            let _ = scroll;
         });
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.inner_margin(12).fill(ui.visuals().extreme_bg_color))

@@ -2110,9 +2110,11 @@ mod tests {
         tga.extend([255u8; 3]);
         let picture = dir.join("my_bg.tga");
         std::fs::write(&picture, &tga).unwrap();
+        let second = dir.join("my_icon.tga");
+        std::fs::write(&second, &tga).unwrap();
         let hak = user.join("hak").join("nui_images.hak");
         let dialogs = crate::NoDialogs {
-            open_many: vec![vec![picture]],
+            open_many: vec![vec![second.clone()], vec![picture]],
             save: vec![hak.clone()],
             ..Default::default()
         };
@@ -2164,6 +2166,37 @@ mod tests {
         assert_eq!(images::listed_haks(ws), ["nui_images"]);
         let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
         assert!(written.items().iter().any(|i| i.key == key));
+        let logged =
+            |h: &Harness<'_, Moonglow>, what: &str| {
+                h.state().log.entries.iter().any(|(_, line)| {
+                    line.contains(what) && line.contains(&hak.display().to_string())
+                })
+            };
+        assert!(logged(&h, "Added 1 picture to"), "the log names the hak written");
+        // Into the hak the module now lists, in place: the log names it and
+        // the copy kept of what it was.
+        let jui = Some(jui);
+        h.state_mut().nui_views.get_mut(&jui).unwrap().images_hak = Some("nui_images".into());
+        h.run();
+        h.get_by_label("Add images to nui_images.hak…").click();
+        h.run();
+        let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
+        let icon = ResKey::parse("my_icon", ResType::TGA).unwrap();
+        assert!(written.items().iter().any(|i| i.key == icon));
+        assert!(written.items().iter().any(|i| i.key == key), "what it held stays");
+        let bak = hak.with_extension("hak.bak");
+        assert!(mg_module::hak_edit::Hak::open(&bak).unwrap().items().iter().all(|i| i.key == key));
+        assert!(logged(&h, "nui_images.hak.bak"), "the log names the copy kept");
+        // One open in the hak editor is left to its Save there.
+        crate::hak_view::open_at(h.state_mut(), &hak).expect("the hak opens");
+        h.state_mut().actions.clear();
+        let before = std::fs::read(&hak).unwrap();
+        h.state_mut().dialogs =
+            Box::new(crate::NoDialogs { open_many: vec![vec![second]], ..Default::default() });
+        h.get_by_label("Add images to nui_images.hak…").click();
+        h.run();
+        assert_eq!(std::fs::read(&hak).unwrap(), before);
+        assert!(h.state().log.entries.iter().any(|(_, line)| line.contains("hak editor")));
     }
 
     #[test]

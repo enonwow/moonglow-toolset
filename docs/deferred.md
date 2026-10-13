@@ -1478,24 +1478,21 @@ contribution itself states as not done or not checked.
   compile memory is not updated; the scripts that include the opener are
   found by a substring search rather than `mg_module::refs::includers`.
   (M)
-- **Pictures go into a hak without asking** (`crates/mg-ui/src/nui_view/images.rs`):
-  Images writes a picture into a listed hak in the user's hak folder in
-  place (`mg_module::hak_edit::write_into`, which keeps a `.bak`), with no
-  prompt; the hak editor's own save path was not compared. (S)
-- **Unwraps on a stale selection** (`crates/mg-ui/src/nui_view/bindings.rs`,
-  `events.rs`, `shortcuts.rs`, `design.rs`, `structure.rs`, `fields.rs`):
-  about twenty `unwrap()`s on JSON pointers, `paths.len() - 1` in
-  `shortcuts.rs` and an `unreachable!()` in `images.rs`; a selection left
-  stale by Undo is the likely way into them. Not reproduced. (S)
+- **A hak open in the hak editor takes no pictures**
+  (`crates/mg-ui/src/nui_view/images.rs`): Images writes a listed hak's
+  file in place, as the hak editor's Save does (no question; the log names
+  the hak and the `.bak` kept), and refuses one that is open in the hak
+  editor rather than adding the pictures to that document. (S)
+- **Unwraps in the Creator's keys** (`crates/mg-ui/src/nui_view/shortcuts.rs`):
+  `paths.len() - 1` in `navigate` and an `unwrap()` on a JSON pointer in
+  `clipboard`; the selection Undo leaves behind is cleared before they
+  are reached. Not reproduced. (S)
 - **`mg_nui::key` panics** (`crates/mg-nui/src/lib.rs`): public, and
   `expect`s a name that is a ResRef. (S)
 - **A caller that fails to compile is passed over** (`crates/mg-nui/src/script.rs`):
   Build leaves a script that includes the opener with its old `.ncs` and
   says nothing; the failing-compile path of `mg nui generate` has no test.
   (S)
-- **Test instrumentation in a draw function** (`crates/mg-ui/src/nui_view/design.rs`):
-  a `#[cfg(test)]` block writes layout rectangles into egui's memory for
-  `layout_tests.rs`. (S)
 - **Decoders and a picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
   PNG and TGA are read with the `image` crate though `mg-image` and `png`
   read them elsewhere, and `skin::Assets` keeps its textures beside
@@ -1504,11 +1501,10 @@ contribution itself states as not done or not checked.
   `native_job`): every frame, for the client's whole-pixel advances; a
   quarter of an idle frame on a 100-control window (2.3 ms in all,
   `crates/mg-ui/tests/nui_perf.rs`). (M)
-- **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
-  `crates/mg-nui/src/validate.rs`, `docs/manual/18-nui-creator.md`): the
-  checks still say "route", "action" and "view"; the hover text "native
-  NWN testing is still required" and the manual's sentences about scripts
-  "an older Moonglow" wrote describe versions never released. (S)
+- **Words from before the handlers** (`crates/mg-nui/src/validate.rs`,
+  `docs/manual/18-nui-creator.md`): the checks still say "route",
+  "action" and "view", and the manual's sentences about scripts "an older
+  Moonglow" wrote describe versions never released. (S)
 - **Errors as strings, a severity twice** (`crates/mg-nui/src/lib.rs`,
   `validate.rs`):
   `mg-nui`'s public API returns `Result<_, String>` rather than a typed
@@ -1526,8 +1522,7 @@ contribution itself states as not done or not checked.
   wrote" describe the same. (S)
 - **Functions too long to read:** `Renderer::node`
   (`crates/mg-ui/src/nui_view/preview.rs`) is 1,350 lines and
-  `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490; pages and
-  operations are magic numbers. (M)
+  `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490. (M)
 - **Tests in the wrong places:** about 6,700 lines of tests live under
   `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
   `crates/mg-ui/tests/`; `mg-nui`'s unit tests are all in
@@ -1544,12 +1539,15 @@ contribution itself states as not done or not checked.
   update that changes one goes unseen. Probes the file names as open:
   roots other than a row, column or group, window IDs with punctuation,
   and the shape of an arc's center. (M)
-- **Fields and headings not the toolset's**
-  (`crates/mg-ui/src/nui_view/`): fields commit on every keystroke
-  rather than through `widgets::commit_text` and `drag_number`; labels
-  and headings do not use `widgets::field_label` and `section_heading`;
-  the editor has no OK and Cancel row (`blueprint::ok_cancel`); New NUI
-  is a landing tab rather than `widgets::NameWindow`. (M)
+- **A window's editor not yet the toolset's**
+  (`crates/mg-ui/src/nui_view/`): the editor has no OK and Cancel row
+  (`blueprint::ok_cancel`); New NUI is a landing tab rather than
+  `widgets::NameWindow`, with a title size, frame and spacing of its
+  own, and New NUI… and Load NUI… are menus with their own Create and
+  Cancel. Split source shows what is typed on the canvas only once its
+  field is left; the option and picture name fields lost their hint
+  text (`widgets::commit_text_in` has none); a color being picked has no
+  test. (S)
 - **A window's companions do not follow it** (the module tree's Rename
   and Delete, `crates/mg-ui/src/references.rs`): renaming or deleting a window does not carry
   its `.txt`, `_o.nss`, `_e.nss` and `_e.ncs`. (S)

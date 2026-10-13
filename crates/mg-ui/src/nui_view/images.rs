@@ -180,7 +180,7 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         app.log.error("Haks need the game's user folder (Tools › Options)");
         return None;
     };
-    match choice {
+    let path = match choice {
         // A listed hak the game finds elsewhere (its data, the Workshop) isn't
         // ours to write: one made in the hak folder would hide it.
         Some(hak) => {
@@ -192,10 +192,50 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
                 ));
                 return None;
             }
-            Some(path)
+            path
         }
-        None => {
-            app.dialogs.save_file(FileKind::Hak, Some(&folder.join(format!("{name}_images.hak"))))
+        None => app
+            .dialogs
+            .save_file(FileKind::Hak, Some(&folder.join(format!("{name}_images.hak"))))?,
+    };
+    // As the hak editor's Save: never into the game's folder.
+    if app.install.as_ref().is_some_and(|gi| path.starts_with(&gi.root)) {
+        app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
+        return None;
+    }
+    // A hak open in the hak editor is written by its Save there: writing its
+    // file under it would be lost at that Save.
+    if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(path.as_path())) {
+        let file = path.file_name().unwrap_or_default().to_string_lossy();
+        app.log.error(format!(
+            "{file} is open in the hak editor: add the pictures there, or close it first"
+        ));
+        return None;
+    }
+    Some(path)
+}
+
+/// Writes pictures into the hak at `path`, at once (a hak isn't the
+/// module's: Undo doesn't take it back), and says in the log which hak was
+/// written and where the copy of what it was is kept. Whether it was written.
+fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -> bool {
+    let kept = path.exists().then(|| path.with_extension("hak.bak"));
+    match write_into(path, pictures) {
+        Ok(added) => {
+            let kept = kept.map_or(String::new(), |bak| {
+                format!("; the hak as it was is kept as {}", bak.display())
+            });
+            app.log.info(format!(
+                "Added {} to {}, replaced {}{kept}",
+                count(added.added, "picture"),
+                path.display(),
+                added.replaced
+            ));
+            true
+        }
+        Err(e) => {
+            app.log.error(format!("Could not write {}: {e}", path.display()));
+            false
         }
     }
 }
@@ -370,9 +410,11 @@ pub(super) fn page(
                             from_file(f, &ws.module).map(|(k, b, _)| (k, Source::Bytes(b.into())))
                         })
                         .collect();
-                    match resources.and_then(|r| write_into(&path, r)) {
-                        Ok(_) => {
-                            use_hak(app, &path, &mut edits);
+                    match resources {
+                        Ok(pictures) => {
+                            if write_hak(app, &path, pictures) {
+                                use_hak(app, &path, &mut edits);
+                            }
                         }
                         Err(e) => app.log.error(e),
                     }
@@ -396,20 +438,18 @@ pub(super) fn page(
                     .iter()
                     .filter_map(|k| Some((*k, Source::Bytes(ws.module.get(k)?.to_vec().into()))))
                     .collect();
-                match write_into(&path, resources) {
-                    // The module keeps its pictures unless the hak is in use.
-                    Ok(_) if use_hak(app, &path, &mut edits) => {
-                        edits.extend(
-                            module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(e) => app.log.error(e),
+                // The module keeps its pictures unless the hak is in use.
+                if write_hak(app, &path, resources) && use_hak(app, &path, &mut edits) {
+                    edits.extend(
+                        module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                    );
                 }
             }
         });
         ui.weak(
-            "A new hak is made in the game's hak folder and added at the top of the module's haks.",
+            "A hak's file is written at once, and Undo doesn't take it back: a copy of the hak \
+             as it was is kept beside it (.hak.bak). A new hak is made in the game's hak folder \
+             and added at the top of the module's haks.",
         );
     });
     edits
