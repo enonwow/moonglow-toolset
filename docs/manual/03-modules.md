@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T13:16:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:37:39Z }
 ---
 
 # Modules
@@ -464,6 +464,11 @@ reads, where columns in line are easier to read and to copy from. The
 box begins as the file was (one space or one tab between its cells:
 compact), and ticking it is a change to save. An empty row at the very
 end is not written: a table has no empty rows after its last.
+
+Under the table are **OK** and **Cancel**: OK saves the table and closes
+its window; Cancel closes it without saving, asking first where there
+are unsaved changes, as the window's × does (a table's changes are its
+own, and the module's Undo does not bring them back).
 
 ### A table's description
 

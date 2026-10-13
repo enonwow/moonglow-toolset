@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T20:22:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
 ---
 
 # Blueprints
@@ -225,8 +225,23 @@ game's blueprints have) shows in blue with its StrRef beside it; typing
 there gives the blueprint text of its own.
 
 Each blueprint opens as a tab with Aurora's pages. Every change takes
-effect at once and is one undoable step; there is no OK or Cancel.
-Fields Moonglow does not show are kept as they are.
+effect at once and is one undoable step. Under the pages are **OK** and
+**Cancel**: OK closes the window (what was changed is the module's
+already, as it is when the window is closed by its ×); Cancel closes it
+and sets back the fields that were changed in it since it was opened, as
+one step that Undo takes back. What was changed somewhere else meanwhile
+(the same object moved in its area, another field set by a script or a
+plugin) stays. A placed object's Properties have the two as well, and so
+do several blueprints or objects edited together; the game's own
+blueprint, shown to look at, has **Close**. Module Properties, Area
+Properties (of one area or several), the conversation editor, the
+journal and the faction editor have the same two under them. There
+Cancel sets back the fields and lists the window changed (a
+conversation's lines, a journal's categories); a file the window made
+(`module.jrl`, `repute.fac`) is gone again, and where a faction was
+removed, the areas and creatures renumbered for it are set back whole,
+with whatever else was changed in them meanwhile. Fields Moonglow does not
+show are kept as they are.
 
 Shared parts:
 

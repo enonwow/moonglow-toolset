@@ -131,14 +131,20 @@ impl Tab {
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
             Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
-            Tab::Dialog(_) => (920.0, 660.0),
+            Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
-            Tab::Table(_) => (1040.0, 700.0),
+            Tab::Table(_) => (1040.0, 732.0),
             Tab::Model(_) | Tab::InstanceModel { .. } => (780.0, 680.0),
-            Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
-            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
+            Tab::Factions | Tab::Journal => (780.0, 632.0),
+            Tab::Gff(_) => (780.0, 600.0),
+            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
             Tab::Options => crate::options::WINDOW_SIZE.into(),
             Tab::TileProperties => (560.0, 640.0),
+            // (Each with OK and Cancel under it: 32 points of its height.)
+            Tab::Blueprint(_)
+            | Tab::Blueprints(_)
+            | Tab::Instance { .. }
+            | Tab::Instances { .. } => (820.0, 672.0),
             _ => (820.0, 640.0),
         };
         egui::vec2(w, h)

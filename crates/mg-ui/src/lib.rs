@@ -342,6 +342,8 @@ pub struct Moonglow {
     pub module_page: module_props::Page,
     /// Each open blueprint editor's page.
     pub blueprint_pages: blueprint::Pages,
+    /// What each open Properties window has changed, for its Cancel.
+    pub(crate) properties_changed: blueprint::Changed,
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
     pub dialog_views: HashMap<ResKey, dialog_view::DialogView>,
@@ -664,6 +666,7 @@ impl Moonglow {
             loc_edit: None,
             module_page: module_props::Page::default(),
             blueprint_pages: Default::default(),
+            properties_changed: Default::default(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
             dialog_views: HashMap::new(),
@@ -1094,6 +1097,9 @@ impl Moonglow {
         jobs::window(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());
+        // (What a Properties window changed is kept while it is open.)
+        let dock = &self.dock;
+        self.properties_changed.retain(|_, changes| dock.find_tab(&changes.tab).is_some());
         // A Properties text field that was typed in and is not drawn any
         // more: set now, as it would have been when left.
         if let Some((id, drawn, typed)) = &self.held_text
@@ -2090,6 +2096,7 @@ impl Moonglow {
         self.thumbnails.forget(self.viewport.as_ref());
         self.scripts.clear();
         self.buffers.clear();
+        self.properties_changed.clear();
         self.talk = None;
         self.talk_view = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);

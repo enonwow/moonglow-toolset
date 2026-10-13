@@ -192,7 +192,37 @@ fn params(s: &Struct, label: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The conversation editor, over its OK and Cancel
+/// (`blueprint::ok_cancel`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    // The editor's text at its own size (Options › Conversation Editor):
+    // every kind of text in it, each as much larger as its lines are; and
+    // in the lists and menus opened from it, which take the window's
+    // style, for as long as the editor is drawn.
+    let usual = ui.ctx().global_style();
+    if let Some(size) = app.settings.dialog_font_size {
+        let by = f32::from(size.clamp(6, 48)) / egui::TextStyle::Body.resolve(ui.style()).size;
+        let mut style = (**ui.style()).clone();
+        for font in style.text_styles.values_mut() {
+            font.size *= by;
+        }
+        style.spacing.interact_size.y *= by;
+        style.spacing.icon_width *= by;
+        ui.set_style(style.clone());
+        ui.ctx().set_global_style(style);
+    }
+    let targets = [(key, mg_edit::GffPath::root())];
+    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pending = app.actions.len();
+    editor(app, ui, key);
+    let tab = crate::Tab::Dialog(key);
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+    if app.settings.dialog_font_size.is_some() {
+        ui.ctx().set_global_style(usual);
+    }
+}
+
+fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let Some(ws) = &mut app.ws else { return };
     let g = match ws.doc(&key) {
         Ok(g) => g.clone(),

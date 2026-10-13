@@ -313,6 +313,21 @@ fn dialog_script_parameters() {
     h.get_by_label_contains("What do you want made?").click();
     h.run_steps(4);
     shoot(&mut h, &dir, "dialog-script-parameters");
+    // (And at a larger size of its own: Options › Conversation Editor.)
+    h.state_mut().settings.dialog_font_size = Some(20);
+    shoot(&mut h, &dir, "dialog-font-20");
+    // (Its right-click menu, at that size too.)
+    let at = h.get_by_label_contains("What do you want made?").rect().center();
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    shoot(&mut h, &dir, "dialog-font-20-menu");
 }
 
 /// The Talk Table editor on a line with a long text: plain, and with a

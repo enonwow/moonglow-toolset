@@ -419,7 +419,7 @@ mod tests {
         h.run_steps(2);
         assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("edit"));
         // Cancel: it says so until the work stops, then nothing is handed over.
-        h.get_by_label("Cancel").click();
+        h.get_all_by_label("Cancel").last().unwrap().click();
         h.run_steps(2);
         h.get_by_label("Canceling…");
         go.send(()).unwrap();

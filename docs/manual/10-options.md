@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
 ---
 
 # Options
@@ -151,6 +151,10 @@ the module is opened again from its file.
   text first.
 - **Show speaker name before text**, and the **NPC** and **Player** text
   colors.
+- **Font size**: the size of the conversation editor's text (its lines,
+  its buttons, the fields under them, and the lists and right-click
+  menus opened from it), apart from the rest of the window; **Default**
+  goes back to the window's own.
 - **Paste Link Options** and **Drag Link Options**: whether Paste As
   Link and Ctrl + drag link the source to the destination or the reverse.
 - **Automatically backup the conversation files** every … minutes.

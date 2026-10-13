@@ -62,6 +62,7 @@ pub struct OptionsDraft {
     pub scripts_external: bool,
     pub scripts_external_only: bool,
     pub scripts_together: bool,
+    pub dialog_font_size: Option<u8>,
     pub script_templates: String,
     pub scratch_dir: String,
     pub external_editor: String,
@@ -146,6 +147,7 @@ impl OptionsDraft {
             scripts_external: s.scripts_external,
             scripts_external_only: s.scripts_external_only,
             scripts_together: !s.scripts_own_windows,
+            dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
@@ -208,6 +210,7 @@ impl OptionsDraft {
             scripts_external: self.scripts_external,
             scripts_external_only: self.scripts_external_only,
             scripts_own_windows: !self.scripts_together,
+            dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
@@ -634,6 +637,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Show popup when creating a new text entry",
                             );
                             ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Font size");
+                                let usual = egui::TextStyle::Body.resolve(ui.style()).size;
+                                let mut size =
+                                    draft.dialog_font_size.unwrap_or(usual.round() as u8);
+                                let field = egui::DragValue::new(&mut size).range(6..=48);
+                                if ui.add(field).changed() {
+                                    draft.dialog_font_size = Some(size);
+                                }
+                                if draft.dialog_font_size.is_some()
+                                    && ui.small_button("Default").clicked()
+                                {
+                                    draft.dialog_font_size = None;
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "The size of the conversation editor's text: its lines and the \
+                                 fields under them",
+                            );
                             for (label, color, default) in [
                                 ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
                                 ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
@@ -1061,8 +1084,10 @@ mod tests {
         let s = Settings::default();
         let mut d = OptionsDraft::from_settings(&s);
         d.script_style.colors[3] = Some([255, 0, 0]);
+        d.dialog_font_size = Some(18);
         assert!(!d.moves_game(&s));
         assert_eq!(d.apply(&s).script_style.colors[3], Some([255, 0, 0]));
+        assert_eq!(d.apply(&s).dialog_font_size, Some(18));
         d.game_root = "/games/nwn".into();
         assert!(d.moves_game(&s));
     }

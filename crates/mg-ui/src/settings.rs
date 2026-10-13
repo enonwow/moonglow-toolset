@@ -167,6 +167,9 @@ pub struct Settings {
     /// Options > Script Editor: a script opened from the module tree opens
     /// in the external script editor as well.
     pub scripts_external: bool,
+    /// Options > Conversation Editor: its text's size in points (`None`:
+    /// the window's own).
+    pub dialog_font_size: Option<u8>,
     /// Options > Script Editor: Open each script in a window of its own
     /// (off: a script opens as a tab of the window scripts are open in).
     pub scripts_own_windows: bool,

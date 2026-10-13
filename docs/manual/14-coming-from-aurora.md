@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T10:58:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:37:40Z }
 ---
 
 # Coming from Aurora
@@ -87,9 +87,14 @@ Each names what Aurora does, then what Moonglow does instead.
 
 ## Habits to change
 
-- **There's no OK or Cancel.** A change applies as you make it. To take
-  one back, use Undo (Ctrl+Z), as many times as you need. Closing an
-  editor loses nothing.
+- **A change applies as you make it.** To take one back, use Undo
+  (Ctrl+Z), as many times as you need. Closing an editor loses nothing.
+  The editors' windows (a blueprint's Properties, a placed object's,
+  Module and Area Properties, a conversation, the journal, the factions)
+  have **OK** and **Cancel** as Aurora's do: Cancel sets back what was
+  changed in the window since it was opened, as one step. A 2DA is
+  saved when you ask, so its OK saves it and its Cancel closes it as
+  last saved (after asking).
 - **Save writes everything**: the module, and every script you've edited.
   A script's **Compile** button saves and compiles that script. F7
   compiles all of them.

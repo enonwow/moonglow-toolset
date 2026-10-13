@@ -751,6 +751,36 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         ui.label("This table is closed.");
         return;
     };
+    // OK and Cancel, as the other editors have: a table is saved when
+    // asked, so OK saves it and Cancel leaves it as last saved.
+    let tips = [
+        "Save the table and close the window",
+        "Close the window without saving (unsaved changes are asked about first)",
+    ];
+    let pressed = crate::blueprint::ok_cancel_saying(ui, egui::Id::new(("table", id)), false, tips);
+    match pressed {
+        Some(crate::blueprint::Pressed::Ok) => {
+            app.tables[at].commit();
+            if !app.tables[at].edit.is_dirty() || save(app, id) {
+                app.tables.retain(|d| d.id != id);
+                app.actions.push(Action::CloseTab(Tab::Table(id)));
+                return;
+            }
+        }
+        // (Closed as by its ×: unsaved changes are asked about first,
+        // no Undo bringing a table's back.)
+        Some(crate::blueprint::Pressed::Cancel) => {
+            app.tables[at].commit();
+            if app.tables[at].edit.is_dirty() {
+                app.table_closing = Some(id);
+            } else {
+                app.tables.retain(|d| d.id != id);
+                app.actions.push(Action::CloseTab(Tab::Table(id)));
+                return;
+            }
+        }
+        None => {}
+    }
     describe(app, ui.ctx(), at);
     let faults = faults(app, at);
     let name = app.tables[at].name();
