@@ -76,8 +76,6 @@ pub(crate) struct State {
     /// The hak Images adds pictures to: one the module uses, or None for a new one.
     images_hak: Option<String>,
     view_mode: ViewMode,
-    name: String,
-    load_search: String,
     checks: Option<Checks>,
     /// The source field being typed in.
     source_draft: Option<SourceDraft>,
@@ -165,35 +163,48 @@ impl State {
     }
 }
 
-/// Keep the launcher and documents in one workspace, preserving its window geometry.
-pub(crate) fn route_tab(dock: &mut egui_dock::DockState<Tab>, tab: &Tab) {
-    if !matches!(tab, Tab::Nui(_)) {
-        return;
-    }
-    if matches!(tab, Tab::Nui(Some(_)))
-        && let Some(launcher) = dock.find_tab(&Tab::Nui(None))
-    {
-        if dock.find_tab(tab).is_some() {
-            dock.remove_tab(launcher);
-        } else if let Ok(leaf) = dock.leaf_mut(launcher.node_path()) {
-            leaf.tabs[launcher.tab.0] = tab.clone();
+/// The window that asks for a new NUI window's name (Tools › New NUI
+/// Window…, the module tree's New). The name leaves room for the two
+/// scripts' suffixes, which the name window does not know of: one that is
+/// refused is said in the log, and the window stays.
+pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
+    use crate::widgets::{NameWindow, Named};
+    let Some(mut name) = app.new_nui.clone() else { return };
+    let window = NameWindow {
+        title: "New NUI Window",
+        label: "Name (up to 14 characters)",
+        restype: ResType::JUI,
+        taken: "The module already has a NUI window of this name.",
+        replaces: false,
+        button: "Create",
+    };
+    let module = app.ws.as_ref().map(|w| &w.module);
+    app.new_nui = match window.show(ui.ctx(), module, &mut name) {
+        Named::Open => Some(name),
+        Named::Cancelled => None,
+        Named::Chosen(key) => {
+            let name = key.resref.to_string();
+            match module.map(|m| mg_nui::create(m, &name)) {
+                Some(Err(e)) => {
+                    app.log.error(e.to_string());
+                    Some(name)
+                }
+                _ => {
+                    app.actions.push(Action::NewNui(name));
+                    None
+                }
+            }
         }
-    }
-    if dock.find_tab(tab).is_none()
-        && let Some(other) = dock.find_tab_from(|t| matches!(t, Tab::Nui(_)))
-    {
-        dock.set_focused_node_and_surface(other.node_path());
-        dock.push_to_focused_leaf(tab.clone());
-    }
+    };
 }
 
 pub(crate) fn create(app: &mut Moonglow, name: &str) {
     let Some(ws) = &app.ws else { return };
     match mg_nui::create(&ws.module, name) {
         Ok(cmd) => match app.apply(cmd) {
-            Ok(()) => {
-                app.actions.push(Action::OpenTab(Tab::Nui(ResKey::parse(name, ResType::JUI))))
-            }
+            Ok(()) => app.actions.extend(
+                ResKey::parse(name, ResType::JUI).map(|key| Action::OpenTab(Tab::Nui(key))),
+            ),
             Err(e) => app.log.error(e.to_string()),
         },
         Err(e) => app.log.error(e.to_string()),
@@ -325,18 +336,18 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
 /// The NUI Creator, over its OK and Cancel (`blueprint::ok_cancel`): Cancel
 /// sets the window and its settings back to what they were when the tab was
 /// opened (what Build made of them is built again from those).
-pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
-    let Some(window) = key.filter(|_| app.ws.is_some()) else {
+pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    if app.ws.is_none() {
         return editor(app, ui, key);
-    };
-    let targets = [(window, mg_edit::GffPath::root())];
+    }
+    let targets = [(key, mg_edit::GffPath::root())];
     let pressed = crate::blueprint::ok_cancel(ui, &targets[0], false);
     let pending = app.actions.len();
     editor(app, ui, key);
     crate::blueprint::window_drawn(app, pending, &Tab::Nui(key), &targets, pressed);
 }
 
-fn editor(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
+fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // What the tab asks for this frame starts here (its OK and Cancel note it).
     let asked = app.actions.len();
     let id = ui.id().with(("nui", key));
@@ -349,13 +360,6 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     let mut state = app.nui_views.remove(&key).unwrap_or_default();
     let Some(ws) = &app.ws else {
         ui.label("Open a module first.");
-        return;
-    };
-    let Some(key) = key else {
-        let existing: Vec<_> =
-            ws.module.keys().filter(|k| k.restype == ResType::JUI).copied().collect();
-        design::landing(ui, &mut state, &ws.module, &existing, &mut app.actions);
-        app.nui_views.insert(None, state);
         return;
     };
     let Some(bytes) = ws.module.get(&key) else {
@@ -435,7 +439,6 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     // would be drawn over the ones on the left.
     let wide = ui.available_width() >= 900.0;
     ui.horizontal_wrapped(|ui| {
-        design::document_actions(ui, &mut state, &ws.module, &mut app.actions);
         let layout = if wide {
             egui::Layout::right_to_left(egui::Align::Center)
         } else {
@@ -870,7 +873,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         // field losing focus when its button was clicked.
         app.actions.insert(asked, Action::Apply(Command::new(format!("Edit NUI {name}"), edits)));
     }
-    app.nui_views.insert(Some(key), state);
+    app.nui_views.insert(key, state);
 }
 
 fn array_position(path: &str) -> Option<(String, usize, bool)> {
@@ -1828,7 +1831,7 @@ mod tests {
         let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(key));
+                super::ui(app, ui, key);
                 app.run_actions();
             },
             app(),
@@ -1855,7 +1858,7 @@ mod tests {
         Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
                 app.shortcuts(ui);
-                super::ui(app, ui, Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
+                super::ui(app, ui, ResKey::parse("nui_test", ResType::JUI).unwrap());
                 app.run_actions();
             },
             app(),
@@ -1879,62 +1882,7 @@ mod tests {
                 );
                 assert!((rect.height() - first.height()).abs() < 0.1, "{width}: {label}: {rect:?}");
             }
-            let new = h.get_by_label("New NUI…").rect();
-            let load = h.get_by_label("Load NUI…").rect();
-            assert!((new.center().y - load.center().y).abs() < 0.1, "{width}: document actions");
-            assert!(new.bottom() < first.top(), "{width}: document actions above navigation");
         }
-    }
-
-    #[test]
-    fn nui_new_and_load_do_not_replace_the_current_resource() {
-        let mut state = State::default();
-        let mut h = Harness::builder().build_ui_state(
-            |ui, app: &mut Moonglow| {
-                design::document_actions(
-                    ui,
-                    &mut state,
-                    &app.ws.as_ref().unwrap().module,
-                    &mut app.actions,
-                );
-                app.run_actions();
-            },
-            app(),
-        );
-        h.run();
-        let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
-        let before = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
-        h.get_by_label("New NUI…").click();
-        h.run();
-        h.get_by_role(egui::accesskit::Role::TextInput).click();
-        h.run();
-        h.get_by_role(egui::accesskit::Role::TextInput).type_text("nui_test");
-        h.run();
-        h.get_all_by_value("Resource already exists: nui_test.jui")
-            .next()
-            .expect("duplicate resource validation is visible");
-        h.get_by_label("Cancel").click();
-        h.run();
-        h.get_by_label("Load NUI…").click();
-        h.run();
-        h.get_by_label("nui_test").click();
-        h.run();
-        assert_eq!(h.state().ws.as_ref().unwrap().module.get(&key).unwrap(), before);
-        assert!(h.state().dock.find_tab(&Tab::Nui(Some(key))).is_some());
-        h.get_by_label("New NUI…").click();
-        h.run();
-        h.get_by_role(egui::accesskit::Role::TextInput).click();
-        h.run();
-        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-        h.get_by_role(egui::accesskit::Role::TextInput).type_text("new_nui");
-        h.run();
-        h.get_by_label("Create NUI").click();
-        h.run();
-        let new_key = ResKey::parse("new_nui", ResType::JUI).unwrap();
-        assert!(h.state().ws.as_ref().unwrap().module.contains(&new_key));
-        assert_eq!(h.state().ws.as_ref().unwrap().module.get(&key).unwrap(), before);
-        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-        assert!(!h.state().ws.as_ref().unwrap().module.contains(&new_key));
     }
 
     #[test]
@@ -2076,7 +2024,7 @@ mod tests {
         app.ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&window).unwrap());
         let mut h = Harness::builder().with_size(egui::vec2(1400.0, 2400.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(ResKey::parse("pictures", ResType::JUI).unwrap()));
+                super::ui(app, ui, ResKey::parse("pictures", ResType::JUI).unwrap());
                 app.run_actions();
             },
             app,
@@ -2138,7 +2086,7 @@ mod tests {
         app.actions.clear();
         let mut h = Harness::builder().with_size(egui::vec2(1100.0, 900.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(ResKey::parse("pictures", ResType::JUI).unwrap()));
+                super::ui(app, ui, ResKey::parse("pictures", ResType::JUI).unwrap());
                 app.run_actions();
             },
             app,
@@ -2186,7 +2134,6 @@ mod tests {
         assert!(logged(&h, "Added 1 picture to"), "the log names the hak written");
         // Into the hak the module now lists, in place: the log names it and
         // the copy kept of what it was.
-        let jui = Some(jui);
         h.state_mut().nui_views.get_mut(&jui).unwrap().images_hak = Some("nui_images".into());
         h.run();
         h.get_by_label("Add images to nui_images.hak…").click();
@@ -2651,31 +2598,6 @@ mod tests {
     }
 
     #[test]
-    fn nui_documents_reuse_launcher_and_share_one_workspace() {
-        let mut app = app();
-        app.run_now(Action::OpenTab(Tab::Nui(None)));
-        let launcher = app.dock.find_tab(&Tab::Nui(None)).unwrap();
-        let first = Tab::Nui(Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
-        app.run_now(Action::OpenTab(first.clone()));
-        assert!(app.dock.find_tab(&Tab::Nui(None)).is_none());
-        assert_eq!(app.dock.find_tab(&first).unwrap(), launcher);
-        // Creating a second document replaces only the launcher, not the first document.
-        app.run_now(Action::OpenTab(Tab::Nui(None)));
-        create(&mut app, "second");
-        app.run_actions();
-        let second = Tab::Nui(Some(ResKey::parse("second", ResType::JUI).unwrap()));
-        assert_eq!(app.dock.find_tab(&second).unwrap().node_path(), launcher.node_path());
-        assert!(app.dock.find_tab(&first).is_some());
-        assert!(app.dock.find_tab(&Tab::Nui(None)).is_none());
-        app.run_now(Action::OpenTab(Tab::Nui(None)));
-        app.run_now(Action::OpenTab(first.clone()));
-        assert!(app.dock.find_tab(&Tab::Nui(None)).is_none());
-        let leaf = app.dock.leaf(launcher.node_path()).unwrap();
-        assert_eq!(leaf.tabs.len(), 2);
-        assert_eq!(leaf.tabs[leaf.active.0], first);
-    }
-
-    #[test]
     fn nui_interact_keeps_palette_properties_and_tree_editing_available() {
         let mut h = keyboard_harness();
         h.run();
@@ -2872,6 +2794,55 @@ mod tests {
         assert_eq!(keyboard_document(&h), doc);
     }
 
+    /// New NUI Window asks for the name as New Script does; a name with no
+    /// room for the scripts' suffixes is refused in the log and can be mended.
+    #[test]
+    fn nui_new_window_asks_for_its_name() {
+        let mut app = app();
+        app.new_nui = Some(String::new());
+        let mut h = Harness::builder().build_ui_state(
+            |ui, app: &mut Moonglow| {
+                super::windows(app, ui);
+                app.run_actions();
+            },
+            app,
+        );
+        h.run();
+        h.get_by_role(egui::accesskit::Role::TextInput).type_text("fifteen_letters");
+        h.run();
+        h.get_by_label("Create").click();
+        h.run();
+        let long = ResKey::parse("fifteen_letters", ResType::JUI).unwrap();
+        assert!(!h.state().ws.as_ref().unwrap().module.contains(&long));
+        assert!(h.state().log.entries.iter().any(|(_, line)| line.contains("fifteen_letters")));
+        assert_eq!(h.state().new_nui.as_deref(), Some("fifteen_letters"));
+        h.get_by_role(egui::accesskit::Role::TextInput).click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run();
+        h.get_by_role(egui::accesskit::Role::TextInput).type_text("shop");
+        h.run();
+        h.get_by_label("Create").click();
+        h.run();
+        let shop = ResKey::parse("shop", ResType::JUI).unwrap();
+        assert!(h.state().ws.as_ref().unwrap().module.contains(&shop));
+        assert!(h.state().new_nui.is_none());
+        assert!(h.state().dock.find_tab(&Tab::Nui(shop)).is_some());
+    }
+
+    /// A second NUI window opens as a tab of the first one's window.
+    #[test]
+    fn nui_windows_share_a_window() {
+        let mut app = app();
+        let first = Tab::Nui(ResKey::parse("nui_test", ResType::JUI).unwrap());
+        app.run_now(Action::OpenTab(first.clone()));
+        create(&mut app, "second");
+        app.run_actions();
+        let second = Tab::Nui(ResKey::parse("second", ResType::JUI).unwrap());
+        let (a, b) = (app.dock.find_tab(&first).unwrap(), app.dock.find_tab(&second).unwrap());
+        assert_eq!(a.node_path(), b.node_path());
+    }
+
     /// Deleting a window takes its settings and its scripts with it, as one
     /// step; a text of the same name that is not its settings stays.
     #[test]
@@ -2905,7 +2876,7 @@ mod tests {
     fn nui_cancel_sets_back_what_the_tab_changed() {
         let mut h = keyboard_harness();
         // (What a tab changed is kept while the tab is open.)
-        let tab = Tab::Nui(Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
+        let tab = Tab::Nui(ResKey::parse("nui_test", ResType::JUI).unwrap());
         h.state_mut().run(Action::OpenTab(tab));
         h.run();
         let opened = keyboard_document(&h);
@@ -3069,7 +3040,7 @@ mod tests {
             let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
             let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
                 |ui, app: &mut Moonglow| {
-                    super::ui(app, ui, Some(key));
+                    super::ui(app, ui, key);
                     app.run_actions();
                 },
                 app(),
@@ -3104,7 +3075,7 @@ mod tests {
         let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::ui(app, ui, Some(key));
+                super::ui(app, ui, key);
                 app.run_actions();
             },
             app(),
@@ -3154,7 +3125,7 @@ mod tests {
             .set(ResKey::new(key.resref, ResType::TXT), b"unrelated text".to_vec());
         let mut h = Harness::builder()
             .with_size(egui::vec2(1200.0, 850.0))
-            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app);
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, key), app);
         h.run();
         h.get_by_label("Bindings").click();
         h.run();
@@ -3296,7 +3267,7 @@ mod tests {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1200.0, 850.0))
             .wgpu()
-            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), sample);
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, key), sample);
         h.run_steps(3);
         h.get_by_label("Canvas Button · Save settings").click();
         h.run();
@@ -3421,17 +3392,10 @@ mod tests {
         h.render().unwrap().save(dir.join("views-events.png")).unwrap();
         // One GPU device at a time: each harness goes before the next is made.
         drop(h);
-        let mut landing = Harness::builder()
-            .with_size(egui::vec2(1000.0, 700.0))
-            .wgpu()
-            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, None), app());
-        landing.run_steps(3);
-        landing.render().unwrap().save(dir.join("landing.png")).unwrap();
-        drop(landing);
         let mut compact = Harness::builder()
             .with_size(egui::vec2(640.0, 720.0))
             .wgpu()
-            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app());
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, key), app());
         compact.run_steps(3);
         compact.get_by_label("Properties").click();
         compact.run();
@@ -3522,7 +3486,7 @@ mod tests {
             ws.module.set(ResKey::parse("nui_test", ResType::TXT).unwrap(), settings.bytes());
             let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
                 |ui, app: &mut Moonglow| {
-                    super::ui(app, ui, Some(ResKey::parse("nui_test", ResType::JUI).unwrap()));
+                    super::ui(app, ui, ResKey::parse("nui_test", ResType::JUI).unwrap());
                     app.run_actions();
                 },
                 app,

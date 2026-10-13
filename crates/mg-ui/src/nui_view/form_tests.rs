@@ -19,7 +19,7 @@ fn harness() -> Harness<'static, Moonglow> {
         |ui, app: &mut Moonglow| {
             // (As the app's frame begins: a press elsewhere leaves a field.)
             crate::widgets::text_begin(ui.ctx());
-            super::super::ui(app, ui, Some(key()));
+            super::super::ui(app, ui, key());
             app.run_actions();
         },
         app,
@@ -103,7 +103,7 @@ fn text_typed_is_set_when_layers_selects_another_control() {
     h.run();
     let after = document(&h);
     assert_eq!(after["root"]["children"][1]["id"], "mg_close_typed");
-    assert_eq!(h.state().nui_views[&Some(key())].selected, "/root/children/0");
+    assert_eq!(h.state().nui_views[&key()].selected, "/root/children/0");
     assert!(after["root"]["children"][0]["id"].is_null(), "the label has no ID of its own");
 }
 
@@ -144,7 +144,7 @@ fn a_number_dragged_is_one_undo_step() {
 /// without it, and nothing is selected.
 #[test]
 fn nui_selection_left_by_undo_is_cleared() {
-    let key = Some(key());
+    let key = key();
     let mut h = harness();
     h.run();
     h.get_by_label("Toggle button").click();

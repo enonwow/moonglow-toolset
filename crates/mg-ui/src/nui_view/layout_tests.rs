@@ -196,7 +196,7 @@ fn nui_saved_module_preview() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1600.0, 1040.0))
         .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app);
+        .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, key), app);
     h.run_steps(3);
     assert!(h.state().nui_assets.loaded);
     assert!(h.state().nui_assets.issues.is_empty(), "{:?}", h.state().nui_assets.issues);
@@ -225,7 +225,7 @@ fn nui_module_layout_json() {
         app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(path).unwrap()));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1300.0, 1150.0))
-            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app);
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, key), app);
         h.run_steps(3);
         h.get_by_value("Editor").click();
         h.run();
@@ -282,7 +282,7 @@ fn nui_module_previews() {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1300.0, 1150.0))
             .wgpu()
-            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app);
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, key), app);
         h.run_steps(3);
         h.get_by_value("Editor").click();
         h.run();

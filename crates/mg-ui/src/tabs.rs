@@ -22,8 +22,8 @@ pub enum Tab {
     NoArea,
     /// A script source.
     Script(ResKey),
-    /// A native NUI document, or the new-window form.
-    Nui(Option<ResKey>),
+    /// A NUI window (a JUI), in the NUI Creator.
+    Nui(ResKey),
     /// Any GFF resource, as an editable field tree.
     Gff(ResKey),
     /// The resource browser.
@@ -158,7 +158,7 @@ impl Tab {
     pub fn for_resource(key: ResKey) -> Option<Tab> {
         match key.restype {
             ResType::NSS => Some(Tab::Script(key)),
-            ResType::JUI => Some(Tab::Nui(Some(key))),
+            ResType::JUI => Some(Tab::Nui(key)),
             ResType::ARE => Some(Tab::Area(key.resref)),
             ResType::IFO => Some(Tab::ModuleProperties),
             ResType::FAC => Some(Tab::Factions),
@@ -181,8 +181,9 @@ impl Tab {
 
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
-            Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => Some(*k),
-            Tab::Nui(k) => *k,
+            Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {
+                Some(*k)
+            }
             Tab::Area(r) | Tab::AreaProperties(r) => Some(ResKey::new(*r, ResType::ARE)),
             _ => None,
         }
@@ -311,7 +312,7 @@ impl TabViewer for Viewer<'_> {
         match tab {
             Tab::Welcome => "Welcome".into(),
             Tab::NoArea => "No Area Open".into(),
-            Tab::Nui(k) => k.map_or_else(|| "NUI Creator".into(), |k| k.to_string().into()),
+            Tab::Nui(k) => k.to_string().into(),
             Tab::ModuleProperties => "Module Properties".into(),
             Tab::Script(k) => {
                 let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());

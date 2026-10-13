@@ -335,7 +335,7 @@ impl Id {
                  hak's or the game's table: Edit… in the resource browser)",
             ),
             Id::NewScript => ("new-script", "New Script…", ""),
-            Id::NewNui => ("new-nui", "NUI Creator…", "Create a game UI window and its scripts"),
+            Id::NewNui => ("new-nui", "New NUI Window…", "Create a game UI window and its scripts"),
             Id::Palettes => ("palettes", "Palettes", ""),
             Id::PlaceableGallery => (
                 "placeable-gallery",
@@ -684,7 +684,10 @@ impl Id {
                 app.new_script = Some(String::new());
                 return;
             }
-            Id::NewNui => Action::OpenTab(Tab::Nui(None)),
+            Id::NewNui => {
+                app.new_nui = Some(String::new());
+                return;
+            }
             Id::NewTileset => return crate::tileset_view::new_tileset(app),
             Id::OpenTileset => return crate::tileset_view::open(app),
             Id::NewHak => return crate::hak_view::new_hak(app),

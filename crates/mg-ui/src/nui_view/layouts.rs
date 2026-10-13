@@ -419,7 +419,7 @@ mod tests {
         ws.module.set(ResKey::parse("swap_test", ResType::TXT).unwrap(), settings.bytes());
         Harness::builder().with_size(egui::vec2(1300.0, 1200.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::super::ui(app, ui, Some(ResKey::parse("swap_test", ResType::JUI).unwrap()));
+                super::super::ui(app, ui, ResKey::parse("swap_test", ResType::JUI).unwrap());
                 app.run_actions();
             },
             app,

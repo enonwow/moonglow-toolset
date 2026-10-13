@@ -17,7 +17,7 @@ fn harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
         .set(ResKey::parse("workflow", ResType::TXT).unwrap(), settings.bytes());
     let mut h = Harness::builder().with_size(egui::vec2(1100.0, 1100.0)).build_ui_state(
         |ui, app: &mut Moonglow| {
-            super::super::ui(app, ui, Some(ResKey::parse("workflow", ResType::JUI).unwrap()));
+            super::super::ui(app, ui, ResKey::parse("workflow", ResType::JUI).unwrap());
             app.run_actions();
         },
         app,
@@ -109,11 +109,7 @@ fn nui_body_drag_does_not_move_floating_window() {
                 .default_pos(egui::pos2(80.0, 60.0))
                 .default_size(egui::vec2(1100.0, 800.0))
                 .show(ui.ctx(), |ui| {
-                    super::super::ui(
-                        app,
-                        ui,
-                        Some(ResKey::parse("workflow", ResType::JUI).unwrap()),
-                    )
+                    super::super::ui(app, ui, ResKey::parse("workflow", ResType::JUI).unwrap())
                 });
             *rect = shown.unwrap().response.rect;
             app.run_actions();

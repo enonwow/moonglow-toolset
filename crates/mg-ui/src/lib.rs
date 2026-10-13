@@ -320,9 +320,11 @@ pub struct Moonglow {
     /// The game's NUI skin, its fonts and the pictures the open windows
     /// use, as the NUI Creator's preview draws them.
     pub(crate) nui_assets: nui_view::skin::Assets,
-    /// What each NUI Creator tab shows of its window (the launcher's under
-    /// `None`): the selection, the preview's settings, the checks.
-    pub(crate) nui_views: HashMap<Option<ResKey>, nui_view::State>,
+    /// What each NUI Creator tab shows of its window: the selection, the
+    /// preview's settings, the checks.
+    pub(crate) nui_views: HashMap<ResKey, nui_view::State>,
+    /// The New NUI Window window's name.
+    pub(crate) new_nui: Option<String>,
     palettes: images::Palettes,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
@@ -667,6 +669,7 @@ impl Moonglow {
             pictures: HashMap::new(),
             nui_assets: Default::default(),
             nui_views: HashMap::new(),
+            new_nui: None,
             palettes: HashMap::new(),
             area_audio: Default::default(),
             heard: None,
@@ -1062,6 +1065,7 @@ impl Moonglow {
         transfer::ui(self, ui);
         widgets::ui(self, ui);
         script_view::windows(self, ui);
+        nui_view::windows(self, ui);
         dialog_view::windows(self, ui);
         dialog_view::test_window(self, ui);
         script_wizard::window(self, ui);
@@ -2385,7 +2389,6 @@ impl Moonglow {
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::OpenTab(tab) => {
-                nui_view::route_tab(&mut self.dock, &tab);
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());
@@ -2447,12 +2450,19 @@ impl Moonglow {
                         // A script, with a script's window open: a tab of
                         // that window, not one more window (Options ›
                         // Script Editor).
-                        let beside = (matches!(tab, Tab::Script(_))
-                            && !self.settings.scripts_own_windows)
+                        // NUI windows share one window likewise.
+                        let script =
+                            matches!(tab, Tab::Script(_)) && !self.settings.scripts_own_windows;
+                        let nui = matches!(tab, Tab::Nui(_));
+                        let beside = (script || nui)
                             .then(|| {
                                 self.dock.iter_leaves().find(|(p, leaf)| {
                                     !p.surface.is_main()
-                                        && leaf.tabs.iter().any(|t| matches!(t, Tab::Script(_)))
+                                        && leaf.tabs.iter().any(|t| match t {
+                                            Tab::Script(_) => script,
+                                            Tab::Nui(_) => nui,
+                                            _ => false,
+                                        })
                                 })
                             })
                             .flatten()

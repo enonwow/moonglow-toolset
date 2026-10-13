@@ -277,7 +277,7 @@ impl Moonglow {
                 Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
                     !gone.contains(k)
                 }
-                Tab::Nui(Some(k)) => !gone.contains(k),
+                Tab::Nui(k) => !gone.contains(k),
                 Tab::Area(r) | Tab::AreaProperties(r) => {
                     !gone.iter().any(|k| k.restype == mg_core::ResType::ARE && k.resref == *r)
                 }
