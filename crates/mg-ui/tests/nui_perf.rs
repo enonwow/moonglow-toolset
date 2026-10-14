@@ -77,7 +77,7 @@ fn open(
     let mut app =
         Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.actions.push(Action::OpenTab(Tab::Nui(Some(key))));
+    app.actions.push(Action::OpenTab(Tab::Nui(key)));
 
     // Plain egui frames with tessellation, without the accessibility tree
     // (which the desktop app builds only for a screen reader).
