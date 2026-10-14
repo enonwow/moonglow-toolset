@@ -62,6 +62,8 @@ pub struct OptionsDraft {
     pub scripts_external: bool,
     pub scripts_external_only: bool,
     pub scripts_together: bool,
+    pub properties_together: bool,
+    pub dialogs_together: bool,
     pub dialog_font_size: Option<u8>,
     pub script_templates: String,
     pub scratch_dir: String,
@@ -147,6 +149,8 @@ impl OptionsDraft {
             scripts_external: s.scripts_external,
             scripts_external_only: s.scripts_external_only,
             scripts_together: !s.scripts_own_windows,
+            properties_together: !s.properties_own_windows,
+            dialogs_together: !s.dialogs_own_windows,
             dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
@@ -210,6 +214,8 @@ impl OptionsDraft {
             scripts_external: self.scripts_external,
             scripts_external_only: self.scripts_external_only,
             scripts_own_windows: !self.scripts_together,
+            properties_own_windows: !self.properties_together,
+            dialogs_own_windows: !self.dialogs_together,
             dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
@@ -456,6 +462,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  unsaved changes to ask about (File › Exit does not)",
                             );
                             ui.checkbox(
+                                &mut draft.properties_together,
+                                "Open Properties as tabs of one window",
+                            )
+                            .on_hover_text(
+                                "A blueprint's or a placed object's Properties open as a tab of \
+                                 the window Properties are open in already; off, each in a \
+                                 window of its own. (A tab dragged out is a window of its own \
+                                 again)",
+                            );
+                            ui.checkbox(
                                 &mut draft.tabs_by_recent,
                                 "Ctrl+Tab goes to the tab used last",
                             )
@@ -637,6 +653,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Show popup when creating a new text entry",
                             );
                             ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
+                            ui.checkbox(
+                                &mut draft.dialogs_together,
+                                "Open conversations as tabs of one window",
+                            )
+                            .on_hover_text(
+                                "A conversation opens as a tab of the window one is open in \
+                                 already; off, each in a window of its own",
+                            );
                             ui.horizontal(|ui| {
                                 crate::widgets::field_label(ui, "Font size");
                                 let usual = egui::TextStyle::Body.resolve(ui.style()).size;

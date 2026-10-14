@@ -128,6 +128,23 @@ impl Tab {
     }
 
     /// The size its own window opens at (before fitting the screen).
+    /// The kind of window this tab gathers in with others of its kind,
+    /// where its option says so (Options: scripts, Properties,
+    /// conversations): 0 scripts, 1 Properties, 2 conversations; and 3
+    /// NUI windows, which have no option.
+    pub(crate) fn gathers(&self) -> Option<u8> {
+        match self {
+            Tab::Script(_) => Some(0),
+            Tab::Blueprint(_)
+            | Tab::Blueprints(_)
+            | Tab::Instance { .. }
+            | Tab::Instances { .. } => Some(1),
+            Tab::Dialog(_) => Some(2),
+            Tab::Nui(_) => Some(3),
+            _ => None,
+        }
+    }
+
     pub(crate) fn window_size(&self) -> egui::Vec2 {
         let (w, h) = match self {
             // (Room for the text beside the lists, which open as wide as

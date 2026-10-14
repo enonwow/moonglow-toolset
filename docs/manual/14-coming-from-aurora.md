@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:37:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:26:42Z }
 ---
 
 # Coming from Aurora
@@ -99,7 +99,10 @@ Each names what Aurora does, then what Moonglow does instead.
   A script's **Compile** button saves and compiles that script. F7
   compiles all of them.
 - **Editors open in windows over the area**, so the area stays where it
-  is. Drag a window by its tab into the main pane to dock it.
+  is. Drag a window by its tab into the main pane to dock it. Editors
+  of a kind (Properties, scripts, conversations) open as tabs of one
+  window; untick the options for that (General, Script Editor,
+  Conversation Editor) to have each in a window of its own.
 - **The Welcome tab** replaces Aurora's start dialog. Module folders and
   `.mod` files open the same way, so there is no "open module
   directories" option.

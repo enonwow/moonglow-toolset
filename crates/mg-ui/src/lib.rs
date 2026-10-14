@@ -2450,22 +2450,22 @@ impl Moonglow {
                         // A script, with a script's window open: a tab of
                         // that window, not one more window (Options ›
                         // Script Editor).
-                        // NUI windows share one window likewise.
-                        let script =
-                            matches!(tab, Tab::Script(_)) && !self.settings.scripts_own_windows;
-                        let nui = matches!(tab, Tab::Nui(_));
-                        let beside = (script || nui)
-                            .then(|| {
+                        // (And so a Properties window and a
+                        // conversation, where their options say so.)
+                        let kind = tab.gathers().filter(|kind| match kind {
+                            0 => !self.settings.scripts_own_windows,
+                            1 => !self.settings.properties_own_windows,
+                            2 => !self.settings.dialogs_own_windows,
+                            // (NUI windows always.)
+                            _ => true,
+                        });
+                        let beside = kind
+                            .and_then(|kind| {
                                 self.dock.iter_leaves().find(|(p, leaf)| {
                                     !p.surface.is_main()
-                                        && leaf.tabs.iter().any(|t| match t {
-                                            Tab::Script(_) => script,
-                                            Tab::Nui(_) => nui,
-                                            _ => false,
-                                        })
+                                        && leaf.tabs.iter().any(|t| t.gathers() == Some(kind))
                                 })
                             })
-                            .flatten()
                             .map(|(p, _)| p);
                         match (pane, beside) {
                             (Some(pane), _) => {
