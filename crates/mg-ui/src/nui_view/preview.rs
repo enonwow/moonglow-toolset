@@ -1,5 +1,5 @@
 //! The canvas: the window drawn with the game's own skin, pictures and
-//! fonts, laid out here as the client lays it out. This file holds how a
+//! fonts, laid out here as the client was measured to. This file holds how a
 //! property's value is read (a bind's value in its place: [`val`], [`num`],
 //! [`flag`], [`string`]); the submodules hold the layout, the stage and each
 //! kind of control.
