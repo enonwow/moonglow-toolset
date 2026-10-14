@@ -311,6 +311,8 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
         return;
     }
     let external = app.external_compiler();
+    // What Compile All remembers, as it would load it: Build adds to it.
+    let kept = app.remembered_scripts(external.as_ref());
     let (Some(ws), Some(game)) = (&app.ws, &app.game) else {
         app.log.error("NUI generation needs the installed game's NWScript API; configure the game folder in Options");
         return;
@@ -337,11 +339,20 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
             Ok(()) => {
                 if let Some((failed, remembered)) = built {
                     app.script_stamps = remembered;
+                    if let Some(file) = &kept
+                        && let Err(e) = app.script_stamps.write(file)
+                    {
+                        crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
+                    }
                     for e in failed.iter().filter_map(|f| f.result.as_ref().err()) {
                         app.log.error(e.message.clone());
                     }
                 }
-                app.log.info(format!("Validated {name}_o.nss and compiled {name}_e.nss. Include {name}_o in your own script and call Open_{name}(oPlayer). Choose the player and triggering event yourself. Client appearance and events still require Test Module."));
+                app.log.info(format!(
+                    "Built {name}: {name}_o.nss written, {name}_e.nss compiled. To open the \
+                     window, include {name}_o in a script of yours and call \
+                     Open_{name}(oPlayer)."
+                ));
                 if export {
                     let mut resources: Vec<ResKey> = [
                         ResKey::parse(name, ResType::JUI),

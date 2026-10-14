@@ -103,7 +103,7 @@ pub(in crate::nui_view) fn canvas(
         ui.colored_label(
             ui.visuals().warn_fg_color,
             format!(
-                "NWN preview required: {}",
+                "Not drawn here (see it in the game): {}",
                 unsupported.into_iter().collect::<Vec<_>>().join(", ")
             ),
         );
@@ -292,7 +292,7 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         );
     }
     ui.small(if state.preview_interactive {
-        "Local simulation · Edit in panels · Changes reset the simulation · NWScript requires NWN"
+        "Controls take values here · Edit in the panels · An edit starts over · Handlers' code runs only in the game"
     } else {
         "Select to edit · Drag handles to resize · Esc cancels a resize"
     });

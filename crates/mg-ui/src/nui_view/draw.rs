@@ -297,14 +297,7 @@ pub(super) fn canvas_handles(
     if let Some(d) = &mut state.draw_drag
         && let Some(p) = ui.input(|i| i.pointer.latest_pos())
     {
-        let g = &mut d.gesture;
-        let delta = (p - g.origin) / scale;
-        for (key, delta) in
-            [(if g.size { "w" } else { "x" }, delta.x), (if g.size { "h" } else { "y" }, delta.y)]
-        {
-            g.draft[&g.field][key] =
-                json!((g.source[&g.field][key].as_f64().unwrap_or(0.0) + f64::from(delta)).round());
-        }
+        d.gesture.drag_to(p, scale);
     }
     let shown = state.draw_drag.as_ref().map_or(&item, |d| &d.gesture.draft).clone();
     let id = ui.id().with(("nui-canvas-draw", &path));
@@ -389,6 +382,25 @@ struct Gesture {
     size: bool,
 }
 
+impl Gesture {
+    /// The layer with the pointer at `p`: its point (or, sizing, its
+    /// rectangle's size) as far from where it was as the pointer is from
+    /// where the drag began. A layer written by hand may hold anything
+    /// where the point belongs: what is no object is left as it is.
+    fn drag_to(&mut self, p: Pos2, scale: f32) {
+        let delta = (p - self.origin) / scale;
+        for (key, delta) in [
+            (if self.size { "w" } else { "x" }, delta.x),
+            (if self.size { "h" } else { "y" }, delta.y),
+        ] {
+            let was = self.source[&self.field][key].as_f64().unwrap_or(0.0);
+            if let Some(point) = interaction::field(&mut self.draft, &self.field) {
+                interaction::set(point, key, json!((was + f64::from(delta)).round()));
+            }
+        }
+    }
+}
+
 pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &skin::Assets) {
     // A control written as something else (by hand, in the JSON) has no layers.
     if !node.is_object() {
@@ -448,16 +460,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 if let Some(g) = &mut drag
                     && let Some(p) = ui.input(|i| i.pointer.latest_pos())
                 {
-                    let delta = (p - g.origin) / scale;
-                    for (key, delta) in [
-                        (if g.size { "w" } else { "x" }, delta.x),
-                        (if g.size { "h" } else { "y" }, delta.y),
-                    ] {
-                        g.draft[&g.field][key] = json!(
-                            (g.source[&g.field][key].as_f64().unwrap_or(0.0) + f64::from(delta))
-                                .round()
-                        );
-                    }
+                    g.drag_to(p, scale);
                 }
                 let shown = drag.as_ref().map_or(&*item, |g| &g.draft);
                 let host = json!({"draw_list":[shown]});

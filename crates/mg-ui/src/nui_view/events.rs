@@ -47,9 +47,8 @@ fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
     Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
 }
 
-/// The script rebuilt around `settings`' handlers as Build would (one
-/// Moonglow wrote, an older one unchanged since included); else why not
-/// (logged by the caller).
+/// The script rebuilt around `settings`' handlers as Build would (`None`: a
+/// new one); else why not (logged by the caller).
 fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<String, String> {
     let bytes = current.map(crate::text::encode);
     mg_nui::rebuild_events(name, settings, bytes.as_deref())

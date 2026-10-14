@@ -73,6 +73,10 @@ pub(super) fn clipboard(
         return;
     }
     let Some(parent) = design::insertion_parent(v, selected) else { return };
+    // (Before anything is added: a paste that has nowhere to go adds no binds.)
+    if v.pointer(&parent).is_none() {
+        return;
+    }
     let Some(mut copy) = ctx.data(|d| d.get_temp::<Clipboard>(clipboard_id())) else { return };
     // Keep existing target binds intact when pasting between different windows.
     let mut names = BTreeMap::new();
@@ -90,15 +94,15 @@ pub(super) fn clipboard(
     }
     rename_binds(&mut copy.node, &names);
     assign_ids(&mut copy.node, v);
-    let container = v.pointer_mut(&parent).unwrap();
+    let Some(container) = v.pointer_mut(&parent) else { return };
     if container["type"] == "list" {
-        if let Some(cells) = container["row_template"].as_array_mut() {
+        if let Some(cells) = container.get_mut("row_template").and_then(Value::as_array_mut) {
             let mut cell = copy.cell.unwrap_or_else(|| json!([null, 150.0, true]));
             cell[0] = copy.node;
             *selected = format!("{parent}/row_template/{}/0", cells.len());
             cells.push(cell);
         }
-    } else if let Some(children) = container["children"].as_array_mut() {
+    } else if let Some(children) = container.get_mut("children").and_then(Value::as_array_mut) {
         *selected = format!("{parent}/children/{}", children.len());
         children.push(copy.node);
     }
@@ -127,10 +131,13 @@ pub(super) fn rename_binds(v: &mut Value, names: &BTreeMap<String, String>) {
 
 fn navigate(v: &Value, state: &mut State, forward: bool) {
     let paths = design::tree_paths(v, &state.collapsed);
+    // (Nothing to move through: a window whose root is not there.)
+    let Some(last) = paths.len().checked_sub(1) else { return };
     let at = paths.iter().position(|p| p == &state.selected).unwrap_or(0);
-    let next = if forward { (at + 1).min(paths.len() - 1) } else { at.saturating_sub(1) };
+    let next = if forward { (at + 1).min(last) } else { at.saturating_sub(1) };
     state.selected = paths[next].clone();
 }
+
 pub(super) fn keys(
     ui: &mut Ui,
     v: &mut Value,

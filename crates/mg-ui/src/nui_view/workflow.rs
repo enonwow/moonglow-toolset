@@ -74,8 +74,8 @@ impl BindDraft {
             Some("Enter a bind name.")
         } else if !mg_nui::plain_name(name) {
             Some(
-                "The name can't end with + or hold a line break or tab: the event script \
-                 couldn't name it.",
+                "The name can't hold a line break, a tab or another control character: the \
+                 event script couldn't name it.",
             )
         } else if bindings.contains_key(name) {
             Some("This bind already exists. Choose it above or use another name.")
