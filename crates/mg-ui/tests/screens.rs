@@ -2143,3 +2143,293 @@ fn plugins_window() {
     h.run();
     shoot(&mut h, &dir, "plugins-replace");
 }
+
+/// The application with `app`'s NUI window `key` open in a window of
+/// `size`, at the top left of the room under the toolbar.
+fn nui_harness(app: Moonglow, key: ResKey, size: (f32, f32)) -> Harness<'static, Moonglow> {
+    let mut app = app;
+    let tab = mg_ui::Tab::Nui(key);
+    app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(size.0 + 40.0, size.1 + 110.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    place(&mut h, &tab, (20.0, 90.0), size);
+    h.run_steps(3);
+    h
+}
+
+/// The NUI Creator on a window of settings (`nui-editor.png`), the preview
+/// in its Hover state at 150% (`nui-hover-150.png`), a list
+/// (`nui-list.png`), Interact (`nui-interact.png`, `-narrow`), groups,
+/// a chart and draw layers (`nui-controls.png`), Events & variants
+/// (`nui-events.png`) and a narrow window (`nui-compact.png`). Pictures of
+/// the editor to look at: what the game draws is the client's to say.
+#[test]
+#[ignore]
+fn nui_creator() {
+    use mg_nui::{Binding, Settings};
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
+    let config_key = ResKey::parse("nui_test", ResType::TXT).unwrap();
+    let new = |install: Option<GameInstall>| {
+        let mut app = Moonglow::new(install, Box::new(NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+        app.run(mg_ui::Action::NewNui("nui_test".into()));
+        app
+    };
+    let mut sample = new(Some(GameInstall::new(&root, None, "en")));
+    let mut window = mg_nui::window();
+    window["title"] = "Character settings".into();
+    window["geometry"]["w"] = 460.0.into();
+    window["geometry"]["h"] = 330.0.into();
+    window["root"]["children"][0]["value"] = "Customize your interface".into();
+    let mut input = mg_nui::template("textedit");
+    input["value"] = json!({"bind":"player_name"});
+    let mut check = mg_nui::template("check");
+    check["label"] = "Show tooltips".into();
+    check["value"] = json!({"bind":"show_tooltips"});
+    let mut button = mg_nui::template("button");
+    button["label"] = "Save settings".into();
+    button["id"] = "save_settings".into();
+    let mut combo = mg_nui::template("combo");
+    combo["elements"] = json!([["Polski", 0], ["English", 1]]);
+    let mut picture = mg_nui::template("image");
+    picture["value"] = "nui_button_a".into();
+    picture["height"] = 42.0.into();
+    window["root"]["children"]
+        .as_array_mut()
+        .unwrap()
+        .splice(1..2, [input, check, combo, mg_nui::template("progress"), picture, button]);
+    let mut settings = Settings::default();
+    settings.bindings.insert(
+        "player_name".into(),
+        Binding { value: "Łukasz — Żółw".into(), ..Default::default() },
+    );
+    settings
+        .bindings
+        .insert("show_tooltips".into(), Binding { value: true.into(), ..Default::default() });
+    let set = |app: &mut Moonglow, window: &serde_json::Value, settings: &Settings| {
+        let module = &mut app.ws.as_mut().unwrap().module;
+        module.set(key, serde_json::to_vec_pretty(window).unwrap());
+        module.set(config_key, settings.bytes());
+    };
+    set(&mut sample, &window, &settings);
+    let tab = mg_ui::Tab::Nui(key);
+    let mut h = nui_harness(sample, key, (1350.0, 960.0));
+    place(&mut h, &tab, (20.0, 90.0), (1200.0, 850.0));
+    h.run_steps(3);
+    h.get_by_label("Canvas Button · Save settings").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-editor");
+    h.get_by_label_contains("State: ").click();
+    h.run();
+    h.get_by_label("Hover").click();
+    h.run();
+    h.get_by_label("UI scale 100%").click();
+    h.run();
+    h.get_by_label("150%").click();
+    h.run();
+    h.get_by_label("Clean view").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-hover-150");
+
+    // A list and controls that take input.
+    let mut list = mg_nui::template("list");
+    list["row_count"] = 5.into();
+    list["row_height"] = 28.0.into();
+    list["row_template"] = json!([
+        [{"type":"label","value":{"bind":"items"},"text_halign":1},220.0,true],
+        [{"type":"check","label":"Active","value":{"bind":"active"}},110.0,false]
+    ]);
+    window["geometry"]["h"] = 380.0.into();
+    window["root"]["children"] = json!([
+        {"type":"label","value":"Inventory settings","height":30.0},
+        list,
+        mg_nui::template("slider"),
+        {"type":"button","label":"Apply","id":"apply","height":30.0}
+    ]);
+    settings.bindings.insert(
+        "items".into(),
+        Binding {
+            value: json!(["Miecz", "Łuk", "Tarcza", "Zbroja", "Pierścień"]),
+            ..Default::default()
+        },
+    );
+    settings.bindings.insert(
+        "active".into(),
+        Binding { value: json!([true, false, false, true, false]), ..Default::default() },
+    );
+    set(h.state_mut(), &window, &settings);
+    h.get_by_label("UI scale 150%").click();
+    h.run();
+    h.get_all_by_label("100%").last().unwrap().click();
+    h.run();
+    h.get_by_label("Clean view").click();
+    h.run();
+    h.get_by_label("Canvas List").click();
+    h.run();
+    h.get_by_label("Collapse List").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-list");
+    h.get_by_label("Interact").click();
+    h.run();
+    h.get_by_label("Canvas Checkbox · Active · row 1").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-interact");
+    place(&mut h, &tab, (20.0, 90.0), (1100.0, 800.0));
+    h.run_steps(3);
+    h.get_by_label("Canvas window").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-interact-narrow");
+
+    // A group that shows a variant, a chart, a color picker and draw layers.
+    window["title"] = json!("Views, charts and drawing");
+    window["geometry"] = json!({"x":-1.0,"y":-1.0,"w":480.0,"h":450.0});
+    window["root"]["children"] = json!([
+        {"type":"group","id":"view_host","height":70.0,"children":[{"type":"label","value":"Main view · native group"}]},
+        {"type":"row","children":[{"type":"button","id":"next","label":"Show details","height":32.0},{"type":"button","id":"mg_close","label":"Close","height":32.0}]},
+        {"type":"chart","height":100.0,"value":[{"type":0,"legend":"XP","color":{"r":80,"g":180,"b":240,"a":255},"data":[0.0,2.0,1.0,4.0]}]},
+        {"type":"color_picker","height":45.0,"value":{"r":80,"g":180,"b":240,"a":255}},
+        {"type":"spacer","height":100.0,"draw_list_scissor":true,"draw_list":[
+            {"type":7,"rect":{"x":8.0,"y":8.0,"w":160.0,"h":75.0},"color":{"r":173,"g":142,"b":96,"a":255},"line_thickness":2.0},
+            {"type":4,"rect":{"x":18.0,"y":26.0,"w":145.0,"h":40.0},"text":"Draw layer","font":""},
+            {"type":0,"points":[195.0,70.0,260.0,20.0,320.0,65.0,395.0,15.0],"color":{"r":80,"g":180,"b":240,"a":255},"line_thickness":3.0}
+        ]}
+    ]);
+    settings.views.insert("details".into(), json!({"type":"label","value":"Details view"}));
+    settings.actions = vec![mg_nui::Route {
+        event: "click".into(),
+        element: "next".into(),
+        action: mg_nui::Action::View { group: "view_host".into(), view: "details".into() },
+        extra: Default::default(),
+    }];
+    set(h.state_mut(), &window, &settings);
+    place(&mut h, &tab, (20.0, 90.0), (1350.0, 960.0));
+    h.run_steps(3);
+    h.get_by_label("Canvas Button · Show details").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-controls");
+    h.get_by_label("Events & variants").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-events");
+
+    // One GPU device at a time: this harness goes before the next is made.
+    drop(h);
+    let mut compact = nui_harness(new(None), key, (640.0, 720.0));
+    compact.get_by_label("Properties").click();
+    compact.run();
+    shoot(&mut compact, &dir, "nui-compact");
+}
+
+/// Properties on a dropdown with a long option, in the Creator's window as
+/// it opens and in a narrow one (`nui-inspector-options.png`, `-narrow`):
+/// Properties stays beside the canvas, not under it.
+#[test]
+#[ignore]
+fn nui_inspector_options() {
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("options", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("options".into()));
+    let mut window = mg_nui::window();
+    window["root"]["children"] = json!([{
+        "type":"row","children":[{
+            "type":"combo","id":"language","value":0,"height":30.0,
+            "elements":[["First",0],["An intentionally long option label that must remain editable inside Properties",2147483647]]
+        }]
+    }]);
+    app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
+    let mut h = nui_harness(app, key, (1130.0, 760.0));
+    h.get_by_label_contains("Canvas Dropdown").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-inspector-options");
+    place(&mut h, &mg_ui::Tab::Nui(key), (20.0, 90.0), (800.0, 760.0));
+    shoot(&mut h, &dir, "nui-inspector-options-narrow");
+}
+
+/// A module's NUI windows for [`nui_saved_window`] and [`nui_saved_windows`]:
+/// the module at NUI_PREVIEW_MODULE, read and never written, and its file
+/// as it was.
+fn nui_saved_module() -> (std::path::PathBuf, Vec<u8>, Vec<ResKey>) {
+    let path =
+        std::path::PathBuf::from(std::env::var("NUI_PREVIEW_MODULE").expect("NUI_PREVIEW_MODULE"));
+    let before = std::fs::read(&path).unwrap();
+    let only = std::env::var("NUI_PREVIEW_RESREF").ok();
+    let keys = mg_module::Module::open(&path)
+        .unwrap()
+        .keys()
+        .filter(|k| k.restype == ResType::JUI)
+        .filter(|k| only.as_ref().is_none_or(|n| k.resref.to_string() == *n))
+        .copied()
+        .collect();
+    (path, before, keys)
+}
+
+/// The application on the module at `path`, held in memory.
+fn nui_saved_app(root: &std::path::Path, path: &std::path::Path) -> Moonglow {
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(path).unwrap()));
+    app
+}
+
+/// The Creator on a window of a module made with it, as it opens: the
+/// window NUI_PREVIEW_RESREF of the module NUI_PREVIEW_MODULE, to the file
+/// NUI_PREVIEW_PNG. The module is not written.
+#[test]
+#[ignore]
+fn nui_saved_window() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let output = std::env::var("NUI_PREVIEW_PNG").expect("NUI_PREVIEW_PNG");
+    let (path, before, keys) = nui_saved_module();
+    let [key] = keys[..] else { panic!("NUI_PREVIEW_RESREF names one window of the module") };
+    let mut h = nui_harness(nui_saved_app(&root, &path), key, (1600.0, 1040.0));
+    h.run_steps(3);
+    h.render().expect("render").save(output).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the module is not written");
+}
+
+/// Every window of a module (NUI_PREVIEW_MODULE; one with
+/// NUI_PREVIEW_RESREF) as the clean preview alone, at 100%, a PNG each in
+/// NUI_PREVIEW_DIR: what is put beside the game client's screenshots.
+/// NUI_PREVIEW_CLICK="Canvas Dropdown#2" clicks the second such control in
+/// Interact first.
+#[test]
+#[ignore]
+fn nui_saved_windows() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = std::path::PathBuf::from(std::env::var("NUI_PREVIEW_DIR").expect("NUI_PREVIEW_DIR"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (path, before, keys) = nui_saved_module();
+    for key in keys {
+        // (One GPU device at a time: a window's harness goes with its turn.)
+        let mut h = nui_harness(nui_saved_app(&root, &path), key, (1300.0, 1150.0));
+        h.get_by_value("Editor").click();
+        h.run();
+        h.get_by_label("Preview only").click();
+        h.run();
+        h.get_by_label("Clean view").click();
+        h.run();
+        h.get_by_label("100%").click();
+        h.run_steps(3);
+        if let Ok(click) = std::env::var("NUI_PREVIEW_CLICK") {
+            let (label, nth) = click.split_once('#').unwrap_or((&click, "1"));
+            h.get_by_label("Interact").click();
+            h.run();
+            h.get_all_by_label(label).nth(nth.parse::<usize>().unwrap() - 1).unwrap().click();
+            h.run_steps(3);
+        }
+        shoot(&mut h, &dir, &key.resref.to_string());
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the module is not written");
+}

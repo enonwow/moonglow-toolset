@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 
 struct Case {
@@ -60,7 +60,7 @@ fn drag(h: &mut Harness<'_, Case>, from: egui::Pos2, by: egui::Vec2) {
 /// A draw layer chosen in Layers is sized by its corner and moved from
 /// inside on the canvas, and lands in the document on release.
 #[test]
-fn nui_draw_layer_is_sized_and_moved_on_the_canvas() {
+fn draw_layer_is_sized_and_moved_on_the_canvas() {
     let mut h = harness(
         json!([{"type":"spacer","height":200.0,"draw_list_scissor":false,"draw_list":[
             {"type":7,"enabled":true,"order":1,"render":0,"arrayBinds":false,"fill":false,
@@ -83,7 +83,7 @@ fn nui_draw_layer_is_sized_and_moved_on_the_canvas() {
 }
 
 #[test]
-fn nui_column_preserves_native_control_widths_when_window_grows() {
+fn column_preserves_native_control_widths_when_window_grows() {
     // Native Controls demo: an omitted width is 150, not the window's width.
     let mut h = harness(
         json!([
@@ -108,7 +108,7 @@ fn nui_column_preserves_native_control_widths_when_window_grows() {
 }
 
 #[test]
-fn nui_collapse_button_obeys_window_contract_and_reset() {
+fn collapse_button_obeys_window_contract_and_reset() {
     let mut h =
         harness(json!([{"type":"button","label":"Content","height":30.0}]), Settings::default());
     h.state_mut().state.preview_interactive = true;
@@ -132,7 +132,7 @@ fn nui_collapse_button_obeys_window_contract_and_reset() {
 }
 
 #[test]
-fn nui_whole_window_view_changes_only_root_and_reset_restores_it() {
+fn whole_window_view_changes_only_root_and_reset_restores_it() {
     let mut settings = Settings::default();
     let layout = json!({"type":"label","value":"Details"});
     settings.views.insert("details".into(), layout.clone());
@@ -155,7 +155,7 @@ fn nui_whole_window_view_changes_only_root_and_reset_restores_it() {
 }
 
 #[test]
-fn nui_declarative_preview_switches_views_watches_and_resets_without_authoring_changes() {
+fn declarative_preview_switches_views_watches_and_resets_without_authoring_changes() {
     use mg_nui::{Action as NuiAction, Route};
     let mut s = Settings::default();
     s.bindings.insert("flag".into(), Binding { value: json!(false), ..Default::default() });
@@ -217,7 +217,7 @@ fn nui_declarative_preview_switches_views_watches_and_resets_without_authoring_c
 }
 
 #[test]
-fn nui_screen_position_drag_commits_on_release_and_escape_cancels() {
+fn screen_position_drag_commits_on_release_and_escape_cancels() {
     let mut h = harness(json!([]), Settings::default());
     h.state_mut().state.screen_preview = true;
     h.state_mut().state.screen_size = egui::vec2(1280.0, 720.0);
@@ -251,7 +251,7 @@ fn nui_screen_position_drag_commits_on_release_and_escape_cancels() {
 }
 
 #[test]
-fn nui_wrapped_preview_toolbar_stays_compact() {
+fn wrapped_preview_toolbar_stays_compact() {
     for width in [360.0, 480.0, 540.0, 640.0, 900.0] {
         for live in [false, true] {
             let mut assets = skin::Assets::default();
@@ -281,7 +281,7 @@ fn nui_wrapped_preview_toolbar_stays_compact() {
 }
 
 #[test]
-fn nui_bound_window_geometry_is_not_replaced_by_authoring_handles() {
+fn bound_window_geometry_is_not_replaced_by_authoring_handles() {
     let mut h = harness(json!([]), Settings::default());
     h.state_mut().doc["geometry"] = json!({"bind":"bounds"});
     h.state_mut().settings.bindings.insert(
@@ -294,7 +294,7 @@ fn nui_bound_window_geometry_is_not_replaced_by_authoring_handles() {
 }
 
 #[test]
-fn nui_interact_changes_bind_values_and_inputs_without_editing_the_document() {
+fn interact_changes_bind_values_and_inputs_without_editing_the_document() {
     let mut settings = Settings::default();
     settings
         .bindings
@@ -370,7 +370,7 @@ fn nui_interact_changes_bind_values_and_inputs_without_editing_the_document() {
 }
 
 #[test]
-fn nui_interact_list_rows_and_disabled_ancestors_are_isolated() {
+fn interact_list_rows_and_disabled_ancestors_are_isolated() {
     let mut settings = Settings::default();
     settings.bindings.insert(
         "rows".into(),
@@ -410,7 +410,7 @@ fn nui_interact_list_rows_and_disabled_ancestors_are_isolated() {
 }
 
 #[test]
-fn nui_list_scroll_reaches_later_rows_without_changing_source() {
+fn list_scroll_reaches_later_rows_without_changing_source() {
     let mut h = harness(
         json!([{"type":"list","row_template":[[{"type":"label","value":"Entry"},150,true]],"row_count":40,"row_height":25,"height":120,"scrollbars":2}]),
         Settings::default(),
@@ -426,7 +426,7 @@ fn nui_list_scroll_reaches_later_rows_without_changing_source() {
 }
 
 #[test]
-fn nui_group_horizontal_scroll_moves_content_with_fixed_viewport_and_resets() {
+fn group_horizontal_scroll_moves_content_with_fixed_viewport_and_resets() {
     // Native Layout: content translates, frame stays fixed. No pixel/extent parity claim.
     let mut h = harness(
         json!([{
@@ -458,7 +458,7 @@ fn nui_group_horizontal_scroll_moves_content_with_fixed_viewport_and_resets() {
 }
 
 #[test]
-fn nui_text_vertical_scroll_moves_galley_with_fixed_clip_and_resets() {
+fn text_vertical_scroll_moves_galley_with_fixed_clip_and_resets() {
     // Real Creator Text demo in NWN: Y/BOTH/AUTO scroll; NONE stays fixed.
     let message = "FIRST line\n".repeat(30) + "LAST";
     for mode in [2, 3, 4] {
@@ -507,7 +507,7 @@ fn nui_text_vertical_scroll_moves_galley_with_fixed_clip_and_resets() {
 }
 
 #[test]
-fn nui_group_horizontal_scroll_respects_disabled_and_no_overflow() {
+fn group_horizontal_scroll_respects_disabled_and_no_overflow() {
     let mut h = harness(
         json!([{
             "type":"group", "width":220, "height":150, "scrollbars":1, "enabled":false,
@@ -530,7 +530,7 @@ fn nui_group_horizontal_scroll_respects_disabled_and_no_overflow() {
 /// moved by whole 29-point rows: 10 rows in 100 to row 9, 40 in 200 to row
 /// 35, 40 in 300 to row 32.
 #[test]
-fn nui_list_scrolls_to_the_rows_the_client_ends_on() {
+fn list_scrolls_to_the_rows_the_client_ends_on() {
     for (count, height, last_top_row) in [(10, 100.0, 9.0), (40, 200.0, 35.0), (40, 300.0, 32.0)] {
         let rows: Vec<_> = (0..count).map(|i| format!("Row {i}")).collect();
         let mut settings = Settings::default();
@@ -558,7 +558,7 @@ fn nui_list_scrolls_to_the_rows_the_client_ends_on() {
 /// from its top: [1,2,3] all hang from the top (the first down to the middle),
 /// [5,-2,0,4] stand on a zero line at 5/7.
 #[test]
-fn nui_chart_columns_follow_the_clients_formula() {
+fn chart_columns_follow_the_clients_formula() {
     let columns = |data: Value| {
         let mut h = harness(
             json!([{"type":"chart","width":300.0,"height":200.0,"value":[
@@ -603,7 +603,7 @@ fn nui_chart_columns_follow_the_clients_formula() {
 /// from where it stands with none (0 and 1 move it back), keeping its width;
 /// a button with no height is 50 high.
 #[test]
-fn nui_margins_move_controls_by_their_excess_over_the_default() {
+fn margins_move_controls_by_their_excess_over_the_default() {
     let button = |label: &str, margin: Option<f64>| {
         let mut b = json!({"type":"button","label":label,"height":30.0});
         if let Some(m) = margin {
@@ -636,7 +636,7 @@ fn nui_margins_move_controls_by_their_excess_over_the_default() {
 /// Row with nothing in it takes what the controls leave, pushing those after
 /// it to the bottom.
 #[test]
-fn nui_an_empty_row_takes_the_room_a_column_has_left() {
+fn an_empty_row_takes_the_room_a_column_has_left() {
     let mut h = harness(
         json!([{"type":"button","label":"top","height":30.0},
             {"type":"row","children":[]},
@@ -656,7 +656,7 @@ fn nui_an_empty_row_takes_the_room_a_column_has_left() {
 /// bar moves the text 36 to the left at the end, whatever the text; the
 /// lines don't rewrap. A short text has nothing to scroll in Y.
 #[test]
-fn nui_text_scrolls_its_measured_extents() {
+fn text_scrolls_its_measured_extents() {
     let message = "FIRST 01 Lorem ipsum dolor sit amet. 02 Long text checks wrapping.";
     for width in [200.0, 360.0] {
         let mut h = harness(
@@ -687,7 +687,7 @@ fn nui_text_scrolls_its_measured_extents() {
 }
 
 #[test]
-fn nui_group_scrolls_to_the_ends_the_client_stops_at() {
+fn group_scrolls_to_the_ends_the_client_stops_at() {
     // NWN EE 8193.37, np_group: a 300 × 150 group with both bars, holding a
     // 600-wide label and ten buttons, ends 290 down and 370 across.
     let mut rows = vec![json!({"type":"label","value":"wide","width":600,"height":30})];
@@ -723,7 +723,7 @@ fn nui_group_scrolls_to_the_ends_the_client_stops_at() {
 }
 
 #[test]
-fn nui_group_scroll_translates_text_without_rewrapping_at_viewport_edge() {
+fn group_scroll_translates_text_without_rewrapping_at_viewport_edge() {
     let message = "Nested group: this longer sentence must move with its content.";
     let mut h = harness(
         json!([{
@@ -769,7 +769,7 @@ fn nui_group_scroll_translates_text_without_rewrapping_at_viewport_edge() {
 }
 
 #[test]
-fn nui_vertical_tabs_keep_native_natural_width_and_explicit_width_override() {
+fn vertical_tabs_keep_native_natural_width_and_explicit_width_override() {
     // GUI-authored nui_orient_s: two native vertical Toggles span the same
     // 304 units as the horizontal pair; the previous preview narrowed to 150.
     for width in [None, Some(220.0)] {
@@ -787,7 +787,7 @@ fn nui_vertical_tabs_keep_native_natural_width_and_explicit_width_override() {
 }
 
 #[test]
-fn nui_native_choice_rows_do_not_stretch_and_empty_space_is_inert() {
+fn native_choice_rows_do_not_stretch_and_empty_space_is_inert() {
     // Native Orientations height90/150: same39px pitch, unused lower area inert.
     for ty in ["options", "tabbar"] {
         for height in [90, 150] {
@@ -821,7 +821,7 @@ fn nui_native_choice_rows_do_not_stretch_and_empty_space_is_inert() {
 }
 
 #[test]
-fn nui_native_vertical_tabs_remain_visible_and_clickable_past_short_allocation() {
+fn native_vertical_tabs_remain_visible_and_clickable_past_short_allocation() {
     // Native height30: second tab remains visible below y+39 and changes the bind.
     let mut h = harness(
         json!([{"type":"tabbar","elements":["First","Second"],
@@ -849,7 +849,7 @@ fn nui_native_vertical_tabs_remain_visible_and_clickable_past_short_allocation()
 }
 
 #[test]
-fn nui_native_horizontal_tabs_cap_row_height_and_preserve_reserved_space() {
+fn native_horizontal_tabs_cap_row_height_and_preserve_reserved_space() {
     let mut h = harness(
         json!([
             {"type":"tabbar","elements":["First","Second"],"height":60,"value":0},
@@ -873,7 +873,7 @@ fn nui_native_horizontal_tabs_cap_row_height_and_preserve_reserved_space() {
 }
 
 #[test]
-fn nui_native_short_options_overlap_next_tabs_and_use_full_natural_width() {
+fn native_short_options_overlap_next_tabs_and_use_full_natural_width() {
     // NWN (370,385) updates BOTH Options and following horizontal Tabs;
     // then (370,354), beyond the old150px width, resets Options only.
     let mut h = harness(
@@ -901,7 +901,7 @@ fn nui_native_short_options_overlap_next_tabs_and_use_full_natural_width() {
 }
 
 #[test]
-fn nui_label_alignment_uses_full_native_bounds_and_preserves_rgb() {
+fn label_alignment_uses_full_native_bounds_and_preserves_rgb() {
     // GUI-authored Alignment demo: top text was 2px too low and bottom
     // text 2-3px too high. Native middle alignment and RGB matched.
     for horizontal in 0..3 {
@@ -959,7 +959,7 @@ fn nui_label_alignment_uses_full_native_bounds_and_preserves_rgb() {
 }
 
 #[test]
-fn nui_interactive_textedit_keeps_native_vertical_alignment() {
+fn interactive_textedit_keeps_native_vertical_alignment() {
     for multiline in [false, true] {
         let mut h = harness(
             json!([{
@@ -995,7 +995,7 @@ fn nui_interactive_textedit_keeps_native_vertical_alignment() {
 }
 
 #[test]
-fn nui_textedit_limit_counts_utf8_bytes_and_rejects_partial_codepoints() {
+fn textedit_limit_counts_utf8_bytes_and_rejects_partial_codepoints() {
     // Native nui_edit_s: 127 bytes rejects ą but accepts Q. Both cases must
     // preserve existing text; do not trim the suffix when inserting at Home.
     for multiline in [false, true] {
@@ -1054,7 +1054,7 @@ fn nui_textedit_limit_counts_utf8_bytes_and_rejects_partial_codepoints() {
 }
 
 #[test]
-fn nui_textedit_wordwrap_preserves_explicit_lines_and_clips_overflow() {
+fn textedit_wordwrap_preserves_explicit_lines_and_clips_overflow() {
     // GUI-authored Edit demo exposed that wordwrap was ignored. This checks
     // the local property contract, not native NWN pixel/keyboard parity.
     let message = "A long sentence with several words that exceeds the field width.\nSecond line.";
@@ -1102,7 +1102,7 @@ fn nui_textedit_wordwrap_preserves_explicit_lines_and_clips_overflow() {
 }
 
 #[test]
-fn nui_picker_hue_preserves_brightness_and_writes_opaque_alpha() {
+fn picker_hue_preserves_brightness_and_writes_opaque_alpha() {
     // A hue-only edit must not progressively darken unmultiplied RGB.
     // Exercise the actual canvas/runtime, including fully transparent colors.
     for alpha in [128, 64, 0, 255] {
@@ -1154,7 +1154,7 @@ fn nui_picker_hue_preserves_brightness_and_writes_opaque_alpha() {
 }
 
 #[test]
-fn nui_close_button_requires_explicit_action_and_removal_stops_closing() {
+fn close_button_requires_explicit_action_and_removal_stops_closing() {
     let mut h = harness(
         json!([{"type":"button","id":"mg_close","label":"Close","height":30}]),
         Settings::default(),
@@ -1182,7 +1182,7 @@ fn nui_close_button_requires_explicit_action_and_removal_stops_closing() {
 }
 
 #[test]
-fn nui_bound_tooltips_follow_their_binds_and_the_enabled_state() {
+fn bound_tooltips_follow_their_binds_and_the_enabled_state() {
     // NWN EE 8193.37, np_tips: a disabled button shows its bound disabled
     // tooltip, a new value shows at once, and enabled it shows its tooltip.
     let mut settings = Settings::default();
@@ -1213,7 +1213,7 @@ fn nui_bound_tooltips_follow_their_binds_and_the_enabled_state() {
 }
 
 #[test]
-fn nui_combo_popup_rows_sit_where_the_clients_do() {
+fn combo_popup_rows_sit_where_the_clients_do() {
     // NWN EE 8193.37, np_combo: the popup's top meets the combo's bottom
     // bevel, entries 8 in from its left and 23 apart.
     let mut h = harness(
@@ -1238,7 +1238,7 @@ fn nui_combo_popup_rows_sit_where_the_clients_do() {
 }
 
 #[test]
-fn nui_encouraged_buttons_show_their_hover_look() {
+fn encouraged_buttons_show_their_hover_look() {
     // NWN EE 8193.37, np_misc: an encouraged button breathes between
     // nui_button_n and nui_button_h; the preview shows the peak.
     let pixel = |rgb: [u8; 3]| {
@@ -1278,7 +1278,7 @@ hover = \"btn_h\"
 }
 
 #[test]
-fn nui_missing_images_show_the_clients_gui_error_in_the_middle() {
+fn missing_images_show_the_clients_gui_error_in_the_middle() {
     // NWN EE 8193.37, np_imgmiss: at every aspect and alignment the client
     // draws gui_error at its own size in the middle of the image.
     let mut tga = vec![0u8; 18];
@@ -1314,7 +1314,7 @@ fn nui_missing_images_show_the_clients_gui_error_in_the_middle() {
 }
 
 #[test]
-fn nui_charts_and_progress_bars_stretch_like_labels() {
+fn charts_and_progress_bars_stretch_like_labels() {
     // NWN EE 8193.37, np_chartin and np_prog: with no width they take the
     // column's, and a chart in a row takes the room its neighbours leave.
     let series = json!([{"type":1,"legend":"C","color":{"r":240,"g":180,"b":80,"a":255},
@@ -1342,7 +1342,7 @@ fn nui_charts_and_progress_bars_stretch_like_labels() {
 }
 
 #[test]
-fn nui_image_buttons_without_their_picture_show_gui_error() {
+fn image_buttons_without_their_picture_show_gui_error() {
     // NWN EE 8193.37, np_bimg: drawn across the button like any picture.
     let mut tga = vec![0u8; 18];
     (tga[2], tga[12], tga[14], tga[16]) = (2, 1, 1, 24);
@@ -1363,7 +1363,7 @@ fn nui_image_buttons_without_their_picture_show_gui_error() {
 }
 
 #[test]
-fn nui_choice_entries_keep_their_150_whatever_the_width() {
+fn choice_entries_keep_their_150_whatever_the_width() {
     // NWN EE 8193.37, np_opts: in a 200-wide Options the second entry still
     // starts 154 in, and clicking 3/4 across picks the first.
     let mut h = harness(
@@ -1382,7 +1382,7 @@ fn nui_choice_entries_keep_their_150_whatever_the_width() {
 }
 
 #[test]
-fn nui_progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
+fn progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
     // NWN EE 8193.37, np_prog (1.5) and np_combo3 (30 entries, 297 high).
     let entries: Vec<_> = (0..30).map(|i| json!([format!("Entry {i}"), i])).collect();
     let mut h = harness(
@@ -1422,7 +1422,7 @@ fn nui_progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
 }
 
 #[test]
-fn nui_content_starts_under_the_clients_33_point_title_bar() {
+fn content_starts_under_the_clients_33_point_title_bar() {
     // NWN EE 8193.37, np_group: a window's first control (margin 2) is 43
     // points under its top: a 33-point title bar, then the body's 8.
     let mut h =
@@ -1435,7 +1435,7 @@ fn nui_content_starts_under_the_clients_33_point_title_bar() {
 }
 
 #[test]
-fn nui_screen_preview_caps_ui_scale_at_the_screen_height_over_720() {
+fn screen_preview_caps_ui_scale_at_the_screen_height_over_720() {
     // NWN EE 8193.37: ui.scale 1.5 on a 993-high client draws at 1.38.
     let mut h =
         harness(json!([{"type":"button","label":"Scaled","height":30}]), Settings::default());
@@ -1452,7 +1452,7 @@ fn nui_screen_preview_caps_ui_scale_at_the_screen_height_over_720() {
 }
 
 #[test]
-fn nui_bound_slider_values_are_clamped_into_their_bound_range() {
+fn bound_slider_values_are_clamped_into_their_bound_range() {
     // NWN EE 8193.37, np_slider: 100 in 0..8 reads back 8; raising min to 5
     // turns 0 into 5. A correction: the source keeps its value.
     let mut settings = Settings::default();
@@ -1479,7 +1479,7 @@ fn nui_bound_slider_values_are_clamped_into_their_bound_range() {
 }
 
 #[test]
-fn nui_native_dropdown_corrects_missing_selection_without_clicking_or_editing_source() {
+fn native_dropdown_corrects_missing_selection_without_clicking_or_editing_source() {
     // GUI-created nui_choices_s, NWN EE89.8193.37-17: empty retains -1,
     // singleton selects 42, multiple entries select the first ID. Clear/restore
     // retains a valid ID. A correction is not a synthetic click.

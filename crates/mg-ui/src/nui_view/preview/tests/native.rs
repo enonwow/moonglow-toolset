@@ -1,11 +1,15 @@
-//! Regression expectations derived from the Creator-authored native NWN demos.
-//! Reference MOD SHA256: 021f9251c71320998e0d027bfd7ebb1e18b79fb2ab8133983f0bd57a701a7587.
-//! The tests check observed relationships, not universal Cassowary equivalence.
-use super::*;
+//! What the preview is held to where the game client was measured: the
+//! contributor drew windows made with the Creator in the client (NWN:EE
+//! 89.8193.37-17, October 2026) and wrote down what it showed. The numbers
+//! are in the assertions, each with what was looked at; the windows
+//! themselves are not kept. They hold the relations that were seen, not
+//! the client's whole layout (it solves constraints, which the preview
+//! does not).
+use super::super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 
 #[test]
-fn nui_native_number_precision_rounds_signed_half_away_from_zero() {
+fn native_number_precision_rounds_signed_half_away_from_zero() {
     // Creator-generated Set bind actions, NWN EE89.8193.37-17, 2026-10-08:
     // +/-42.125 renders +/-42.13 at precision 2 (not Rust's ties-to-even).
     for (value, expected) in [
@@ -42,7 +46,7 @@ fn nui_native_number_precision_rounds_signed_half_away_from_zero() {
 }
 
 #[test]
-fn nui_native_multiline_edit_text_starts_at_top_even_without_wordwrap() {
+fn native_multiline_edit_text_starts_at_top_even_without_wordwrap() {
     // GUI-authored nui_edit_s in NWN EE89.8193.37-17 (2026-10-08):
     // both multiline variants start at the top; both single-line variants center.
     for multiline in [false, true] {
@@ -78,7 +82,7 @@ fn nui_native_multiline_edit_text_starts_at_top_even_without_wordwrap() {
 }
 
 #[test]
-fn nui_native_chart_uses_per_series_extents_and_zero_baseline() {
+fn native_chart_uses_per_series_extents_and_zero_baseline() {
     // nui_chart_s, MOD d9f13b28…: line [-10,0,10], columns [5,-5].
     // Native line uses x=i/count; bars extend from zero, not the bottom, a point
     // apart (Nuklear moves each by its index: 14..308 then 310..604 in NWN EE 8193.37).
@@ -120,7 +124,7 @@ fn nui_native_chart_uses_per_series_extents_and_zero_baseline() {
 }
 
 #[test]
-fn nui_native_chart_empty_message_and_constant_series() {
+fn native_chart_empty_message_and_constant_series() {
     for data in [json!([]), json!([{"type":0,"legend":"Equal -5","data":[-5.0,-5.0,-5.0]}])] {
         let empty = data.as_array().unwrap().is_empty();
         let mut h = harness(
@@ -173,7 +177,7 @@ fn assert_width(h: &Harness<'_, Case>, name: &str, expected: f32) -> Rect {
 }
 
 #[test]
-fn nui_native_column_spacer_does_not_add_a_second_row_gap() {
+fn native_column_spacer_does_not_add_a_second_row_gap() {
     // nui_audit_s, MOD 1258a5cd...: native gold frame rows after a 30px
     // spacer are 4px closer than the old preview (37 vs 41px between edges).
     let mut h = harness(
@@ -193,7 +197,7 @@ fn nui_native_column_spacer_does_not_add_a_second_row_gap() {
 }
 
 #[test]
-fn nui_native_widths_keep_intrinsic_row_button_and_layout_insets() {
+fn native_widths_keep_intrinsic_row_button_and_layout_insets() {
     // Creator-authored nui_widths_s, MOD 40bfae1d...df: 120/320 fixed,
     // row auto=150, row fixed=100, 4px gap and 2px layout inset in NWN.
     let mut h = harness(
@@ -223,7 +227,7 @@ fn nui_native_widths_keep_intrinsic_row_button_and_layout_insets() {
 }
 
 #[test]
-fn nui_native_geometry_actions_obey_bound_limits_without_editing_source() {
+fn native_geometry_actions_obey_bound_limits_without_editing_source() {
     let mut settings = Settings::default();
     settings.bindings.insert(
         "bounds".into(),
@@ -273,7 +277,7 @@ fn nui_native_geometry_actions_obey_bound_limits_without_editing_source() {
 }
 
 #[test]
-fn nui_native_display_uses_per_option_width_and_column_spans() {
+fn native_display_uses_per_option_width_and_column_spans() {
     let mut h = harness(
         json!([
             {"type":"label","value":"Label","height":30.0},
@@ -307,7 +311,7 @@ fn nui_native_display_uses_per_option_width_and_column_spans() {
 }
 
 #[test]
-fn nui_native_group_ignores_child_width_and_fills_remaining_height() {
+fn native_group_ignores_child_width_and_fills_remaining_height() {
     let mut h = harness(
         json!([
             {"type":"label","value":"Label","height":30.0},
@@ -333,7 +337,7 @@ fn nui_native_group_ignores_child_width_and_fills_remaining_height() {
 }
 
 #[test]
-fn nui_native_list_shares_variable_cells_equally_and_spaces_rows() {
+fn native_list_shares_variable_cells_equally_and_spaces_rows() {
     let mut h = harness(
         json!([
             {"type":"label","value":"Label","height":30.0},
@@ -363,7 +367,7 @@ fn nui_native_list_shares_variable_cells_equally_and_spaces_rows() {
 }
 
 #[test]
-fn nui_native_color_gradient_updates_simulation_without_editing_source() {
+fn native_color_gradient_updates_simulation_without_editing_source() {
     let mut settings = Settings::default();
     settings.bindings.insert(
         "color".into(),
@@ -404,7 +408,7 @@ fn nui_native_color_gradient_updates_simulation_without_editing_source() {
 }
 
 #[test]
-fn nui_native_rgb_picker_reserves_alpha_at_varied_widths_and_scales() {
+fn native_rgb_picker_reserves_alpha_at_varied_widths_and_scales() {
     // Native Display has a ~270px matrix next to a ~17px hue bar in a 304px
     // column. These are the RGB formulas in nk_do_color_picker, not a fixed
     // visible width fitted to that screenshot:
