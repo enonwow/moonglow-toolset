@@ -204,16 +204,16 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     let mut state: PortraitPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
     if state.open {
         let game = f.app.game.as_deref();
-        let names = |t: &str, name: &str, label: &str| {
-            game.and_then(|g| {
-                g.choices(t, ChoiceColumns { name: Some(name), label: Some(label) }).ok()
-            })
-            .unwrap_or_default()
+        let names = |t: &str, name: &str, label: Option<&str>| {
+            game.and_then(|g| g.choices(t, ChoiceColumns { name: Some(name), label }).ok())
+                .unwrap_or_default()
         };
+        // (Races with a name alone: a row without one is `DELETED`,
+        // `INVALID_RACE`, CEP's `CEP_RESERVED`.)
         let (races, genders, kinds) = (
-            names("racialtypes", "Name", "Label"),
-            names("gender", "NAME", "CONSTANT"),
-            names("placeabletypes", "StrRef", "Label"),
+            names("racialtypes", "Name", None),
+            names("gender", "NAME", Some("CONSTANT")),
+            names("placeabletypes", "StrRef", Some("Label")),
         );
         let int = |r: usize, c: &str| table.get_int(r, c);
         // Those with a picture (and the one chosen, whatever it has).

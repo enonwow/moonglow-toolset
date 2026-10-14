@@ -142,7 +142,9 @@ fn rating_label(f: &Form<'_>, ui: &mut Ui) {
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
-    let races = choices(f, "racialtypes", "Name", "Label");
+    // (Those with a name, as Aurora and the Creature Wizard list them: a
+    // row without one is `DELETED`, `INVALID_RACE`, CEP's `CEP_RESERVED`.)
+    let races = f.choices("racialtypes", Some("Name"), None);
     let appearances = choices(f, "appearance", "STRING_REF", "LABEL");
     let phenotypes = choices(f, "phenotype", "Name", "Label");
     let genders = choices(f, "gender", "NAME", "GENDER");

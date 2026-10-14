@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:32:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T11:57:55Z }
 ---
 
 # Blueprints
@@ -278,7 +278,9 @@ Shared parts:
 
 ### Creatures
 
-Basic (name, race, gender, portrait, appearance, faction, conversation),
+Basic (name, race, gender, portrait, appearance, faction, conversation;
+the races are those of racialtypes.2da with a name, as in Aurora: a row
+with only a label, `DELETED` or CEP's `CEP_RESERVED`, is not listed),
 **Statistics** (abilities, saves, armor class, hit points, speed; the
 arrows after a number make it one more or one less, as Aurora's do; the
 saves are the game's, also past level 20 with several classes, where

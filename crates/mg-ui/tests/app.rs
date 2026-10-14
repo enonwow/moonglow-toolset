@@ -5449,6 +5449,23 @@ fn a_weapon_s_parts_are_pictured_alone() {
     assert_eq!(field(&mut h, &key).integer("ModelPart2"), Some(21));
 }
 
+/// A creature's Race lists the racial types that have a name, as Aurora
+/// does: not `DELETED` and the like (rows with a label and no name, as
+/// CEP's `CEP_RESERVED` are).
+#[test]
+fn a_creature_s_races_are_those_with_a_name() {
+    let Some((mut h, _key)) = blueprint_harness("nw_chicken", "race_list", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_value("Animal").click();
+    h.run();
+    assert!(h.query_by_label("Human").is_some(), "the races are listed");
+    assert!(h.query_by_label("Elf").is_some());
+    assert!(h.query_by_label("DELETED").is_none(), "a row without a name is not");
+    assert!(h.query_by_label("INVALID_RACE").is_none());
+}
+
 #[test]
 fn item_editor_adds_properties_and_keeps_the_cost() {
     let Some((mut h, key)) = blueprint_harness("nw_wswls001", "sword_copy", ResType::UTI) else {
