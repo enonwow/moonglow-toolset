@@ -1598,10 +1598,10 @@ contribution itself states as not done or not checked.
   `crates/mg-corpus-tests/tests/client_nui.rs`): the client test (run by
   hand, as the renderer's) holds the errors that cite the client to it
   (NWN EE 8193.37): the layouts it refuses, Clip to control on the last
-  draw list, the labels of Options from a bind. No test covers the
-  warnings about what a control does when used (a Toggle button with a
-  fixed value, a disabled slider, a text field's `max` below 4, Clip to
-  control clipping nothing): they need a mouse and a keyboard in the
+  draw list (and that it clips nothing elsewhere), the labels of Options
+  from a bind. No test covers the warnings about what a control does
+  when used (a Toggle button with a fixed value, a disabled slider, a
+  text field's `max` below 4): they need a mouse and a keyboard in the
   client. The probes the checks name as open were run, and the checks
   still only warn: the client shows a window whose root is a label, a
   button or a spacer, finds a window by an ID with punctuation, spaces
@@ -1609,7 +1609,11 @@ contribution itself states as not done or not checked.
   with its center a point or a rectangle (it reads `x` and `y`); it also
   shows a window with alignment, render and paint order constants out of
   range. The warnings for the roots, the IDs and the comment on the arc
-  could go or say so. (S)
+  could go or say so. One case contradicts the checks (`clip_empty`): a
+  draw list with nothing in it is not the last one painted, so a window
+  whose last filled draw list has Clip to control on and is followed by
+  an empty one is shown blank by the client and passed by the checks
+  (`last_draw_list` counts the empty list). (S)
 - **A window's editor not yet the toolset's**
   (`crates/mg-ui/src/nui_view/`): the editor has no OK and Cancel row
   (`blueprint::ok_cancel`); New NUI is a landing tab rather than

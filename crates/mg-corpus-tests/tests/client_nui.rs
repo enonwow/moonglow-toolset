@@ -29,7 +29,7 @@
 //! labels of Options read from a bind. The warnings about what a control
 //! does when used (a Toggle button with a fixed value, a disabled slider,
 //! a text field's `max` below 4) need a mouse and a keyboard, and are not
-//! here. The cases marked as probes record what the client does where the
+//! here; that Clip to control clips nothing is. The cases marked as probes record what the client does where the
 //! checks only warn: constants out of range, a root that is no row, column
 //! or group, a window ID with punctuation, the shape of an arc's center.
 //!
@@ -38,7 +38,8 @@
 //! (`tools/aurora/headless.sh start`), once, under a timeout and (where
 //! there is `systemd-run`) a memory cap of 8 GB.
 //!
-//! Needs the game, a GPU and the off-screen display; takes two minutes;
+//! Needs the game, a GPU and the off-screen display; takes two and a half
+//! minutes;
 //! run by hand:
 //! `DISPLAY=:1 cargo test -p mg-corpus-tests --release --test client_nui -- --ignored --nocapture`.
 
@@ -67,6 +68,22 @@ const TURN: f32 = 4.0;
 const HOLD: f32 = 3.4;
 const SWAP: f32 = 0.8;
 
+/// Added to the client's settings (under `[graphics.video]`, where
+/// [`SETTINGS`] ends): frames at a steady 30 a second, not waiting on the
+/// off-screen display's refresh. Waiting on it, the picture of the client's
+/// window ran one to four seconds behind what the client was showing.
+const FRAMES: &str = r#"		[graphics.video.vsync]
+			mode = "off"
+	[graphics.framelimiter]
+		enabled = true
+		[graphics.framelimiter.background]
+			target-fps = 30
+		[graphics.framelimiter.foreground]
+			target-fps = 30
+		[graphics.framelimiter.non-interactive]
+			target-fps = 30
+"#;
+
 /// What the client does with a window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Client {
@@ -87,6 +104,8 @@ struct Case {
     swap: Option<&'static str>,
     /// Whether the green of [`arc`] must be on the screen, where asked.
     green: Option<bool>,
+    /// The fewest magenta pixels there must be, where asked.
+    magenta: usize,
 }
 
 const MAGENTA: [u8; 3] = [255, 0, 255];
@@ -155,7 +174,7 @@ fn case(name: &'static str, root: Value, error: Option<&'static str>, client: Cl
         "geo".into(),
         Binding { value: json!({"x":-1.0,"y":-1.0,"w":400.0,"h":300.0}), ..Default::default() },
     );
-    Case { name, window, settings, error, client, swap: None, green: None }
+    Case { name, window, settings, error, client, swap: None, green: None, magenta: 0 }
 }
 
 /// A window whose root is a column of `children`.
@@ -177,6 +196,10 @@ impl Case {
         self.settings.window_id = Some(id.into());
         self
     }
+    fn magenta(mut self, least: usize) -> Case {
+        self.magenta = least;
+        self
+    }
     fn green(mut self, seen: bool) -> Case {
         self.green = Some(seen);
         self
@@ -191,6 +214,15 @@ fn cases() -> Vec<Case> {
     let high = |room: f64, size: f64, margin| row(room, button("height", size, margin));
     let wide = |room: f64, size: f64| col(room, button("width", size, None));
     let on = || painted(json!(true));
+    let gap = || json!({"type":"spacer","height":30.0});
+    let over = || {
+        spacer(
+            json!(true),
+            json!([{"type":7,"enabled":true,"color":color(MAGENTA),"fill":true,
+                "line_thickness":1.0,"order":1,"render":0,
+                "rect":{"x":-20.0,"y":-20.0,"w":160.0,"h":80.0}}]),
+        )
+    };
     let mut all = vec![
         column("plain", json!([mark(), label(), button("height", 30.0, None)]), None, Shown),
         // Across a row or a column, a child's size and margins must fit:
@@ -240,6 +272,20 @@ fn cases() -> Vec<Case> {
             .bind("clip", json!(true)),
         column("clip_first", json!([on(), mark()]), None, Shown),
         column("clip_none", json!([mark(), mark()]), None, Shown),
+        // It clips nothing: a rectangle 20 pixels past the spacer on every
+        // side (160 by 80, where the spacer is 120 by 40) is drawn past it
+        // (16,000 pixels with the mark's: all but what the window's own
+        // left edge cuts; clipped, 9,600).
+        column("clip_overflow", json!([gap(), over(), gap(), mark()]), None, Shown).magenta(14_000),
+        // Where the checks and the client differ: a draw list with nothing
+        // in it is not the last one painted. The checks take it for the
+        // last, and pass a window the client shows blank.
+        column(
+            "clip_empty",
+            json!([gap(), over(), gap(), spacer(json!(false), json!([]))]),
+            None,
+            Blank,
+        ),
         // The labels of Options are the constructor's own: a bind there
         // "fails in the native client parser".
         column(
@@ -472,7 +518,7 @@ fn the_client_does_what_the_checks_say() {
     let cases = cases();
     let mut m = build_module(&game, &cases);
     std::fs::create_dir_all(dir.join("user")).unwrap();
-    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+    std::fs::write(dir.join("user/settings.tml"), format!("{SETTINGS}{FRAMES}")).unwrap();
     m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgNui.mod"))).unwrap();
 
     // In single player the game's server logs to the client's log.
@@ -531,10 +577,10 @@ fn the_client_does_what_the_checks_say() {
         // Placed by the client: no longer centered by −1, and not zeros.
         let at = |k: &str| geo[k].as_f64().unwrap_or(-1.0);
         let built = at("x") >= 0.0 && at("y") >= 0.0 && at("w") > 0.0;
-        // The last two pictures, which must agree: the first may be of the
-        // frame before.
-        let [.., before, last] = seen[..] else {
-            failures.push(format!("{}: fewer than two pictures", c.name));
+        // The last three pictures (a second), which must agree: the first
+        // ones of a case can still be of the window before it.
+        let [.., first, second, last] = seen[..] else {
+            failures.push(format!("{}: fewer than three pictures", c.name));
             continue;
         };
         let painted = last[0] > 0;
@@ -553,7 +599,7 @@ fn the_client_does_what_the_checks_say() {
             last[0],
             last[1],
         );
-        if (before[0] > 0) != painted {
+        if (first[0] > 0) != painted || (second[0] > 0) != painted {
             failures.push(format!("{}: the picture was not settled: {seen:?}", c.name));
         }
         if !built && painted {
@@ -561,6 +607,9 @@ fn the_client_does_what_the_checks_say() {
         }
         if client != c.client {
             failures.push(format!("{}: the client: {client:?}, expected {:?}", c.name, c.client));
+        }
+        if last[0] < c.magenta {
+            failures.push(format!("{}: {} magenta pixels of {}", c.name, last[0], c.magenta));
         }
         if c.green.is_some_and(|g| g != green) {
             failures.push(format!("{}: green seen: {green}", c.name));
