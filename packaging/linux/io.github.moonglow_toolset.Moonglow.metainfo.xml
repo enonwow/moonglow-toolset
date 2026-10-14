@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.30.0" date="2026-10-14">
+      <description>
+        <p>An object selected in an area opens its area out in the module
+        tree and is shown there, as in Aurora; an option keeps a closed
+        area closed.</p>
+      </description>
+    </release>
     <release version="1.29.1" date="2026-10-14">
       <description>
         <p>NUI Creator: Cancel keeps the code written in the event script,
