@@ -825,6 +825,90 @@ fn cancel_sets_back_what_the_tab_changed() {
     assert_ne!(document(&h), opened);
 }
 
+/// Cancel after a Build sets back what Build made with the settings that
+/// say what it made: set back alone, the settings took the opener Build
+/// left for one written by hand, and no Build went through after.
+#[test]
+fn cancel_after_a_build_leaves_a_window_that_builds() {
+    let root = mg_testkit::corpus!();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    app.ws = Some(mg_edit::Workspace::new(m));
+    app.run(Action::NewNui("nui_test".into()));
+    let build = Action::GenerateNui { name: "nui_test".into(), export: false };
+    app.run(build.clone());
+    let built = |app: &Moonglow| {
+        let module = &app.ws.as_ref().unwrap().module;
+        let name = |t| ResKey::new(key().resref, t);
+        let window = mg_nui::parse(module.get(&name(ResType::JUI)).unwrap()).unwrap();
+        let settings = Settings::parse(module.get(&name(ResType::TXT)).unwrap()).unwrap();
+        mg_nui::is_current(module, "nui_test", &window, &settings)
+    };
+    assert!(built(&app));
+    let mut h = creator(app, [1200, 850]);
+    h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
+    h.run();
+    let opened = document(&h);
+    // A control deleted, and the window built as it is then.
+    h.get_all_by_label("Button · Close").next().unwrap().click();
+    h.run();
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.state_mut().run(build.clone());
+    h.run();
+    assert!(built(h.state()));
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert_eq!(document(&h), opened);
+    assert!(built(h.state()), "the scripts are those of the window as it was");
+    h.state_mut().run(build);
+    assert!(built(h.state()), "and Build goes through");
+}
+
+/// A window whose text reads as something other than an object (a list,
+/// a number) is said to be no window: the pages, which set its fields,
+/// took it for one.
+#[test]
+fn text_that_is_no_object_is_no_window() {
+    for text in ["[]", "7", "\"window\""] {
+        let mut app = app();
+        let edit = mg_edit::Edit::SetResource { key: key(), data: Some(text.as_bytes().to_vec()) };
+        app.run(Action::Apply(mg_edit::Command::new("By hand", vec![edit])));
+        let mut h = creator(app, [1200, 850]);
+        h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
+        h.run_steps(3);
+        assert!(h.state().dock.find_tab(&Tab::Nui(key())).is_some(), "{text}");
+    }
+}
+
+/// An open window's editor stays with its window when something else of
+/// its name (a store, a script) is renamed.
+#[test]
+fn another_resource_of_the_window_s_name_renamed_leaves_its_editor() {
+    let mut app = app();
+    let store = ResKey::new(key().resref, ResType::UTM);
+    let script = ResKey::new(key().resref, ResType::NSS);
+    for (k, data) in [
+        (store, mg_gff::Gff::new(*b"UTM ").to_bytes().unwrap()),
+        (script, b"void main() {}\n".to_vec()),
+    ] {
+        let edit = mg_edit::Edit::SetResource { key: k, data: Some(data) };
+        app.run(Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+    }
+    app.run(Action::OpenTab(Tab::Nui(key())));
+    app.run(Action::OpenTab(Tab::Script(script)));
+    app.rename_resource(store, mg_core::ResRef::from_str("market").unwrap(), false);
+    assert!(app.dock.find_tab(&Tab::Nui(key())).is_some(), "the window's editor");
+    assert!(app.dock.find_tab(&Tab::Script(script)).is_some(), "the script's");
+    assert!(
+        app.ws.as_ref().unwrap().module.contains(&ResKey::parse("market", ResType::UTM).unwrap())
+    );
+}
+
 #[test]
 fn a_key_chosen_in_options_deletes_the_selected_control() {
     let mut h = harness();

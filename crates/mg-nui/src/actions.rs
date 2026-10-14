@@ -295,11 +295,17 @@ fn literal(value: &Value) -> Option<String> {
             Some(_) => return None,
             None => {
                 let f = n.as_f64()?;
-                // Debug keeps the ".0" NWScript needs; tiny or huge ones print exponents.
+                // Written out in full with a decimal point, as NWScript
+                // reads a float: it knows no exponents, which `{:?}`
+                // prints for a number under 0.0001.
                 if !(f == 0.0 || (1e-6..1e15).contains(&f.abs())) {
                     return None;
                 }
-                format!("JsonFloat({f:?})")
+                let digits = format!("{f}");
+                match digits.contains('.') {
+                    true => format!("JsonFloat({digits})"),
+                    false => format!("JsonFloat({digits}.0)"),
+                }
             }
         },
         _ => return None,
@@ -676,6 +682,10 @@ mod tests {
         assert_eq!(set(json!(true)), call("JsonBool(TRUE)"));
         assert_eq!(set(json!(-7)), call("JsonInt(-7)"));
         assert_eq!(set(json!(2.0)), call("JsonFloat(2.0)"));
+        // (A small one in full: NWScript reads no exponent, which Rust's
+        // `{:?}` writes under 0.0001.)
+        assert_eq!(set(json!(0.00005)), call("JsonFloat(0.00005)"));
+        assert_eq!(set(json!(1e14)), call("JsonFloat(100000000000000.0)"));
         // What a literal cannot spell goes through JsonParse.
         for value in [json!({"x": 1}), json!([1, 2]), json!(null), json!(5_000_000_000_i64)] {
             assert!(set(value.clone()).contains("JsonParse(sValue)"), "{value}");

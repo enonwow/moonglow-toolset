@@ -332,6 +332,13 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
         built = Some((made.failed, made.remembered));
         made.command
     });
+    // (For the window's Cancel: what Build replaces is set back with the
+    // settings that say what Build made, or the two would not agree and
+    // the next Build would take the opener for one written by hand.)
+    if let (Ok(cmd), Some(key)) = (&result, ResKey::parse(name, ResType::JUI)) {
+        let targets = [(key, mg_edit::GffPath::root())];
+        crate::blueprint::note_command(app, &Tab::Nui(key), &targets, cmd);
+    }
     match result {
         Ok(cmd) => match if cmd.edits.is_empty() { Ok(()) } else { app.apply(cmd) } {
             Ok(()) => {
@@ -540,7 +547,15 @@ fn check(module: &mg_module::Module, frame: &Frame, state: &mut State) -> Checke
     let held = |key: Option<ResKey>| key.and_then(|k| module.shared(&k).cloned());
     let of = [held(Some(frame.key)), held(Some(frame.config_key))];
     if state.source.as_ref().is_none_or(|s| !same(&s.of, &of)) {
-        let window = mg_nui::parse(frame.raw.as_bytes()).map_err(|e| e.to_string());
+        // (A window is an object: text that reads as a list or a number
+        // is not one, and the pages, which set its fields, are not shown
+        // it.)
+        let window = mg_nui::parse(frame.raw.as_bytes()).map_err(|e| e.to_string()).and_then(|v| {
+            match v.is_object() {
+                true => Ok(v),
+                false => Err("A window is a JSON object ({ … }): this text is not one".to_string()),
+            }
+        });
         if let Ok(doc) = &window {
             state.main_doc = Some(doc.clone());
             state.layout_groups = mg_nui::group_ids(doc);

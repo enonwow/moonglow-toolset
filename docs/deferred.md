@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T00:17:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T01:33:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1475,6 +1475,31 @@ where the crates keep theirs, and a client test of what its checks say of
 the game. This is what that review left, and after it what the
 contribution itself states as not done or not checked.
 
+- **Left by the read before the release (2026-10-14):** found and not
+  changed, each with the steps that show it.
+  - *Cancel takes back code written in the script editor.* The Creator's
+    own edit of the event script is noted as the whole script; code then
+    written in it from the script editor and saved goes with Cancel
+    (Undo brings it back). The sections' code should be kept, as Build
+    keeps it. (M)
+  - *A picture from disk replaces one of its name with no word*
+    (`nui_view/images.rs`): `icon.png` over the module's `icon.png`,
+    undoable, unsaid; and a file of any size is read. (S)
+  - *A control's ID or a bind renamed changes that string everywhere in
+    the event script* (`nui_view/events.rs`), the builder's code too
+    (`ok` to `confirm` changes an unrelated `"ok"`). (S)
+  - *The event script with unsaved text in its editor* is written into
+    that text by the Creator, outside Undo and Cancel. (S)
+  - *Closing a module leaves the Creator's pages and drafts* for a
+    window of the same name in the next (`nui_views`,
+    `nui_build_error` are not cleared). (S)
+  - *Deleting a window closes its scripts' tabs unasked*, unsaved text
+    with them (as deleting a script does). (S)
+  - *Settings fields Moonglow does not know* are kept, in name order
+    after the known ones, not where they were. (S)
+  - *`mg nui generate` succeeds* where a script of the module's that
+    includes the opener does not compile (it is printed), as `mg
+    compile` does. (S)
 - **A hak open in the hak editor takes no pictures**
   (`crates/mg-ui/src/nui_view/images.rs`): Images writes a listed hak's
   file in place, as the hak editor's Save does (no question; the log names

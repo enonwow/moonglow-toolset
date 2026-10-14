@@ -353,6 +353,15 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         for (i, slot) in slots.iter_mut().enumerate() {
             ui.push_id(i, |ui| {
                 widgets::table_heading(ui, format!("Series {}", i + 1));
+                // (A series is an object; one written as something else
+                // in the source is shown, and set there.)
+                if !slot.is_object() {
+                    ui.weak("Not a series: see Advanced › JUI source.");
+                    if ui.button("Remove series").clicked() {
+                        remove = Some(i);
+                    }
+                    return;
+                }
                 let before = slot["type"].as_i64().unwrap_or(0);
                 let mut kind = before;
                 ui.horizontal(|ui| {
@@ -365,9 +374,16 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                 }
                 let mut ignored = None;
                 for field in ["legend", "color", "data"] {
+                    // (A field the series lacks is shown empty, and made
+                    // only when it is given a value.)
+                    let mut value = slot.get(field).cloned().unwrap_or(Value::Null);
+                    let was = value.clone();
                     ui.push_id(field, |ui| {
-                        property(ui, field, "chart_slot", &mut slot[field], s, &mut ignored)
+                        property(ui, field, "chart_slot", &mut value, s, &mut ignored)
                     });
+                    if value != was {
+                        slot[field] = value;
+                    }
                 }
                 if ui.button("Remove series").clicked() {
                     remove = Some(i);

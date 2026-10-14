@@ -175,7 +175,7 @@ impl Moonglow {
             self.log.error(e.to_string());
             return;
         }
-        self.retarget(from.resref, to);
+        self.retarget(from, to);
         self.log.info(format!(
             "Renamed {from} to {new}: {} reference(s), {} in scripts",
             report.references, report.in_scripts
@@ -289,14 +289,27 @@ impl Moonglow {
     }
 
     /// Points open editors at a renamed resource's new name.
-    fn retarget(&mut self, from: ResRef, to: ResRef) {
+    /// (Those of the resource renamed, and of what goes by its name with
+    /// it: an area's three files, a script's compiled ones. A store named
+    /// as a script is, or as a NUI window, leaves their editors be.)
+    fn retarget(&mut self, from: ResKey, to: ResRef) {
+        const TOGETHER: [&[ResType]; 2] = [
+            &[ResType::ARE, ResType::GIT, ResType::GIC],
+            &[ResType::NSS, ResType::NCS, ResType::NDB],
+        ];
+        let kind = from.restype;
+        let with = move |t: ResType| {
+            t == kind || TOGETHER.iter().any(|set| set.contains(&t) && set.contains(&kind))
+        };
+        let is_area = with(ResType::ARE);
+        let from = from.resref;
         let moved = |k: &mut ResKey| {
-            if k.resref == from {
+            if k.resref == from && with(k.restype) {
                 k.resref = to;
             }
         };
         let moved_ref = |r: &mut ResRef| {
-            if *r == from {
+            if *r == from && is_area {
                 *r = to;
             }
         };
@@ -312,30 +325,42 @@ impl Moonglow {
             }
         }
         let old_keys: Vec<ResKey> =
-            self.scripts.keys().filter(|k| k.resref == from).copied().collect();
+            self.scripts.keys().filter(|k| k.resref == from && with(k.restype)).copied().collect();
         for k in old_keys {
             if let Some(b) = self.scripts.remove(&k) {
                 self.scripts.insert(ResKey::new(to, k.restype), b);
             }
         }
-        let old_keys: Vec<ResKey> =
-            self.dialog_views.keys().filter(|k| k.resref == from).copied().collect();
+        let old_keys: Vec<ResKey> = self
+            .dialog_views
+            .keys()
+            .filter(|k| k.resref == from && with(k.restype))
+            .copied()
+            .collect();
         for k in old_keys {
             if let Some(v) = self.dialog_views.remove(&k) {
                 self.dialog_views.insert(ResKey::new(to, k.restype), v);
             }
         }
-        let old_keys: Vec<ResKey> =
-            self.nui_views.keys().filter(|k| k.resref == from).copied().collect();
+        let old_keys: Vec<ResKey> = self
+            .nui_views
+            .keys()
+            .filter(|k| k.resref == from && with(k.restype))
+            .copied()
+            .collect();
         for k in old_keys {
             if let Some(v) = self.nui_views.remove(&k) {
                 self.nui_views.insert(ResKey::new(to, k.restype), v);
             }
         }
         // An area's view is rebuilt under its new name.
-        self.area_views.remove(&from);
-        let pages: Vec<_> =
-            self.blueprint_pages.keys().filter(|(k, _)| k.resref == from).cloned().collect();
+        if is_area {
+            self.area_views.remove(&from);
+        }
+        let pages: Vec<_> = (self.blueprint_pages.keys())
+            .filter(|(k, _)| k.resref == from && with(k.restype))
+            .cloned()
+            .collect();
         for (k, p) in pages {
             if let Some(v) = self.blueprint_pages.remove(&(k, p.clone())) {
                 self.blueprint_pages.insert((ResKey::new(to, k.restype), p), v);

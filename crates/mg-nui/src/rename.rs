@@ -16,7 +16,9 @@ use mg_module::refs::includers;
 use mg_resman::ResKey;
 use mg_script::lex::{TokenKind, tokenize};
 
-use crate::actions::{initial_function, merge_events, variant_function};
+use crate::actions::{
+    BEGIN, END, edited_outside, initial_function, merge_events, variant_function,
+};
 use crate::script::{bytes_text, fingerprint, sectioned, swap_groups, text_bytes};
 use crate::{NuiError, Resources, Settings, key, opener_source, parse};
 
@@ -105,7 +107,24 @@ pub fn rename(module: &Module, from: &str, to: &str, literals: bool) -> Result<R
         staged.set(new.settings, bytes);
     }
     if literals {
-        renamed.in_scripts += rename_strings(&mut staged, from, to);
+        // The window's own scripts, as Build writes them, are for the new
+        // name already: a string of theirs that spells the old one is an
+        // element's ID or an event's name (a window `shop` with a button
+        // `shop`), and changing it would part the script from the layout
+        // and from what Build wrote. The code in the event script's
+        // sections is the builder's, and is looked through.
+        let text = |k: &ResKey| staged.get(k).map(|b| String::from_utf8_lossy(b).into_owned());
+        let events = new.events(ResType::NSS);
+        let built_events =
+            text(&events).is_some_and(|t| t.contains(BEGIN.trim_end()) && !edited_outside(to, &t));
+        let opener = new.opener(ResType::NSS);
+        let built_opener =
+            staged.get(&new.settings).and_then(|b| Settings::parse(b).ok()).is_some_and(|s| {
+                s.opener_hash.is_some() && s.opener_hash == staged.get(&opener).map(fingerprint)
+            });
+        let own =
+            Own { opener: built_opener.then_some(opener), events: built_events.then_some(events) };
+        renamed.in_scripts += rename_strings(&mut staged, from, to, &own);
     }
     let mut keys: Vec<ResKey> = staged.keys().chain(module.keys()).copied().collect();
     keys.sort();
@@ -234,20 +253,56 @@ fn move_scripts(
     Ok(places)
 }
 
+/// The renamed window's own scripts where they are as Build writes them
+/// (`None`: changed by hand, or not there), which [`rename_strings`]
+/// leaves as they are but for the code in the event script's sections.
+struct Own {
+    opener: Option<ResKey>,
+    events: Option<ResKey>,
+}
+
+/// Where the code of an event script's sections is: the bytes between
+/// each `mg:begin` line and its `mg:end`.
+fn section_bodies(src: &[u8]) -> Vec<std::ops::Range<usize>> {
+    let (mut bodies, mut open, mut at) = (Vec::new(), None, 0);
+    for line in src.split_inclusive(|b| *b == b'\n') {
+        let text = String::from_utf8_lossy(line);
+        let text = text.trim();
+        if text.starts_with(BEGIN.trim_end()) {
+            open = Some(at + line.len());
+        } else if text == END
+            && let Some(from) = open.take()
+        {
+            bodies.push(from..at);
+        }
+        at += line.len();
+    }
+    bodies
+}
+
 /// Points the strings of the module's scripts that spell `from` (in any
 /// case, as the game looks names up) at `to`, and removes the compiled
 /// scripts of those changed and of what includes them. Returns how many
 /// strings were changed.
-fn rename_strings(staged: &mut Module, from: &str, to: &str) -> usize {
+fn rename_strings(staged: &mut Module, from: &str, to: &str, own: &Own) -> usize {
     let keys: Vec<ResKey> = staged.keys_of(ResType::NSS).copied().collect();
     let (mut changed, mut strings) = (Vec::new(), 0);
     for k in keys {
+        if own.opener == Some(k) {
+            continue;
+        }
         let Some(src) = staged.get(&k) else { continue };
+        // (Of the window's event script as built: its sections alone.)
+        let sections = (own.events == Some(k)).then(|| section_bodies(src));
         let mut out = Vec::with_capacity(src.len());
         let mut at = 0;
         for token in tokenize(src) {
             let inside = token.span.start + 1..token.span.end.saturating_sub(1);
-            if token.kind == (TokenKind::String { terminated: true })
+            let looked_at = sections
+                .as_ref()
+                .is_none_or(|s| s.iter().any(|body| body.contains(&token.span.start)));
+            if looked_at
+                && token.kind == (TokenKind::String { terminated: true })
                 && src.get(inside.clone()).is_some_and(|s| s.eq_ignore_ascii_case(from.as_bytes()))
             {
                 out.extend_from_slice(&src[at..inside.start]);
@@ -461,6 +516,40 @@ mod tests {
         assert!(text(&after, "store_e", ResType::NSS).contains("\"Open_shop stays in a string\""));
         assert!(caller.contains("// Open_shop opens it."));
         assert_eq!(made.in_scripts, 6);
+    }
+
+    /// A window with a control of its own name (`shop`, and its button
+    /// `shop`): the strings of its scripts as Build writes them are the
+    /// control's ID, not the window's name, and stay; the builder's code
+    /// in a section is looked through as any script is.
+    #[test]
+    fn a_window_s_own_scripts_keep_their_strings() {
+        let mut w = window();
+        w["root"]["children"] = json!([{"type": "button", "id": "shop", "label": "Buy"}]);
+        let mut s = Settings::default();
+        s.actions.push(Route::new("click", "shop", Action::Code));
+        let opener = opener_source("shop", &w, &s).unwrap();
+        let events = merge_events("shop", &s, None)
+            .unwrap()
+            .replace("        // Your code here.\n", "        NuiFindWindow(oPlayer, \"shop\");\n");
+        assert!(events.contains("sElement == \"shop\""), "{events}");
+        assert!(events.contains("NuiFindWindow(oPlayer, \"shop\")"), "{events}");
+        s.opener_hash = Some(fingerprint(opener.as_bytes()));
+        let mut m = Module::new();
+        m.set(k("shop", ResType::JUI), serde_json::to_vec_pretty(&w).unwrap());
+        m.set(k("shop", ResType::TXT), s.bytes());
+        m.set(k("shop_o", ResType::NSS), opener.into_bytes());
+        m.set(k("shop_e", ResType::NSS), events.into_bytes());
+        let made = rename(&m, "shop", "store", true).unwrap();
+        let after = applied(&m, &made.command);
+        let events = text(&after, "store_e", ResType::NSS);
+        assert!(events.contains("sElement == \"shop\""), "the control's ID stays: {events}");
+        assert!(events.contains("NuiFindWindow(oPlayer, \"store\")"), "{events}");
+        assert!(!edited_outside("store", &events), "still as Build writes it");
+        // The opener is Build's still: the next Build takes it.
+        let settings = Settings::parse(after.get(&k("store", ResType::TXT)).unwrap()).unwrap();
+        let opener = after.get(&k("store_o", ResType::NSS)).unwrap();
+        assert_eq!(settings.opener_hash, Some(fingerprint(opener)));
     }
 
     #[test]
