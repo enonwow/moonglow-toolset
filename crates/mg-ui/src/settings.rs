@@ -167,6 +167,10 @@ pub struct Settings {
     /// Options > Script Editor: a script opened from the module tree opens
     /// in the external script editor as well.
     pub scripts_external: bool,
+    /// Options > General: an area left closed in the module tree stays
+    /// closed when an object in it is selected (off, as Aurora: the
+    /// selection opens it out to show the object).
+    pub tree_keeps_areas_closed: bool,
     /// Options > General: each Properties window (a blueprint's, a placed
     /// object's) opens in a window of its own (off: as a tab of the
     /// window one is open in already).

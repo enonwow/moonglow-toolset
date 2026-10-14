@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T08:02:52Z }
 ---
 
 # The main window
@@ -247,7 +247,10 @@ tab, brings the area's row into view in the module tree, marked as the
 one in hand. Where the area is opened out in the tree (the arrow beside
 its row), an object selected in the area's view is shown there too: its
 kind's list opens and its row is marked and brought into view. An area
-left closed in the tree stays closed. **Show in Module Tree** on the
+left closed in the tree is opened out to it, as in Aurora; with **Show
+the object selected in an area in the module tree** unticked in Options
+› General, it stays closed, and the tree goes to an object only where its
+area is opened out already. **Show in Module Tree** on the
 tab's menu opens it out to what is placed in it. The bar beside the
 tab does the same on a double click and a right click, and the window is
 dragged by it. The arrow at the bar's left folds the window to its bar.

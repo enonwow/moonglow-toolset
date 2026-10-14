@@ -63,6 +63,7 @@ pub struct OptionsDraft {
     pub scripts_external_only: bool,
     pub scripts_together: bool,
     pub properties_together: bool,
+    pub tree_opens_area: bool,
     pub dialogs_together: bool,
     pub dialog_font_size: Option<u8>,
     pub script_templates: String,
@@ -150,6 +151,7 @@ impl OptionsDraft {
             scripts_external_only: s.scripts_external_only,
             scripts_together: !s.scripts_own_windows,
             properties_together: !s.properties_own_windows,
+            tree_opens_area: !s.tree_keeps_areas_closed,
             dialogs_together: !s.dialogs_own_windows,
             dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
@@ -215,6 +217,7 @@ impl OptionsDraft {
             scripts_external_only: self.scripts_external_only,
             scripts_own_windows: !self.scripts_together,
             properties_own_windows: !self.properties_together,
+            tree_keeps_areas_closed: !self.tree_opens_area,
             dialogs_own_windows: !self.dialogs_together,
             dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
@@ -460,6 +463,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .on_hover_text(
                                 "The window's close button asks first, where there are no \
                                  unsaved changes to ask about (File › Exit does not)",
+                            );
+                            ui.checkbox(
+                                &mut draft.tree_opens_area,
+                                "Show the object selected in an area in the module tree",
+                            )
+                            .on_hover_text(
+                                "An object selected in an area's view opens its area out in the \
+                                 module tree and goes to it there, as Aurora does; off, the tree \
+                                 goes to it only where its area is opened out already",
                             );
                             ui.checkbox(
                                 &mut draft.properties_together,

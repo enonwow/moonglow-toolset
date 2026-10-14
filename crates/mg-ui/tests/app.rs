@@ -16178,11 +16178,13 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
 
 /// An object selected in the area's view is shown in the module tree
 /// where its area is opened out there: its kind's list opened, its row
-/// marked. An area left closed in the tree stays closed.
+/// marked. An area left closed in the tree is opened out to it, as in
+/// Aurora, or with the option off stays closed.
 #[test]
 fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-follows") else { return };
+    h.state_mut().settings.tree_keeps_areas_closed = true;
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_none());
     // The area is not opened out in the tree: it stays closed.
@@ -16209,6 +16211,25 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     h.run_steps(3);
     assert_eq!(h.state().tree_object, None);
     assert!(h.query_by_label("Waypoints (2)").is_some());
+    // With Options › General's choice as it is at first, as Aurora: the
+    // area closed again, a selection opens it out and goes to the object.
+    // (The arrow on the area's row, before its name.)
+    let row = h.get_by_label("field").rect();
+    let arrow = h
+        .get_all_by_label("⏷")
+        .find(|n| {
+            n.rect().right() <= row.left() && (n.rect().center().y - row.center().y).abs() < 4.0
+        })
+        .unwrap();
+    arrow.click();
+    h.run_steps(6);
+    assert!(h.query_by_label("Waypoints (2)").is_none());
+    h.state_mut().settings.tree_keeps_areas_closed = false;
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    h.run_steps(8);
+    assert!(h.query_by_label("Waypoints (2)").is_some(), "opened out");
+    assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
+    assert!(!h.state().tree_object_pending, "gone to");
 }
 
 /// The resource browser's Filter has the side panes' keys (GitHub issue

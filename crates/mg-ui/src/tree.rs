@@ -453,7 +453,8 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
 /// The one object selected in the area in front, if it is another than
 /// the tree shows: the tree then goes to it (its kind's list opened),
 /// where its area is opened out there. An area left closed in the tree
-/// stays closed: the tree does not move.
+/// is opened out to it, as in Aurora, unless Options › General says to
+/// leave it closed (the tree then does not move).
 fn follow_selection(app: &mut Moonglow) {
     let selected = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
@@ -465,6 +466,9 @@ fn follow_selection(app: &mut Moonglow) {
     if selected != app.tree_object {
         app.tree_object = selected;
         app.tree_object_pending = selected.is_some();
+        if let Some((area, ..)) = selected.filter(|_| !app.settings.tree_keeps_areas_closed) {
+            app.tree_reveal = Some((area, true));
+        }
     }
 }
 
