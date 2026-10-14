@@ -1,4 +1,6 @@
-//! Stock draw-list primitives and a local coordinate editor.
+//! Draw layers (a control's `draw_list`): painting them on the canvas
+//! ([`paint`]), moving and sizing the chosen one there ([`canvas_handles`]),
+//! and their editor in the properties ([`editor`]).
 use super::preview::{Props, TextStyle, draw_image, flag, num, rgba, string, text, val};
 use super::*;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};

@@ -1,5 +1,6 @@
-//! Variants and event handlers: the Creator's own settings, written out as
-//! stock NUI calls.
+//! The Events & variants page ([`ui`]): the window's handlers and its swap
+//! layout variants in one list. Also the window that makes a bind
+//! ([`create_bind`]) and the pictures a window names ([`images()`]).
 use super::*;
 
 #[cfg(test)]

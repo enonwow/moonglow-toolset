@@ -1,4 +1,7 @@
-//! Layout variants and swap actions share one contextual authoring workflow.
+//! Swap layouts and their variants: making a group a swap layout, making
+//! and choosing variants ([`bar`], [`inspector`]), editing one in the
+//! window's place ([`edit`], [`context_document`]), and which group each
+//! variant was made for ([`target_for`]).
 use super::*;
 
 #[derive(Clone)]

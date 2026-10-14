@@ -1,4 +1,6 @@
-//! Structured values stay native JSON. UI helpers never add fields to runtime JUI.
+//! The fields of the Creator's forms: text, numbers, colors, a combo's
+//! options, a chart's series, a list's rows. Each edits a value of the
+//! window's JSON as it is: nothing of the editor's is written into the JUI.
 //!
 //! The form's fields are set as the other editors' are: text when its field
 //! is left, a number when its drag is let go, a color when its picker

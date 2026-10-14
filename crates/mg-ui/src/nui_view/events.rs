@@ -1,6 +1,10 @@
-//! Event handlers. Each one is a section of the window's event script
-//! (`<name>_e.nss`), where you write what happens; the stock NUI event
-//! types decide when it runs.
+//! Handlers. Each one is a section of the window's event script
+//! (`<name>_e.nss`), where its code is written; the client's event types
+//! decide when it runs. This holds the handlers of a control, a bind or the
+//! window in the properties ([`inspector`], [`editor`]), and the script as
+//! it follows the settings: rebuilt when the handlers change
+//! ([`sync_script`]), following a control that is renamed or removed
+//! ([`follow_controls`]), and opened at a handler's code ([`open_script`]).
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

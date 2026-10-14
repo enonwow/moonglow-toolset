@@ -1,4 +1,8 @@
-//! Game artwork and fonts on an editor canvas. Layout is local; NWScript is never run.
+//! The canvas: the window drawn with the game's own skin, pictures and
+//! fonts, laid out here as the client lays it out. This file holds how a
+//! property's value is read (a bind's value in its place: [`val`], [`num`],
+//! [`flag`], [`string`]); the submodules hold the layout, the stage and each
+//! kind of control.
 use super::*;
 use egui::{Align2, Color32, Painter, Rect, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
 use std::collections::BTreeSet;

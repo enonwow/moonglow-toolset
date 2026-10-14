@@ -1,4 +1,8 @@
-//! Disposable preview values and authoring gestures. Neither executes NWScript.
+//! What the canvas does without changing the window: a preview session
+//! ([`Session`]), in which controls take values and handlers' ready-made
+//! actions are followed (no NWScript is run), and the gestures that do
+//! change it once let go: moving the window ([`WindowMove`]) and sizing a
+//! control or the window ([`Resize`], [`resize_handles`]).
 use super::*;
 use egui::{Pos2, Vec2};
 

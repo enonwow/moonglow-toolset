@@ -1,5 +1,8 @@
-//! Authoring interactions and an explicitly approximate layout sketch.
-//! This does not replace the game's NUI layout solver or execute events.
+//! The Design page's editor view: the palette of controls, Layers (the
+//! window as a tree, to select, fold, drag and drop into), the canvas, and
+//! beside it the properties of what is selected, with their binds. Also
+//! where a new control goes ([`insert`], [`insert_at`]) and the Bindings
+//! page ([`bindings()`]).
 use super::*;
 use egui::{Sense, vec2};
 
@@ -401,24 +404,28 @@ fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
     });
     // While a variant is edited, the tree is still the window's own.
     let main = state.edit_view.as_ref().and_then(|_| state.main_doc.take());
-    layer(ui, main.as_ref().unwrap_or(v), "", s, state, 0, true, &v["root"]);
+    let tree = Tree { s, main: true, active_root: &v["root"] };
+    layer(ui, main.as_ref().unwrap_or(v), "", state, 0, tree);
     if main.is_some() {
         state.main_doc = main;
     }
     state.tree_selection.clone_from(&state.selected);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn layer(
-    ui: &mut Ui,
-    node: &Value,
-    path: &str,
-    s: &Settings,
-    state: &mut State,
-    depth: usize,
+/// What the rows of one tree in Layers share.
+#[derive(Clone, Copy)]
+struct Tree<'a> {
+    s: &'a Settings,
+    /// The window's own tree, not that of a variant being edited under its
+    /// swap layout.
     main: bool,
-    active_root: &Value,
-) {
+    /// What is being edited: the window, or the variant in its place.
+    active_root: &'a Value,
+}
+
+/// A control in Layers with what is under it: its row, its draw layers,
+/// then its children (a swap layout: its first contents and its variants).
+fn layer(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize, tree: Tree<'_>) {
     if depth > 64 {
         return;
     }
@@ -426,6 +433,42 @@ fn layer(
     if !search.is_empty() && !node.to_string().to_lowercase().contains(&search) {
         return;
     }
+    layer_row(ui, node, path, state, depth, tree);
+    if state.collapsed.contains(path) && search.is_empty() {
+        return;
+    }
+    draw_rows(ui, node, path, state, depth, tree.main);
+    if path.is_empty() {
+        layer(ui, &node["root"], "/root", state, depth + 1, tree);
+    }
+    if node["type"] == "group" && layouts::is_swap(tree.s, node) {
+        swap_rows(ui, node, path, state, depth, tree);
+        return;
+    }
+    if let Some(children) = node["children"].as_array() {
+        for (i, child) in children.iter().enumerate() {
+            layer(ui, child, &format!("{path}/children/{i}"), state, depth + 1, tree);
+        }
+    }
+    if let Some(cells) = node["row_template"].as_array() {
+        for (i, cell) in cells.iter().enumerate() {
+            layer(ui, &cell[0], &format!("{path}/row_template/{i}/0"), state, depth + 1, tree);
+        }
+    }
+}
+
+/// A control's own row: the arrow that folds what is under it, and its
+/// name, which selects it, is dragged to move it and takes what is dropped
+/// on it.
+fn layer_row(
+    ui: &mut Ui,
+    node: &Value,
+    path: &str,
+    state: &mut State,
+    depth: usize,
+    tree: Tree<'_>,
+) {
+    let Tree { s, main, active_root } = tree;
     ui.push_id(path, |ui| {
         ui.horizontal(|ui| {
             ui.add_space((depth as f32 * 14.0).min((ui.available_width() - 90.0).max(0.0)));
@@ -498,10 +541,11 @@ fn layer(
             });
         });
     });
-    if state.collapsed.contains(path) && search.is_empty() {
-        return;
-    }
-    // Its draw layers, each one to choose and then move or size on the canvas.
+}
+
+/// The rows of a control's draw layers, each one to choose and then move or
+/// size on the canvas.
+fn draw_rows(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize, main: bool) {
     if let Some(items) = node["draw_list"].as_array() {
         for (i, item) in items.iter().enumerate() {
             let kind =
@@ -532,86 +576,65 @@ fn layer(
             });
         }
     }
-    if path.is_empty() {
-        layer(ui, &node["root"], "/root", s, state, depth + 1, main, active_root);
-    }
-    if node["type"] == "group" && layouts::is_swap(s, node) {
-        let group = node["id"].as_str().unwrap_or_default();
-        ui.push_id(("swap-variants", main, path), |ui| {
+}
+
+/// What is under a swap layout: its first contents, then its variants,
+/// the one being edited with its own tree.
+fn swap_rows(
+    ui: &mut Ui,
+    node: &Value,
+    path: &str,
+    state: &mut State,
+    depth: usize,
+    tree: Tree<'_>,
+) {
+    let Tree { s, main, active_root } = tree;
+    let group = node["id"].as_str().unwrap_or_default();
+    ui.push_id(("swap-variants", main, path), |ui| {
+        ui.horizontal(|ui| {
+            ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
+            if ui
+                .add(
+                    egui::Button::new("Initial contents")
+                        .selected(state.edit_view.is_none())
+                        .frame(false),
+                )
+                .clicked()
+            {
+                layouts::edit(state, None);
+                state.selected = format!("{path}/children/0");
+            }
+        });
+        // What a swap layout holds sits under the contents it belongs to.
+        if let Some(children) = node["children"].as_array() {
+            for (i, child) in children.iter().enumerate() {
+                let child_path = format!("{path}/children/{i}");
+                layer(ui, child, &child_path, state, depth + 2, tree);
+            }
+        }
+        for name in layouts::variants(s, group) {
+            let active = state.edit_view.as_deref() == Some(name.as_str());
             ui.horizontal(|ui| {
                 ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
                 if ui
                     .add(
-                        egui::Button::new("Initial contents")
-                            .selected(state.edit_view.is_none())
+                        egui::Button::new(format!("Variant · {name}"))
+                            .selected(active)
                             .frame(false),
                     )
                     .clicked()
                 {
-                    layouts::edit(state, None);
-                    state.selected = format!("{path}/children/0");
+                    state.layout_target = group.into();
+                    layouts::edit(state, Some(name.clone()));
                 }
             });
-            // What a swap layout holds sits under the contents it belongs to.
-            if let Some(children) = node["children"].as_array() {
-                for (i, child) in children.iter().enumerate() {
-                    let child_path = format!("{path}/children/{i}");
-                    layer(ui, child, &child_path, s, state, depth + 2, main, active_root);
-                }
-            }
-            for name in layouts::variants(s, group) {
-                let active = state.edit_view.as_deref() == Some(name.as_str());
-                ui.horizontal(|ui| {
-                    ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
-                    if ui
-                        .add(
-                            egui::Button::new(format!("Variant · {name}"))
-                                .selected(active)
-                                .frame(false),
-                        )
-                        .clicked()
-                    {
-                        state.layout_target = group.into();
-                        layouts::edit(state, Some(name.clone()));
-                    }
+            if active && layouts::target_for(s, &name).as_deref() == Some(group) {
+                ui.push_id(("variant-tree", &name), |ui| {
+                    layer(ui, active_root, "/root", state, depth + 2, Tree { main: false, ..tree });
                 });
-                if active && layouts::target_for(s, &name).as_deref() == Some(group) {
-                    ui.push_id(("variant-tree", &name), |ui| {
-                        layer(ui, active_root, "/root", s, state, depth + 2, false, active_root);
-                    });
-                }
             }
-        });
-        return;
-    }
-    if let Some(children) = node["children"].as_array() {
-        for (i, child) in children.iter().enumerate() {
-            layer(
-                ui,
-                child,
-                &format!("{path}/children/{i}"),
-                s,
-                state,
-                depth + 1,
-                main,
-                active_root,
-            );
         }
-    }
-    if let Some(cells) = node["row_template"].as_array() {
-        for (i, cell) in cells.iter().enumerate() {
-            layer(
-                ui,
-                &cell[0],
-                &format!("{path}/row_template/{i}/0"),
-                s,
-                state,
-                depth + 1,
-                main,
-                active_root,
-            );
-        }
-    }
+    });
 }
 
 fn palette_target(

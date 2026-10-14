@@ -1,4 +1,7 @@
-//! NUI editing keys follow Moonglow's pointer-over-editor convention.
+//! The Creator's keys, taken while the pointer is over the editor as the
+//! other editors take theirs ([`keys`]): moving through the tree, delete,
+//! duplicate, move, and cut, copy and paste of a control with the binds it
+//! names ([`clipboard`]).
 use super::*;
 use crate::keys::{Cmd, Keymap};
 use std::collections::BTreeMap;
