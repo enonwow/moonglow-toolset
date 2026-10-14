@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.30.2" date="2026-10-14">
+      <description>
+        <p>A creature's race list leaves out the racial types without a
+        name (DELETED, CEP_RESERVED), as Aurora does.</p>
+      </description>
+    </release>
     <release version="1.30.1" date="2026-10-14">
       <description>
         <p>Torches on tiles burn where their source light has a color. Tile
