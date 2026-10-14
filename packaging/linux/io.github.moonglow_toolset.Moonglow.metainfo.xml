@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.30.1" date="2026-10-14">
+      <description>
+        <p>Torches on tiles burn where their source light has a color. Tile
+        Properties' color picker opens in front of it. The conversation
+        editor's lower pane keeps the height it is dragged to.</p>
+      </description>
+    </release>
     <release version="1.30.0" date="2026-10-14">
       <description>
         <p>An object selected in an area opens its area out in the module
