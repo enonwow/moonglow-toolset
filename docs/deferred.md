@@ -1476,10 +1476,6 @@ contribution itself states as not done or not checked.
   file in place, as the hak editor's Save does (no question; the log names
   the hak and the `.bak` kept), and refuses one that is open in the hak
   editor rather than adding the pictures to that document. (S)
-- **Unwraps in the Creator's keys** (`crates/mg-ui/src/nui_view/shortcuts.rs`):
-  `paths.len() - 1` in `navigate` and an `unwrap()` on a JSON pointer in
-  `clipboard`; the selection Undo leaves behind is cleared before they
-  are reached. Not reproduced. (S)
 - **Decoders and a picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
   PNG and TGA are read with the `image` crate though `mg-image` and `png`
   read them elsewhere, and `skin::Assets` keeps its textures beside
@@ -1488,10 +1484,9 @@ contribution itself states as not done or not checked.
   `native_job`): every frame, for the client's whole-pixel advances; a
   quarter of an idle frame on a 100-control window (2.3 ms in all,
   `crates/mg-ui/tests/nui_perf.rs`). (M)
-- **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
-  `crates/mg-nui/src/actions.rs`, `lib.rs`): the hover text "native NWN
-  testing is still required" is the editor's still. In `mg-nui` the
-  checks say "handler" and "variant" now, and the names stayed: a
+- **Names from before the handlers** (`crates/mg-nui/src/actions.rs`,
+  `lib.rs`): the checks say "handler" and "variant", and the names
+  stayed: a
   handler is a `Route`, the handlers `Settings::actions`, a variant
   shown `Action::View` and the variants `Settings::views`, as the
   editor uses them throughout; the settings file's own field names
@@ -1504,14 +1499,10 @@ contribution itself states as not done or not checked.
   writer's), and a JUI with a key twice in one object is not read at
   all: it is edited as text. (M)
 - **What is left of versions that were never released**
-  (`crates/mg-ui/src/nui_view.rs`, `nui_view/workflow.rs`): the
+  (`crates/mg-ui/src/nui_view.rs`): the
   **Add Close handler** button waits for a finding the checks no longer
-  make, the "Turn it off" fix-up of Clip to control is the editor's
-  still, and the bind name's refusal says a name "can't end with +",
-  which it can now (`mg_nui::plain_name`). (S)
-- **Functions too long to read:** `Renderer::node`
-  (`crates/mg-ui/src/nui_view/preview.rs`) is 1,350 lines and
-  `nui_view::ui` (`crates/mg-ui/src/nui_view.rs`) 490. (M)
+  make, and the "Turn it off" fix-up of Clip to control is the editor's
+  still. (S)
 - **Build has its own compiler path** (`mg_nui::generate`,
   `crates/mg-nui/src/script.rs`): it compiles with its own
   `mg_script::Compiler` instead of `mg_module::build`, so the
@@ -1523,11 +1514,6 @@ contribution itself states as not done or not checked.
   Images writes a picture into a listed hak in the user's hak folder in
   place (`mg_module::hak_edit::write_into`, which keeps a `.bak`), with no
   prompt; the hak editor's own save path was not compared. (S)
-- **Unwraps on a stale selection** (`crates/mg-ui/src/nui_view/bindings.rs`,
-  `events.rs`, `shortcuts.rs`, `design.rs`, `structure.rs`, `fields.rs`):
-  about twenty `unwrap()`s on JSON pointers, `paths.len() - 1` in
-  `shortcuts.rs` and an `unreachable!()` in `images.rs`; a selection left
-  stale by Undo is the likely way into them. Not reproduced. (S)
 - **`mg_nui::key` panics** (`crates/mg-nui/src/lib.rs`): public, and
   `expect`s a name that is a ResRef. (S)
 - **A caller that fails to compile is passed over** (`crates/mg-nui/src/script.rs`):
@@ -1549,9 +1535,9 @@ contribution itself states as not done or not checked.
   and with their attribute bit as alpha. (M)
 - **Words from before the handlers** (`crates/mg-ui/src/nui_view.rs`,
   `crates/mg-nui/src/validate.rs`, `docs/manual/18-nui-creator.md`): the
-  checks still say "route", "action" and "view"; the hover text "native
-  NWN testing is still required" and the manual's sentences about scripts
-  "an older Moonglow" wrote describe versions never released. (S)
+  checks still say "route", "action" and "view", and the manual's
+  sentences about scripts "an older Moonglow" wrote describe versions
+  never released. (S)
 - **Errors as strings, a severity twice** (`crates/mg-nui/src/lib.rs`,
   `validate.rs`):
   `mg-nui`'s public API returns `Result<_, String>` rather than a typed
@@ -1567,12 +1553,14 @@ contribution itself states as not done or not checked.
   the warning from before the Close handler, and the "Clip to control"
   fix-up. The manual's sentences about scripts "an older Moonglow
   wrote" describe the same. (S)
-- **Functions too long to read:** `nui_view::ui`
-  (`crates/mg-ui/src/nui_view.rs`) is 490 lines; pages and operations
-  are magic numbers. Of the preview (`crates/mg-ui/src/nui_view/preview/`),
-  split by kind of control, `Renderer::node` is still 180 lines and
-  `list` and `text_block` 140 each, and `draw::paint` takes nine arguments
-  (its callers in the draw-layer editor pass them). (S)
+- **Functions too long to read:** of the preview
+  (`crates/mg-ui/src/nui_view/preview/`), split by kind of control,
+  `Renderer::node` is still 180 lines and `list` and `text_block` 140
+  each, and `draw::paint` takes nine arguments (its callers in the
+  draw-layer editor pass them). In the editor
+  (`crates/mg-ui/src/nui_view.rs`, `nui_view/shortcuts.rs`) `property`
+  is 160 lines, and cut, copy and paste are the numbers 0 to 2
+  (`shortcuts::clipboard`'s `op`). (S)
 - **Tests in the wrong places:** about 6,700 lines of tests live under
   `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
   `crates/mg-ui/tests/`. (M)
@@ -1582,11 +1570,6 @@ contribution itself states as not done or not checked.
   gives it one that cannot be run; no test builds a window with a real
   external compiler. `mg nui generate` has no `--ndb` as `mg compile`
   has, and like it never takes an external compiler. (S)
-- **What Build compiled may be compiled once more**
-  (`crates/mg-ui/src/nui_view.rs`): Build notes its scripts in the
-  window's compile memory as it is; before the first Compile All of a
-  session that memory is not yet the module's, and what Build noted is
-  dropped when Compile All reads the kept one. (S)
 - **The checks read a layout three times**
   (`crates/mg-nui/src/validate.rs`): once for its shapes, once for its
   names, and once for the draw list painted last, which follows
@@ -1611,9 +1594,27 @@ contribution itself states as not done or not checked.
   (`widgets::text_begin`): a press and release within one frame on a
   check's "Select it" link, drawn before the form, would select another
   control first and lose what was typed. (S)
-- **A window's companions do not follow it** (the module tree's Rename
-  and Delete, `crates/mg-ui/src/references.rs`): renaming or deleting a window does not carry
-  its `.txt`, `_o.nss`, `_e.nss` and `_e.ncs`. (S)
+- **Renaming a window compiles nothing** (`mg_nui::rename`,
+  `crates/mg-nui/src/rename.rs`; `Moonglow::rename_nui`,
+  `crates/mg-ui/src/references.rs`): the compiled scripts of the old
+  name, and of the scripts that open the window, are removed, and the log
+  asks for a Build; the other renames compile what they changed. A
+  window's ID in the game follows its name unless the settings give
+  another, and a script that finds the window by it
+  (`NuiFindWindow(oPlayer, "old")`) is only reported, unless the Rename
+  window's strings option is on. The tabs follow a rename and not its
+  Undo, as every rename's. (S)
+- **A window's script renamed by itself** (`crates/mg-ui/src/references.rs`):
+  Rename… on `NAME_e.nss` or `NAME_o.nss` is a script's rename, which
+  knows nothing of the window: the opener still names the event script
+  it was built with, and Build makes both again under the window's
+  name. `mg rename` does not rename a window (a JUI is none of the types
+  `mg_module::rename` knows), and the manual does not say a window can
+  be renamed. (S)
+- **What Build adds to the compile memory has no test**
+  (`Moonglow::remembered_scripts`, `crates/mg-ui/src/lib.rs`): Build
+  loads what Compile All keeps, adds its scripts and writes it; no
+  test reads what is kept after a Build. (S)
 - **Keys taken its own way** (`crates/mg-ui/src/nui_view.rs`): shortcuts
   are consumed with `keymap.consume` and a hand-made clipboard filter
   rather than as `dialog_view` does (`widgets::copy_cut_paste`); Left
