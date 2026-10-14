@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.31.0" date="2026-10-14">
+      <description>
+        <p>Docking: the palettes dropped onto the middle join its tabs, a
+        tool window reopens in the split it was closed in, and the
+        resource browser stays a side pane. The palettes fold away by a
+        button of their own. A sideways scroll and Alt + drag off the
+        selection move the area's camera.</p>
+      </description>
+    </release>
     <release version="1.30.2" date="2026-10-14">
       <description>
         <p>A creature's race list leaves out the racial types without a
