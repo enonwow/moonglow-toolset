@@ -1133,9 +1133,9 @@ fn dialogs_id() -> egui::Id {
     egui::Id::new("moonglow-dialogs")
 }
 
-/// Once a frame, before anything is drawn: the dialogs shown last frame
-/// stay above the docked windows (a click on Properties used to bury the
-/// Variables window opened from it), the last opened on top; and Escape is
+/// Once a frame, before anything is drawn: the dialog opened last stays
+/// above the docked windows (a click on Properties used to bury the
+/// Variables window opened from it); and Escape is
 /// read for [`escape_closes`]. Not while a list or menu is open, which
 /// Escape closes first.
 pub(crate) fn dialogs_begin(ctx: &egui::Context) {
@@ -1147,7 +1147,11 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
             d.open.push(l);
         }
     }
-    for l in &d.open {
+    // (The one opened last alone: egui keeps the order among those raised
+    // in one frame, and a docked window with a Cancel of its own counts as
+    // a dialog. Raised with the colour picker opened from it, Tile
+    // Properties stayed in front of it once it had been clicked.)
+    if let Some(l) = d.open.last() {
         ctx.move_to_top(*l);
     }
     d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())

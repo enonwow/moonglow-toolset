@@ -483,6 +483,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         .default_size(260.0f32.min(most))
         .max_size(most);
     fields.show(ui, |ui| {
+        // As tall as it was dragged to, whatever is in it: a panel is as
+        // tall as its content, and the pane went back to it (shorter, for
+        // a line with less to show) after it was dragged taller.
+        ui.set_min_height(ui.max_rect().height());
         let words = g.root.dword("NumWords").unwrap_or(0);
         // Find and Replace, and Find Next (Options › Keyboard): the
         // Search pane.
@@ -512,123 +516,136 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         });
         ui.separator();
-        if view.bottom == Bottom::Bookmarks {
-            for (kind, index) in view.bookmarks.clone() {
-                let Some(n) = node(&g, kind, index) else { continue };
-                if ui
-                    .selectable_label(
-                        false,
-                        format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
-                    )
-                    .clicked()
-                    && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
-                {
-                    view.selected = Some(Row { parent, pos });
+        // (Shorter than what it shows, it scrolls.)
+        let body = egui::ScrollArea::vertical().id_salt(("dlg-data-body", key)).auto_shrink(false);
+        body.show(ui, |ui| {
+            if view.bottom == Bottom::Bookmarks {
+                for (kind, index) in view.bookmarks.clone() {
+                    let Some(n) = node(&g, kind, index) else { continue };
+                    if ui
+                        .selectable_label(
+                            false,
+                            format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
+                        )
+                        .clicked()
+                        && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
+                    {
+                        view.selected = Some(Row { parent, pos });
+                    }
+                }
+                return;
+            }
+            if view.bottom == Bottom::Search {
+                search_pane(app, ui, key, &g, &mut view, &mut actions);
+                return;
+            }
+            // A row added this frame appears once the command has run.
+            match view.selected.filter(|r| r.pos < links(&g, r.parent).len()) {
+                None => {
+                    ui.weak(format!("Root. {words} words in the file. Add adds an NPC greeting."));
+                    file_tab(app, ui, key, &g, &mut actions);
+                }
+                Some(r) => {
+                    let (kind, index) = target_of(r);
+                    let link = links(&g, r.parent)[r.pos].clone();
+                    let Some(n) = node(&g, kind, index).cloned() else { return };
+                    let line = text(&n);
+                    ui.weak(format!(
+                        "Line: {} letters, {} words. File: {words} words.{}",
+                        line.chars().count(),
+                        line.split_whitespace().count(),
+                        if is_link(&link) {
+                            " This row is a link: the line is edited where it is owned."
+                        } else {
+                            ""
+                        }
+                    ));
+                    ui.columns(2, |cols| {
+                        text_panel(
+                            app,
+                            &mut cols[0],
+                            key,
+                            kind,
+                            index,
+                            &n,
+                            &mut view,
+                            &mut actions,
+                        );
+                        let ui = &mut cols[1];
+                        ui.horizontal(|ui| {
+                            for (t, label) in [
+                                (DataTab::Condition, "Text Appears When…"),
+                                (DataTab::Action, "Actions Taken"),
+                                (DataTab::Other, "Other Actions"),
+                                (DataTab::Comments, "Comments"),
+                                (DataTab::File, "Current File"),
+                            ] {
+                                ui.selectable_value(&mut view.tab, t, label);
+                            }
+                        });
+                        ui.separator();
+                        egui::ScrollArea::vertical().id_salt(("dlg-tab", key)).show(ui, |ui| {
+                            match view.tab {
+                                DataTab::Condition => script_with_params(
+                                    app,
+                                    ui,
+                                    key,
+                                    link_path(r),
+                                    "Active",
+                                    "ConditionParams",
+                                    &link,
+                                    "cond",
+                                    &mut actions,
+                                ),
+                                DataTab::Action => script_with_params(
+                                    app,
+                                    ui,
+                                    key,
+                                    node_path(kind, index),
+                                    "Script",
+                                    "ActionParams",
+                                    &n,
+                                    "act",
+                                    &mut actions,
+                                ),
+                                DataTab::Other => {
+                                    other_tab(app, ui, key, kind, index, &n, &mut actions)
+                                }
+                                DataTab::Comments => {
+                                    let (path, label, value) = if is_link(&link) {
+                                        (
+                                            link_path(r),
+                                            "LinkComment",
+                                            decode(link.string("LinkComment").unwrap_or_default()),
+                                        )
+                                    } else {
+                                        (
+                                            node_path(kind, index),
+                                            "Comment",
+                                            decode(n.string("Comment").unwrap_or_default()),
+                                        )
+                                    };
+                                    let id =
+                                        egui::Id::new(("dlg-comment", key, kind, index, label));
+                                    if let Some(v) =
+                                        commit_text(app, ui, id, &value, true, f32::INFINITY)
+                                    {
+                                        actions.push(set(
+                                            key,
+                                            "Comment",
+                                            path,
+                                            label,
+                                            Value::String(encode(&v)),
+                                        ));
+                                    }
+                                }
+                                DataTab::File => file_tab(app, ui, key, &g, &mut actions),
+                            }
+                        });
+                    });
                 }
             }
-            return;
-        }
-        if view.bottom == Bottom::Search {
-            search_pane(app, ui, key, &g, &mut view, &mut actions);
-            return;
-        }
-        // A row added this frame appears once the command has run.
-        match view.selected.filter(|r| r.pos < links(&g, r.parent).len()) {
-            None => {
-                ui.weak(format!("Root. {words} words in the file. Add adds an NPC greeting."));
-                file_tab(app, ui, key, &g, &mut actions);
-            }
-            Some(r) => {
-                let (kind, index) = target_of(r);
-                let link = links(&g, r.parent)[r.pos].clone();
-                let Some(n) = node(&g, kind, index).cloned() else { return };
-                let line = text(&n);
-                ui.weak(format!(
-                    "Line: {} letters, {} words. File: {words} words.{}",
-                    line.chars().count(),
-                    line.split_whitespace().count(),
-                    if is_link(&link) {
-                        " This row is a link: the line is edited where it is owned."
-                    } else {
-                        ""
-                    }
-                ));
-                ui.columns(2, |cols| {
-                    text_panel(app, &mut cols[0], key, kind, index, &n, &mut view, &mut actions);
-                    let ui = &mut cols[1];
-                    ui.horizontal(|ui| {
-                        for (t, label) in [
-                            (DataTab::Condition, "Text Appears When…"),
-                            (DataTab::Action, "Actions Taken"),
-                            (DataTab::Other, "Other Actions"),
-                            (DataTab::Comments, "Comments"),
-                            (DataTab::File, "Current File"),
-                        ] {
-                            ui.selectable_value(&mut view.tab, t, label);
-                        }
-                    });
-                    ui.separator();
-                    egui::ScrollArea::vertical().id_salt(("dlg-tab", key)).show(
-                        ui,
-                        |ui| match view.tab {
-                            DataTab::Condition => script_with_params(
-                                app,
-                                ui,
-                                key,
-                                link_path(r),
-                                "Active",
-                                "ConditionParams",
-                                &link,
-                                "cond",
-                                &mut actions,
-                            ),
-                            DataTab::Action => script_with_params(
-                                app,
-                                ui,
-                                key,
-                                node_path(kind, index),
-                                "Script",
-                                "ActionParams",
-                                &n,
-                                "act",
-                                &mut actions,
-                            ),
-                            DataTab::Other => {
-                                other_tab(app, ui, key, kind, index, &n, &mut actions)
-                            }
-                            DataTab::Comments => {
-                                let (path, label, value) = if is_link(&link) {
-                                    (
-                                        link_path(r),
-                                        "LinkComment",
-                                        decode(link.string("LinkComment").unwrap_or_default()),
-                                    )
-                                } else {
-                                    (
-                                        node_path(kind, index),
-                                        "Comment",
-                                        decode(n.string("Comment").unwrap_or_default()),
-                                    )
-                                };
-                                let id = egui::Id::new(("dlg-comment", key, kind, index, label));
-                                if let Some(v) =
-                                    commit_text(app, ui, id, &value, true, f32::INFINITY)
-                                {
-                                    actions.push(set(
-                                        key,
-                                        "Comment",
-                                        path,
-                                        label,
-                                        Value::String(encode(&v)),
-                                    ));
-                                }
-                            }
-                            DataTab::File => file_tab(app, ui, key, &g, &mut actions),
-                        },
-                    );
-                });
-            }
-        }
+        });
     });
 
     // The tree, in the Options' colours.

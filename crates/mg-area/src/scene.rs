@@ -573,6 +573,74 @@ impl AreaScene {
                 }
             }
         }
+        // The tiles' source lights: a torch's flame is `fx_flame01`, which
+        // is nothing but emitters (and a light): without them a torch on
+        // a wall lit it and showed no flame. Those nearest the view first.
+        if let Some(Some(flame)) = &self.flame {
+            let model = &*flame.gpu.model;
+            let mut burning: Vec<(f32, usize, usize, u8, Mat4)> = Vec::new();
+            for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
+                let Some(loaded) = loaded else { continue };
+                if tile.source_lights.iter().all(|&v| v == 0) {
+                    continue;
+                }
+                let layers = self.tile_layers(tile, loaded, view);
+                let posed;
+                let pose: &[Mat4] = if layers.is_empty() {
+                    &loaded.gpu.rest
+                } else {
+                    posed = anim::pose_layers(&loaded.gpu.model, &layers, view.time);
+                    &posed
+                };
+                let transform = tile.transform();
+                for (slot, &value) in tile.source_lights.iter().enumerate() {
+                    let suffix = format!("sl{}", slot + 1);
+                    let node = (loaded.gpu.model.nodes.iter())
+                        .position(|n| n.name.to_ascii_lowercase().ends_with(&suffix));
+                    let Some(node) = node.filter(|_| value > 0) else { continue };
+                    let at = transform * Mat4::from_translation(anim::node_position(pose, node));
+                    let d = at.w_axis.truncate().distance_squared(eye);
+                    burning.push((d, i, slot, value, at));
+                }
+            }
+            burning.sort_by(|a, b| a.0.total_cmp(&b.0));
+            burning.truncate(MAX_PARTICLE_OBJECTS);
+            for (_, i, slot, value, at) in burning {
+                // (Told apart from the tiles' by counting down from the
+                // middle: two a tile.)
+                let key = (usize::MAX / 2 - 2 * i - slot, Arc::as_ptr(&flame.gpu) as usize);
+                if self.failed.borrow().contains(&key.1) {
+                    continue;
+                }
+                let Some(playing) = flame.animation(&value.to_string()) else { continue };
+                let drawn = mg_render::guard::guarded("fx_flame01", || {
+                    let pose = anim::pose(model, playing, view.time);
+                    let new = !sims.contains_key(&key);
+                    let sim = sims
+                        .entry(key)
+                        .or_insert_with(|| mg_render::particles::Particles::new(model));
+                    sim.ground = at.w_axis.z - 2.0;
+                    if new {
+                        let mut ahead = 0.0;
+                        while ahead < 2.0 {
+                            sim.update(model, Some(playing), view.time, 0.1, &pose, at);
+                            ahead += 0.1;
+                        }
+                    }
+                    sim.update(model, Some(playing), view.time, dt, &pose, at);
+                    sim.batches(model, Some(playing), view.time, &pose, at, camera)
+                });
+                match drawn {
+                    Some(batches) => {
+                        seen.push(key);
+                        out.extend(batches);
+                    }
+                    None => {
+                        self.failed.borrow_mut().insert(key.1);
+                    }
+                }
+            }
+        }
         sims.retain(|k, _| seen.contains(k));
         out
     }

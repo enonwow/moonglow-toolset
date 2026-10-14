@@ -2581,6 +2581,57 @@ fn conversation_editor_builds_and_links() {
     assert_eq!(texts(&doc(&mut h)).len(), 5);
 }
 
+/// The conversation editor's lower pane stays as tall as it is dragged
+/// to: taller than what it shows (it went back to its content when that
+/// was less), and shorter (its pages scroll).
+#[test]
+fn the_conversation_editor_s_lower_pane_keeps_its_size() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-dialog-pane");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "Hello there.");
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // (The pane's top edge: just above its page tabs.)
+    let edge = |h: &Harness<'_, Moonglow>| h.get_by_label("Data").rect().top() - 5.0;
+    let drag = |h: &mut Harness<'_, Moonglow>, by: f32| {
+        let from = egui::pos2(h.get_by_label("Data").rect().center().x + 200.0, edge(h));
+        h.hover_at(from);
+        press(h, from, true, egui::Modifiers::NONE);
+        for k in 1..=5 {
+            h.hover_at(from + egui::vec2(0.0, by * k as f32 / 5.0));
+        }
+        press(h, from + egui::vec2(0.0, by), false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    h.get_by_label_contains("Hello there.").click();
+    h.run_steps(3);
+    let before = edge(&h);
+    drag(&mut h, -120.0);
+    let taller = edge(&h);
+    assert!(taller < before - 100.0, "dragged taller: {before} → {taller}");
+    // Root chosen: less to show, and the pane stays as it is.
+    h.get_by_label("Root").click();
+    h.run_steps(4);
+    assert!((edge(&h) - taller).abs() < 2.0, "{taller} → {}", edge(&h));
+    // A line again, and the pane dragged shorter than what it shows.
+    h.get_by_label_contains("Hello there.").click();
+    h.run_steps(3);
+    drag(&mut h, 250.0);
+    let shorter = edge(&h);
+    assert!(shorter > taller + 240.0, "dragged shorter: {taller} → {shorter}");
+}
+
 /// The conversation editor's text has a size of its own (Options ›
 /// Conversation Editor): its lines and the fields under them, and nothing
 /// outside it.
@@ -7080,6 +7131,33 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     h.run_steps(2);
     let props = h.state().tile_props.clone().expect("the window is open");
     assert_eq!(props.tiles, [5]);
+    // The colour picker, opened from its swatch: in front of the window
+    // it is opened from, at once. (Opened again, it came up behind it for
+    // a frame, and with nothing to draw another, stayed there: the click
+    // looked to do nothing.)
+    let picker = egui::LayerId::new(egui::Order::Middle, egui::Id::new(Some("Select A Color")));
+    let on_top = |h: &Harness<'_, Moonglow>| {
+        h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle)) == Some(picker)
+    };
+    for time in 0..2 {
+        h.get_by_label("Main Light 1 Color").click();
+        // (The frames the application asks for, and no more: nothing else
+        // draws another.)
+        h.run();
+        let top = h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle));
+        assert!(on_top(&h), "the picker in front, as it opens ({time}): {top:?}");
+        h.run_steps(2);
+        assert!(h.state().tile_props.as_ref().unwrap().picking.is_some());
+        // Closed, and Tile Properties clicked: it is in front then.
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().tile_props.as_ref().unwrap().picking.is_none());
+        let beside = h.get_by_label("Main Light 2 Color").rect().center() + egui::vec2(-60.0, 0.0);
+        h.hover_at(beside);
+        press(&h, beside, true, egui::Modifiers::NONE);
+        press(&h, beside, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    }
     // Main light 1 to colour 9, through the colour picker.
     h.state_mut().tile_props.as_mut().unwrap().main[0] = 9;
     h.state_mut().tile_props.as_mut().unwrap().loops = [false, false, false];
@@ -15170,6 +15248,69 @@ fn look_gallery_pictures() {
     h.run_steps(60);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-gallery-look").join("look.png")).unwrap();
+}
+
+/// A tile's source light burns: its flame (`fx_flame01`) is emitters
+/// and a light, and its particles are drawn with the tiles' own. (A
+/// torch lit the wall and showed no flame.)
+#[test]
+fn a_tile_s_source_light_burns() {
+    let Some((mut h, area)) = area_harness_on("source-lights", "tic01", Some(0)) else { return };
+    let key = ResKey::new(area, ResType::ARE);
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(mg_ui::area_view::Orbit {
+        target: glam::Vec3::new(15.0, 15.0, 1.5),
+        yaw: std::f32::consts::PI,
+        pitch: 0.35,
+        distance: 14.0,
+    });
+    h.run_steps(10);
+    let unlit = h.state().area_views[&area].particles_shown;
+    let edits = ["Tile_SrcLight1", "Tile_SrcLight2"]
+        .map(|label| mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root().item("Tile_List", 5),
+            label: label.into(),
+            value: Some(mg_gff::Value::Byte(1)),
+        })
+        .to_vec();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Lit", edits)));
+    h.run_steps(10);
+    let lit = h.state().area_views[&area].particles_shown;
+    assert!(lit > unlit, "the flames' particles: {unlit} → {lit}");
+}
+
+#[test]
+#[ignore = "a look at tiles' source lights (torches' flames)"]
+fn look_source_lights() {
+    let Some((mut h, area)) = area_harness_on("look-flames", "tic01", Some(0)) else { return };
+    let key = ResKey::new(area, ResType::ARE);
+    let tiles = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&key).unwrap().root.list("Tile_List").unwrap().len()
+    };
+    let edits = (0..tiles)
+        .flat_map(|i| {
+            ["Tile_SrcLight1", "Tile_SrcLight2"].map(|label| mg_edit::Edit::SetField {
+                key,
+                path: mg_edit::GffPath::root().item("Tile_List", i),
+                label: label.into(),
+                value: Some(mg_gff::Value::Byte(1)),
+            })
+        })
+        .collect();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Flames", edits)));
+    h.run_steps(10);
+    let dir = mg_testkit::scratch_dir("ui-source-lights");
+    for (i, yaw) in [0.0f32, 1.57, std::f32::consts::PI, 4.71].into_iter().enumerate() {
+        h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(mg_ui::area_view::Orbit {
+            target: glam::Vec3::new(15.0, 15.0, 1.5),
+            yaw,
+            pitch: 0.35,
+            distance: 14.0,
+        });
+        h.run_steps(30);
+        h.render().expect("render").save(dir.join(format!("look-{i}.png"))).unwrap();
+    }
 }
 
 #[test]

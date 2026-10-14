@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T21:51:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T10:00:39Z }
 ---
 
 # Conversations
@@ -54,6 +54,11 @@ Paste, Paste As Link and Delete on that line. Lines move only where they fit (an
 a player line or Root, and the reverse). Options › Conversation Editor
 sets which way Paste As Link and Ctrl + drag link, and whether a new line
 first asks for its text in a popup.
+
+The pane under the lines (Data, Bookmarks, Search) is as tall as you
+drag its top edge to, up to seven tenths of the editor: it keeps that
+height whatever the line chosen has to show, and scrolls where it has
+more than that.
 
 **Search** finds text in this conversation or every conversation in the
 module (match case, whole words, replace); **Bookmarks** remember lines to

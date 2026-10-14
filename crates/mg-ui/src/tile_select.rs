@@ -401,6 +401,11 @@ fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> e
     response
 }
 
+/// A swatch's name, for the screen reader (and the tests).
+fn named(r: &egui::Response, name: &str) {
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, r.enabled(), name));
+}
+
 /// Tile Properties, in its tab, and its colour picker.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
@@ -439,10 +444,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         props.has_main[k],
                         egui::Label::new(format!("Main Light {}", k + 1)),
                     );
-                    if swatch(ui, color(usize::from(props.main[k])), props.has_main[k], false)
-                        .on_hover_text("Click here to select a color")
-                        .clicked()
-                    {
+                    let main =
+                        swatch(ui, color(usize::from(props.main[k])), props.has_main[k], false);
+                    named(&main, &format!("Main Light {} Color", k + 1));
+                    if main.on_hover_text("Click here to select a color").clicked() {
                         props.picking = Some(k);
                     }
                     ui.add_enabled(
@@ -461,15 +466,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         egui::Label::new(format!("Source Light {}", k + 1)),
                     );
                     // A source light's value v shows as lightcolor row 2v.
-                    if swatch(
+                    let source = swatch(
                         ui,
                         color(2 * usize::from(props.source[k])),
                         props.has_source[k],
                         false,
-                    )
-                    .on_hover_text("Click here to select a color")
-                    .clicked()
-                    {
+                    );
+                    named(&source, &format!("Source Light {} Color", k + 1));
+                    if source.on_hover_text("Click here to select a color").clicked() {
                         props.picking = Some(2 + k);
                     }
                     if k == 0 {

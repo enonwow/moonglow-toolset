@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T20:22:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T10:00:39Z }
 ---
 
 # Areas
@@ -43,8 +43,10 @@ looking straight down at their middle, north up, as in Aurora.
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
   nothing otherwise), as do the tiles: a chimney smokes with its
-  animation loop on in Tile Properties. Switched off, they hold still (tiles' water and
-  flames go on), in every area view; it stays as you leave it.
+  animation loop on in Tile Properties, and a torch on a wall burns where
+  its source light has a color (Tile Properties). Switched off, they hold
+  still (tiles' water and flames go on), in every area view; it stays as
+  you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
   Areas opened later open as you left it.
