@@ -3833,13 +3833,14 @@ fn panels_fold_away_and_come_back() {
     h.get_by_label("⏵").click();
     h.run();
     assert!(tree(&h) && !h.state().settings.hide_tree);
-    // Each pane's own button folds it away too (the tree's, the log's).
+    // Each pane's own button folds it away too (the tree's, the log's;
+    // the log's in the corner where the strip's button brings it back).
     h.get_by_label("«").click();
     h.run();
     assert!(!tree(&h) && h.state().settings.hide_tree);
     h.get_by_label("⏵").click();
     h.run();
-    h.get_by_label("–").click();
+    h.get_by_label("⏷ Log").click();
     h.run();
     assert!(h.state().settings.hide_log);
     h.get_by_label("⏶ Log").click();
@@ -3853,6 +3854,15 @@ fn panels_fold_away_and_come_back() {
     h.run();
     let now = palette(&h).expect("back");
     assert!((now - was).abs() < 3.0, "{was} wide, then {now}");
+    // Their own button folds them away as the tree's does (GitHub issue
+    // 10: they had only their ✕).
+    h.get_by_label("»").click();
+    h.run();
+    assert!(palette(&h).is_none() && h.state().settings.hide_palettes);
+    h.get_by_label("⏴").click();
+    h.run();
+    h.run();
+    assert!(palette(&h).is_some());
     // The log.
     key(&mut h, egui::Key::Num3);
     assert!(h.state().settings.hide_log);
@@ -3876,6 +3886,321 @@ fn panels_fold_away_and_come_back() {
     h.run();
     h.run();
     assert!(palette(&h).is_some());
+}
+
+/// GitHub issue 20: the palettes' tab dragged onto the middle of the
+/// middle pane joins its tabs; the area tabs there stay where they are.
+#[test]
+fn the_palettes_dropped_on_the_middle_join_its_tabs() {
+    let Some((mut h, area)) = area_harness("dock-palettes") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    h.run_steps(3);
+    let layout = |h: &Harness<'_, Moonglow>| {
+        let mut out: Vec<String> = h
+            .state()
+            .dock
+            .iter_leaves()
+            .filter(|(p, _)| p.surface.is_main())
+            .map(|(p, leaf)| format!("{:?}: {:?}", p.node, leaf.tabs))
+            .collect();
+        out.sort();
+        out
+    };
+    // (The tab's title: at the start of its pane's tab bar.)
+    let leaf = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        h.state()
+            .dock
+            .iter_leaves()
+            .find(|(_, l)| l.tabs.contains(tab))
+            .map(|(_, l)| (l.rect, l.viewport))
+            .unwrap()
+    };
+    let (rect, viewport) = leaf(&h, &Tab::Palette);
+    let tab = egui::pos2(rect.left() + 40.0, (rect.top() + viewport.top()) / 2.0);
+    let target = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
+        .map(|(_, l)| l.rect)
+        .unwrap();
+    let to = target.center();
+    h.hover_at(tab);
+    press(&h, tab, true, egui::Modifiers::NONE);
+    for k in 1..=10 {
+        h.hover_at(tab + (to - tab) * (k as f32 / 10.0));
+        h.step();
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    // One pane: the area's tab where it was, the palettes beside it.
+    let after = layout(&h);
+    assert_eq!(after.len(), 1, "{after:?}");
+    assert!(after[0].contains("Area(") && after[0].contains("Palette"), "{after:?}");
+    assert!(!after[0].contains("NoArea"), "{after:?}");
+}
+
+/// GitHub issue 21: the resource browser dropped on a side of the middle
+/// pane is docked there, beside it, as the targets drawn say. (From a pane
+/// of its own beside the palettes; dragged from a window of its own, the
+/// window moves, here and in the report, and was not seen to dock.)
+#[test]
+fn the_resource_browser_dropped_on_a_side_is_docked_there() {
+    let Some((mut h, area)) = area_harness("dock-resources") else { return };
+    // (Docked beside the palettes, as the reporter had it.)
+    {
+        let dock = &mut h.state_mut().dock;
+        let palettes = dock.find_tab(&Tab::Palette).unwrap();
+        dock.set_focused_node_and_surface(egui_dock::NodePath {
+            surface: palettes.surface,
+            node: palettes.node,
+        });
+        dock.push_to_focused_leaf(Tab::Resources);
+    }
+    h.run_steps(4);
+    let layout = |h: &Harness<'_, Moonglow>| {
+        let mut out: Vec<String> = h
+            .state()
+            .dock
+            .iter_leaves()
+            .map(|(p, leaf)| {
+                format!("{} {:?} {:?}: {:?}", p.surface.is_main(), p.node, leaf.rect, leaf.tabs)
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let leaf = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let found = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
+        found.map(|(_, l)| (l.rect, l.viewport)).unwrap()
+    };
+    let (rect, viewport) = leaf(&h, &Tab::Resources);
+    // (Its tab: the second in the bar, after the palettes'.)
+    // (Its tab: the second in the bar, after the palettes'.)
+    let tab = egui::pos2(rect.left() + 160.0, (rect.top() + viewport.top()) / 2.0);
+    let (target, _) = leaf(&h, &Tab::Area(area));
+    // The left target: the button left of the middle one.
+    let to = target.center() + egui::vec2(-105.0, 0.0);
+    h.hover_at(tab);
+    press(&h, tab, true, egui::Modifiers::NONE);
+    for k in 1..=12 {
+        h.hover_at(tab + (to - tab) * (k as f32 / 12.0));
+        h.step();
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    // A pane of its own, left of the area's; the palettes where they were.
+    let main = |tab: &Tab| {
+        let found = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
+        found.map(|(p, l)| (p.surface.is_main(), l.tabs.len(), l.rect.center().x)).unwrap()
+    };
+    let (resources, area_pane) = (main(&Tab::Resources), main(&Tab::Area(area)));
+    assert_eq!((resources.0, resources.1), (true, 1), "{:?}", layout(&h));
+    assert!(resources.2 < area_pane.2, "left of the area: {:?}", layout(&h));
+    assert_eq!(main(&Tab::Palette).1, 1, "{:?}", layout(&h));
+}
+
+/// GitHub issue 25: Alt + left drag off the selection moves the camera,
+/// the ground following the pointer, and moves nothing in the area; on
+/// the selection it raises it, as before.
+#[test]
+fn alt_and_a_drag_off_the_selection_moves_the_camera() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("alt-pan") else { return };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let revision = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().revision();
+    let alt = egui::Modifiers::ALT;
+    let drag = |h: &mut Harness<'_, Moonglow>, from: Vec3, to: Vec3| {
+        let (a, b) = (screen(h, area, from), screen(h, area, to));
+        h.event(egui::Event::ModifiersChanged(alt));
+        h.hover_at(a);
+        // (Alt held on: the press does not let it go.)
+        let button = egui::PointerButton::Primary;
+        h.event(egui::Event::PointerButton { pos: a, button, pressed: true, modifiers: alt });
+        for k in 1..=6 {
+            h.hover_at(a + (b - a) * (k as f32 / 6.0));
+            h.step();
+        }
+        // (Alt let go before the button: the drag goes on as it began.)
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        press(h, b, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    let (before, changed) = (orbit(&h), revision(&h));
+    // Nothing selected, on bare ground: the ground follows the pointer.
+    drag(&mut h, Vec3::new(10.0, 10.0, 0.0), Vec3::new(14.0, 10.0, 0.0));
+    let moved = orbit(&h).target - before.target;
+    assert!((moved.x + 4.0).abs() < 0.6 && moved.y.abs() < 0.6, "panned: {moved:?}");
+    assert_eq!(revision(&h), changed, "nothing in the area moved");
+    // A waypoint selected, the drag begun off it: the camera again, and
+    // the waypoint stays.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    let before = orbit(&h);
+    drag(&mut h, Vec3::new(5.0, 30.0, 0.0), Vec3::new(5.0, 34.0, 0.0));
+    assert!((orbit(&h).target - before.target).length() > 2.0, "panned");
+    assert_eq!(revision(&h), changed, "the waypoint stays");
+}
+
+/// GitHub issue 26: a sideways scroll pans the area's view left and right
+/// as the screen has it, without zooming; Shift and the wheel (which egui
+/// reports sideways) still zoom, finer.
+#[test]
+fn a_sideways_scroll_pans_the_area_view() {
+    let Some((mut h, area)) = area_harness("sideways-scroll") else { return };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let rect = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
+        .map(|(_, l)| l.viewport)
+        .unwrap();
+    h.hover_at(rect.center());
+    h.run_steps(2);
+    let before = orbit(&h);
+    let wheel = |h: &mut Harness<'_, Moonglow>, delta: egui::Vec2, modifiers: egui::Modifiers| {
+        h.event_modifiers(
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta,
+                phase: egui::TouchPhase::Move,
+                modifiers,
+            },
+            modifiers,
+        );
+        h.run_steps(30);
+    };
+    wheel(&mut h, egui::vec2(120.0, 0.0), egui::Modifiers::NONE);
+    let after = orbit(&h);
+    assert!((after.distance - before.distance).abs() < 1e-3, "no zoom");
+    // Looking north (the overview), screen left and right are west and east.
+    let moved = after.target - before.target;
+    assert!(moved.x.abs() > 0.5 && moved.y.abs() < 0.05, "panned sideways: {moved:?}");
+    // The other way, back.
+    wheel(&mut h, egui::vec2(-120.0, 0.0), egui::Modifiers::NONE);
+    assert!((orbit(&h).target - before.target).length() < 0.05);
+    // Shift and the wheel: a zoom, as before. (Shift held through the
+    // frames the scroll is spread over.)
+    let shift = egui::Modifiers::SHIFT;
+    h.event(egui::Event::ModifiersChanged(shift));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: shift,
+    });
+    h.run_steps(30);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    let shifted = orbit(&h);
+    assert!(shifted.distance < before.distance - 0.1, "zoomed: {}", shifted.distance);
+    assert!((shifted.target - before.target).length() < 0.05, "not panned");
+}
+
+/// GitHub issue 23: with the resource browser beside the palettes, the
+/// area closed and then the palettes, the browser stays a side pane: the
+/// middle keeps its place beside it (it took the whole window).
+#[test]
+fn the_resource_browser_alone_keeps_the_middle_beside_it() {
+    let Some((mut h, area)) = area_harness("dock-browser-alone") else { return };
+    {
+        let dock = &mut h.state_mut().dock;
+        let palettes = dock.find_tab(&Tab::Palette).unwrap();
+        dock.set_focused_node_and_surface(egui_dock::NodePath {
+            surface: palettes.surface,
+            node: palettes.node,
+        });
+        dock.push_to_focused_leaf(Tab::Resources);
+    }
+    h.run_steps(3);
+    for tab in [Tab::Area(area), Tab::ModuleProperties, Tab::Palette] {
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab]));
+        h.run_steps(3);
+    }
+    let leaves: Vec<(Vec<Tab>, f32)> = h
+        .state()
+        .dock
+        .iter_leaves()
+        .filter(|(p, _)| p.surface.is_main())
+        .map(|(_, l)| (l.tabs.clone(), l.rect.center().x))
+        .collect();
+    assert_eq!(leaves.len(), 2, "{leaves:?}");
+    let x = |tab: &Tab| leaves.iter().find(|(t, _)| t.contains(tab)).map(|(_, x)| *x).unwrap();
+    assert!(x(&Tab::NoArea) < x(&Tab::Resources), "the middle, then the browser: {leaves:?}");
+}
+
+/// GitHub issue 22: a tool window closed in a pane split off a side of
+/// the middle opens there again, as large; and so do the palettes split
+/// off another side than their right.
+#[test]
+fn a_tool_window_reopens_in_its_split_of_the_middle() {
+    let Some((mut h, area)) = area_harness("dock-splits") else { return };
+    let middle = |h: &Harness<'_, Moonglow>| {
+        let dock = &h.state().dock;
+        dock.iter_leaves()
+            .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
+            .map(|(p, l)| (p.node, l.rect))
+            .unwrap()
+    };
+    let pane = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let dock = &h.state().dock;
+        let found = dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
+        found.map(|(p, l)| (p.surface.is_main(), l.tabs.len(), l.rect)).unwrap()
+    };
+    // The resource browser, split off below the middle, a third as tall.
+    // (The fraction: the upper pane's, the middle's.)
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run_steps(3);
+    {
+        let (node, _) = middle(&h);
+        let dock = &mut h.state_mut().dock;
+        let window = dock.find_tab(&Tab::Resources).unwrap();
+        dock.remove_tab(window);
+        dock.main_surface_mut().split_below(node, 0.67, vec![Tab::Resources]);
+    }
+    h.run_steps(3);
+    let placed = |h: &Harness<'_, Moonglow>, kind: &str| {
+        let places = &h.state().settings.window_places;
+        places.iter().find(|(k, _)| k == kind).map(|(_, p)| p.clone())
+    };
+    assert_eq!(placed(&h, "resources").as_deref(), Some("split below 330"));
+    let was = pane(&h, &Tab::Resources).2;
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Resources]));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run_steps(3);
+    let (main, tabs, now) = pane(&h, &Tab::Resources);
+    assert!(main && tabs == 1, "a pane of its own in the main window");
+    let (_, area_rect) = middle(&h);
+    assert!(now.top() >= area_rect.bottom() - 2.0, "below the middle: {now:?} {area_rect:?}");
+    assert!((now.height() - was.height()).abs() < 4.0, "as tall: {was:?} {now:?}");
+
+    // The palettes, split off left of the middle, then folded and shown.
+    {
+        let (node, _) = middle(&h);
+        let dock = &mut h.state_mut().dock;
+        let palettes = dock.find_tab(&Tab::Palette).unwrap();
+        dock.remove_tab(palettes);
+        // (Its node, as the dock is now, the palettes' pane gone.)
+        let node = dock.find_tab(&Tab::Area(area)).map(|p| p.node).unwrap_or(node);
+        // (The fraction: the left pane's, the palettes'.)
+        dock.main_surface_mut().split_left(node, 0.25, vec![Tab::Palette]);
+    }
+    h.run_steps(3);
+    assert_eq!(placed(&h, "palette").as_deref(), Some("split left 250"));
+    h.state_mut().actions.push(mg_ui::Action::FoldPalettes);
+    h.run_steps(3);
+    h.get_by_label("⏴").click();
+    h.run_steps(3);
+    let (_, _, palettes) = pane(&h, &Tab::Palette);
+    let (_, area_rect) = middle(&h);
+    assert!(
+        palettes.right() <= area_rect.left() + 2.0,
+        "left of the middle: {palettes:?} {area_rect:?}"
+    );
+    let share = palettes.width() / (palettes.width() + area_rect.width());
+    assert!((share - 0.25).abs() < 0.03, "a quarter of the two: {share}");
 }
 
 /// GitHub issue 14: a tool window opens where one of its kind was last

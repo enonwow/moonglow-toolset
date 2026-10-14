@@ -178,6 +178,10 @@ enum Drag {
     Start { turn: bool, grip: Vec2, at: Vec3, facing: f32, was: (Vec3, f32) },
     /// Selects what is inside the box.
     Box { from: Pos2, to: Pos2 },
+    /// Moves the camera, the ground following the pointer: Alt + left
+    /// drag begun off the selection (GitHub issue 25), on until the button
+    /// is let go, Alt held or not.
+    Pan,
 }
 
 /// The ring around the selection for turning it: taken anywhere on it and
@@ -1158,6 +1162,7 @@ impl AreaView {
                     | Drag::FaceSpawn { .. }
                     | Drag::MoveSpawn { .. }
                     | Drag::Start { .. }
+                    | Drag::Pan
             )
         };
         let Some(mut drag) = self.drag.filter(moves) else {
@@ -1217,7 +1222,8 @@ impl AreaView {
                     | Drag::Scale { .. }
                     | Drag::FaceSpawn { .. }
                     | Drag::MoveSpawn { .. }
-                    | Drag::Start { .. } => (i, o.position, o.rotation),
+                    | Drag::Start { .. }
+                    | Drag::Pan => (i, o.position, o.rotation),
                 }
             })
             .collect()
@@ -1790,7 +1796,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         format!("{} objects selected", view.selection.len())
     } else {
         "Click to select, drag to move or to select in a box, Alt + right drag to turn, \
-         Alt + drag to raise; Ctrl + drag moves the view, Ctrl + right drag turns it."
+         Alt + drag on the selection to raise it; Ctrl + drag or Alt + drag elsewhere moves \
+         the view, Ctrl + right drag turns it."
             .to_string()
     };
     ui.add(egui::Label::new(egui::RichText::new(&status).weak()).truncate()).on_hover_text(status);
@@ -3167,7 +3174,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 angle: 0.0,
             })
         } else if alt {
-            (!view.selection.is_empty()).then_some(Drag::Lift { by: 0.0 })
+            // On the selection: it is raised or lowered; elsewhere the
+            // camera moves (GitHub issue 25: Alt + drag anywhere raised
+            // the selection, and did nothing with none).
+            let on_selection = hit.is_some_and(|i| view.selected(i));
+            Some(if on_selection { Drag::Lift { by: 0.0 } } else { Drag::Pan })
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
             if !view.selected(i) {
@@ -3210,6 +3221,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         Some(Drag::Lift { by }) if held.by(button) => {
             let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
             view.drag = Some(Drag::Lift { by: by - held.delta.y * scale });
+        }
+        Some(Drag::Pan) if held.by(button) => {
+            if let Some(o) = view.orbit.as_mut() {
+                let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan()
+                    / response.rect.height().max(1.0);
+                pan(o, Vec2::new(-held.delta.x, held.delta.y) * per_pixel);
+            }
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         Some(Drag::Box { from, .. }) if held.by(button) => {
             if let Some(to) = pointer {
@@ -3347,6 +3366,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     move_start_location(app, at);
                 }
             }
+            Some(Drag::Pan) => {}
             Some(drag @ Drag::Tilt { .. }) => {
                 view.drag = Some(drag);
                 let tilted = view.tilted();
@@ -3454,8 +3474,10 @@ fn camera_input(
     } else if (command && held.by(egui::PointerButton::Primary))
         || (alt && held.by(egui::PointerButton::Middle))
     {
-        // The ground follows the pointer.
+        // The ground follows the pointer, a closed hand showing it held.
+        // (GitHub issue 25.)
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     // (egui turns the wheel sideways with Shift held.)
     // (And with Ctrl held it reports the wheel as a zoom, not a scroll.)
@@ -3475,6 +3497,14 @@ fn camera_input(
     } else if scroll != 0.0 && response.hovered() {
         let rate = if slow { 0.001 } else { 0.002 };
         o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);
+    }
+    // A sideways scroll (a wheel tilted, a second wheel, two fingers on a
+    // touchpad) pans the view left and right, as the screen has it, the
+    // ground following as it does a drag. (Not Shift and the wheel, which
+    // egui reports sideways: that zooms finer. GitHub issue 26.)
+    let sideways = ui.input(|i| if i.modifiers.shift { 0.0 } else { i.smooth_scroll_delta.x });
+    if sideways != 0.0 && response.hovered() && !scaling {
+        pan(o, Vec2::new(-sideways, 0.0) * per_pixel);
     }
     if !active {
         return;

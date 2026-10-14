@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T10:00:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
 ---
 
 # Areas
@@ -92,10 +92,11 @@ Options › Keyboard):
 
 | Do | To |
 | --- | --- |
-| Ctrl + drag | move the camera over the area (a tileset brush paints nothing with it) |
+| Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
-| Alt + middle drag | move the camera |
+| Alt + middle drag, or Alt + drag begun off the selection | move the camera (Alt + drag on the selection raises or lowers it) |
 | Wheel | zoom (slowly with Shift, or with Ctrl when nothing selected takes a scale; when painting tiles, Shift is the brush's) |
+| Sideways scroll (a tilted wheel, a second wheel, two fingers sideways on a touchpad) | move the camera left and right, as the screen has it |
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |

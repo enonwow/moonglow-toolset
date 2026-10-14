@@ -519,6 +519,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             view.filter
         )
     });
+    let mut fold_away = false;
     // The header (GitHub issue 16), top down by what each row governs:
     // the type, its name and the source, the search, then the list's own
     // toolbar right over the list.
@@ -557,6 +558,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // them.
         let size = ui.text_style_height(&egui::TextStyle::Body);
         let each = size + 10.0;
+        // (The pane's own button to fold it away, toward its edge as the
+        // module tree's « is toward its: GitHub issue 10, where the pane
+        // had only its ✕.)
+        let fold = |ui: &mut egui::Ui| {
+            ui.small_button("»").on_hover_text("Fold the palettes away").clicked()
+        };
         if ui.available_width() >= each * 4.0 {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
@@ -569,9 +576,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         chosen = Some(*t);
                     }
                 }
+                fold_away = fold(ui);
             });
         } else {
             let shown = types.iter().find(|t| t.0 == now).expect("one of them");
+            fold_away = fold(ui);
             egui::ComboBox::from_id_salt("palette-type")
                 .selected_text(labelled(shown.1, shown.2))
                 .width(ui.available_width())
@@ -582,6 +591,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         }
                     }
                 });
+        }
+        if fold_away {
+            app.actions.push(crate::Action::FoldPalettes);
         }
         match chosen {
             Some(Type::Tiles) => {

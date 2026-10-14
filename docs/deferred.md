@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T02:40:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -852,6 +852,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   turns the selection with Shift + right drag; and some desktops take
   Alt + drag to move the window. Not in Options › Keyboard. (S)
   (from builders' reports after 1.10.1)
+- **Alt + left drag to move the camera** (GitHub issue 25): begun off
+  the selection it moves the camera (the ground following the pointer,
+  a closed hand, on until the button is let go, Alt held or not); begun
+  on the selection it raises or lowers it, as Alt + drag anywhere did.
+  Not done of the issue: the camera's buttons and modifiers in Options ›
+  Keyboard (the entry above). (S)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)
@@ -1251,11 +1257,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pane folded away leaves a strip at its edge that brings it back, as
   wide as it was; the palettes' pane closed by its ✕ counts as folded;
   the state is kept in the settings. A pane's own button to fold
-  it away: the module tree («) and the log (–) have one; the palettes'
-  pane has its ✕. Not done: a folded pane's strip shows an arrow, and
-  its name only for the log and in the tip; whether this is what the
-  reporter found unresolved is not known (the answer said only that it
-  was not). (S)
+  it away: the module tree («), the palettes (», after their type
+  icons: they had only their ✕, the reporter's word on 1.21.1) and the
+  log (⏷, on the right, where the strip's ⏶ Log brings it back: they
+  were a – on the right and an arrow on the left). Not done: a folded
+  pane's strip shows an arrow, and its name only for the log and in
+  the tip. (S)
   (from builders' reports after 1.19.1)
 - **Tool windows where they were last docked** (GitHub issue 14): each
   kind of window (script, conversation, blueprint, Faction Editor…)
@@ -1263,10 +1270,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pane, a tab of the palettes' pane, or a window of its own (as all do
   at first); kept in the settings, forgotten by Reset Layout. A window
   seen in another place than the frame before is taken as dragged
-  there. Not done of the issue: a pane split off to a side of the main
-  one (left, bottom) is not a place that is kept, nor a tab's position
-  among the tabs; the dock's whole layout is not kept between runs; the
-  resource browser still opens as a window at first. The reporter
+  there. A pane split off a side of the middle is a place kept too, its
+  side and its share (GitHub issue 22), and so is the palettes' pane's
+  side where it is not the right. Not done of the issue: a tab's
+  position among the tabs; a split off another pane than the middle (a
+  side of the palettes') is kept as the middle's; the dock's whole
+  layout is not kept between runs; the resource browser still opens as
+  a window at first. The reporter
   closed the issue as fixed in 1.20.7 (2026-10-10), every point of it
   ticked: what is left here is by our own account, not asked for. (M)
   (from builders' reports after 1.19.1)
@@ -1317,9 +1327,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (GitHub issues 10 to 24, after 1.20.0)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser) shared the
-  palettes' pane; the pane's tabs no longer count as the middle's. A
-  side pane without the palettes in it is not known as one. (S)
-  (GitHub issues 10 to 24, after 1.20.0)
+  palettes' pane; the pane's tabs no longer count as the middle's. The
+  palettes dropped among the middle's areas are the middle's (issue 20:
+  they were taken for the side pane, and the areas pushed to the
+  right), and the resource browser's pane alone is a side pane once the
+  palettes are closed (issue 23: it took the whole window). Another
+  tool docked alone on the right (the talk table, a script) is not
+  known as a side pane. Issue 21's drop on a side target is docked
+  there from a pane; from a window of its own, the window was seen to
+  move and not to dock, by the tests' drag (not confirmed either way in
+  the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20, 21 and
+  23 after 1.30.2)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and
   a builder: Aurora's arrows go to the parent on Left and fold the

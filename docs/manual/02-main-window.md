@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T08:02:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
 ---
 
 # The main window
@@ -160,10 +160,12 @@ string's text is shown beside its number.
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view
 the room: **View** has each, ticked while shown, and **Hide All Panels**.
-The module tree («, beside its Filter) and the log (–, in its corner)
-have a button of their own for it.
+The module tree («, beside its Filter), the palettes (», after their
+type icons) and the log (⏷, in its right corner) have a button of their
+own for it.
 A pane folded away leaves a narrow strip at its edge with an arrow: a
-click brings it back, as wide as it was. Closing the palettes' pane by
+click brings it back, as wide as it was (the log's, **⏶ Log**, on the
+right, where its button to fold it was). Closing the palettes' pane by
 its ✕ folds it away the same. What is folded stays so the next time
 Moonglow starts. **View › Reset Layout** shows all three at the sizes
 they have at first.
@@ -224,9 +226,13 @@ does.
 window by its tab into the main pane (beside the areas' tabs) or into
 the palettes' pane, and the next window of that kind (the next script,
 the next conversation, the Faction Editor again) opens there as a tab,
-not as a window over the area. Drag one out to a window of its own and
-the next opens as a window again. This is kept between runs; **View ›
-Reset Layout** forgets it.
+not as a window over the area. Dropped on a side of the main pane (a
+pane of its own split off its left, right, top or bottom), the next
+opens in a pane split off that side again, as large as it was; the
+palettes, split off another side than their right, come back there when
+they are shown again. Drag one out to a window of its own and the next
+opens as a window again. This is kept between runs; **View › Reset
+Layout** forgets it.
 
 **Scripts gather in one window.** A script opened while another's
 window is open becomes a tab of that window, not one more window

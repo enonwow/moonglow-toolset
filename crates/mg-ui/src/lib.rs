@@ -96,11 +96,37 @@ enum Place {
     Window,
     Middle,
     Palettes,
+    /// A pane of its own split off a side of the middle (GitHub issue 22),
+    /// this many thousandths of it.
+    Split(Side, u16),
+}
+
+/// A side of the middle a pane is split off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Left,
+    Right,
+    Above,
+    Below,
+}
+
+impl Side {
+    fn name(self) -> &'static str {
+        match self {
+            Side::Left => "left",
+            Side::Right => "right",
+            Side::Above => "above",
+            Side::Below => "below",
+        }
+    }
 }
 
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    /// Folds the palettes' pane away (its own » button: drawn in the
+    /// pane, which the dock holds while it draws).
+    FoldPalettes,
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -945,9 +971,13 @@ impl Moonglow {
         if self.settings.hide_log {
             egui::Panel::bottom("log-strip").exact_size(line + 6.0).show(ui, |ui| {
                 let tip = format!("Show the log{}", key(self, commands::Id::ViewLog, ui.ctx()));
-                if ui.small_button("⏶ Log").on_hover_text(tip).clicked() {
-                    self.show_panel(commands::Id::ViewLog, true);
-                }
+                // (Where the log's own button to fold it was, and its
+                // arrow the other way.)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("⏶ Log").on_hover_text(tip).clicked() {
+                        self.show_panel(commands::Id::ViewLog, true);
+                    }
+                });
             });
         } else {
             egui::Panel::bottom("log")
@@ -1215,8 +1245,61 @@ impl Moonglow {
         let leaf = self.dock.leaf(egui_dock::NodePath { surface: path.surface, node: path.node });
         Some(match leaf {
             Ok(leaf) if leaf.tabs.contains(&Tab::Palette) => Place::Palettes,
-            _ => Place::Middle,
+            _ => self.split_of(path.node).unwrap_or(Place::Middle),
         })
+    }
+
+    /// Splits the middle (the pane of the areas) at `side` for `tab`, the
+    /// new pane `share` thousandths of the two, and gives its place; `None`
+    /// with no middle to split.
+    fn split_middle(&mut self, side: Side, share: u16, tab: &Tab) -> Option<egui_dock::NodePath> {
+        let middle = |t: &Tab| matches!(t, Tab::Area(_) | Tab::NoArea);
+        let at = (self.dock.iter_leaves())
+            .find(|(p, leaf)| p.surface.is_main() && leaf.tabs.iter().any(middle))
+            .map(|(p, _)| p.node)?;
+        // (The fraction is the left or upper pane's, whichever is new.)
+        let share = f32::from(share) / 1000.0;
+        let main = self.dock.main_surface_mut();
+        let [_, new] = match side {
+            Side::Left => main.split_left(at, share, vec![tab.clone()]),
+            Side::Right => main.split_right(at, 1.0 - share, vec![tab.clone()]),
+            Side::Above => main.split_above(at, share, vec![tab.clone()]),
+            Side::Below => main.split_below(at, 1.0 - share, vec![tab.clone()]),
+        };
+        Some(egui_dock::NodePath::new(egui_dock::SurfaceIndex::main(), new))
+    }
+
+    /// A pane of the main surface split off a side of the middle (the
+    /// panes with the areas): which side, and how much of the two it is.
+    fn split_of(&self, node: egui_dock::NodeIndex) -> Option<Place> {
+        let parent = node.parent()?;
+        let sibling = if node.is_left() { parent.right() } else { parent.left() };
+        // (The other side holds the middle: a pane of the areas, or the
+        // one that says none is open.)
+        let middle = |t: &Tab| matches!(t, Tab::Area(_) | Tab::NoArea);
+        let within = |mut n: egui_dock::NodeIndex| loop {
+            if n == sibling {
+                return true;
+            }
+            match n.parent() {
+                Some(p) => n = p,
+                None => return false,
+            }
+        };
+        let holds = (self.dock.iter_leaves())
+            .filter(|(p, _)| p.surface.is_main())
+            .any(|(p, leaf)| leaf.tabs.iter().any(middle) && within(p.node));
+        if !holds {
+            return None;
+        }
+        let (side, share) = match &self.dock.main_surface()[parent] {
+            egui_dock::Node::Horizontal(split) if node.is_left() => (Side::Left, split.fraction),
+            egui_dock::Node::Horizontal(split) => (Side::Right, 1.0 - split.fraction),
+            egui_dock::Node::Vertical(split) if node.is_left() => (Side::Above, split.fraction),
+            egui_dock::Node::Vertical(split) => (Side::Below, 1.0 - split.fraction),
+            _ => return None,
+        };
+        Some(Place::Split(side, (share.clamp(0.05, 0.95) * 1000.0).round() as u16))
     }
 
     /// Where the next window of a kind opens: where one of its kind was
@@ -1226,7 +1309,22 @@ impl Moonglow {
         match kept.map(|(_, p)| p.as_str()) {
             Some("middle") => Place::Middle,
             Some("palettes") => Place::Palettes,
-            _ => Place::Window,
+            Some(split) => {
+                // "split left 300": the side, and thousandths of the two.
+                let mut words = split.split_whitespace();
+                let side = match (words.next(), words.next()) {
+                    (Some("split"), Some("left")) => Side::Left,
+                    (Some("split"), Some("right")) => Side::Right,
+                    (Some("split"), Some("above")) => Side::Above,
+                    (Some("split"), Some("below")) => Side::Below,
+                    _ => return Place::Window,
+                };
+                match words.next().and_then(|w| w.parse::<u16>().ok()) {
+                    Some(share) => Place::Split(side, share.clamp(50, 950)),
+                    None => Place::Window,
+                }
+            }
+            None => Place::Window,
         }
     }
 
@@ -1238,6 +1336,29 @@ impl Moonglow {
             .cloned()
             .collect();
         self.tab_places.retain(|t, _| open.contains(t));
+        // The palettes' pane split off another side of the middle than its
+        // right: kept, for when it opens again (on the right, as at first,
+        // its width is kept as it was).
+        if let Some(path) = self.dock.find_tab(&Tab::Palette).filter(|p| p.surface.is_main())
+            && self.maximized.is_empty()
+        {
+            let side = match self.split_of(path.node) {
+                Some(Place::Split(side, share)) if side != Side::Right => {
+                    Some(format!("split {} {share}", side.name()))
+                }
+                _ => None,
+            };
+            let kind = Tab::Palette.kind();
+            let kept = self.settings.window_places.iter().position(|(k, _)| k == kind);
+            match (side, kept) {
+                (Some(side), Some(i)) if self.settings.window_places[i].1 != side => {
+                    self.settings.window_places[i].1 = side;
+                }
+                (Some(side), None) => self.settings.window_places.push((kind.to_string(), side)),
+                (None, Some(i)) => _ = self.settings.window_places.remove(i),
+                _ => {}
+            }
+        }
         // (Not while one is dragged, or made to fill the pane.)
         for tab in open {
             let Some(now) = self.place_of(&tab) else { continue };
@@ -1246,11 +1367,12 @@ impl Moonglow {
                 let kind = tab.kind();
                 self.settings.window_places.retain(|(k, _)| k != kind);
                 let name = match now {
-                    Place::Middle => "middle",
-                    Place::Palettes => "palettes",
+                    Place::Middle => "middle".to_string(),
+                    Place::Palettes => "palettes".to_string(),
+                    Place::Split(side, share) => format!("split {} {share}", side.name()),
                     Place::Window => continue,
                 };
-                self.settings.window_places.push((kind.to_string(), name.to_string()));
+                self.settings.window_places.push((kind.to_string(), name));
             }
         }
     }
@@ -1538,9 +1660,31 @@ impl Moonglow {
         // the palettes' pane. (A tab docked beside the palettes there, the
         // resource browser's, is the side pane's, not the middle's: with
         // it open the middle was let go all the same. GitHub issue 11.)
+        // (The palettes dropped into the middle, among its areas, make it
+        // no side pane: taken for one, the middle was found empty and a
+        // pane that says so was set beside it, the areas on the right.
+        // GitHub issue 20.)
         let side = (self.dock.find_tab(&Tab::Palette))
             .filter(|p| p.surface.is_main())
+            .filter(|p| {
+                let middle = |t: &Tab| matches!(t, Tab::Area(_) | Tab::NoArea);
+                self.dock
+                    .iter_leaves()
+                    .find(|(q, _)| q.surface == p.surface && q.node == p.node)
+                    .is_none_or(|(_, leaf)| !leaf.tabs.iter().any(middle))
+            })
             .map(|p| (p.surface, p.node));
+        // (Without the palettes, a pane of the resource browser alone is
+        // the side pane all the same: the palettes closed, it took the
+        // whole window, and nothing could be docked beside it. GitHub
+        // issue 23.)
+        let side = side.or_else(|| {
+            let tools = |t: &Tab| matches!(t, Tab::Resources);
+            (self.dock.iter_leaves())
+                .filter(|(p, _)| p.surface.is_main())
+                .find(|(_, leaf)| !leaf.tabs.is_empty() && leaf.tabs.iter().all(tools))
+                .map(|(p, _)| (p.surface, p.node))
+        });
         let main: Vec<Tab> = (self.dock.iter_all_tabs())
             .filter(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != side)
             .map(|(_, t)| t.clone())
@@ -1561,13 +1705,13 @@ impl Moonglow {
                 self.dock.remove_tab(path);
             }
         } else if !others && !placeholder {
-            match self.dock.find_tab(&Tab::Palette).filter(|p| p.surface.is_main()) {
-                Some(palette) => {
+            match side {
+                Some((_, node)) => {
                     let left = match self.palette_share {
                         Some(share) if share < 0.95 => (1.0 - share).clamp(0.12, 0.88),
                         _ => self.palette_split(),
                     };
-                    self.dock.main_surface_mut().split_left(palette.node, left, vec![Tab::NoArea]);
+                    self.dock.main_surface_mut().split_left(node, left, vec![Tab::NoArea]);
                 }
                 None => self.dock.main_surface_mut().push_to_first_leaf(Tab::NoArea),
             }
@@ -1877,8 +2021,10 @@ impl Moonglow {
         // each pane has one; the strip it leaves brings it back).
         let corner = ui.max_rect().right_top() + egui::vec2(-36.0, 2.0);
         let at = egui::Rect::from_min_size(corner, egui::vec2(20.0, 18.0));
-        if ui.put(at, egui::Button::new("–").small()).on_hover_text("Fold the log away").clicked()
-        {
+        let fold = ui.put(at, egui::Button::new("⏷").small());
+        // (Named as the strip that brings it back is.)
+        fold.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "⏷ Log"));
+        if fold.on_hover_text("Fold the log away").clicked() {
             self.show_panel(commands::Id::ViewLog, false);
         }
     }
@@ -2273,6 +2419,7 @@ impl Moonglow {
                     self.save(Some(ModuleLocation::Project { root, target }));
                 }
             }
+            Action::FoldPalettes => self.show_panel(commands::Id::ViewPalettes, false),
             Action::PackTarget => _ = self.pack_target(),
             Action::ExportDialog(keys) => {
                 if self.ws.is_some() {
@@ -2422,10 +2569,16 @@ impl Moonglow {
                             _ => self.palette_split(),
                         };
                         self.settings.hide_palettes = false;
+                        // (Where it was split off another side of the
+                        // middle: there again. GitHub issue 22.)
+                        let split = match self.place_for(&tab) {
+                            Place::Split(side, share) => self.split_middle(side, share, &tab),
+                            _ => None,
+                        };
                         let main = self.dock.main_surface_mut();
-                        if main.root_node().is_none_or(|n| n.is_empty()) {
+                        if split.is_none() && main.root_node().is_none_or(|n| n.is_empty()) {
                             *main = egui_dock::Tree::new(vec![tab.clone()]);
-                        } else {
+                        } else if split.is_none() {
                             main.split_right(
                                 egui_dock::NodeIndex::root(),
                                 fraction,
@@ -2446,6 +2599,9 @@ impl Moonglow {
                             Place::Middle => (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| {
                                 p.surface.is_main() && Some((p.surface, p.node)) != palette
                             }),
+                            // A pane of its own off that side of the middle,
+                            // as large as it was (GitHub issue 22).
+                            Place::Split(side, share) => self.split_middle(side, share, &tab),
                         };
                         // A script, with a script's window open: a tab of
                         // that window, not one more window (Options ›
@@ -2468,6 +2624,10 @@ impl Moonglow {
                             })
                             .map(|(p, _)| p);
                         match (pane, beside) {
+                            // (Split off for it: there already.)
+                            (Some(_), _) if self.dock.find_tab(&tab).is_some() => {
+                                self.tab_places.remove(&tab);
+                            }
                             (Some(pane), _) => {
                                 self.dock.set_focused_node_and_surface(pane);
                                 self.dock.push_to_focused_leaf(tab.clone());
