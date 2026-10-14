@@ -44,6 +44,11 @@ path = "tests/client_minimap.rs"
 test = false
 
 [[test]]
+name = "client_nui"
+path = "tests/client_nui.rs"
+test = false
+
+[[test]]
 name = "client_render"
 path = "tests/client_render.rs"
 test = false

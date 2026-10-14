@@ -14,7 +14,7 @@ cargo test -p mg-corpus-tests --release --tests                         # corpus
 MOONGLOW_FULL_CORPUS=1 cargo test -p mg-corpus-tests --release --tests    # the same over the whole install: before a release
 cargo clippy --workspace --all-targets          # must be warning-free
 cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf --test nui_perf   # the tests run by hand, which --all-targets leaves out
-cargo clippy -p mg-corpus-tests --test client_render --test client_minimap
+cargo clippy -p mg-corpus-tests --test client_render --test client_minimap --test client_nui
 cargo fmt                                       # rustfmt.toml: width 100, "Max" heuristics
 ```
 

@@ -274,9 +274,12 @@ fn scissor_on(node: &Value, settings: &Settings) -> bool {
     node["draw_list"].is_array() && *v == true
 }
 
-/// The element whose draw list is painted last, in layout order.
+/// The element whose draw list is painted last, in layout order. A draw
+/// list with nothing in it paints nothing, and is not the last for the
+/// client (NWN EE 8193.37: `clip_empty` in the client test).
 fn last_draw_list<'a>(v: &'a Value, path: &str) -> Option<(String, &'a Value)> {
-    let mut last = v["draw_list"].is_array().then(|| (path.to_owned(), v));
+    let painted = v["draw_list"].as_array().is_some_and(|items| !items.is_empty());
+    let mut last = painted.then(|| (path.to_owned(), v));
     if let Some(children) = v["children"].as_array() {
         for (i, c) in children.iter().enumerate() {
             if let Some(found) = last_draw_list(c, &format!("{path}/children/{i}")) {
