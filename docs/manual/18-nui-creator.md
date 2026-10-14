@@ -30,7 +30,11 @@ dragged number when you let go: each is one step for Undo, and the preview
 shows what you are typing meanwhile. **OK** under the editor closes it;
 **Cancel** closes it and sets the window and its settings back to what they
 were when you opened it, as one step that Undo takes back. Deleting a window
-in the module tree deletes its settings and its two scripts with it.
+in the module tree deletes its settings and its two scripts with it. **Rename…**
+there renames them with it: your handlers' code moves to the new event
+script, the opener is written for the new name, and the scripts of yours
+that include it are changed to the new include and function names. Nothing
+is compiled then: **Build & compile** afterwards.
 
 ## Design
 
