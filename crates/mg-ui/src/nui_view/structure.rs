@@ -1,3 +1,7 @@
+//! The window's tree as it is rearranged: selecting ([`select`]), dragging
+//! a control before, into or after another ([`drag_target`], [`relocate`],
+//! [`finish`]), deleting the selection ([`delete_selected`]) and wrapping a
+//! control in a row, column or group ([`wrap`]).
 use super::*;
 
 #[derive(Clone)]

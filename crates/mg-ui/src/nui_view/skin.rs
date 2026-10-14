@@ -1,4 +1,7 @@
-//! NUI resources are read from the current content stack. No game artwork is bundled.
+//! What the canvas draws with ([`Assets`]): the game's NUI skin, the
+//! pictures and fonts a window names and the talk-table lines it shows,
+//! read from the module, its haks and the game as the client would find
+//! them, and read again when they change. No game art is built in.
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;

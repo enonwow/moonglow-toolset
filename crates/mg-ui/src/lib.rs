@@ -3032,6 +3032,38 @@ impl Moonglow {
         self.script_stamps = Default::default();
     }
 
+    /// Makes `script_stamps` what is remembered of the module's compiled
+    /// scripts for a compile with `external` (the built-in compiler
+    /// without): what this session remembers if it was made with the same,
+    /// else what is kept from the last session, or by `mg compile`, if
+    /// that was, else nothing. Returns the file it is kept in, to write
+    /// what the compile adds; None where nothing is kept (or without the
+    /// game data, which nothing compiles without).
+    pub(crate) fn remembered_scripts(
+        &mut self,
+        external: Option<&mg_module::external_compiler::ExternalCompiler>,
+    ) -> Option<std::path::PathBuf> {
+        let game = self.game.as_deref()?;
+        // What the stamps were made with: another module, compiler,
+        // setting, or game data (the haks and folders as they were read),
+        // and every script is compiled again.
+        let made_with = mg_module::build::made_with(
+            self.module_path().as_deref(),
+            external,
+            self.install.as_ref().map(|i| i.root.as_path()),
+            &game.resman,
+        );
+        if self.script_stamps.made_with != made_with {
+            self.script_stamps = mg_module::build::Remembered::kept(
+                self.compiled_dir.as_deref(),
+                self.module_path().as_deref(),
+                made_with,
+            );
+        }
+        (self.compiled_dir.as_ref().zip(self.module_path()))
+            .map(|(dir, module)| mg_module::build::Remembered::file(dir, &module))
+    }
+
     /// Compiles scripts as a job: all of them (`None`: those changed
     /// since they were last compiled here), or those named.
     pub(crate) fn compile_job(&mut self, only: Option<Vec<ResKey>>) {
@@ -3040,26 +3072,7 @@ impl Moonglow {
             return;
         }
         let external = self.external_compiler();
-        // What the stamps were made with: another module, compiler,
-        // setting, or game data (the haks and folders as they were read),
-        // and every script is compiled again.
-        let made_with = mg_module::build::made_with(
-            self.module_path().as_deref(),
-            external.as_ref(),
-            self.install.as_ref().map(|i| i.root.as_path()),
-            &self.game.as_deref().expect("checked above").resman,
-        );
-        // (Kept from the last session, or by `mg compile`, if it was made
-        // with the same.)
-        let file = (self.compiled_dir.as_ref().zip(self.module_path()))
-            .map(|(dir, module)| mg_module::build::Remembered::file(dir, &module));
-        if self.script_stamps.made_with != made_with {
-            self.script_stamps = mg_module::build::Remembered::kept(
-                self.compiled_dir.as_deref(),
-                self.module_path().as_deref(),
-                made_with,
-            );
-        }
+        let file = self.remembered_scripts(external.as_ref());
         let known = self.script_stamps.clone();
         let debug = self.settings.debug_info;
         let all = only.is_none();

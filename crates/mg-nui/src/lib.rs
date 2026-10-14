@@ -9,7 +9,8 @@
 //! shapes `nw_inc_nui` builds and what the client is known to refuse, and
 //! [`generate`] writes the two scripts of a window: the include that opens
 //! it (`NAME_o`) and its event script (`NAME_e`), whose sections keep the
-//! code written in them ([`merge_events`]).
+//! code written in them ([`merge_events`]). [`rename()`] moves a window with
+//! all of that to another name.
 //!
 //! Editing is lossless where the crate decides: fields it does not know
 //! stay in the JUI and in every level of the settings, in the order read.
@@ -25,6 +26,7 @@ use serde_json::{Value, json};
 
 mod actions;
 mod error;
+mod rename;
 mod script;
 mod validate;
 
@@ -34,6 +36,7 @@ pub use actions::{
     variant_function,
 };
 pub use error::NuiError;
+pub use rename::{Renamed, can_rename, rename};
 pub use script::{Build, Generated, generate, is_current, opener_source, rebuild_events};
 pub use validate::{Diagnostic, Severity, plain_name, validate};
 

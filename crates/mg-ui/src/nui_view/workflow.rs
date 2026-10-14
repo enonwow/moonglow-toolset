@@ -1,5 +1,6 @@
-//! Variants and event handlers: the Creator's own settings, written out as
-//! stock NUI calls.
+//! The Events & variants page ([`ui`]): the window's handlers and its swap
+//! layout variants in one list. Also the window that makes a bind
+//! ([`create_bind`]) and the pictures a window names ([`images()`]).
 use super::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -69,8 +70,8 @@ impl BindDraft {
             Some("Enter a bind name.")
         } else if !mg_nui::plain_name(name) {
             Some(
-                "The name can't end with + or hold a line break or tab: the event script \
-                 couldn't name it.",
+                "The name can't hold a line break, a tab or another control character: the \
+                 event script couldn't name it.",
             )
         } else if bindings.contains_key(name) {
             Some("This bind already exists. Choose it above or use another name.")

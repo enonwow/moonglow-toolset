@@ -34,7 +34,7 @@ use crate::{Action, NuiError, Resources, Settings, Severity, parse, validate};
 /// `mg_core::sha1` because the settings of windows already built carry it,
 /// and one that no longer matched would read as a script changed by hand.
 /// It guards against accidents, not against anyone.
-fn fingerprint(bytes: &[u8]) -> String {
+pub(crate) fn fingerprint(bytes: &[u8]) -> String {
     let mut h = 0xcbf29ce484222325u64;
     for b in bytes {
         h = (h ^ u64::from(*b)).wrapping_mul(0x100000001b3);
@@ -155,7 +155,7 @@ pub fn opener_source(name: &str, window: &Value, settings: &Settings) -> Result<
 
 /// The groups variants are shown in: those the variants were made for,
 /// the swap layouts, and those the handlers name.
-fn swap_groups(settings: &Settings) -> BTreeSet<String> {
+pub(crate) fn swap_groups(settings: &Settings) -> BTreeSet<String> {
     let mut groups: BTreeSet<String> = settings.view_targets.values().cloned().collect();
     groups.extend(settings.swap_hosts.iter().cloned());
     for handler in &settings.actions {
@@ -178,17 +178,17 @@ fn find_group<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
 
 /// Script bytes as text and back, one character a byte: what a builder
 /// writes between the markers comes back as it was, whatever its codepage.
-fn bytes_text(b: &[u8]) -> String {
+pub(crate) fn bytes_text(b: &[u8]) -> String {
     b.iter().map(|&c| char::from(c)).collect()
 }
 
-fn text_bytes(s: &str) -> Vec<u8> {
+pub(crate) fn text_bytes(s: &str) -> Vec<u8> {
     s.chars().map(|c| u8::try_from(u32::from(c)).unwrap_or(b'?')).collect()
 }
 
 /// Whether an event script has Moonglow's sections, changed only inside
 /// them: the window's own, which Build may write again.
-fn sectioned(name: &str, script: &[u8]) -> bool {
+pub(crate) fn sectioned(name: &str, script: &[u8]) -> bool {
     let text = bytes_text(script).replace("\r\n", "\n");
     text.contains(BEGIN.trim_end()) && !edited_outside(name, &text)
 }

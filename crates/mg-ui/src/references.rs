@@ -80,7 +80,8 @@ impl Moonglow {
     pub fn rename_dialog(&mut self, key: ResKey) {
         let key = main_key(key);
         let Some(ws) = &mut self.ws else { return };
-        if !rename::renamable(key.restype) {
+        // (A NUI window is renamed with what it has beside it: `rename_nui`.)
+        if !rename::renamable(key.restype) && key.restype != ResType::JUI {
             self.log.error(format!("{key} can't be renamed"));
             return;
         }
@@ -103,6 +104,9 @@ impl Moonglow {
     /// what names it, and (with `literals`) script strings; scripts whose
     /// source changed are compiled again.
     pub fn rename_resource(&mut self, from: ResKey, to: ResRef, literals: bool) {
+        if from.restype == ResType::JUI {
+            return self.rename_nui(from, to, literals);
+        }
         self.store_script_text();
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
@@ -176,25 +180,7 @@ impl Moonglow {
             "Renamed {from} to {new}: {} reference(s), {} in scripts",
             report.references, report.in_scripts
         ));
-        if let Some(ws) = &self.ws {
-            let left = rename::mentions(&ws.module, &from.resref.to_string(), true);
-            if !left.is_empty() {
-                self.log.warn(format!(
-                    "{} still spelled “{}” in scripts ({}); the game won't find it by that name. \
-                     Find References lists them",
-                    if left.len() == 1 {
-                        "A string".to_string()
-                    } else {
-                        format!("{} strings", left.len())
-                    },
-                    from.resref,
-                    left.iter()
-                        .map(|m| format!("{} line {}", m.script, m.line))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-        }
+        self.warn_still_spelled(&from.resref.to_string());
         if !compiled_ok {
             self.log.warn(
                 "Some scripts the rename changed aren't compiled; compile them before testing",
@@ -204,6 +190,101 @@ impl Moonglow {
             self.references.query = Some(Query::Resource(new));
             self.references.input = to.to_string();
             self.references.revision = None;
+        }
+    }
+
+    /// Says which strings in the module's scripts still spell `name`, a
+    /// name a rename just took away.
+    fn warn_still_spelled(&mut self, name: &str) {
+        let Some(ws) = &self.ws else { return };
+        let left = rename::mentions(&ws.module, name, true);
+        if !left.is_empty() {
+            self.log.warn(format!(
+                "{} still spelled “{}” in scripts ({}); the game won't find it by that name. \
+                 Find References lists them",
+                if left.len() == 1 {
+                    "A string".to_string()
+                } else {
+                    format!("{} strings", left.len())
+                },
+                name,
+                left.iter()
+                    .map(|m| format!("{} line {}", m.script, m.line))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+
+    /// Renames a NUI window as one undoable command (`mg_nui::rename`):
+    /// its JUI, its settings, its opener and its event script, and the
+    /// module's scripts that open it; with `literals`, script strings
+    /// spelling its name too. The tabs of the window and of its two
+    /// scripts follow. Nothing is compiled: Build does that, and the log
+    /// says so.
+    fn rename_nui(&mut self, from: ResKey, to: ResRef, literals: bool) {
+        self.store_script_text();
+        let Some(ws) = &mut self.ws else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let (old, name) = (from.resref.to_string(), to.to_string());
+        let made = match mg_nui::rename(&ws.module, &old, &name, literals) {
+            Ok(made) => made,
+            Err(e) => {
+                self.log.error(format!("Rename: {e}"));
+                return;
+            }
+        };
+        let new = ResKey::new(to, from.restype);
+        if let Err(e) = self.apply(made.command) {
+            self.log.error(e.to_string());
+            return;
+        }
+        // The window's tab and what it keeps, and the tabs and buffers of
+        // its two scripts where they moved with it. (Only those: another
+        // resource of the window's name is not the window's.)
+        let script =
+            |name: &str, suffix: &str| ResKey::parse(&format!("{name}{suffix}"), ResType::NSS);
+        let scripts: Vec<(ResKey, ResKey)> = ["_o", "_e"]
+            .into_iter()
+            .filter_map(|suffix| script(&old, suffix).zip(script(&name, suffix)))
+            .filter(|(was, _)| self.ws.as_ref().is_some_and(|ws| !ws.module.contains(was)))
+            .collect();
+        let moved = |k: &ResKey| scripts.iter().find(|(was, _)| was == k).map(|(_, now)| *now);
+        for (_, tab) in self.dock.iter_all_tabs_mut() {
+            match tab {
+                Tab::Nui(k) if *k == from => *k = new,
+                Tab::Script(k) => *k = moved(k).unwrap_or(*k),
+                _ => {}
+            }
+        }
+        if let Some(view) = self.nui_views.remove(&from) {
+            self.nui_views.insert(new, view);
+        }
+        // (A buffer is as the module has its script, stored above: it
+        // follows the script as the rename left it when its tab is drawn.)
+        for (was, now) in &scripts {
+            if let Some(buffer) = self.scripts.remove(was) {
+                self.scripts.insert(*now, buffer);
+            }
+        }
+        if self.nui_build_error.as_ref().is_some_and(|(n, _)| *n == old) {
+            self.nui_build_error = None;
+        }
+        self.log.info(format!(
+            "Renamed {from} to {new}, with its settings and its scripts: {} place(s) in scripts",
+            made.in_scripts
+        ));
+        for spelled in &made.spelled {
+            self.warn_still_spelled(spelled);
+        }
+        if made.build {
+            self.log.warn(format!(
+                "{new}'s scripts, and the scripts that open it, aren't compiled under its new \
+                 name: Build & compile it before testing"
+            ));
         }
     }
 
@@ -620,6 +701,12 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
             .as_ref()
             .is_some_and(|ws| family.iter().any(|t| ws.module.contains(&ResKey::new(*to, *t))))
     };
+    // A NUI window's name leaves room for its scripts' suffixes, and its
+    // settings and scripts need theirs free too.
+    let nui_problem = |to: &ResRef| {
+        let ws = app.ws.as_ref().filter(|_| draft.from.restype == ResType::JUI)?;
+        mg_nui::can_rename(&ws.module, &draft.from.resref.to_string(), &to.to_string()).err()
+    };
     egui::Window::new(format!("Rename {}", draft.from))
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
@@ -640,9 +727,14 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
                 Err(e) => Some((e.to_string(), true)),
                 Ok(r) if *r == draft.from.resref => Some(("Type the new name".to_string(), false)),
                 Ok(r) if exists(r) => Some((format!("{name} already exists"), true)),
-                Ok(_) => None,
+                Ok(r) => nui_problem(r).map(|e| (e.to_string(), true)),
             };
             ui.label(match draft.usages {
+                _ if draft.from.restype == ResType::JUI => {
+                    "Its settings and its scripts are renamed with it, and the scripts that \
+                     open it are pointed at the new name."
+                        .to_string()
+                }
                 0 => "Nothing else in the module names it.".to_string(),
                 n => format!("{} in the module {} it; they will name the new one.", places(n), if n == 1 { "names" } else { "name" }),
             });

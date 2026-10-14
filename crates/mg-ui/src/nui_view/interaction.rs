@@ -1,4 +1,8 @@
-//! Disposable preview values and authoring gestures. Neither executes NWScript.
+//! What the canvas does without changing the window: a preview session
+//! ([`Session`]), in which controls take values and handlers' ready-made
+//! actions are followed (no NWScript is run), and the gestures that do
+//! change it once let go: moving the window ([`WindowMove`]) and sizing a
+//! control or the window ([`Resize`], [`resize_handles`]).
 use super::*;
 use egui::{Pos2, Vec2};
 
@@ -33,14 +37,15 @@ pub(super) struct WindowMove {
 /// added, null becomes an object), but `None` and no panic where `value` is
 /// something else: a window written by hand may hold a string or a number
 /// where an object belongs.
-fn field<'a>(value: &'a mut Value, key: &str) -> Option<&'a mut Value> {
+pub(super) fn field<'a>(value: &'a mut Value, key: &str) -> Option<&'a mut Value> {
     if value.is_null() {
         *value = Value::Object(Default::default());
     }
     Some(value.as_object_mut()?.entry(key).or_insert(Value::Null))
 }
 
-fn set(value: &mut Value, key: &str, new: Value) {
+/// `value[key] = new`, where `value` can hold it ([`field`]).
+pub(super) fn set(value: &mut Value, key: &str, new: Value) {
     if let Some(slot) = field(value, key) {
         *slot = new;
     }

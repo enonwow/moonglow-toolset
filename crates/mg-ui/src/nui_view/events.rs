@@ -1,6 +1,10 @@
-//! Event handlers. Each one is a section of the window's event script
-//! (`<name>_e.nss`), where you write what happens; the stock NUI event
-//! types decide when it runs.
+//! Handlers. Each one is a section of the window's event script
+//! (`<name>_e.nss`), where its code is written; the client's event types
+//! decide when it runs. This holds the handlers of a control, a bind or the
+//! window in the properties ([`inspector`], [`editor`]), and the script as
+//! it follows the settings: rebuilt when the handlers change
+//! ([`sync_script`]), following a control that is renamed or removed
+//! ([`follow_controls`]), and opened at a handler's code ([`open_script`]).
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,9 +47,8 @@ fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
     Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
 }
 
-/// The script rebuilt around `settings`' handlers as Build would (one
-/// Moonglow wrote, an older one unchanged since included); else why not
-/// (logged by the caller).
+/// The script rebuilt around `settings`' handlers as Build would (`None`: a
+/// new one); else why not (logged by the caller).
 fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<String, String> {
     let bytes = current.map(crate::text::encode);
     mg_nui::rebuild_events(name, settings, bytes.as_deref())

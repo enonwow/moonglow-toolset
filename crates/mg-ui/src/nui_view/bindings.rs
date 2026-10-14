@@ -1,4 +1,7 @@
-//! Contextual binding workflow on the Design inspector. Drafts never mutate the module.
+//! Binds in the Design page's properties: which property of the control
+//! selected is bound, to a bind there is or a new one (a draft until it is
+//! made; only binds whose value the property can take are offered), and the
+//! handler of a bind's changes ([`watch`]).
 use super::*;
 
 #[derive(Clone)]
