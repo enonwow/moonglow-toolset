@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_reparent_is_atomic_preserves_cells_and_rejects_cycles() {
+    fn reparent_is_atomic_preserves_cells_and_rejects_cycles() {
         let mut d = mg_nui::window();
         d["root"]["children"] = json!([
             {"type":"list","row_template":[[{"type":"label","id":"keep","custom":17},222.0,false]]},
@@ -270,7 +270,7 @@ mod tests {
     /// build ("The constraint can not be satisfied"): no editing gesture of
     /// the Creator leads there.
     #[test]
-    fn nui_edits_never_make_a_window_the_client_refuses() {
+    fn edits_never_make_a_window_the_client_refuses() {
         let errors = |d: &Value| {
             mg_nui::validate(d, &Settings::default())
                 .into_iter()
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_deleting_a_groups_contents_leaves_an_empty_column() {
+    fn deleting_a_groups_contents_leaves_an_empty_column() {
         // A group (a swap layout too) holds exactly one child in NUI.
         let mut d = mg_nui::window();
         d["root"]["children"] = json!([{"type":"group","id":"swap","children":[
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_multi_delete_handles_numeric_indices_and_nested_selections() {
+    fn multi_delete_handles_numeric_indices_and_nested_selections() {
         let mut d = mg_nui::window();
         let column = |i: usize| {
             json!({"type":"col","id":format!("node_{i}"),

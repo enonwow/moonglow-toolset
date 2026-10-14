@@ -852,7 +852,7 @@ mod tests {
     use mg_resman::{LayerClass, MemContainer};
 
     #[test]
-    fn nui_strref_preview_resolves_module_tlk_and_indexed_binds_without_mutating_source() {
+    fn strref_preview_resolves_module_tlk_and_indexed_binds_without_mutating_source() {
         use crate::nui_view::preview::localized_string;
         use mg_core::{Language, StrRef};
         use mg_nui::Binding;
@@ -926,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_resources_observe_hak_live_module_override_order_and_dds_fallback() {
+    fn resources_observe_hak_live_module_override_order_and_dds_fallback() {
         let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         let mut rm = ResMan::new();
         let mut module = Module::new();
@@ -964,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_native_draw_image_ignores_legacy_tint_and_alpha() {
+    fn native_draw_image_ignores_an_old_tint_and_alpha() {
         use serde_json::json;
         let ctx = egui::Context::default();
         let mut module = Module::new();
@@ -1007,7 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_native_button_image_stretches_while_plain_image_keeps_aspect() {
+    fn native_button_image_stretches_while_plain_image_keeps_aspect() {
         use serde_json::json;
         let ctx = egui::Context::default();
         let mut module = Module::new();
@@ -1055,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_native_crop_changes_uv_without_changing_image_aspect() {
+    fn native_crop_changes_uv_without_changing_image_aspect() {
         use serde_json::json;
         let ctx = egui::Context::default();
         let mut module = Module::new();
@@ -1100,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_tga_origin_is_respected_and_slice_edges_do_not_cross() {
+    fn tga_origin_is_respected_and_slice_edges_do_not_cross() {
         let a = image(&tga(false), ResType::TGA).unwrap();
         let b = image(&tga(true), ResType::TGA).unwrap();
         assert_eq!(a.pixels, b.pixels);
@@ -1128,7 +1128,7 @@ mod tests {
     /// changed: 8-bit gray, 24- and 32-bit and color-mapped, plain and
     /// run-length encoded, from all four corners).
     #[test]
-    fn nui_tga_is_read_from_the_corner_it_declares() {
+    fn tga_is_read_from_the_corner_it_declares() {
         let [red, green, blue, white] = [[0, 0, 255], [0, 255, 0], [255, 0, 0], [255, 255, 255]];
         let want = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::WHITE];
         // The same picture (red, green over blue, white) stored from each corner.
@@ -1205,7 +1205,7 @@ mod tests {
     /// (compared pixel for pixel when the reader was changed): 16-bit
     /// samples rounded, palettes and their transparency unpacked.
     #[test]
-    fn nui_png_of_any_kind_is_read_as_rgba() {
+    fn png_of_any_kind_is_read_as_rgba() {
         use png::{BitDepth, ColorType};
         // (As the picture holds them: a color multiplied by its alpha.)
         let pixels = |bytes: &[u8]| {
@@ -1246,7 +1246,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_asset_cache_reuses_textures_and_reloads_changed_bytes() {
+    fn asset_cache_reuses_textures_and_reloads_changed_bytes() {
         let ctx = egui::Context::default();
         let mut module = Module::new();
         let skin = ResKey::parse("nui_skin", ResType::TML).unwrap();

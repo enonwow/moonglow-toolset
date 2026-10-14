@@ -275,10 +275,6 @@ pub(super) fn editor(
     structure::finish(v, state);
 }
 
-#[cfg(test)]
-#[path = "layout_tests.rs"]
-mod layout_tests;
-
 fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
     let query = state.search.to_lowercase();
     let can_add = state.resize.is_none() && insertion_parent(v, &state.selected).is_some();
@@ -879,5 +875,162 @@ fn bind(
                 ui.weak("a swap layout variant");
             }
         });
+    }
+}
+
+/// Where Properties is drawn: no game install or GPU is needed.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    struct Fixture {
+        doc: Value,
+        settings: Settings,
+        state: State,
+        assets: skin::Assets,
+        widths: Option<(f32, f32)>,
+    }
+
+    fn fixture() -> Fixture {
+        let mut doc = mg_nui::window();
+        doc["root"]["children"] = json!([{
+            "type":"row","children":[{
+                "type":"combo","id":"language","value":0,"height":30.0,
+                "elements":[["First",0],["An intentionally long option label that must remain editable inside Properties",2147483647]]
+            }]
+        }]);
+        Fixture {
+            doc,
+            settings: Settings::default(),
+            state: State { selected: "/root/children/0/children/0".into(), ..Default::default() },
+            assets: skin::Assets::default(),
+            widths: None,
+        }
+    }
+
+    fn show(ui: &mut Ui, f: &mut Fixture) {
+        if let Some((left, right)) = f.widths.take() {
+            for (name, width) in [("nui-palette", left), ("nui-inspector", right)] {
+                let id = ui.id().with(name);
+                ui.ctx().data_mut(|d| {
+                    d.insert_persisted(
+                        id,
+                        egui::containers::panel::PanelState {
+                            outer_rect: egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(width, 700.0),
+                            ),
+                        },
+                    )
+                });
+            }
+        }
+        editor(
+            ui,
+            &mut f.doc,
+            &mut f.settings,
+            &mut f.state,
+            &crate::keys::Keymap::default(),
+            &mut f.assets,
+        );
+    }
+
+    /// Properties stays in its panel: what it shows (found by its labels) is
+    /// between the canvas and the window's edge. Content wider than the panel
+    /// makes the panel grow, under the canvas.
+    fn assert_inspector_fits(h: &Harness<'_, Fixture>) {
+        let canvas = h.state().state.preview_rect.unwrap();
+        let edge = h.ctx.content_rect().right();
+        let mut seen = 0;
+        for label in [
+            "Content",
+            "Size & layout",
+            "+ Add property",
+            "Option 1 label",
+            "Option 2 label",
+            "+ Add option",
+            "Property binding",
+            "Bind formatting",
+            "Events",
+        ] {
+            for rect in h.query_all_by_label(label).map(|n| n.rect()) {
+                seen += 1;
+                assert!(
+                    rect.left() >= canvas.right() && rect.right() <= edge + 1.0,
+                    "{label} is outside Properties: {rect:?}, canvas {canvas:?}, edge {edge}"
+                );
+            }
+        }
+        assert!(seen >= 3, "Properties shows its sections");
+    }
+
+    #[test]
+    fn properties_stay_in_their_panel_as_the_window_and_panels_are_sized() {
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, fixture());
+        h.run();
+        assert_inspector_fits(&h);
+        let before = h.state().doc.clone();
+        for (width, left, right) in
+            [(1130.0, 300.0, 220.0), (800.0, 300.0, 360.0), (1380.0, 300.0, 360.0)]
+        {
+            h.state_mut().widths = Some((left, right));
+            h.set_size(egui::vec2(width, 760.0));
+            h.run();
+            assert_inspector_fits(&h);
+        }
+        assert_eq!(h.state().doc, before, "Resizing panels must not change authored NUI");
+    }
+
+    #[test]
+    fn a_long_bound_text_and_deep_layers_fit_narrow_panels() {
+        let mut f = fixture();
+        let mut node = json!({"type":"label","value":{"bind":"caption"},"height":30.0});
+        f.state.selected = "/root".into();
+        for _ in 0..12 {
+            node = json!({"type":"col","children":[node]});
+            f.state.selected.push_str("/children/0");
+        }
+        f.doc["root"] = node;
+        f.settings.bindings.insert(
+            "caption".into(),
+            Binding {
+                value: json!(
+                    "A very long bound string that should be edited without growing the panel sideways"
+                ),
+                ..Default::default()
+            },
+        );
+        f.widths = Some((170.0, 220.0));
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 760.0)).build_ui_state(show, f);
+        h.run();
+        assert_inspector_fits(&h);
+        h.get_by_label("Bind formatting").click();
+        h.run();
+        assert_inspector_fits(&h);
+    }
+
+    #[test]
+    fn a_dropdown_s_new_option_has_a_value_the_game_can_hold() {
+        for (highest, expected) in [(i32::MAX, 1), (7, 8)] {
+            let mut f = fixture();
+            f.doc["root"]["children"][0]["children"][0]["elements"][1][1] = json!(highest);
+            let mut h =
+                Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
+            h.run();
+            h.get_by_label("+ Add option").click();
+            h.run();
+            let elements = &h.state().doc["root"]["children"][0]["children"][0]["elements"];
+            assert_eq!(elements[0][1], 0);
+            assert_eq!(elements[1][1], highest, "Keep existing user IDs");
+            assert_eq!(elements[2], json!(["Option", expected]));
+            let errors: Vec<_> = mg_nui::validate(&h.state().doc, &h.state().settings)
+                .into_iter()
+                .filter(|d| d.severity == mg_nui::Severity::Error)
+                .collect();
+            assert!(errors.is_empty(), "Adding an option must produce valid NUI: {errors:?}");
+            assert_inspector_fits(&h);
+        }
     }
 }

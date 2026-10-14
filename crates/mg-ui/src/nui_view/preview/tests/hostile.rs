@@ -1,6 +1,6 @@
 //! Windows no editor would write, on the canvas: a JUI is text a builder
 //! may edit by hand, and the preview draws whatever parses.
-use super::*;
+use super::super::*;
 use std::time::{Duration, Instant};
 
 /// Values no property expects.

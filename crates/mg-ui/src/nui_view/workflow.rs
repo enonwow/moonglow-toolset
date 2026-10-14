@@ -2,10 +2,6 @@
 //! stock NUI calls.
 use super::*;
 
-#[cfg(test)]
-#[path = "workflow_tests.rs"]
-mod tests;
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BindType {
     Text,
@@ -334,4 +330,61 @@ pub(super) fn images(
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bind_s_name_that_is_taken_empty_or_unreadable_is_refused() {
+        let mut bindings = std::collections::BTreeMap::new();
+        bindings.insert("taken".into(), Binding { value: json!(true), ..Default::default() });
+        let mut draft = BindDraft::new();
+        assert!(draft.error(&bindings).is_some());
+        draft.name = "  taken  ".into();
+        assert!(draft.error(&bindings).is_some());
+        draft.name = "bad\0name".into();
+        assert!(draft.error(&bindings).is_some());
+        draft.name = "fresh".into();
+        assert!(draft.error(&bindings).is_none());
+    }
+
+    #[test]
+    fn each_kind_of_new_bind_validates_where_it_is_used() {
+        let mut doc = mg_nui::window();
+        let mut settings = Settings::default();
+        let mut children = Vec::new();
+        for (kind, widget) in [
+            (BindType::Text, "label"),
+            (BindType::Integer, "combo"),
+            (BindType::Decimal, "sliderf"),
+            (BindType::Boolean, "check"),
+            (BindType::Color, "color_picker"),
+        ] {
+            let name = kind.label().to_lowercase();
+            settings
+                .bindings
+                .insert(name.clone(), Binding { value: kind.value(), ..Default::default() });
+            let mut node = mg_nui::template(widget);
+            node["value"] = json!({"bind":name});
+            children.push(node);
+        }
+        settings.bindings.insert(
+            "position".into(),
+            Binding { value: BindType::Point.value(), ..Default::default() },
+        );
+        children[0]["draw_list"] = json!([{"type":6,"a":{"bind":"position"},"b":{"x":10.0,"y":10.0},"color":{"r":255,"g":255,"b":255,"a":255},"line_thickness":1.0}]);
+        settings.bindings.insert(
+            "bounds".into(),
+            Binding { value: BindType::Rectangle.value(), ..Default::default() },
+        );
+        doc["geometry"] = json!({"bind":"bounds"});
+        doc["root"]["children"] = children.into();
+        let errors: Vec<_> = mg_nui::validate(&doc, &settings)
+            .into_iter()
+            .filter(|d| d.severity == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "{errors:?}");
+    }
 }

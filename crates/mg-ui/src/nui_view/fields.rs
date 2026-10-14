@@ -551,11 +551,7 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
 }
 
 #[cfg(test)]
-#[path = "form_tests.rs"]
-mod form_tests;
-
-#[cfg(test)]
-mod row_tests {
+mod tests {
     use super::*;
 
     #[test]
