@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:42:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T00:17:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1536,7 +1536,7 @@ contribution itself states as not done or not checked.
   (S)
 - **Test instrumentation in a draw function** (`crates/mg-ui/src/nui_view/design.rs`):
   a `#[cfg(test)]` block writes layout rectangles into egui's memory for
-  `layout_tests.rs`. (S)
+  the file's tests. (S)
 - **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
   `skin::Assets` keeps its textures beside `images::Loader`
   (`crates/mg-ui/src/images.rs`). The two look pictures up differently:
@@ -1573,9 +1573,14 @@ contribution itself states as not done or not checked.
   split by kind of control, `Renderer::node` is still 180 lines and
   `list` and `text_block` 140 each, and `draw::paint` takes nine arguments
   (its callers in the draw-layer editor pass them). (S)
-- **Tests in the wrong places:** about 6,700 lines of tests live under
-  `crates/mg-ui/src/nui_view*`, and the app-level ones belong in
-  `crates/mg-ui/tests/`. (M)
+- **The canvas's tests are one file of 1,560 lines**
+  (`crates/mg-ui/src/nui_view/preview/tests/canvas.rs`): they hold the
+  canvas's own state and stay unit tests, where the app-level ones went
+  to `crates/mg-ui/tests/nui.rs` and the pictures to `tests/screens.rs`;
+  by subject (scrolling, Interact, the window's handles) they would be
+  three files. The pictures no longer check that the game's skin and
+  fonts were found (`skin::Assets` is the crate's own): a picture drawn
+  without them is seen, not failed. (S)
 - **Build with an external compiler is tested only where it fails**
   (`crates/mg-corpus-tests/tests/nui.rs`): Build compiles through
   `mg_module::build` with the compiler of the options, and the test
