@@ -51,6 +51,10 @@ fn resource(path: &Path) -> Result<ResKey, String> {
     key_for(&file).map_err(|e| format!("{file}: {e}"))
 }
 
+/// The largest file taken as a picture: a 4096 by 4096 TGA with alpha is
+/// 64 MB.
+const LARGEST: u64 = 64 * 1024 * 1024;
+
 /// A picture file as the module resource it becomes, and the name it takes
 /// when the file's own is one the game can't read (over 16 characters, other
 /// symbols): its letters and digits, shortened, one the module doesn't use.
@@ -58,6 +62,17 @@ fn from_file(
     path: &Path,
     module: &mg_module::Module,
 ) -> Result<(ResKey, Vec<u8>, Option<String>), String> {
+    // (A picture, not whatever file was chosen: the bytes go into the
+    // module and its history.)
+    let size = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?.len();
+    if size > LARGEST {
+        return Err(format!(
+            "{}: {} MB is more than a picture for a window is ({} MB at most)",
+            path.display(),
+            size / (1024 * 1024),
+            LARGEST / (1024 * 1024)
+        ));
+    }
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let why = match resource(path) {
         Ok(key) => return Ok((key, bytes, None)),
@@ -89,6 +104,14 @@ fn add_file(app: &mut Moonglow, path: &Path) -> Option<(ResKey, Edit)> {
     let module = &app.ws.as_ref()?.module;
     match from_file(path, module) {
         Ok((key, bytes, renamed)) => {
+            // (A file of a name the module has, with other bytes: said,
+            // as it takes that picture's place.)
+            if renamed.is_none() && module.get(&key).is_some_and(|b| b != bytes.as_slice()) {
+                app.log.warn(format!(
+                    "{key} takes the place of the picture of that name the module had (Undo \
+                     brings it back)"
+                ));
+            }
             if let Some(name) = renamed {
                 let file = path.file_name().unwrap_or_default().to_string_lossy();
                 app.log.info(format!(

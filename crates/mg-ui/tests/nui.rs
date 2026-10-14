@@ -217,6 +217,9 @@ fn picture_fields_take_a_file_from_disk() {
             "rect":{"x":0.0,"y":0.0,"w":10.0,"h":10.0},"image":"",
             "image_aspect":0,"image_halign":0,"image_valign":0}]}]);
     app.ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&window).unwrap());
+    // (The module has a picture of the layer's name already, another one.)
+    let had = ResKey::parse("my_layer", ResType::TGA).unwrap();
+    app.ws.as_mut().unwrap().module.set(had, b"another picture".to_vec());
     let mut h = creator(app, [1400, 2400]);
     h.run();
     h.get_by_label_contains("Canvas Image").click();
@@ -243,6 +246,11 @@ fn picture_fields_take_a_file_from_disk() {
             .contains(&ResKey::parse("my_layer", ResType::TGA).unwrap())
     );
     assert_eq!(doc(h.state())["root"]["children"][0]["draw_list"][0]["image"], "my_layer");
+    // It took the place of the one the module had, and that is said.
+    assert_eq!(h.state().ws.as_ref().unwrap().module.get(&had), Some(tga.as_slice()));
+    let said = |line: &str| line.contains("my_layer.tga takes the place");
+    assert!(h.state().log.entries.iter().any(|(_, line)| said(line)));
+    assert!(!h.state().log.entries.iter().any(|(_, line)| line.contains("c40e2b2-1610-41b takes")));
 }
 
 /// Advanced › Images: a picture from disk into the module, used as the
@@ -867,6 +875,44 @@ fn cancel_after_a_build_leaves_a_window_that_builds() {
     assert!(built(h.state()), "the scripts are those of the window as it was");
     h.state_mut().run(build);
     assert!(built(h.state()), "and Build goes through");
+}
+
+/// Cancel leaves the event script's code: what was written in its
+/// sections from the script editor since the tab was opened is the
+/// builder's, and the script is rebuilt around the handlers Cancel
+/// brings back. (It was set back whole, to what it was when the Creator
+/// first changed it: gone, where there had been none.)
+#[test]
+fn cancel_keeps_the_code_written_in_the_event_script() {
+    let mut h = harness();
+    h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
+    h.run();
+    let opened = (document(&h), settings(&h));
+    let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
+    // The Close button deleted: its handler goes, and the Creator writes
+    // the event script without it.
+    h.get_all_by_label("Button · Close").next().unwrap().click();
+    h.run();
+    h.key_press(egui::Key::Delete);
+    h.run();
+    let written = text(h.state(), script);
+    // Code of the builder's own, in the script editor, saved.
+    let mine = "void Mine() { SendMessageToPC(OBJECT_SELF, \"mine\"); }\n";
+    let with = mg_nui::insert_code(&written, "top", mine).expect("the top section");
+    let edit = mg_edit::Edit::SetResource { key: script, data: Some(with.into_bytes()) };
+    h.state_mut().run(Action::Apply(mg_edit::Command::new("Edit nui_test_e.nss", vec![edit])));
+    h.run();
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert_eq!((document(&h), settings(&h)), opened, "the window is as it was");
+    let after = text(h.state(), script);
+    assert!(after.contains(mine.trim_end()), "the code is kept: {after}");
+    // Around the handlers that are back: as Build would write it.
+    assert!(!mg_nui::edited_outside("nui_test", &after));
+    for handler in &opened.1.actions {
+        let begin = format!("{}{}", mg_nui::BEGIN, mg_nui::handler_key(handler));
+        assert!(after.contains(&begin), "{begin}: {after}");
+    }
 }
 
 /// A window whose text reads as something other than an object (a list,

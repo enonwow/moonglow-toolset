@@ -156,18 +156,32 @@ pub(crate) fn note_command(
 }
 
 /// [`note_command`] for the commands a window asked for this frame
-/// (`app.actions` from `pending` on).
-fn note_changes(app: &mut Moonglow, pending: usize, tab: &Tab, targets: &[(ResKey, GffPath)]) {
+/// (`app.actions` from `pending` on), but for what they do to the
+/// resources `kept`, which the window's Cancel leaves as they are.
+fn note_changes(
+    app: &mut Moonglow,
+    pending: usize,
+    tab: &Tab,
+    targets: &[(ResKey, GffPath)],
+    kept: &[ResKey],
+) {
     let asked: Vec<Command> = app.actions[pending.min(app.actions.len())..]
         .iter()
         .filter_map(|a| match a {
-            Action::Apply(cmd) => Some(cmd.clone()),
+            Action::Apply(cmd) => Some(but_for(cmd, kept)),
             _ => None,
         })
         .collect();
     for cmd in &asked {
         note_command(app, tab, targets, cmd);
     }
+}
+
+/// A command without its edits of the resources `kept`.
+pub(crate) fn but_for(cmd: &Command, kept: &[ResKey]) -> Command {
+    let mut cmd = cmd.clone();
+    cmd.edits.retain(|e| !kept.contains(e.key()));
+    cmd
 }
 
 /// The command that sets back what a window changed, where it is not as
@@ -272,13 +286,31 @@ pub(crate) fn window_drawn(
     targets: &[(ResKey, GffPath)],
     pressed: Option<Pressed>,
 ) {
-    note_changes(app, pending, tab, targets);
+    window_drawn_but(app, pending, tab, targets, pressed, &[], |_, _| Vec::new());
+}
+
+/// [`window_drawn`] for a window whose Cancel leaves the resources `kept`
+/// as they are (what the builder wrote in them elsewhere is not the
+/// window's to take back) and adds edits of its own to what it sets back
+/// (`more`, given those: to bring what it kept in line with them).
+pub(crate) fn window_drawn_but(
+    app: &mut Moonglow,
+    pending: usize,
+    tab: &Tab,
+    targets: &[(ResKey, GffPath)],
+    pressed: Option<Pressed>,
+    kept: &[ResKey],
+    more: impl FnOnce(&mut Moonglow, &[Edit]) -> Vec<Edit>,
+) {
+    note_changes(app, pending, tab, targets, kept);
     let Some((pressed, first)) = pressed.zip(targets.first()) else { return };
     if pressed == Pressed::Cancel {
         // What the window asked for this frame is set first, then set
         // back.
         let asked = app.actions.len() > pending;
-        if let Some(command) = cancel_command(app, first, asked) {
+        if let Some(mut command) = cancel_command(app, first, asked) {
+            let more = more(app, &command.edits);
+            command.edits.extend(more);
             app.actions.push(Action::Apply(command));
         }
     }

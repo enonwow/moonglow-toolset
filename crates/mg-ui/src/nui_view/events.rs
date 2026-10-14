@@ -56,6 +56,26 @@ fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<Str
         .map_err(|e| e.to_string())
 }
 
+/// The event script after the window's Cancel has set its settings back
+/// to `settings` (`None`: they are as they were): rebuilt around those
+/// handlers, with the code of its sections as it is now. Cancel leaves
+/// the script itself alone: what was written in it, here or in the script
+/// editor, is the builder's. `None` where there is nothing to change, or
+/// the script is not one Build wrote (it stays as it is), or its editor
+/// holds unsaved text.
+pub(super) fn after_cancel(app: &Moonglow, name: &str, settings: Option<&[u8]>) -> Option<Edit> {
+    let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
+    if app.scripts.get(&key).is_some_and(|b| b.is_dirty()) {
+        return None;
+    }
+    let module = &app.ws.as_ref()?.module;
+    let held = ResKey::parse(name, ResType::TXT).and_then(|k| module.get(&k));
+    let settings = Settings::parse(settings.or(held)?).ok()?;
+    let current = module.get(&key).map(crate::text::decode)?;
+    let text = rebuilt(name, &settings, Some(&current)).ok()?;
+    (text != current).then(|| Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
+}
+
 /// The event script follows the handlers as they are added and removed, so
 /// a new one's section is there to write in. One that isn't Moonglow's is
 /// left as it is: Build says why.
@@ -199,10 +219,9 @@ pub(super) fn follow_controls(
         );
     }
     for (old_name, new_name) in &names {
-        // The name as code spells it: plain, or inside a JSON string.
-        text = text
-            .replace(&format!("\"{old_name}\""), &format!("\"{new_name}\""))
-            .replace(&format!("\\\"{old_name}\\\""), &format!("\\\"{new_name}\\\""));
+        // The name where the code names it (a NUI function's argument, a
+        // comparison, a JSON string): not every string that spells it.
+        text = mg_nui::rename_in_code(&text, old_name, new_name);
     }
     for (from, to) in &calls {
         text = text.replace(&format!("{from}("), &format!("{to}("));

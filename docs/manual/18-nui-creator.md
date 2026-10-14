@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:38:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T02:40:35Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -29,7 +29,11 @@ A field you type in changes the window when you leave it or press Enter, a
 dragged number when you let go: each is one step for Undo, and the preview
 shows what you are typing meanwhile. **OK** under the editor closes it;
 **Cancel** closes it and sets the window and its settings back to what they
-were when you opened it, as one step that Undo takes back. Deleting a window
+were when you opened it, as one step that Undo takes back. The code in
+the event script's sections is yours and stays, whatever you wrote in it
+meanwhile: the script is rebuilt around the handlers Cancel brings back
+(the code of a handler that is gone again is kept, commented out, as Build
+keeps it). Deleting a window
 in the module tree deletes its settings and its two scripts with it. **Rename…**
 there renames them with it: your handlers' code moves to the new event
 script, the opener is written for the new name, and the scripts of yours
@@ -171,7 +175,9 @@ change in Draw layers.
 **From disk…** beside an Image's, an Image button's or a draw layer's picture
 puts a picture file into the module (named as the file; a name the game can't
 read, over 16 characters or with other symbols, is shortened, and the log says
-to what) and uses it there. **Layers** lists each control's draw layers under
+to what) and uses it there. A file of a name the module has takes that
+picture's place, which the log says (Undo brings the other back); a file
+over 64 MB is refused. **Layers** lists each control's draw layers under
 it: choose one to see its outline on the canvas, drag inside it to move it,
 its corner to size it, or its points (a line's ends, a curve's, an arc's
 center); the change lands on release, one Undo step.
@@ -292,7 +298,12 @@ control; the window has **Window opened** and **Window closed**. A control
 without an ID gets one. Its section is in the event script at once.
 **Events & variants** lists every handler, with a
 selector for whose event to add. Renaming a control's ID, a bind or a variant
-renames its handlers' sections, and the name where your code quotes it.
+renames its handlers' sections, and the name where your code names it: as
+an argument of one of the game's NUI functions (`NuiSetBind(oPlayer,
+nToken, "name", …)`), in a comparison (`sElement == "name"`), and quoted
+inside a JSON string. Another string that happens to spell the name (a
+message, a tag, a local variable's name) is left as it is, and so is the
+name passed through a function of your own.
 
 **Edit code** opens the event script in the script editor at the handler's
 code. **Insert…** adds ready-made code to it: **Close window**, **Set bind**

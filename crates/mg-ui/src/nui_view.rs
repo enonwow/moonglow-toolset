@@ -337,7 +337,8 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
     // the next Build would take the opener for one written by hand.)
     if let (Ok(cmd), Some(key)) = (&result, ResKey::parse(name, ResType::JUI)) {
         let targets = [(key, mg_edit::GffPath::root())];
-        crate::blueprint::note_command(app, &Tab::Nui(key), &targets, cmd);
+        let cmd = crate::blueprint::but_for(cmd, &events_script(name));
+        crate::blueprint::note_command(app, &Tab::Nui(key), &targets, &cmd);
     }
     match result {
         Ok(cmd) => match if cmd.edits.is_empty() { Ok(()) } else { app.apply(cmd) } {
@@ -416,7 +417,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let pressed = crate::blueprint::ok_cancel(ui, &targets[0], false);
     let pending = app.actions.len();
     editor(app, ui, key);
-    crate::blueprint::window_drawn(app, pending, &Tab::Nui(key), &targets, pressed);
+    // The event script is not Cancel's to set back: code written in its
+    // sections since the tab was opened (in the script editor, saved) is
+    // the builder's, and went with the rest. It is rebuilt around the
+    // handlers Cancel brings back, its sections' code kept as Build keeps
+    // it (a handler's that is gone again: commented out under it).
+    let name = key.resref.to_string();
+    let kept = events_script(&name);
+    let settings_key = ResKey::new(key.resref, ResType::TXT);
+    let tab = Tab::Nui(key);
+    crate::blueprint::window_drawn_but(app, pending, &tab, &targets, pressed, &kept, |app, set| {
+        let settings = set.iter().find_map(|e| match e {
+            Edit::SetResource { key, data } if *key == settings_key => data.as_deref(),
+            _ => None,
+        });
+        events::after_cancel(app, &name, settings).into_iter().collect()
+    });
+}
+
+/// A window's event script, as the resources Cancel leaves alone.
+fn events_script(name: &str) -> Vec<ResKey> {
+    ResKey::parse(&format!("{name}_e"), ResType::NSS).into_iter().collect()
 }
 
 /// The window and its settings as text, for one frame: as the module holds

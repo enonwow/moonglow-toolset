@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T01:33:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T02:40:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1477,17 +1477,10 @@ contribution itself states as not done or not checked.
 
 - **Left by the read before the release (2026-10-14):** found and not
   changed, each with the steps that show it.
-  - *Cancel takes back code written in the script editor.* The Creator's
-    own edit of the event script is noted as the whole script; code then
-    written in it from the script editor and saved goes with Cancel
-    (Undo brings it back). The sections' code should be kept, as Build
-    keeps it. (M)
-  - *A picture from disk replaces one of its name with no word*
-    (`nui_view/images.rs`): `icon.png` over the module's `icon.png`,
-    undoable, unsaid; and a file of any size is read. (S)
-  - *A control's ID or a bind renamed changes that string everywhere in
-    the event script* (`nui_view/events.rs`), the builder's code too
-    (`ok` to `confirm` changes an unrelated `"ok"`). (S)
+  - *A control's ID or a bind renamed* is changed in the event script
+    where the code names it (an argument of a NUI function, a
+    comparison, a JSON string): a name passed through a function of the
+    builder's own (`SetMine("ok")`) is not followed. (S)
   - *The event script with unsaved text in its editor* is written into
     that text by the Creator, outside Undo and Cancel. (S)
   - *Closing a module leaves the Creator's pages and drafts* for a
@@ -1589,11 +1582,6 @@ contribution itself states as not done or not checked.
   window's strings option is on. Rename… on `NAME_e.nss` or `NAME_o.nss`
   alone is a script's rename, which knows nothing of the window, and
   `mg rename` does not rename a window. (S)
-- **`mg`'s main without its thread is not yet seen on Windows**
-  (`apps/mg/src/main.rs`): the contribution ran every command on a
-  16 MB thread, for a debug build's stack on Windows; the review took
-  that out (`main` is as it was), and the Windows job of CI has not run
-  on it. (S)
 - **Where the preview is known to differ from the game** (stated in
   [the manual](manual/18-nui-creator.md);
   `crates/mg-ui/src/nui_view/preview.rs`): after a control with a width

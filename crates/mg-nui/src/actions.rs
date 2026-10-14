@@ -446,6 +446,53 @@ pub fn merge_events(
     Ok(out)
 }
 
+/// An event script with a control's ID or a bind's name changed from
+/// `from` to `to` where the code names it: a string that is an argument
+/// of one of the game's NUI functions (`NuiSetBind(oPlayer, nToken,
+/// "from", …)`), one compared with `==` or `!=` (`sElement == "from"`),
+/// and the name quoted inside a string (JSON given to `JsonParse`: a
+/// bind's `{"bind":"from"}`). Any other string that happens to spell the
+/// name (a message, a tag, a variable's name) is the builder's own and
+/// stays.
+pub fn rename_in_code(script: &str, from: &str, to: &str) -> String {
+    use mg_script::lex::{TokenKind, tokenize};
+    let src = script.as_bytes();
+    let tokens: Vec<_> = tokenize(src).into_iter().filter(|t| t.kind.is_significant()).collect();
+    let text = |i: usize| tokens.get(i).and_then(|t| script.get(t.span.clone())).unwrap_or("");
+    let (quoted, inner) = (format!("\"{from}\""), format!("\\\"{from}\\\""));
+    let inner_to = format!("\\\"{to}\\\"");
+    // The function each open parenthesis is the call of ("" for none).
+    let mut calls: Vec<&str> = Vec::new();
+    let (mut out, mut at) = (String::with_capacity(script.len()), 0);
+    for (i, token) in tokens.iter().enumerate() {
+        let spelled = text(i);
+        match token.kind {
+            TokenKind::Punct if spelled == "(" => {
+                let callee = i.checked_sub(1).filter(|p| tokens[*p].kind == TokenKind::Ident);
+                calls.push(callee.map_or("", text));
+            }
+            TokenKind::Punct if spelled == ")" => _ = calls.pop(),
+            TokenKind::String { terminated: true } => {
+                let compared = |j: Option<usize>| j.is_some_and(|j| matches!(text(j), "==" | "!="));
+                let named = spelled == quoted
+                    && (calls.last().is_some_and(|c| c.starts_with("Nui"))
+                        || compared(i.checked_sub(1))
+                        || compared(Some(i + 1)));
+                let now = match named {
+                    true => format!("\"{to}\""),
+                    false => spelled.replace(&inner, &inner_to),
+                };
+                out.push_str(&script[at..token.span.start]);
+                out.push_str(&now);
+                at = token.span.end;
+            }
+            _ => {}
+        }
+    }
+    out.push_str(&script[at..]);
+    out
+}
+
 /// Whether anything outside the sections of the window `name`'s event
 /// script differs from what Moonglow writes for the handlers the script
 /// has: rebuilding it would lose that.
@@ -520,6 +567,30 @@ mod tests {
 
     fn handlers(actions: Vec<Route>) -> Settings {
         Settings { actions, ..Default::default() }
+    }
+
+    #[test]
+    fn a_name_is_renamed_where_the_code_names_it() {
+        let code = concat!(
+            "NuiSetBind(oPlayer, nToken, \"ok\", JsonBool(TRUE));\n",
+            "if (sElement == \"ok\" || \"ok\" != sType) {}\n",
+            "json j = JsonParse(\"{\\\"bind\\\":\\\"ok\\\"}\");\n",
+            "SendMessageToPC(oPlayer, \"ok\");\n",
+            "SetLocalInt(oPlayer, \"ok\", NuiGetEventWindow());\n",
+            "// \"ok\" in a comment\n",
+        );
+        let renamed = rename_in_code(code, "ok", "confirm");
+        assert!(renamed.contains("NuiSetBind(oPlayer, nToken, \"confirm\", JsonBool(TRUE));"));
+        assert!(renamed.contains("sElement == \"confirm\" || \"confirm\" != sType"));
+        assert!(renamed.contains("{\\\"bind\\\":\\\"confirm\\\"}"), "{renamed}");
+        // The builder's own strings, and a comment, stay.
+        assert!(renamed.contains("SendMessageToPC(oPlayer, \"ok\");"));
+        assert!(renamed.contains("SetLocalInt(oPlayer, \"ok\", NuiGetEventWindow());"));
+        assert!(renamed.contains("// \"ok\" in a comment"));
+        // (Hostile text is read through.)
+        for text in ["\"ok", ")))(\"ok\"", "\u{17b}\"ok\" == ("] {
+            rename_in_code(text, "ok", "confirm");
+        }
     }
 
     #[test]
