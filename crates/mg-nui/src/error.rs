@@ -25,6 +25,10 @@ pub enum NuiError {
     /// A new window's resource is in the module already.
     #[error("Resource already exists: {0}")]
     Exists(ResKey),
+    /// The module's rename could not move a script of the window: its
+    /// error.
+    #[error("{0}")]
+    Rename(String),
     /// The window has no layout in the module.
     #[error("Missing {0}")]
     Missing(ResKey),

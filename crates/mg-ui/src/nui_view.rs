@@ -34,6 +34,8 @@ mod interaction;
 mod interaction_tests;
 mod layouts;
 mod preview;
+#[cfg(test)]
+mod rename_tests;
 mod shortcuts;
 pub(crate) mod skin;
 mod structure;

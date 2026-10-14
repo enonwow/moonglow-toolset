@@ -886,6 +886,15 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                             if ui.button("Rename…").clicked() {
                                 app.actions.push(Action::RenameDialog(k));
                             }
+                        } else if k.restype == ResType::JUI
+                            && ui
+                                .button("Rename…")
+                                .on_hover_text(
+                                    "With its settings and its scripts, and the scripts that open it",
+                                )
+                                .clicked()
+                        {
+                            app.actions.push(Action::RenameDialog(k));
                         }
                         if ui
                             .button("Copy…")
