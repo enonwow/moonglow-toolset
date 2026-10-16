@@ -16,7 +16,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use mg_module::{Module, ModuleLocation};
 use serde::{Deserialize, Serialize};
 
-use crate::{Moonglow, text};
+use crate::Moonglow;
 
 /// Moonglow's data folder: `$XDG_DATA_HOME/moonglow` (else
 /// `~/.local/share/moonglow`) on Linux, `~/Library/Application
@@ -167,7 +167,7 @@ impl Moonglow {
         let (archive, note) = self.recovery_archive()?;
         let mut module = self.ws.as_mut()?.snapshot().ok()?;
         for (key, buf) in self.scripts.iter().filter(|(_, b)| b.is_dirty()) {
-            module.set(*key, text::encode(&buf.text));
+            module.set(*key, buf.bytes());
         }
         Some(Job { module, archive, note })
     }

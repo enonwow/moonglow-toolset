@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T02:30:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
 ---
 
 # Command-line tools
@@ -423,6 +423,12 @@ It finds the game as `mg` does (`--root`, `NWN_ROOT` or Steam's). Without
 the game it still works, but without `nwscript.nss` or the game's
 includes. Definitions in game scripts open read-only copies kept in your
 cache folder.
+
+It reads scripts in the codepage the game reads their text in: the one
+your user folder's `settings.tml` gives the game (its codepage, else its
+language's: Windows-1250 for Polish), else Windows-1252. `mg lsp
+--codepage cp1250` names it. The files open in your editor come as the
+editor read them: set it to the same codepage for `.nss` files.
 
 To use it, tell your editor to run `mg lsp` for `.nss` files:
 - **Neovim** (0.11):

@@ -157,3 +157,63 @@ fn the_language_server_answers() {
     c.notify("exit", Value::Null);
     assert!(c.child.wait().unwrap().success());
 }
+
+/// Hover over a function of an include saved in Windows-1250 (as Polish
+/// builders keep their scripts), from a server started with `args` and
+/// the user directory `user`: its comment as the server read it.
+fn polish_hover(name: &str, user: Option<&std::path::Path>, args: &[&str]) -> String {
+    let dir = mg_testkit::scratch_dir(name);
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let inc = src.join("inc_pl.nss");
+    let main = src.join("main_pl.nss");
+    let comment = "// Zażółć gęślą jaźń. Źródło.\nint Twice(int n) { return n * 2; }\n";
+    let bytes = mg_core::Codepage::WINDOWS_1250.encode(comment).unwrap().into_owned();
+    std::fs::write(&inc, bytes).unwrap();
+    let text = "#include \"inc_pl\"\nvoid main()\n{\n    int x = Twice(2);\n}\n";
+    std::fs::write(&main, text).unwrap();
+    let mut command = crate::mg();
+    match user {
+        Some(u) => command.args(["--user-dir", u.to_str().unwrap()]),
+        None => command.arg("--no-user-dir"),
+    };
+    let mut child = command
+        .arg("lsp")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let out = BufReader::new(child.stdout.take().unwrap());
+    let mut c = Client { child, out, next: 0, notes: Vec::new() };
+    c.request("initialize", json!({ "rootUri": uri(&dir), "capabilities": {} }));
+    c.notify("initialized", json!({}));
+    c.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri(&main), "languageId": "nwscript", "version": 1, "text": text } }),
+    );
+    let at = json!({ "textDocument": { "uri": uri(&main) }, "position": { "line": 3, "character": 14 } });
+    let hover = c.request("textDocument/hover", at);
+    c.request("shutdown", Value::Null);
+    c.notify("exit", Value::Null);
+    assert!(c.child.wait().unwrap().success());
+    hover["result"]["contents"]["value"].as_str().unwrap_or_default().to_string()
+}
+
+/// A script's text is read in the game's codepage (GitHub issue 27): the
+/// one the user directory's settings.tml gives the game (its language's,
+/// Polish here), or the one named; Windows-1252 without either.
+#[test]
+fn the_language_server_reads_scripts_in_the_game_s_codepage() {
+    let polish = "Zażółć gęślą jaźń. Źródło.";
+    let user = mg_testkit::scratch_dir("mg-lsp-pl-user");
+    let settings = "[game]\n\t[game.language]\n\t\tcodepage = \"\"\n\t\toverride = \"pl\"\n";
+    std::fs::write(user.join("settings.tml"), settings).unwrap();
+    let by_settings = polish_hover("mg-lsp-pl-settings", Some(&user), &[]);
+    assert!(by_settings.contains(polish), "{by_settings}");
+    let named = polish_hover("mg-lsp-pl-named", None, &["--codepage", "cp1250"]);
+    assert!(named.contains(polish), "{named}");
+    let western = polish_hover("mg-lsp-pl-western", None, &[]);
+    assert!(!western.contains(polish) && western.contains("Twice"), "{western}");
+}

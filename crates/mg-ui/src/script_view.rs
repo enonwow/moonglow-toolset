@@ -12,7 +12,7 @@ use crate::script_tools::{
     self as tools, Completion, InfoTab, Message, SideTab, Symbol, SymbolKind,
 };
 use crate::settings::ScriptStyle;
-use crate::text::{decode, encode};
+use crate::text::{decode_script as decode, encode_script as encode, script_codepage};
 use crate::{Action, Moonglow, Tab};
 
 /// A script's text in its editor.
@@ -32,6 +32,12 @@ pub(crate) struct ScriptBuffer {
     /// The file the external script editor has open, and when it was last
     /// written: the text is read back whenever it changes.
     pub(crate) external: Option<(std::path::PathBuf, Option<std::time::SystemTime>)>,
+    /// The codepage the text was read in, and is written in: the
+    /// script codepage when it was read ([`script_codepage`]). Another
+    /// language chosen in Options reads a script without changes again;
+    /// one with unsaved changes is written as it was read, then read
+    /// again.
+    pub(crate) codepage: mg_core::Codepage,
 }
 
 /// The laid-out text of a script editor, reused while the text, width and
@@ -72,8 +78,33 @@ fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) 
 }
 
 impl ScriptBuffer {
+    /// A script's bytes in an editor, read in the script codepage.
+    pub(crate) fn read(bytes: &[u8], source: (usize, usize)) -> ScriptBuffer {
+        let codepage = script_codepage();
+        let text = codepage.decode(bytes).into_owned();
+        ScriptBuffer {
+            text: text.clone(),
+            saved: text,
+            source,
+            bookmarks: Default::default(),
+            numbered: [None; 10],
+            external: None,
+            codepage,
+        }
+    }
+
     pub(crate) fn is_dirty(&self) -> bool {
         self.text != self.saved
+    }
+
+    /// The text as the script's bytes, in the codepage it was read in.
+    pub(crate) fn bytes(&self) -> Vec<u8> {
+        self.codepage.encode_lossy(&self.text)
+    }
+
+    /// The warning for characters of the text its codepage cannot write.
+    pub(crate) fn unwritable(&self, key: ResKey) -> Option<String> {
+        crate::text::unwritable_warning(key, self.codepage, &self.text)
     }
 }
 
@@ -304,17 +335,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         return;
     };
     let source = (bytes.as_ptr() as usize, bytes.len());
-    app.scripts.entry(key).or_insert_with(|| {
-        let text = decode(bytes);
-        ScriptBuffer {
-            text: text.clone(),
-            saved: text,
-            source,
-            bookmarks: Default::default(),
-            numbered: [None; 10],
-            external: None,
-        }
-    });
+    app.scripts.entry(key).or_insert_with(|| ScriptBuffer::read(bytes, source));
     if app.script_tools.open_externally.remove(&key)
         && let Some(editor) = app.settings.external_editor.clone()
     {
@@ -324,13 +345,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let Some(bytes) = ws.module.get(&key) else { return };
     {
         let buf = app.scripts.get_mut(&key).expect("just inserted");
-        if buf.source != source {
+        // (Another language chosen in Options: a script without unsaved
+        // changes is read again in its codepage.)
+        let codepage = script_codepage();
+        let recoded = buf.codepage != codepage && !buf.is_dirty();
+        if buf.source != source || recoded {
             buf.source = source;
-            let module_text = decode(bytes);
-            if !buf.is_dirty() && buf.saved != module_text {
-                // Changed underneath (undo, import): follow the module.
-                buf.text = module_text.clone();
-                buf.saved = module_text;
+            if !buf.is_dirty() {
+                let module_text = codepage.decode(bytes).into_owned();
+                buf.codepage = codepage;
+                if buf.saved != module_text || buf.text != module_text {
+                    // Changed underneath (undo, import): follow the module.
+                    buf.text = module_text.clone();
+                    buf.saved = module_text;
+                }
             }
         }
     }
@@ -503,6 +531,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         if dirty {
             ui.weak("modified");
         }
+        // The codepage the script is read and saved in.
+        let codepage = crate::text::codepage_name(app.scripts[&key].codepage);
+        ui.weak(codepage).on_hover_text(
+            "The codepage the script is read and saved in: the language's in Options › \
+             Language (Windows-1250 for Polish), as the game reads a script's text",
+        );
     });
     // The error the latest check found, under the toolbar.
     app.live_check(key, &ctx);
@@ -1040,10 +1074,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let text = buf.text.clone();
         if buf.is_dirty() {
             buf.saved = text.clone();
+            let (data, warning) = (buf.bytes(), buf.unwritable(key));
             app.actions.push(Action::Apply(Command::new(
                 format!("Edit {key}"),
-                vec![Edit::SetResource { key, data: Some(encode(&text)) }],
+                vec![Edit::SetResource { key, data: Some(data) }],
             )));
+            if let Some(w) = warning {
+                app.log.warn(w);
+            }
         }
         // Options > Script Editor: saving compiles too.
         let compiled =
@@ -1073,7 +1111,7 @@ fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
     let path = ws.module.file_of(&key)?.to_path_buf();
     let buf = app.scripts.get(&key)?;
     let on_disk = std::fs::read(&path).ok()?;
-    (!buf.is_dirty() && decode(&on_disk) == buf.text).then_some(path)
+    (!buf.is_dirty() && buf.codepage.decode(&on_disk) == buf.text).then_some(path)
 }
 
 /// Opens a script in the external editor alone, with no editor of
@@ -1123,8 +1161,8 @@ fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
         None => {
             let dir = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
             let path = dir.join(format!("{}.nss", key.resref.to_lowercase()));
-            let written = std::fs::create_dir_all(&dir)
-                .and_then(|()| std::fs::write(&path, encode(&buf.text)));
+            let written =
+                std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, buf.bytes()));
             if let Err(e) = written {
                 app.log.error(format!("{}: {e}", path.display()));
                 return;
@@ -1178,7 +1216,7 @@ pub(crate) fn reload_external(app: &mut Moonglow, key: ResKey) {
     }
     *seen = modified;
     if let Ok(bytes) = std::fs::read(&*path) {
-        let text = decode(&bytes);
+        let text = buf.codepage.decode(&bytes).into_owned();
         if text != buf.text {
             buf.text = text;
             app.log.info(format!("{key}: changed in the external editor"));
@@ -1224,7 +1262,12 @@ fn compile_with_debug(
     debug: bool,
     external: Option<&mg_module::external_compiler::ExternalCompiler>,
 ) -> Result<(Vec<u8>, Option<Vec<u8>>), mg_script::compiler::CompileError> {
-    let source = encode(text);
+    // (An editor's text in the codepage it was read in; other text in the
+    // script codepage. A string's bytes go into the compiled script as
+    // they are.)
+    let codepage = (app.scripts.get(&key).filter(|b| b.text == text))
+        .map_or_else(script_codepage, |b| b.codepage);
+    let source = codepage.encode_lossy(text);
     let module = app.ws.as_ref().map(|w| &w.module);
     let resman = app.game.as_deref().map(|g| &g.resman);
     let name = key.resref.to_lowercase().to_string();
@@ -1795,11 +1838,17 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             Named::Open => Some((from, name)),
             Named::Cancelled => None,
             Named::Chosen(k) => {
-                let text = app.scripts.get(&from).map(|b| b.text.clone()).unwrap_or_default();
+                let (data, warning) = match app.scripts.get(&from) {
+                    Some(b) => (b.bytes(), b.unwritable(k)),
+                    None => (Vec::new(), None),
+                };
                 app.actions.push(Action::Apply(Command::new(
                     format!("Save {from} as {k}"),
-                    vec![Edit::SetResource { key: k, data: Some(encode(&text)) }],
+                    vec![Edit::SetResource { key: k, data: Some(data) }],
                 )));
+                if let Some(w) = warning {
+                    app.log.warn(w);
+                }
                 app.actions.push(Action::OpenTab(Tab::Script(k)));
                 None
             }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:39:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
 ---
 
 # Scripts
@@ -58,6 +58,23 @@ compiler's messages, say).
 script: objects' and areas' events, conversation lines, the module's
 events, `#include` lines, and strings in scripts that spell its name
 (`ExecuteScript("name", …)`).
+
+A script is read and saved in the codepage of the language chosen in
+**Options › Language**: Windows-1250 with Polish, Windows-1252 with
+English, French, German, Italian or Spanish (a module's own
+`encoding.2da`, where its haks have one). The toolbar names it.
+NWScript has no codepage of its own: the compiler copies a string's
+bytes into the compiled script, and the game shows them by its
+language's codepage. So a Polish module's scripts, kept in Windows-1250
+as Aurora writes them, show their Polish letters, compile them as the
+game reads them, and keep every line you don't change byte for byte. A
+character the codepage can't hold (one from another alphabet) is saved
+as `?`, and the log says which. Choosing another language reads again
+the scripts open without unsaved changes; one with unsaved changes is
+saved in the codepage it was read in. An external script editor
+(Options › Script Editor) is given the script in that codepage: set it
+to open `.nss` files so (in VS Code, `"files.encoding": "windows1250"`
+for them).
 
 ## Finding your way in code
 

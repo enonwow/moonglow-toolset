@@ -35,7 +35,14 @@ pub(super) fn current_script(app: &Moonglow, key: &ResKey) -> Option<String> {
         .get(key)
         .filter(|b| b.is_dirty())
         .map(|b| b.text.clone())
-        .or_else(|| app.ws.as_ref()?.module.get(key).map(crate::text::decode))
+        .or_else(|| app.ws.as_ref()?.module.get(key).map(crate::text::decode_script))
+}
+
+/// The codepage of [`current_script`]'s text: an editor's unsaved text's
+/// (as it was read), else the script codepage's.
+fn current_codepage(app: &Moonglow, key: &ResKey) -> mg_core::Codepage {
+    (app.scripts.get(key).filter(|b| b.is_dirty()))
+        .map_or_else(crate::text::script_codepage, |b| b.codepage)
 }
 
 /// The script's new text as an edit, or into an editor holding unsaved work.
@@ -44,15 +51,21 @@ fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
         buf.text = text;
         return None;
     }
-    Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
+    Some(Edit::SetResource { key, data: Some(crate::text::encode_script(&text)) })
 }
 
 /// The script rebuilt around `settings`' handlers as Build would (`None`: a
 /// new one); else why not (logged by the caller).
-fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<String, String> {
-    let bytes = current.map(crate::text::encode);
+/// `current`'s text is in `codepage`, as the result is.
+fn rebuilt(
+    name: &str,
+    settings: &Settings,
+    current: Option<&str>,
+    codepage: mg_core::Codepage,
+) -> Result<String, String> {
+    let bytes = current.map(|t| codepage.encode_lossy(t));
     mg_nui::rebuild_events(name, settings, bytes.as_deref())
-        .map(|b| crate::text::decode(&b))
+        .map(|b| codepage.decode(&b).into_owned())
         .map_err(|e| e.to_string())
 }
 
@@ -71,9 +84,10 @@ pub(super) fn after_cancel(app: &Moonglow, name: &str, settings: Option<&[u8]>) 
     let module = &app.ws.as_ref()?.module;
     let held = ResKey::parse(name, ResType::TXT).and_then(|k| module.get(&k));
     let settings = Settings::parse(settings.or(held)?).ok()?;
-    let current = module.get(&key).map(crate::text::decode)?;
-    let text = rebuilt(name, &settings, Some(&current)).ok()?;
-    (text != current).then(|| Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
+    let current = module.get(&key).map(crate::text::decode_script)?;
+    let text = rebuilt(name, &settings, Some(&current), crate::text::script_codepage()).ok()?;
+    (text != current)
+        .then(|| Edit::SetResource { key, data: Some(crate::text::encode_script(&text)) })
 }
 
 /// The event script follows the handlers as they are added and removed, so
@@ -93,7 +107,7 @@ pub(super) fn sync_script(
     }
     let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
     let current = current_script(app, &key);
-    let text = rebuilt(name, &new, current.as_deref()).ok()?;
+    let text = rebuilt(name, &new, current.as_deref(), current_codepage(app, &key)).ok()?;
     if current.as_deref() == Some(text.as_str()) {
         return None;
     }
@@ -108,13 +122,14 @@ pub(super) fn sync_script(
 pub(super) fn open_script(app: &mut Moonglow, name: &str, ask: EventScript) -> Option<Edit> {
     let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
     let current = current_script(app, &key);
-    let mut text = match rebuilt(name, &ask.settings, current.as_deref()) {
-        Ok(text) => text,
-        Err(why) => {
-            app.log.error(why);
-            current.clone()?
-        }
-    };
+    let mut text =
+        match rebuilt(name, &ask.settings, current.as_deref(), current_codepage(app, &key)) {
+            Ok(text) => text,
+            Err(why) => {
+                app.log.error(why);
+                current.clone()?
+            }
+        };
     if let (Some(handler), Some(code)) = (&ask.handler, &ask.code) {
         match mg_nui::insert_code(&text, handler, &code.replace(WINDOW, name)) {
             Some(with) => {

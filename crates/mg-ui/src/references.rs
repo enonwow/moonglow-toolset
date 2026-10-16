@@ -10,7 +10,6 @@ use mg_module::rename::{self, Mention, Usage};
 use mg_resman::ResKey;
 
 use crate::dialog_view::Row;
-use crate::text::decode;
 use crate::widgets::{autofocus, enter};
 use crate::{Action, Moonglow, Tab};
 
@@ -473,7 +472,7 @@ impl Moonglow {
             .scripts
             .get(&key)
             .map(|b| b.text.clone())
-            .or_else(|| self.ws.as_ref()?.module.get(&key).map(decode))
+            .or_else(|| self.ws.as_ref()?.module.get(&key).map(crate::text::decode_script))
             .unwrap_or_default();
         self.script_tools.jump =
             Some((key, crate::script_tools::line_start(&text, line.saturating_sub(1))));

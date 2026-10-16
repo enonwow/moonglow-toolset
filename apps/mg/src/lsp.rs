@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use mg_core::ResType;
+use mg_core::{Codepage, ResType};
 use mg_resman::{ResKey, ResMan};
 use mg_script::Compiler;
 use mg_script::analysis::{DeclKind, Declaration, Index, NWSCRIPT};
@@ -133,6 +133,9 @@ struct Server {
     open: HashMap<String, (String, String)>,
     index: Index,
     game: Option<ResMan>,
+    /// The codepage scripts' files are read in (and their text compiled
+    /// in): the game's language's, Windows-1250 for Polish.
+    codepage: Codepage,
     /// Where game scripts are written for Go to Definition.
     cache: PathBuf,
 }
@@ -162,10 +165,10 @@ impl Server {
             return Some(t.clone());
         }
         if let Some(p) = self.files.get(name) {
-            return std::fs::read(p).ok().map(|b| decode(&b));
+            return std::fs::read(p).ok().map(|b| self.codepage.decode(&b).into_owned());
         }
         let k = ResKey::parse(name, ResType::NSS)?;
-        self.game.as_ref()?.get(&k).ok().map(|d| decode(&d))
+        self.game.as_ref()?.get(&k).ok().map(|d| self.codepage.decode(&d).into_owned())
     }
 
     /// A script's URI: open or in the workspace, else a cached copy of the
@@ -226,7 +229,7 @@ impl Server {
             if t == ResType::NSS
                 && let Some(text) = self.text(&n.to_ascii_lowercase())
             {
-                return Some(encode(&text));
+                return Some(encode(self.codepage, &text));
             }
             let k = ResKey::parse(n, t)?;
             self.game.as_ref()?.get(&k).ok().map(|d| d.into_owned())
@@ -440,19 +443,16 @@ fn completion_kind(k: DeclKind) -> u32 {
     }
 }
 
-/// Script text in the game's codepage (Windows-1252).
-fn decode(bytes: &[u8]) -> String {
-    mg_core::Codepage::WINDOWS_1252.decode(bytes).into_owned()
-}
-
-fn encode(text: &str) -> Vec<u8> {
-    mg_core::Codepage::WINDOWS_1252
-        .encode(text)
-        .map_or_else(|| text.as_bytes().to_vec(), |b| b.into_owned())
+/// Script text as bytes in `codepage`, a `?` for a character it lacks:
+/// one byte a character, so that the compiler's lines and columns are the
+/// text's. (All of it was given as UTF-8 when one character was lacking:
+/// a Polish letter in a Windows-1252 script moved what came after it.)
+fn encode(codepage: Codepage, text: &str) -> Vec<u8> {
+    codepage.encode_lossy(text)
 }
 
 /// Serves the protocol on standard input and output until `exit`.
-pub(crate) fn serve(game: Option<ResMan>) -> Result<()> {
+pub(crate) fn serve(game: Option<ResMan>, codepage: Codepage) -> Result<()> {
     let cache = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
@@ -464,6 +464,7 @@ pub(crate) fn serve(game: Option<ResMan>) -> Result<()> {
         open: HashMap::new(),
         index: Index::new(),
         game,
+        codepage,
         cache,
     };
     let stdin = std::io::stdin();

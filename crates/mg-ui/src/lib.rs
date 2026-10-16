@@ -2859,10 +2859,10 @@ impl Moonglow {
         let mut edits = Vec::new();
         for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
             buf.saved = buf.text.clone();
-            edits.push(mg_edit::Edit::SetResource {
-                key: *key,
-                data: Some(text::encode(&buf.text)),
-            });
+            edits.push(mg_edit::Edit::SetResource { key: *key, data: Some(buf.bytes()) });
+            if let Some(w) = buf.unwritable(*key) {
+                self.log.warn(w);
+            }
         }
         let stored: Vec<ResKey> = edits
             .iter()

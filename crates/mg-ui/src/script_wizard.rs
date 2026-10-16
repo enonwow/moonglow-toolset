@@ -1008,7 +1008,7 @@ fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) {
     let source = w.source(&today());
     let nss = ResKey::new(name, ResType::NSS);
     let mut edits = vec![
-        Edit::SetResource { key: nss, data: Some(crate::text::encode(&source)) },
+        Edit::SetResource { key: nss, data: Some(crate::text::encode_script(&source)) },
         Edit::SetField {
             key: w.dialog,
             path: w.path.clone(),

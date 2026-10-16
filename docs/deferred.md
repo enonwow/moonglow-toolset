@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T20:20:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -56,6 +56,16 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Script intelligence (`mg lsp`, the script editor)
 
+- **A script's codepage** (GitHub issue 27) is the language's of
+  Options › Language, for every script alike; there is no choosing
+  another for one script (reading one again in another, saving one in
+  another), and a script kept in UTF-8 is read as that codepage's
+  letters. `mg` other than `mg lsp` has no language: scripts' bytes pass
+  through it untouched, but the lines it shows of them (`mg refs`'
+  strings that spell a name, the toolset's Used By) read them as UTF-8,
+  a Polish letter as "�". The game reading the compiled strings in
+  Windows-1250 was not seen in a Polish client: the bytes were checked
+  in the compiled script. (S each)
 - **The script editor's selection** is drawn by Moonglow, to each
   line's last character (the text widget's own drew a selected line end
   as half a character more, which a builder read as a space added).
@@ -1479,8 +1489,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     plugin's edits), finding the hak through the game install (without
     one: Windows-1252, and nothing said). `mg gff` on a lone file,
     nasher sources (theirs is `--nwn-encoding`), `mg nwsync`'s module
-    name and the script language server still read and write
-    Windows-1252 whatever the table. (S each)
+    name still read and write Windows-1252 whatever the table, and the
+    script language server reads the game's codepage (`settings.tml`,
+    or `--codepage`), not a module's table. (S each)
   - In the toolset, by choice: a prefab's file keeps the bytes (written
     as Windows-1252 text, so that it is the same object in any module),
     and a hak's description is the hak's, not the module's. The Store
@@ -1500,7 +1511,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - Whether the game reads the table from `override` and the like was
     not tried (Moonglow reads it from whatever lies outside the module
     file, haks first); nor was the game's `game.language.codepage`
-    setting, which Moonglow does not read.
+    setting, which only `mg lsp` reads (the toolset goes by Options ›
+    Language).
   - A text field already being typed in when the hak list changes keeps
     what it showed until it is left.
 

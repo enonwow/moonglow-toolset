@@ -15,7 +15,7 @@ use mg_script::analysis::{Declaration, Index, NWSCRIPT};
 
 use crate::script_tools::{self as tools, InfoTab};
 use crate::script_view::ScriptBuffer;
-use crate::text::{decode, encode};
+use crate::text::{decode_script as decode, encode_script as encode};
 use crate::{Action, Moonglow, Tab};
 
 /// How long typing must pause before the script is checked.
@@ -232,7 +232,7 @@ impl Moonglow {
                 if t == ResType::NSS
                     && let Some(b) = scripts.get(&k)
                 {
-                    return Some(encode(&b.text));
+                    return Some(b.bytes());
                 }
                 module
                     .and_then(|m| m.get(&k))

@@ -417,7 +417,7 @@ impl Viewed {
                 },
             }
         } else if key.restype == ResType::NSS {
-            Content::Script(codepage.decode(&data).into_owned())
+            Content::Script(crate::text::decode_script(&data))
         } else if is_text(key.restype, &data) {
             Content::Text(codepage.decode(&data).into_owned())
         } else if let Some(text) = model_text(key, &data) {

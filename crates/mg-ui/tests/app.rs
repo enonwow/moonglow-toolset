@@ -8436,6 +8436,78 @@ fn saving_a_script_compiles_it_with_debug_information_when_chosen() {
     assert!(compiled(ResType::NCS) && compiled(ResType::NDB), "{:?}", h.state().log.entries);
 }
 
+/// A script in Windows-1250, as Polish builders keep theirs (GitHub issue
+/// 27), with Polish the editing language: it reads as Polish, saves its
+/// untouched lines byte for byte, compiles its strings' bytes as they are,
+/// warns of a character the codepage lacks, and is read again in English's
+/// codepage when English is chosen.
+#[test]
+fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-script-cp1250");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("pl_text", ResType::NSS).unwrap();
+    let polish = "Zażółć gęślą jaźń. Źródło.";
+    let text = format!("void main()\n{{\n    // {polish}\n    PrintString(\"{polish}\");\n}}\n");
+    let cp1250 = mg_core::Codepage::WINDOWS_1250;
+    let bytes = cp1250.encode(&text).unwrap().into_owned();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, bytes.clone());
+    m.save().unwrap();
+    mg_ui::set_edit_language(Language::POLISH);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), text);
+    h.get_by_label("Windows-1250");
+    // A line typed at the top, then Compile (which saves): the rest is
+    // the file's bytes as they were.
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.event(egui::Event::Text("// ę\n".into()));
+    h.run();
+    h.get_by_label("Compile").click();
+    h.run();
+    let module = |h: &Harness<'_, Moonglow>, k: ResKey| {
+        h.state().ws.as_ref().unwrap().module.get(&k).map(<[u8]>::to_vec)
+    };
+    let saved = module(&h, key).unwrap();
+    assert_eq!(saved[..b"// ".len()], *b"// ");
+    assert_eq!(saved[3..6], [0xEA, b'\n', b'v'], "ę in Windows-1250");
+    assert_eq!(saved[5..], bytes[..], "the lines not typed in, byte for byte");
+    // The string's bytes in the compiled script are its Windows-1250 bytes.
+    let ncs = module(&h, ResKey::new(key.resref, ResType::NCS)).expect("compiled");
+    let literal = cp1250.encode(polish).unwrap().into_owned();
+    assert!(ncs.windows(literal.len()).any(|w| w == literal), "the string's bytes, as written");
+    // A character Windows-1250 lacks: saved as ?, and said so.
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.event(egui::Event::Text("// 日\n".into()));
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(module(&h, key).unwrap().starts_with(b"// ?\n// "));
+    let warned = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains("日") && m.contains("Windows-1250"))
+    };
+    assert!(warned(&h), "{:?}", h.state().log.entries);
+    // English chosen: the script, without unsaved changes, is read again
+    // as Windows-1252 reads its bytes.
+    mg_ui::set_edit_language(Language::ENGLISH);
+    h.run();
+    let western = mg_core::Codepage::WINDOWS_1252.decode(&module(&h, key).unwrap()).into_owned();
+    assert_eq!(h.state().script_text(key).unwrap(), western);
+    h.get_by_label("Windows-1252");
+}
+
 #[test]
 fn build_on_save_opens_the_results_when_something_is_wrong() {
     let Some(root) = mg_testkit::nwn_root() else {

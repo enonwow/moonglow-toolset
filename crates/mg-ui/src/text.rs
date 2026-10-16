@@ -101,6 +101,77 @@ fn encode_in(codepage: Codepage, text: &str) -> Vec<u8> {
     codepage.encode_lossy(text)
 }
 
+/// The codepage of scripts' text: the editing language's (Options ›
+/// Language), Windows-1250 for Polish. NWScript has no codepage of its
+/// own: the compiler copies a string's bytes into the compiled script, and
+/// the game reads them by its language's codepage, so Polish builders keep
+/// their scripts in Windows-1250 (GitHub issue 27: they showed and saved
+/// as mojibake, read as Windows-1252). A module's own table
+/// (`encoding.2da`), where it has one.
+pub(crate) fn script_codepage() -> Codepage {
+    codepage_of(edit_language())
+}
+
+/// A script's bytes as text, in [`script_codepage`] (which maps every
+/// byte: nothing is lost).
+pub(crate) fn decode_script(bytes: &[u8]) -> String {
+    script_codepage().decode(bytes).into_owned()
+}
+
+/// A script's text as bytes in [`script_codepage`]; characters it lacks
+/// become `?`.
+pub(crate) fn encode_script(text: &str) -> Vec<u8> {
+    script_codepage().encode_lossy(text)
+}
+
+/// The characters of `text` that `codepage` cannot write, each once, in
+/// the order met: what saving it would turn into `?`.
+pub(crate) fn unwritable(codepage: Codepage, text: &str) -> Vec<char> {
+    if codepage.encode(text).is_some() {
+        return Vec::new();
+    }
+    let mut out: Vec<char> = Vec::new();
+    for c in text.chars() {
+        if !out.contains(&c) && codepage.encode(c.encode_utf8(&mut [0; 4])).is_none() {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The warning for a script saved with characters its codepage cannot
+/// write (they were written as `?`); `None` if it has none.
+pub(crate) fn unwritable_warning(
+    script: impl std::fmt::Display,
+    codepage: Codepage,
+    text: &str,
+) -> Option<String> {
+    let lacking = unwritable(codepage, text);
+    if lacking.is_empty() {
+        return None;
+    }
+    let shown: String = lacking.iter().take(12).collect();
+    let more = if lacking.len() > 12 { "…" } else { "" };
+    Some(format!(
+        "{script}: {shown}{more} can't be written in the script's codepage ({}) and were \
+         saved as ?. The game reads a script's text by its language's codepage (Options › \
+         Language).",
+        codepage_name(codepage)
+    ))
+}
+
+/// A codepage's name, as builders know it.
+pub(crate) fn codepage_name(codepage: Codepage) -> String {
+    if codepage.is_table() {
+        return "the module's encoding.2da".into();
+    }
+    // (`windows-1250` as `Windows-1250`.)
+    let debug = format!("{codepage:?}");
+    let name = debug.trim_start_matches("Codepage(").trim_end_matches(')');
+    let mut chars = name.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
 /// Text for code that writes Windows-1252 whatever the module (a
 /// conversation the Store Wizard or an import makes): spelled so that the
 /// bytes it writes are the module's own table's. The text itself without
@@ -144,6 +215,26 @@ pub(crate) fn with_english(mut s: LocString, text: &str) -> LocString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Scripts are read in the editing language's codepage: Polish's
+    /// letters round trip in Windows-1250, byte for byte, and those it
+    /// lacks are named, each once.
+    #[test]
+    fn scripts_follow_the_editing_language_s_codepage() {
+        set_game_codepage(None);
+        set_edit_language(Language::POLISH);
+        let text = "Zażółć gęślą jaźń. Źródło.";
+        let bytes = Codepage::WINDOWS_1250.encode(text).unwrap().into_owned();
+        assert_eq!(decode_script(&bytes), text);
+        assert_eq!(encode_script(&decode_script(&bytes)), bytes);
+        assert_eq!(unwritable(script_codepage(), "ąé日ñ日"), ['日', 'ñ']);
+        assert!(unwritable_warning("x.nss", script_codepage(), text).is_none());
+        let warning = unwritable_warning("x.nss", script_codepage(), "日").unwrap();
+        assert!(warning.contains("Windows-1250"), "{warning}");
+        set_edit_language(Language::ENGLISH);
+        assert_eq!(script_codepage(), Codepage::WINDOWS_1252);
+        assert_ne!(decode_script(&bytes), text);
+    }
 
     #[test]
     fn line_ends() {

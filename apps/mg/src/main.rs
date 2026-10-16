@@ -413,7 +413,14 @@ enum Cmd {
     /// An NWScript language server (the Language Server Protocol on standard
     /// input and output) for VS Code, Neovim and other editors: errors as you
     /// type, definitions, references, rename, hover, completion, outline.
-    Lsp,
+    Lsp {
+        /// The codepage scripts are read in, as the game reads their text:
+        /// cp1252, cp1250 (Polish) or cp1251. Default: the game's own
+        /// setting in the user directory's settings.tml (its codepage, else
+        /// its language's), else cp1252.
+        #[arg(long)]
+        codepage: Option<String>,
+    },
     /// Where a resource (or, with --tag, a tag) is used in a module, and the
     /// script strings that spell it.
     Refs {
@@ -987,6 +994,22 @@ fn install(cli: &Cli) -> Result<GameInstall> {
         gi.user_dir = None;
     }
     Ok(gi)
+}
+
+/// The codepage the game client reads text in, as its `settings.tml`
+/// (the user directory's) sets it: `game.language.codepage`, else the
+/// codepage of `game.language.override`'s language. `None` where neither
+/// is set (the game's language is then the install's).
+fn client_codepage(settings: &str) -> Option<Codepage> {
+    let table: toml::Table = settings.parse().ok()?;
+    let language = table.get("game")?.get("language")?;
+    let text = |key: &str| language.get(key)?.as_str().map(str::trim).filter(|s| !s.is_empty());
+    if let Some(cp) = text("codepage").and_then(Codepage::for_label) {
+        return Some(cp);
+    }
+    let code = text("override")?;
+    let lang = mg_core::Language::EE.into_iter().find(|l| l.short_code() == Some(code))?;
+    Some(lang.codepage())
 }
 
 fn resource_key(name: &str) -> Result<ResKey> {
@@ -1735,10 +1758,26 @@ fn run(cli: &Cli) -> Result<Output> {
             say(json!({ "event": "ended", "failed": failed }), vec!["mg: stopped".into()]);
             Output { done: true, failed, ..Default::default() }
         }
-        Cmd::Lsp => {
+        Cmd::Lsp { codepage } => {
             if cli.json {
                 bail!("mg lsp speaks the Language Server Protocol, which is JSON already");
             }
+            let codepage = match codepage {
+                Some(name) => Codepage::for_label(name)
+                    .with_context(|| format!("{name:?} isn't a codepage (cp1252, cp1250…)"))?,
+                // (The user directory as `mg` finds it, without the game
+                // too: the language server works without one.)
+                None => (cli.user_dir.clone())
+                    .or_else(|| {
+                        let env = std::env::var_os("NWN_HOME")
+                            .or_else(|| std::env::var_os("NWN_USER_DIRECTORY"));
+                        env.map(PathBuf::from).or_else(mg_resman::default_user_dir)
+                    })
+                    .filter(|_| !cli.no_user_dir)
+                    .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
+                    .and_then(|t| client_codepage(&t))
+                    .unwrap_or(Codepage::WINDOWS_1252),
+            };
             // The game's scripts and nwscript.nss, if there is a game.
             let game = match install(cli) {
                 Ok(gi) => ResMan::for_game(&gi).ok(),
@@ -1747,7 +1786,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     None
                 }
             };
-            lsp::serve(game)?;
+            lsp::serve(game, codepage)?;
             Output { done: true, ..Default::default() }
         }
         Cmd::Refs { module, name, tag } => {
