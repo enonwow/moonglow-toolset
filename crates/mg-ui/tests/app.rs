@@ -6420,6 +6420,17 @@ fn area_viewer_paints_placeables() {
     let at = |s: &mg_gff::Struct| glam::Vec2::new(s.float("X").unwrap(), s.float("Y").unwrap());
     let tree = ResKey::parse("plc_tree", ResType::UTP).unwrap();
     let shrub = ResKey::parse("plc_shrub", ResType::UTP).unwrap();
+    // B over the view turns Paint on; with nothing chosen, Escape puts it
+    // away again.
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
+    h.run_steps(1);
+    h.key_press(egui::Key::B);
+    h.run_steps(1);
+    assert!(h.state().paint, "B turns Paint on");
+    h.get_by_label_contains("Paint: choose placeables in the palette");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(1);
+    assert!(!h.state().paint, "Escape puts it away");
     {
         let app = h.state_mut();
         // (The Placeables palette shown, not the tileset's.)
@@ -6493,9 +6504,11 @@ fn area_viewer_paints_placeables() {
     click(&mut h);
     assert_eq!(placeables(&mut h).len(), 10, "the circle is full");
 
-    // Shift and the wheel: a bigger circle, no zoom.
+    // Shift and the wheel, the button held down: a bigger circle, no zoom.
     let distance = h.state().area_views[&area].orbit.unwrap().distance;
     let shift = egui::Modifiers::SHIFT;
+    press(&h, spot, true, egui::Modifiers::NONE);
+    h.run_steps(1);
     h.event(egui::Event::ModifiersChanged(shift));
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
@@ -6505,6 +6518,7 @@ fn area_viewer_paints_placeables() {
     });
     h.run_steps(30);
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    press(&h, spot, false, egui::Modifiers::NONE);
     h.run_steps(1);
     assert!(h.state().settings.paint.radius_cm > 450, "{}", h.state().settings.paint.radius_cm);
     let now = h.state().area_views[&area].orbit.unwrap().distance;

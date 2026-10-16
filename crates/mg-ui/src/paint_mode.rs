@@ -393,6 +393,14 @@ pub(crate) fn input(
         view.paint.pending.clear();
         view.paint.painting = false;
         view.paint.row_from = None;
+        // Paint on with nothing chosen to place: Escape or a right click
+        // puts it away, as the status line says.
+        let stop = response.secondary_clicked()
+            || (response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        if app.paint && app.palette.selected.is_none() && stop {
+            app.paint = false;
+            return true;
+        }
         return false;
     };
     view.read_walkable(app);
