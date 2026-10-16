@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T19:09:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -866,6 +866,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   default every drop in a forest would land in a canopy: it wants a
   switch on the toolbar, or a key of its own. (S) (from builders'
   reports on 1.31.0)
+- **A see-through copy where it can't be seen:** what is about to be
+  placed (a blueprint, a paste, the brush's dab) is drawn 0.8 opaque
+  and lit as the area lights it, behind what stands before it like any
+  model: in a wall or behind a building only its box's outline shows,
+  and a dark model before dark stone reads less than a light one. It
+  could show its hidden part faintly through what covers it, or take a
+  light of its own. (S) (found looking into the ghosts that didn't show
+  in the test harness's pictures)
 - **Painting placeables:** a brush that scatters placeables over the
   ground under it (trees, plants, rocks): several blueprints chosen
   together and picked at random, a radius (Shift + wheel to change it

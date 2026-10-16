@@ -3756,8 +3756,10 @@ fn view_fog(f: mg_render::Fog, distance: f32) -> mg_render::Fog {
 /// How opaque the tiles a tile brush's click would make are drawn.
 const PREVIEW_OPACITY: f32 = 0.85;
 
-/// How opaque a blueprint about to be placed is drawn.
-const GHOST_OPACITY: f32 = 0.6;
+/// How opaque a blueprint about to be placed is drawn. (At 0.6 a dark
+/// model, a stone statue on cobbles, all but vanished into the ground
+/// it stood on.)
+const GHOST_OPACITY: f32 = 0.8;
 
 /// How far above the ground an object of `kind` is placed (sounds, at
 /// Aurora's height).

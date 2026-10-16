@@ -10163,6 +10163,56 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
 }
 
 #[test]
+fn a_blueprint_about_to_be_placed_shows_in_the_views_picture() {
+    // A dark stone statue, see-through over the ground, shows in the
+    // picture: not only in the view's counts, which other tests hold.
+    let Some((mut h, area)) = area_harness("ghost-picture") else { return };
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = glam::Vec3::new(20.0, 22.0, 1.0);
+        (o.pitch, o.yaw, o.distance) = (40f32.to_radians(), -60f32.to_radians(), 8.0);
+    }
+    h.run_steps(2);
+    let at = screen(&h, area, glam::Vec3::new(20.0, 22.0, 0.0));
+    let top = screen(&h, area, glam::Vec3::new(20.0, 22.0, 2.0));
+    let shot = |h: &mut Harness<'_, Moonglow>, chosen: Option<&str>| {
+        h.state_mut().palette.selected = chosen.map(|k| ResKey::parse(k, ResType::UTP).unwrap());
+        h.hover_at(at);
+        h.run_steps(3);
+        (h.render().expect("render"), h.state().area_views[&area].ghost_shown.is_some())
+    };
+    let (with, shown) = shot(&mut h, Some("plc_statue1"));
+    assert!(shown, "the statue's ghost is under the pointer");
+    let (without, shown) = shot(&mut h, None);
+    assert!(!shown);
+    let dir = mg_testkit::scratch_dir("ui-ghost-picture");
+    with.save(dir.join("with.png")).unwrap();
+    without.save(dir.join("without.png")).unwrap();
+    // Around the statue, where it stands up from the ground (not its
+    // box's cyan outline): how many pixels it changes, and by how much.
+    let ppp = h.ctx.pixels_per_point();
+    let (x0, x1) = ((at.x - 30.0) * ppp, (at.x + 30.0) * ppp);
+    let (y0, y1) = ((top.y.min(at.y) - 10.0) * ppp, (top.y.max(at.y) + 10.0) * ppp);
+    let luma = |p: &image::Rgba<u8>| {
+        0.299 * f32::from(p[0]) + 0.587 * f32::from(p[1]) + 0.114 * f32::from(p[2])
+    };
+    let (mut changed, mut most) = (0, 0.0f32);
+    for y in y0.max(0.0) as u32..(y1 as u32).min(with.height()) {
+        for x in x0.max(0.0) as u32..(x1 as u32).min(with.width()) {
+            let p = with.get_pixel(x, y);
+            if i32::from(p[2]) - i32::from(p[0]) > 60 {
+                continue;
+            }
+            let d = (luma(p) - luma(without.get_pixel(x, y))).abs();
+            most = most.max(d);
+            changed += usize::from(d > 12.0);
+        }
+    }
+    // (About 4,300 pixels at 0.8 opaque, 3,300 at 0.6, 1,400 at 0.3;
+    // 250, the outline's soft edges, with the statue not drawn.)
+    assert!(changed > 2000, "the ghost changed {changed} pixels, {most} at most");
+}
+
+#[test]
 fn blueprints_drag_from_the_palette_into_the_area() {
     let Some((mut h, area)) = area_harness("drag-place") else { return };
     // The standard Tavern waypoint, in the palette beside the area.
