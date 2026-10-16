@@ -867,12 +867,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   brush's own); Spacing from each placeable's size rather than one
   distance; a row along a path of several legs (a drag is one straight
   line); random scale on static placeables (the game gives them none, so
-  Scale passes them by). Seen only in the test harness's pictures with
-  the stroke laid: what is about to be placed, drawn see-through,
-  doesn't show in that harness's pictures at all (`area_ghost`'s statue
-  is an empty box, before this work too), so the see-through dab is held
-  by the tests' counts, not by a picture. Looked at with it opaque, the
-  dab and the row stand where they're laid. (S each)
+  Scale passes them by). The see-through dab is held by the tests'
+  counts; the pictures show strokes laid (at 0.6 opaque it hardly showed
+  in them: see the branch that drew ghosts 0.8 opaque). (S each)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)

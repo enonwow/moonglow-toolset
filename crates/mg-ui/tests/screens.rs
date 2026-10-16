@@ -2050,8 +2050,7 @@ fn area_paint() {
         h.run_steps(1);
     }
     h.run_steps(3);
-    // (See-through, what is about to be placed doesn't show in these
-    // pictures: the row is shot laid.)
+    // (The row is shot laid: see-through, it hardly shows here.)
     button(&mut h, to, false);
     h.event(egui::Event::PointerMoved(to + egui::vec2(40.0, -40.0)));
     h.run_steps(3);
