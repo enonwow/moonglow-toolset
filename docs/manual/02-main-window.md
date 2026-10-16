@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
 ---
 
 # The main window
@@ -109,13 +109,18 @@ there and in the palettes: for telling apart resources of one name.
 
 **What is placed in an area:** the arrow before an area opens it out to
 its objects, kind by kind as Aurora lists them (Creatures, Doors,
-Encounters…), each by its name (its tag, without one). Click an object to
-go to it in the area's view, selected; double-click for its Properties;
-right-click for those and for **Copy** (pasted in any area with Ctrl+V)
-and **Delete**. The Filter narrows an opened area's objects to those it
-finds by name.
+Encounters…), sorted by name (its tag, without one). Waypoints are listed
+by tag instead, as Aurora lists them (they often share a name, and their
+tags are what scripts and transitions go by); the pointer resting on a
+row shows the other. Click an object to go to it in the area's view,
+selected (the tree stays still, so a second click makes a double click);
+double-click for its Properties; right-click for those and for
+**Preview** (creatures, doors, items and placeables, as placed),
+**Copy** (pasted in any area with Ctrl+V) and **Delete**. The Filter
+narrows an opened area's objects to those it finds by name or tag.
 **Edit** on the right-click menu of any other row (a conversation, a
-script, a blueprint) opens it, as a double click does.
+script, a blueprint) opens it, as a double click does; a blueprint's
+also has **Preview** (the model viewer).
 A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).
@@ -252,7 +257,8 @@ put it back; **Maximize** and
 tab, brings the area's row into view in the module tree, marked as the
 one in hand. Where the area is opened out in the tree (the arrow beside
 its row), an object selected in the area's view is shown there too: its
-kind's list opens and its row is marked and brought into view. An area
+kind's list opens and its row is marked and brought into view (the tree
+scrolls only as far as it must: a row in view stays where it is). An area
 left closed in the tree is opened out to it, as in Aurora; with **Show
 the object selected in an area in the module tree** unticked in Options
 › General, it stays closed, and the tree goes to an object only where its
@@ -316,7 +322,10 @@ the game's), the view adds:
 ## The model viewer
 
 Models open in the model viewer from the resource browser, and blueprints
-(creatures, items, placeables, doors) through **Preview**. Drag to turn
+(creatures, items, placeables, doors) through **Preview**: in the palette,
+the module tree, a blueprint's window; a placed object, as it is placed,
+from its right-click menu in the area or the module tree, or its
+Properties. Drag to turn
 the model (right or middle button to move it), use the wheel to zoom, and
 play its animations, including those from its supermodels.
 

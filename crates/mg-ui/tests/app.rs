@@ -11810,8 +11810,8 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     assert_eq!(h.query_all_by_label("Creatures (0)").count(), 2);
     h.get_by_label("Waypoints (2)").click();
     h.run_steps(3);
-    // Its two waypoints, by name.
-    let rows: Vec<_> = h.query_all_by_label("Waypoint").map(|n| n.rect().center()).collect();
+    // Its two waypoints, by tag.
+    let rows: Vec<_> = h.query_all_by_label("NW_WAYPOINT001").map(|n| n.rect().center()).collect();
     assert_eq!(rows.len(), 2, "{rows:?}");
     assert!(h.state().area_views[&area].selection.is_empty());
     let second = rows[1];
@@ -11836,7 +11836,7 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     h.get_by_label("Waypoints (3)");
     // A right click on one: copied to paste in an area, or deleted (undone
     // as any change).
-    let rows: Vec<_> = h.query_all_by_label("Waypoint").map(|n| n.rect().center()).collect();
+    let rows: Vec<_> = h.query_all_by_label("NW_WAYPOINT001").map(|n| n.rect().center()).collect();
     assert_eq!(rows.len(), 3);
     let menu = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2, what: &str| {
         h.hover_at(at);
@@ -11877,15 +11877,15 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     let _ = ws;
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Name", vec![edit])));
     h.run_steps(4);
-    h.get_by_label("Ferry Landing");
+    // (A waypoint shows its tag; its name is found too.)
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2);
     let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
     filter.click();
     h.run_steps(2);
     h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("ferry");
     h.run_steps(4);
     h.get_by_label("Waypoints (1 of 2)");
-    h.get_by_label("Ferry Landing");
-    assert_eq!(h.query_all_by_label("Waypoint").count(), 0);
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 1);
 }
 
 /// Prefabs are found where builders look: a button on the area's toolbar
@@ -16681,13 +16681,13 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     h.get_by_label("⏵").click();
     h.run_steps(6);
     assert!(h.query_by_label("Waypoints (2)").is_some());
-    let folded = h.query_all_by_label_contains("Waypoint").count();
+    let folded = h.query_all_by_label_contains("WAYPOINT").count();
     // Another object selected: its kind's list opens to it.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     h.run_steps(6);
     assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 0)));
     assert!(!h.state().tree_object_pending, "gone to");
-    let rows = h.query_all_by_label_contains("Waypoint").count();
+    let rows = h.query_all_by_label_contains("WAYPOINT").count();
     assert!(rows >= folded + 2, "both waypoints' rows are there: {folded} → {rows}");
     // Nothing selected: the tree stays as it is.
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
@@ -16713,6 +16713,203 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     assert!(h.query_by_label("Waypoints (2)").is_some(), "opened out");
     assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
     assert!(!h.state().tree_object_pending, "gone to");
+}
+
+/// Drop onto Object (Shift+G) sets the selection on the placeable below
+/// it, by the placeable's model (a builder's ask: a skeleton on an altar);
+/// with nothing below, on the ground.
+#[test]
+fn shift_g_drops_the_selection_onto_the_placeable_below() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("drop-onto") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = {
+        let game = h.state().game.clone().unwrap();
+        let bp = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let bp = Gff::read(&bp).unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [25.0, 25.0, 0.0], rotation: 0.0 };
+        instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap()
+    };
+    let set = |label: &str, value: f32| mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("WaypointList", 0),
+        label: label.into(),
+        value: Some(mg_gff::Value::Float(value)),
+    };
+    let edits = vec![
+        mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item: chest,
+        },
+        set("XPosition", 25.0),
+        set("YPosition", 25.0),
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    h.run_steps(6);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    let at = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    let z = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].float("ZPosition").unwrap()
+    };
+    let ground = z(&mut h);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::G);
+    h.run_steps(3);
+    let top = z(&mut h);
+    assert!(top > ground + 0.3 && top < ground + 2.0, "on the chest: {ground} → {top}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Drop onto Object"));
+    // Beside it, on the ground.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Away",
+        vec![set("XPosition", 15.0), set("ZPosition", 1.5)],
+    )));
+    h.run_steps(4);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::G);
+    h.run_steps(3);
+    assert!((z(&mut h) - ground).abs() < 0.3, "on the ground: {}", z(&mut h));
+    // The chest's row in the module tree has Preview: the model viewer, as
+    // it is placed. (The area is opened out there: its waypoint was
+    // selected.)
+    h.get_by_label("Placeables (1)").click();
+    h.run_steps(6);
+    let row = h.get_by_label_contains("Chest").rect().center();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Preview").click();
+    h.run_steps(4);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    assert!(h.state().dock.find_tab(&Tab::InstanceModel { area, path }).is_some());
+}
+
+/// A placeable of a placeables.2da row, placed in the test area and seen
+/// up close: for a model of a user folder's override (a builder's corpse
+/// placeable drawn standing, 1.31.0). Writes
+/// `target/test-output/ui-placeable-look/a.png`.
+#[test]
+#[ignore = "a look at a placeable's appearance in an area (MG_APPEARANCE, MG_TEST_USER)"]
+fn look_placeable_appearance() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some(row) = std::env::var("MG_APPEARANCE").ok().and_then(|r| r.parse::<u32>().ok()) else {
+        return;
+    };
+    let Some((mut h, area)) = area_harness("placeable-look") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let placed = {
+        let game = h.state().game.clone().unwrap();
+        let bp = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let mut bp = Gff::read(&bp).unwrap();
+        bp.root.set("Appearance", mg_gff::Value::Dword(row));
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [25.0, 25.0, 0.0], rotation: 0.0 };
+        instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap()
+    };
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: placed,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.run_steps(20);
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = glam::Vec3::new(25.0, 25.0, 0.5);
+        (o.distance, o.pitch) = (5.0, 0.5);
+    }
+    h.run_steps(20);
+    let dir = mg_testkit::scratch_dir("ui-placeable-look");
+    h.render().expect("render").save(dir.join("a.png")).unwrap();
+}
+
+/// What is placed in an area is listed sorted, waypoints by tag (they
+/// often share a name), as Aurora lists them (builders' reports). A row
+/// clicked stays where it is, so that a second click makes a double click
+/// (Properties); an object selected in the area whose row is in view does
+/// not move the tree, and one out of view is scrolled to, not the area's
+/// row above it.
+#[test]
+fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-sorted") else { return };
+    // Forty waypoints, tagged WP_39 to WP_00 in the area's order, each
+    // named alike.
+    let git = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let first = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone();
+    let list: Vec<mg_gff::Struct> = (0..40)
+        .map(|i| {
+            let mut w = first.clone();
+            w.set("Tag", mg_gff::Value::String(format!("WP_{:02}", 39 - i).into_bytes()));
+            w.set("XPosition", mg_gff::Value::Float(1.0 + i as f32));
+            w
+        })
+        .collect();
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        label: "WaypointList".into(),
+        value: Some(mg_gff::Value::List(list)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.run_steps(4);
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (40)").click();
+    h.run_steps(6);
+    // Sorted by tag: WP_00 (the last in the area's list) first.
+    let y = |h: &Harness<'_, Moonglow>, tag: &str| h.get_by_label(tag).rect().center().y;
+    assert!(y(&h, "WP_00") < y(&h, "WP_01") && y(&h, "WP_01") < y(&h, "WP_02"));
+    // A click on a row: the object is selected in the area, and the row
+    // stays under the pointer.
+    let row = h.get_by_label("WP_03").rect();
+    let at = row.center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(6);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 36)]);
+    assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");
+    // A double click there: its Properties.
+    h.run_steps(30);
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        h.step();
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.step();
+    }
+    h.run_steps(4);
+    let path = mg_edit::GffPath::root().item("WaypointList", 36);
+    let tab = h.state().dock.find_tab(&Tab::Instance { area, path });
+    h.state_mut().dock.remove_tab(tab.expect("its Properties"));
+    h.run_steps(3);
+    // Another selected in the area, its row in view: the tree stays still.
+    let row = h.get_by_label("WP_01").rect();
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 38)];
+    h.run_steps(6);
+    assert_eq!(h.get_by_label("WP_01").rect(), row);
+    // One far down: its row is brought into view.
+    assert!(h.query_by_label("WP_39").is_none(), "out of view");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(8);
+    assert!(h.query_by_label("WP_39").is_some(), "scrolled to");
+    assert!(!h.state().tree_object_pending);
 }
 
 /// The resource browser's Filter has the side panes' keys (GitHub issue

@@ -3404,11 +3404,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let turns: Vec<f32> =
             turn_keys(view).into_iter().filter(|(cmd, _)| pressed(*cmd)).map(|t| t.1).collect();
         let drop = pressed(Cmd::DropToGround);
+        let onto = pressed(Cmd::DropOntoObject);
         for by in turns {
             rotate_selection(app, view, by);
         }
         if drop {
             drop_to_ground(app, view);
+        } else if onto {
+            drop_onto_objects(app, view);
         }
     }
     if hovered && !view.selection.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
@@ -4283,6 +4286,53 @@ fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
     commit_moves(app, view, &moved, "Drop to Ground");
 }
 
+/// How far above an object Drop onto Object looks for a surface, meters:
+/// enough for an object put near a table or an altar, on the ground beside
+/// it or sunk into it, and short of the canopies of the trees around.
+const ONTO_REACH: f32 = 2.0;
+
+/// Drop onto Object (Shift+G): each selected object (not a creature, which
+/// the game stands on the ground) is set on the surface below its center:
+/// the top of a placeable or door there (their models, not their boxes),
+/// up to [`ONTO_REACH`] above it, else the ground. For a skull on an altar
+/// or a book on a table, which Aurora leaves to the height typed in.
+fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
+    let (Some(model), Some(scene)) = (&view.model, &view.scene) else { return };
+    let chosen: Vec<usize> = view.selected_indices().collect();
+    let moved: Vec<(usize, Vec3, f32)> = chosen
+        .iter()
+        .filter_map(|&i| {
+            let o = &model.objects[i];
+            if o.kind == ObjectKind::Creature || o.kind.has_outline() {
+                return None;
+            }
+            let ray = Ray { origin: o.position + Vec3::Z * ONTO_REACH, dir: Vec3::NEG_Z };
+            let on_object = (0..model.objects.len())
+                .filter(|j| !chosen.contains(j))
+                .filter(|&j| {
+                    let k = model.objects[j].kind;
+                    matches!(k, ObjectKind::Placeable | ObjectKind::Door) && view.show[k.index()]
+                })
+                .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
+                .filter(|t| *t >= 0.0)
+                .min_by(f32::total_cmp);
+            let on_ground =
+                view.ground.as_ref().and_then(|g| g.hit(&ray)).map(|p| ray.origin.z - p.z);
+            let t = match (on_object, on_ground) {
+                (Some(a), Some(b)) => a.min(b),
+                (a, b) => a.or(b)?,
+            };
+            let z = ray.origin.z - t;
+            ((z - o.position.z).abs() > 1e-4).then_some((
+                i,
+                o.position.truncate().extend(z),
+                o.rotation,
+            ))
+        })
+        .collect();
+    commit_moves(app, view, &moved, "Drop onto Object");
+}
+
 /// Arranges the selection (lined up, spaced out, facing alike, mirrored),
 /// keeping each object's height above the ground.
 fn arrange_selection(
@@ -4360,6 +4410,19 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         }
         ui.close();
     }
+    // The object in the model viewer, as it is placed (as its Properties'
+    // Preview shows it).
+    let preview = single.filter(|(kind, _)| crate::tree::previewable(*kind));
+    if ui
+        .add_enabled(preview.is_some(), egui::Button::new("Preview"))
+        .on_hover_text("See it in the 3D viewer, as it is placed")
+        .clicked()
+        && let Some((kind, index)) = preview
+    {
+        let path = mg_edit::GffPath::root().item(kind.list(), index);
+        app.actions.push(Action::OpenTab(crate::Tab::InstanceModel { area: view.area, path }));
+        ui.close();
+    }
     let any = !view.selection.is_empty();
     if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
         app.adjust = crate::area_tools::adjust(view);
@@ -4367,6 +4430,17 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     }
     if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
         drop_to_ground(app, view);
+        ui.close();
+    }
+    if ui
+        .add_enabled(any, egui::Button::new("Drop onto Object (Shift+G)"))
+        .on_hover_text(
+            "Set each selected object on the placeable or door below it (a skull on an altar, \
+             a book on a table), up to 2 m above it; else on the ground",
+        )
+        .clicked()
+    {
+        drop_onto_objects(app, view);
         ui.close();
     }
     if ui
@@ -4708,16 +4782,24 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         ui.close();
     }
     // Test the module as it is now, starting here, facing the way the
-    // camera looks.
-    if let Some(at) = view.menu_at
-        && ui
-            .button("Test From Here")
-            .on_hover_text("Start the game here, with the module as it is now (not saved)")
-            .clicked()
-    {
-        let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
-        app.actions.push(Action::TestFromHere { area: view.area, at: at.to_array(), facing });
-        ui.close();
+    // camera looks: with the first local character, or one chosen in the
+    // game's character selection.
+    let Some(at) = view.menu_at else { return };
+    let tests = [
+        ("Test From Here", "Start the game here, with the module as it is now (not saved)", false),
+        (
+            "Test From Here, Choose Character",
+            "As Test From Here, with the character chosen in the game's character selection",
+            true,
+        ),
+    ];
+    for (label, tip, choose) in tests {
+        if ui.button(label).on_hover_text(tip).clicked() {
+            let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
+            let area = view.area;
+            app.actions.push(Action::TestFromHere { area, at: at.to_array(), facing, choose });
+            ui.close();
+        }
     }
 }
 

@@ -79,6 +79,7 @@ pub enum Cmd {
     TurnLeft90,
     TurnRight90,
     DropToGround,
+    DropOntoObject,
     Overview,
     CameraForward,
     CameraBack,
@@ -131,7 +132,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 65] = [
+    pub const ALL: [Cmd; 66] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -157,6 +158,7 @@ impl Cmd {
         Cmd::TurnLeft90,
         Cmd::TurnRight90,
         Cmd::DropToGround,
+        Cmd::DropOntoObject,
         Cmd::Overview,
         Cmd::CameraForward,
         Cmd::CameraBack,
@@ -228,6 +230,7 @@ impl Cmd {
             Cmd::TurnLeft90 => ("turn-left-90", "Turn Anticlockwise 90°", Area),
             Cmd::TurnRight90 => ("turn-right-90", "Turn Clockwise 90°", Area),
             Cmd::DropToGround => ("drop", "Drop to the Ground", Area),
+            Cmd::DropOntoObject => ("drop-onto", "Drop onto the Object Below", Area),
             Cmd::Overview => ("overview", "View the Whole Area", Area),
             Cmd::CameraForward => ("camera-forward", "Move Camera Forward", Area),
             Cmd::CameraBack => ("camera-back", "Move Camera Back", Area),
@@ -313,6 +316,7 @@ impl Cmd {
             Cmd::TurnLeft90 => vec![k(SHIFT, Key::Q)],
             Cmd::TurnRight90 => vec![k(SHIFT, Key::E)],
             Cmd::DropToGround => vec![k(NONE, Key::G)],
+            Cmd::DropOntoObject => vec![k(SHIFT, Key::G)],
             Cmd::Overview => vec![k(NONE, Key::Num5)],
             Cmd::CameraForward => {
                 vec![k(NONE, Key::W), k(NONE, Key::ArrowUp), k(NONE, Key::Num8)]

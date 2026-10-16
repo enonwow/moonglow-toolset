@@ -219,11 +219,14 @@ pub enum Action {
     /// selection for the module.
     TestModuleChoose,
     /// Test From Here: the module as it is now (saved or not), starting in
-    /// `area` at `at`, facing `facing` (radians from east).
+    /// `area` at `at`, facing `facing` (radians from east); with
+    /// `choose`, by the game's character selection, as Test Module,
+    /// Choose Character.
     TestFromHere {
         area: mg_core::ResRef,
         at: [f32; 3],
         facing: f32,
+        choose: bool,
     },
     /// Tools › Reload Resources: haks and folders that changed on disk.
     ReloadResources,
@@ -2697,7 +2700,9 @@ impl Moonglow {
             Action::Verify => self.verify(),
             Action::TestModule => self.test_module(false),
             Action::TestModuleChoose => self.test_module(true),
-            Action::TestFromHere { area, at, facing } => self.test_from_here(area, at, facing),
+            Action::TestFromHere { area, at, facing, choose } => {
+                self.test_from_here(area, at, facing, choose)
+            }
             Action::ReloadResources => self.reload_resources(true),
             Action::CompileIncluders(key) => self.compile_includers(key),
             Action::SaveTalkTable => {
@@ -3377,7 +3382,7 @@ impl Moonglow {
     /// Test From Here: the module as it is now, not saved, written to the
     /// modules folder as [`test_module::FROM_HERE`] with its start moved,
     /// and the game started on it.
-    fn test_from_here(&mut self, area: mg_core::ResRef, at: [f32; 3], facing: f32) {
+    fn test_from_here(&mut self, area: mg_core::ResRef, at: [f32; 3], facing: f32, choose: bool) {
         if test_module::game_running() {
             self.log.warn(
                 "The game started for the last test is still running: close it, then test \
@@ -3410,7 +3415,7 @@ impl Moonglow {
                     at[1],
                     dest.display()
                 ));
-                self.launch_test(&client, &user, test_module::FROM_HERE, false);
+                self.launch_test(&client, &user, test_module::FROM_HERE, choose);
             }
             Err(e) => self.log.error(format!("Test From Here: {e}")),
         }

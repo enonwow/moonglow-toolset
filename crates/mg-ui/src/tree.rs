@@ -185,22 +185,70 @@ impl AreaNames {
 }
 
 /// What is placed in an area, for the module tree: each kind of object
-/// and its objects' names (by their place in the area's list).
-pub(crate) type AreaContents = Vec<(mg_area::ObjectKind, Vec<String>)>;
+/// and its objects.
+pub(crate) type AreaContents = Vec<KindContents>;
+
+/// The objects of one kind placed in an area, for the module tree.
+pub(crate) struct KindContents {
+    kind: mg_area::ObjectKind,
+    /// Each object's row (by its place in the area's list).
+    rows: Vec<ObjectRow>,
+    /// The places in the area's list, in the order listed: by the rows'
+    /// text, as Aurora sorts them (those alike in the area's order).
+    order: Vec<usize>,
+}
+
+/// An object's row in the module tree.
+struct ObjectRow {
+    /// What the row says: its name, or for a waypoint its tag (waypoints
+    /// often share a name, and their tags are what scripts and
+    /// transitions go by: Aurora lists them by tag); the one, where the
+    /// other is empty.
+    text: String,
+    /// Its name and tag, lowered, for the filter.
+    sought: String,
+    /// What the pointer over the row shows: the tag of a row that says
+    /// the name, the name of one that says the tag.
+    tip: String,
+}
 
 /// What is placed in an area, as the workspace has it now: every kind,
-/// its objects by name (a tag for one without a name).
+/// its objects by name (a waypoint by tag; either, where the other is
+/// empty), sorted.
 fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> AreaContents {
     let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { return Vec::new() };
     mg_area::ObjectKind::ALL
         .into_iter()
         .map(|kind| {
-            let names = git.root.list(kind.list()).unwrap_or(&[]).iter().map(|o| {
-                let name = blueprint_name(game, o);
-                let tag = || String::from_utf8_lossy(o.string("Tag").unwrap_or_default()).into();
-                if name.trim().is_empty() { tag() } else { name }
-            });
-            (kind, names.collect())
+            let rows: Vec<ObjectRow> = (git.root.list(kind.list()).unwrap_or(&[]).iter())
+                .map(|o| {
+                    let name = blueprint_name(game, o).trim().to_string();
+                    let tag = String::from_utf8_lossy(o.string("Tag").unwrap_or_default())
+                        .trim()
+                        .to_string();
+                    let sought = format!("{name}\n{tag}").to_lowercase();
+                    let by_tag = kind == mg_area::ObjectKind::Waypoint;
+                    let (text, other) = if by_tag { (tag, name) } else { (name, tag) };
+                    let (text, tip) = match (text.is_empty(), other.is_empty()) {
+                        (true, _) => (other, String::new()),
+                        (false, true) => (text, String::new()),
+                        (false, false) => {
+                            let tip = if by_tag {
+                                format!("Name: {other}")
+                            } else {
+                                format!("Tag: {other}")
+                            };
+                            (text, tip)
+                        }
+                    };
+                    ObjectRow { text, sought, tip }
+                })
+                .collect();
+            let mut order: Vec<usize> = (0..rows.len()).collect();
+            let keys: Vec<String> = rows.iter().map(|r| r.text.to_lowercase()).collect();
+            // (Stable: alike rows keep the area's order.)
+            order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
+            KindContents { kind, rows, order }
         })
         .collect()
 }
@@ -211,8 +259,16 @@ enum Asked {
     /// Shown in the area's view.
     Go,
     Properties,
+    /// In the model viewer, as it is placed.
+    Preview,
     Copy,
     Delete,
+}
+
+/// Whether a placed object of `kind` has a picture for the model viewer.
+pub(crate) fn previewable(kind: mg_area::ObjectKind) -> bool {
+    use mg_area::ObjectKind as K;
+    matches!(kind, K::Creature | K::Door | K::Item | K::Placeable)
 }
 
 /// An area's placed objects under its row of the module tree, kind by
@@ -232,20 +288,20 @@ fn contents_ui(
     keys: &mut ContentKeys,
 ) -> bool {
     let mut went = false;
-    let matches = |name: &str| name.to_lowercase().contains(filter);
-    let filtered =
-        !filter.is_empty() && contents.iter().any(|(_, names)| names.iter().any(|n| matches(n)));
+    let matches = |row: &ObjectRow| row.sought.contains(filter);
+    let filtered = !filter.is_empty() && contents.iter().any(|c| c.rows.iter().any(&matches));
     ui.indent(("area-contents", area), |ui| {
-        for (kind, names) in contents {
+        for KindContents { kind, rows, order } in contents {
+            // (By their places in the area's list, in the order listed.)
             let shown: Vec<usize> = if filtered {
-                (0..names.len()).filter(|&i| matches(&names[i])).collect()
+                order.iter().copied().filter(|&i| matches(&rows[i])).collect()
             } else {
-                (0..names.len()).collect()
+                order.clone()
             };
             let title = if filtered {
-                format!("{} ({} of {})", kind.plural(), shown.len(), names.len())
+                format!("{} ({} of {})", kind.plural(), shown.len(), rows.len())
             } else {
-                format!("{} ({})", kind.plural(), names.len())
+                format!("{} ({})", kind.plural(), rows.len())
             };
             if shown.is_empty() {
                 if !filtered {
@@ -270,6 +326,10 @@ fn contents_ui(
             // the object to go to.)
             let marked = in_hand.filter(|(k, ..)| k == kind);
             let goes = marked.filter(|m| m.2).and_then(|m| shown.iter().position(|&i| i == m.1));
+            // (One the filter leaves out is not gone to.)
+            if marked.is_some_and(|m| m.2) && goes.is_none() {
+                went = true;
+            }
             if filtered || goes.is_some() {
                 header = header.open(Some(true));
             } else if let Some((_, open)) = keys.fold.filter(|f| f.0 == TreeAt::Kind(area, *kind)) {
@@ -285,13 +345,16 @@ fn contents_ui(
                 let step = row + spacing.item_spacing.y;
                 let top = ui.cursor().top();
                 // The row to go to, in view or not (rows out of view are
-                // not laid out: by where it would be).
+                // not laid out: by where it would be). The tree scrolls
+                // only as far as it shows it: a row in view stays where it
+                // is (under the pointer, for the second click of a double
+                // click).
                 if let Some(at) = goes {
                     let rect = egui::Rect::from_min_size(
                         egui::pos2(ui.cursor().left(), top + at as f32 * step),
                         egui::vec2(1.0, row),
                     );
-                    ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                    ui.scroll_to_rect(rect, None);
                     went = true;
                 }
                 // (And the keys' row, as near as it need be.)
@@ -315,14 +378,19 @@ fn contents_ui(
                 };
                 room(ui, first);
                 for &index in &shown[first..last] {
-                    let name = &names[index];
-                    let text = if name.is_empty() { "(no name)" } else { name.as_str() };
+                    let object = &rows[index];
+                    let text =
+                        if object.text.is_empty() { "(no name)" } else { object.text.as_str() };
                     let is_marked =
                         marked.is_some_and(|m| m.1 == index) || at_object == Some(index);
-                    let r = ui.selectable_label(is_marked, text).on_hover_text(
-                        "Click to go to it in the area; double-click for its Properties; \
-                         right-click for more",
-                    );
+                    let how = "Click to go to it in the area; double-click for its Properties; \
+                               right-click for more";
+                    let tip = if object.tip.is_empty() {
+                        how.to_string()
+                    } else {
+                        format!("{}\n{how}", object.tip)
+                    };
+                    let r = ui.selectable_label(is_marked, text).on_hover_text(tip);
                     if r.double_clicked() {
                         *go = Some((area, *kind, index, Asked::Properties));
                     } else if r.clicked() {
@@ -335,9 +403,13 @@ fn contents_ui(
                         for (label, asked) in [
                             ("Go To", Asked::Go),
                             ("Properties", Asked::Properties),
+                            ("Preview", Asked::Preview),
                             ("Copy", Asked::Copy),
                             ("Delete", Asked::Delete),
                         ] {
+                            if asked == Asked::Preview && !previewable(*kind) {
+                                continue;
+                            }
                             if ui.button(label).clicked() {
                                 *go = Some((area, *kind, index, asked));
                                 ui.close();
@@ -609,6 +681,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     // drawn), and the object clicked.
     let mut read = Vec::new();
     let mut go = None;
+    // The object selected is still to be gone to, next frame.
+    let mut object_waits = false;
     let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
     let filter = filter.to_string();
     if ui.selectable_label(false, "Module Properties").clicked() {
@@ -662,9 +736,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 && ui.data(|d| d.get_temp(egui::Id::new(("tree-area-open", k.resref))))
                     == Some(true)
                 && app.area_contents.get(&k.resref).is_some_and(|(_, contents)| {
-                    contents
-                        .iter()
-                        .any(|(_, names)| names.iter().any(|n| n.to_lowercase().contains(&filter)))
+                    contents.iter().any(|c| c.rows.iter().any(|r| r.sought.contains(&filter)))
                 })
         };
         let found: Option<Vec<ResKey>> = (!filter.is_empty()).then(|| {
@@ -764,8 +836,15 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                         row.response.rect.height()
                     );
                     let mut r = row.inner;
-                    if reveal.is_some() {
-                        r.scroll_to_me(Some(egui::Align::Center));
+                    // (Opened out with its object marked: the object's row
+                    // is brought into view instead, not the area's, which
+                    // may be far above it.)
+                    let object_here =
+                        out && app.tree_object.is_some_and(|(a, ..)| a == k.resref);
+                    if reveal.is_some() && object_here {
+                        app.tree_object_pending = true;
+                    } else if reveal.is_some() {
+                        r.scroll_to_me(None);
                     }
                     if sought {
                         r.scroll_to_me(None);
@@ -792,6 +871,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                 );
                                 if went {
                                     app.tree_object_pending = false;
+                                } else if in_hand.is_some_and(|h| h.2) {
+                                    // (Its kind's list is still opening:
+                                    // gone to once its rows are laid out.)
+                                    object_waits = true;
+                                    ui.ctx().request_repaint();
                                 }
                                 clicked = keys.clicked.or(clicked);
                                 outs.insert(k.resref, keys.listed);
@@ -834,6 +918,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                         if k.restype != ResType::ARE {
                             if ui.button("Edit").clicked() {
                                 open = Some(k);
+                            }
+                            if crate::model_view::previewable(k.restype)
+                                && ui
+                                    .button("Preview")
+                                    .on_hover_text("See it in the 3D viewer")
+                                    .clicked()
+                            {
+                                app.actions.push(Action::OpenTab(Tab::Model(k)));
                             }
                             ui.separator();
                         }
@@ -949,7 +1041,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             // The object selected was gone to if its area is opened out;
             // if not (or the areas are folded away), the tree stays as it
             // is. (One whose area is being read again is gone to then.)
-            if !app.tree_object.is_some_and(|(area, ..)| read.contains(&area)) {
+            if !object_waits && !app.tree_object.is_some_and(|(area, ..)| read.contains(&area)) {
                 app.tree_object_pending = false;
             }
         }
@@ -1099,8 +1191,19 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 let path = mg_edit::GffPath::root().item(kind.list(), index);
                 app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
             }
+            Asked::Preview => {
+                let path = mg_edit::GffPath::root().item(kind.list(), index);
+                app.actions.push(Action::OpenTab(Tab::InstanceModel { area, path }));
+            }
             Asked::Go => {
                 app.area_focus = Some((area, kind, index));
+                // (The row clicked is the one marked: the tree stays as
+                // it is, rather than go to the area's row and back.)
+                app.tree_object = Some((area, kind, index));
+                app.tree_object_pending = false;
+                if let Some(view) = app.area_views.get_mut(&area) {
+                    view.selection = vec![(kind, index)];
+                }
                 app.actions.push(Action::OpenTab(Tab::Area(area)));
             }
             Asked::Copy => {

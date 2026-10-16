@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
 ---
 
 # Build, verify and test
@@ -160,6 +160,8 @@ steadier.
   it is now, without saving it. It writes the module to `modules` as
   `moonglow-test.mod`, replaced each time, so your module and its start
   location are left as they are.
+  **Test From Here, Choose Character**, below it, opens the game's
+  character selection first, as Test Module, Choose Character does.
 
 Moonglow starts the game as a separate program (`nwmain +TestNewModule`),
 as nwn.wiki recommends, to avoid the problems it lists for Aurora's F9:

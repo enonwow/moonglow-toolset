@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
 ---
 
 # Areas
@@ -126,6 +126,7 @@ field).
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
+| Shift+G | drop them onto the placeable below |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
@@ -252,6 +253,10 @@ places and turns around it.
 - **Drop to Ground** (G): puts raised objects back on the ground under
   them. A trigger or an encounter comes down (or up) as a whole, until
   its lowest corner is on the ground.
+- **Drop onto Object** (Shift+G): sets each selected object on the
+  placeable or door below its center (a skull on an altar, a book on a
+  table), by that object's model, up to 2 m above it; with nothing there,
+  on the ground. Not creatures, which the game stands on the ground.
 - **Arrange** (several selected; the first selected leads):
   - **Line Up West–East** or **South–North**: on a line through the first.
   - **Space Evenly**: evenly spaced between the two farthest apart.
@@ -277,7 +282,9 @@ places and turns around it.
 - **Add to Palette**: the instance as a new custom blueprint.
 - **Test From Here**: starts the game at the point you right-clicked,
   facing the way the camera looks, with the module as it is now (see
-  [Build, verify and test](09-build-and-test.md)).
+  [Build, verify and test](09-build-and-test.md)). **Test From Here,
+  Choose Character** does the same through the game's character
+  selection.
 - **Create Waypoint**: a waypoint where the object stands. **Create Set…**
   (waypoints): name the selected waypoints `<name>_01`, `<name>_02`…
 - **Levelup Wizard…** (creatures), **Setup Store…** (a creature or

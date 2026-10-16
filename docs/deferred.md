@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -858,6 +858,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   on the selection it raises or lowers it, as Alt + drag anywhere did.
   Not done of the issue: the camera's buttons and modifiers in Options ›
   Keyboard (the entry above). (S)
+- **Placing onto a placeable as it is placed:** Drop onto Object
+  (Shift+G) sets an object on the placeable below it after it is placed;
+  the see-through copy that follows the pointer still lies on the ground
+  (the walkmesh), under a table or an altar. Shift, Ctrl and Alt are each
+  taken while placing (place another, the camera, a rectangle), and on by
+  default every drop in a forest would land in a canopy: it wants a
+  switch on the toolbar, or a key of its own. (S) (from builders'
+  reports on 1.31.0)
+- **Painting placeables:** a brush that scatters placeables over the
+  ground under it (trees, plants, rocks): several blueprints chosen
+  together and picked at random, a radius (Shift + wheel to change it
+  while painting), a density and a flow, random facing, an offset above
+  the walkmesh; varenx's toolset showed one in a video. And laying a row
+  of one placeable end to end by dragging (floors), as corridors are
+  laid: its spacing would have to come from the model, as Arrange › Space
+  Evenly takes it from the two ends. (L) (from builders' reports on
+  1.31.0)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)
@@ -953,6 +970,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
+- **A placeable without its state's animation, in the client:** a
+  placeable whose model (and supermodels) lack the animation of its
+  state (`default`, `open`…) is drawn in its rest pose, as a corpse
+  placeable of CEP's on a creature's supermodel (`plc_orc2`) lies in its
+  Properties and, by every account, in the game. Not yet seen in the
+  client (`client_render.rs`) with the hak; the wiki doesn't say. A
+  creature's idle renamed by AnimationReplace to one its model lacks
+  stands in its rest pose too now, where it stood in `pause1`. (S)
+  (from builders' reports on 1.31.0)
 - **Dynamic body parts from custom content (GitHub issue 5):** fixed
   with the reporter's haks over CEP 2.71. Under armor a creature's own
   part shows where the armor's is bare skin (part 1) or none, as the
