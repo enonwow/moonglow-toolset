@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T20:28:07Z }
 ---
 
 # Build, verify and test
@@ -141,7 +141,11 @@ hak, `mg pack --compile-models` for a folder.)
 **Build › Test Module** (F9) saves the module and starts the game on it:
 your first local character appears at the module's start location. The
 game looks for the module by name in your user folder's `modules`
-folder, so the module must be saved there (File › Save As…). With
+folder, so the module must be saved there (File › Save As…). The game is
+started on that same user folder (`-userdirectory`): its characters,
+override and settings. To test with another, choose it in Options ›
+Folders, or start Moonglow with `--user-dir FOLDER` for one run (see
+[Options](10-options.md)). With
 **Minimize Toolset on test module** (Options › General), Moonglow's window
 is minimized.
 

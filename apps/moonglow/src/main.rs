@@ -175,8 +175,43 @@ fn window_icon() -> egui::IconData {
         .unwrap_or_default()
 }
 
+/// What `moonglow` is started with: `[--no-plugins] [--user-dir DIR]
+/// [MODULE]`.
+#[derive(Debug, Default, PartialEq)]
+struct CommandLine {
+    /// The module to open at start.
+    module: Option<PathBuf>,
+    /// The NWN user folder for this run (`--user-dir DIR` or
+    /// `--user-dir=DIR`), as `mg --user-dir` takes it.
+    user_dir: Option<PathBuf>,
+    no_plugins: bool,
+}
+
+impl CommandLine {
+    /// The arguments after the program's name. Others starting with `--`
+    /// are passed over.
+    fn parse(args: impl IntoIterator<Item = std::ffi::OsString>) -> CommandLine {
+        let mut line = CommandLine::default();
+        let mut args = args.into_iter();
+        while let Some(a) = args.next() {
+            let text = a.to_string_lossy();
+            if text == "--no-plugins" {
+                line.no_plugins = true;
+            } else if text == "--user-dir" {
+                line.user_dir = args.next().map(PathBuf::from);
+            } else if let Some(dir) = text.strip_prefix("--user-dir=") {
+                line.user_dir = Some(PathBuf::from(dir));
+            } else if !text.starts_with("--") && line.module.is_none() {
+                line.module = Some(PathBuf::from(a));
+            }
+        }
+        line
+    }
+}
+
 fn main() -> eframe::Result<()> {
     crash_reports();
+    let line = CommandLine::parse(std::env::args_os().skip(1));
     mg_ui::trace::by_default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -207,10 +242,22 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         APP_NAME,
         options,
-        Box::new(|cc| {
-            let settings: Settings =
+        Box::new(move |cc| {
+            let mut settings: Settings =
                 cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
+            // `--user-dir DIR`: this run's user folder, over Options' (not
+            // saved).
+            let not_a_folder = line.user_dir.clone().filter(|d| !d.is_dir());
+            settings.user_dir_this_run = line.user_dir.clone().filter(|d| d.is_dir());
             let mut moonglow = Moonglow::with_settings(settings, Box::new(NativeDialogs));
+            if let Some(dir) = not_a_folder {
+                moonglow.log.error(format!(
+                    "--user-dir {}: not a folder; the user folder of Options › Folders is used",
+                    dir.display()
+                ));
+            } else if let Some(dir) = &line.user_dir {
+                moonglow.log.info(format!("User folder for this run: {}", dir.display()));
+            }
             if let Some(rs) = &cc.wgpu_render_state {
                 moonglow.set_render_state(rs.clone());
             }
@@ -223,7 +270,7 @@ fn main() -> eframe::Result<()> {
             // The plugins installed in the data folder (`--no-plugins`
             // starts without them).
             moonglow.plugin_dir = mg_ui::recovery::data_dir().map(|d| d.join("plugins"));
-            moonglow.no_plugins = std::env::args().any(|a| a == "--no-plugins");
+            moonglow.no_plugins = line.no_plugins;
             moonglow.load_plugins();
             moonglow.prefab_dir = mg_ui::prefabs::dir();
             moonglow.var_set_dir = mg_ui::var_sets::dir();
@@ -233,10 +280,8 @@ fn main() -> eframe::Result<()> {
                 moonglow.speaker = Box::new(s);
             }
             // `moonglow path/to/module.mod` opens a module at start.
-            let module =
-                std::env::args_os().skip(1).find(|a| !a.to_string_lossy().starts_with("--"));
-            if let Some(path) = module {
-                moonglow.open_module(Path::new(&path));
+            if let Some(path) = &line.module {
+                moonglow.open_module(path);
             }
             Ok(Box::new(App { moonglow, title: String::new() }))
         }),
@@ -257,6 +302,29 @@ mod tests {
         assert!(!super::MAXIMIZE.load(Ordering::Relaxed));
         assert_eq!(super::maximize_later(left(true), true).maximized, Some(false));
         assert!(super::MAXIMIZE.swap(false, Ordering::Relaxed));
+    }
+
+    /// `--user-dir` takes the next argument (or the one after `=`), which
+    /// is not the module opened.
+    #[test]
+    fn the_command_line_names_the_user_folder_and_the_module() {
+        use super::CommandLine;
+        use std::path::PathBuf;
+        let parse = |args: &[&str]| CommandLine::parse(args.iter().map(Into::into));
+        assert_eq!(parse(&[]), CommandLine::default());
+        assert_eq!(
+            parse(&["--user-dir", "/nwn/test user", "my module.mod", "--no-plugins"]),
+            CommandLine {
+                module: Some(PathBuf::from("my module.mod")),
+                user_dir: Some(PathBuf::from("/nwn/test user")),
+                no_plugins: true,
+            }
+        );
+        assert_eq!(parse(&["x.mod", "--user-dir=/u"]).user_dir, Some(PathBuf::from("/u")));
+        assert_eq!(parse(&["x.mod", "--user-dir=/u"]).module, Some(PathBuf::from("x.mod")));
+        // (Another `--` option is passed over; the first module is opened.)
+        assert_eq!(parse(&["--other", "a.mod", "b.mod"]).module, Some(PathBuf::from("a.mod")));
+        assert_eq!(parse(&["--user-dir"]).user_dir, None);
     }
 
     #[test]

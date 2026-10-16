@@ -653,6 +653,46 @@ fn options_choose_the_game_folder() {
     );
 }
 
+/// `moonglow --user-dir DIR`: Options › Folders says which user folder this
+/// run uses, and choosing another there (saved for the next run) neither
+/// changes this run's nor reads the game again.
+#[test]
+fn options_say_the_user_folder_of_this_run() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-options-run-user");
+    let (run, saved, other) = (dir.join("run"), dir.join("saved"), dir.join("other"));
+    for d in [&run, &saved, &other] {
+        std::fs::create_dir_all(d.join("modules")).unwrap();
+    }
+    let settings = mg_ui::Settings {
+        game_root: Some(root),
+        user_dir: Some(saved),
+        user_dir_this_run: Some(run.clone()),
+        ..Default::default()
+    };
+    let app = Moonglow::with_settings(
+        settings,
+        Box::new(NoDialogs { folders: vec![other.clone()], ..Default::default() }),
+    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let user = |h: &Harness<Moonglow>| h.state().install.as_ref().and_then(|i| i.user_dir.clone());
+    assert_eq!(user(&h), Some(run.clone()));
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label(&format!("This run uses {} (--user-dir), not this folder.", run.display()));
+    // (The user folder's Browse is the second.)
+    h.get_all_by_label("Browse…").nth(1).unwrap().click();
+    h.run();
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert_eq!(h.state().settings.user_dir.as_deref(), Some(other.as_path()));
+    assert_eq!(user(&h), Some(run));
+}
+
 /// Options › OK leaves the module open, its unsaved work with it, and asks
 /// nothing: only another game or user folder has it read again, and then
 /// it is opened again.

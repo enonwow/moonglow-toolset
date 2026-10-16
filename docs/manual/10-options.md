@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T08:02:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T07:03:35Z }
 ---
 
 # Options
@@ -19,7 +19,11 @@ the module is opened again from its file.
 - **Neverwinter Nights installation**: the game's folder (with `data/`
   and `bin/` in it). Moonglow reads the game's data from here.
 - **NWN user folder**: where your modules, haks, talk tables, override and
-  characters are.
+  characters are. Empty: `NWN_HOME` (or `NWN_USER_DIRECTORY`) if set,
+  else the game's usual folder. Started as `moonglow --user-dir FOLDER`,
+  Moonglow uses that folder instead for as long as it runs, and this page
+  says so; what you set here is kept for the next start. A shortcut for
+  each user folder you test with can name its folder this way.
 - **Scratch folder**: where **To Scratch** (the script editor, the area
   view) and **Copy to Scratch Folder** (the module tree) copy a script
   with its compiled script, or an area, as loose files. Empty: asked for

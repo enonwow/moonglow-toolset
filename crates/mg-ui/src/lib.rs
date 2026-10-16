@@ -1192,10 +1192,11 @@ impl Moonglow {
         trace::changed("settings", || {
             let s = &self.settings;
             format!(
-                "game {:?}, user folder {:?}, last area {}, areas by name {}, scale {:?}, \
-                 still objects {}, unlit {}, plugins {:?}; install {:?}",
+                "game {:?}, user folder {:?} (this run {:?}), last area {}, areas by name {}, \
+                 scale {:?}, still objects {}, unlit {}, plugins {:?}; install {:?}",
                 s.game_root,
                 s.user_dir,
+                s.user_dir_this_run,
                 !s.no_last_area,
                 s.area_names,
                 s.ui_scale,
@@ -3846,7 +3847,9 @@ impl Moonglow {
         // (Another language edited, if the game has it: its talk table.)
         let language = |i: Option<GameInstall>| i.map(|i| i.language);
         settings.game_root != self.settings.game_root
-            || settings.user_dir != self.settings.user_dir
+            // (Not while `--user-dir` chooses this run's.)
+            || (settings.user_dir != self.settings.user_dir
+                && settings.user_dir_this_run.is_none())
             || language(settings.install()) != language(self.settings.install())
     }
 

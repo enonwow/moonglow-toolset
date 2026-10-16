@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T21:37:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T07:03:35Z }
 ---
 
 # Modules
@@ -16,7 +16,8 @@ a directory), nasher projects (see below) and the game's campaign files
 
 - **File › Open Module…** (Ctrl+O), **File › Open Folder…** (a module
   folder or a nasher project), **File › Recent Modules**, or a module named
-  on the command line (`moonglow path/to/module.mod`). A module opens on
+  on the command line (`moonglow path/to/module.mod`; with `--user-dir
+  FOLDER`, another user folder for that run). A module opens on
   the area you opened last in it; the first time, or when that area is
   gone, on the first the module tree lists (Options › General switches
   this off).

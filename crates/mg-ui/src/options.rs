@@ -296,6 +296,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         return;
     };
     let detected = draft.detected.clone();
+    let this_run = app.settings.user_dir_this_run.clone();
     let mut browse = None;
     let mut close = false;
     // Enter is OK while the pointer is over the tab (it is one window among
@@ -381,7 +382,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "NWN user folder (haks, override, modules)",
                             );
                             path_row(ui, &mut draft.user_dir, &mut browse, Browse::User);
-                            if path(&draft.user_dir).is_none() {
+                            if let Some(run) = &this_run {
+                                ui.colored_label(
+                                    ui.visuals().warn_fg_color,
+                                    format!(
+                                        "This run uses {} (--user-dir), not this folder.",
+                                        run.display()
+                                    ),
+                                );
+                            } else if path(&draft.user_dir).is_none() {
                                 match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
                                     Some(u) => ui.weak(format!("Empty: {}", u.display())),
                                     None => ui.weak("Empty: none"),

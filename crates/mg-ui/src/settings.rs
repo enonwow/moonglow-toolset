@@ -139,6 +139,11 @@ pub struct Settings {
     /// The NWN user folder (haks, override, modules), when not the detected
     /// one.
     pub user_dir: Option<PathBuf>,
+    /// The user folder given on the command line (`moonglow --user-dir
+    /// DIR`): for this run only, chosen over [`Settings::user_dir`] and
+    /// never saved.
+    #[serde(skip)]
+    pub user_dir_this_run: Option<PathBuf>,
     pub script_style: ScriptStyle,
     /// Options > General: Build module on save (Aurora's `Verify On Save`).
     pub build_on_save: bool,
@@ -395,7 +400,9 @@ impl Settings {
             Some(r) => r.clone(),
             None => detected.as_ref()?.root.clone(),
         };
-        let user_dir = self.user_dir.clone().or_else(|| detected.and_then(|d| d.user_dir));
+        let user_dir = (self.user_dir_this_run.clone())
+            .or_else(|| self.user_dir.clone())
+            .or_else(|| detected.and_then(|d| d.user_dir));
         // The game's own text (names and descriptions by StrRef, the
         // rules' names) in the language edited, where the install has it:
         // its talk table and the rest of its `lang/` folder. Else English.
@@ -449,6 +456,29 @@ mod tests {
             assert!(english.contains("drow"), "{english}");
             assert_ne!(english, polish, "another language's text");
         }
+    }
+
+    /// `moonglow --user-dir DIR` chooses this run's user folder, over the
+    /// one Options names, and is not saved with the settings.
+    #[test]
+    fn the_run_s_user_folder_is_chosen_and_not_saved() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        let dir = std::env::temp_dir();
+        let s = Settings {
+            game_root: Some(root),
+            user_dir: Some(dir.join("options-folder")),
+            user_dir_this_run: Some(dir.clone()),
+            ..Default::default()
+        };
+        assert_eq!(s.install().unwrap().user_dir, Some(dir));
+        let saved = serde_json::to_string(&s).unwrap();
+        assert!(!saved.contains("user_dir_this_run"), "{saved}");
+        let back: Settings = serde_json::from_str(&saved).unwrap();
+        assert_eq!(back.user_dir_this_run, None);
+        assert_eq!(back.user_dir, s.user_dir);
     }
 
     #[test]
