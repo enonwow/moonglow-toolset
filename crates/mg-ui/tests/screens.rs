@@ -1954,10 +1954,14 @@ fn area_ghost() {
     {
         let view = h.state_mut().area_views.get_mut(&area).unwrap();
         if let Some(o) = &mut view.orbit {
-            o.pitch = 35f32.to_radians();
-            o.yaw = -55f32.to_radians();
-            o.distance *= 0.25;
-            o.target.x -= 8.0;
+            // Close, on open cobbles, the square behind it. (Under the
+            // middle of the view the other area shots have, it stood
+            // half in the tower's wall, before a banner, and hardly
+            // showed.)
+            o.pitch = 45f32.to_radians();
+            o.yaw = 125f32.to_radians();
+            o.distance = 16.0;
+            o.target = glam::Vec3::new(50.3, 37.4, 4.0);
         }
     }
     h.state_mut().palette.selected = Some(ResKey::parse("plc_statue1", ResType::UTP).unwrap());

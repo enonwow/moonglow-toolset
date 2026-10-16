@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:38:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T20:20:13Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -858,6 +858,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   on the selection it raises or lowers it, as Alt + drag anywhere did.
   Not done of the issue: the camera's buttons and modifiers in Options ›
   Keyboard (the entry above). (S)
+- **Placing onto a placeable as it is placed:** Drop onto Object
+  (Shift+G) sets an object on the placeable below it after it is placed;
+  the see-through copy that follows the pointer still lies on the ground
+  (the walkmesh), under a table or an altar. Shift, Ctrl and Alt are each
+  taken while placing (place another, the camera, a rectangle), and on by
+  default every drop in a forest would land in a canopy: it wants a
+  switch on the toolbar, or a key of its own. (S) (from builders'
+  reports on 1.31.0)
+- **A see-through copy where it can't be seen:** what is about to be
+  placed (a blueprint, a paste, the brush's dab) is drawn 0.8 opaque
+  and lit as the area lights it, behind what stands before it like any
+  model: in a wall or behind a building only its box's outline shows,
+  and a dark model before dark stone reads less than a light one. It
+  could show its hidden part faintly through what covers it, or take a
+  light of its own. (S) (found looking into the ghosts that didn't show
+  in the test harness's pictures)
 - **Painting placeables** (the area view's Paint, from builders'
   reports on 1.31.0) is in: Scatter and Row. Not done: an eraser
   (taking the chosen blueprints' placeables out of the circle); the
@@ -868,8 +884,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   distance; a row along a path of several legs (a drag is one straight
   line); random scale on static placeables (the game gives them none, so
   Scale passes them by). The see-through dab is held by the tests'
-  counts; the pictures show strokes laid (at 0.6 opaque it hardly showed
-  in them: see the branch that drew ghosts 0.8 opaque). (S each)
+  counts; the pictures show strokes laid. (S each)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)
@@ -965,6 +980,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
+- **A placeable without its state's animation, in the client:** a
+  placeable whose model (and supermodels) lack the animation of its
+  state (`default`, `open`…) is drawn in its rest pose, as a corpse
+  placeable of CEP's on a creature's supermodel (`plc_orc2`) lies in its
+  Properties and, by every account, in the game. Not yet seen in the
+  client (`client_render.rs`) with the hak; the wiki doesn't say. A
+  creature's idle renamed by AnimationReplace to one its model lacks
+  stands in its rest pose too now, where it stood in `pause1`. (S)
+  (from builders' reports on 1.31.0)
 - **Dynamic body parts from custom content (GitHub issue 5):** fixed
   with the reporter's haks over CEP 2.71. Under armor a creature's own
   part shows where the armor's is bare skin (part 1) or none, as the

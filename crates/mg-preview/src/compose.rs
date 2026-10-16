@@ -34,6 +34,24 @@ impl Placed {
     }
 }
 
+/// The animations a creature stands in.
+const STANDING: [&str; 2] = ["pause1", "cpause1"];
+
+/// The animation a model plays when `asked` is asked of it (`find` looks a
+/// name up in the model and its supermodels). A standing idle missing
+/// falls back to the other: a model whose appearance says full-body
+/// (`pause1`) may have a creature's animations (`cpause1`). Any other
+/// missing (a placeable's `default`), none: the model shows its rest pose.
+/// A corpse placeable of CEP's (`plc_orc2`) has no animations, and its
+/// supermodels are a creature's: their `pause1` stood it up in the area,
+/// where its rest pose lies dead.
+fn playing<'a>(asked: &str, find: impl Fn(&str) -> Option<&'a Animation>) -> Option<&'a Animation> {
+    find(asked).or_else(|| {
+        let standing = STANDING.iter().any(|s| s.eq_ignore_ascii_case(asked));
+        standing.then(|| STANDING.iter().find_map(|s| find(s))).flatten()
+    })
+}
+
 /// A preview ready to draw.
 #[derive(Debug)]
 pub struct Composed {
@@ -221,14 +239,7 @@ impl Composed {
     }
 
     fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
-        // The animation asked for, else the other standing one: a model
-        // whose appearance says full-body (`pause1`) may have a creature's
-        // animations (`cpause1`), and stands in its rest pose without.
-        let base_anim = animation.and_then(|a| {
-            self.base
-                .animation(a)
-                .or_else(|| ["pause1", "cpause1"].iter().find_map(|a| self.base.animation(a)))
-        });
+        let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
         let base_pose: Arc<Vec<Mat4>> = Arc::new(match &base_anim {
             Some(a) => anim::pose(&self.base.gpu.model, a, t),
             None => self.base.gpu.rest.clone(),
@@ -328,9 +339,7 @@ impl Composed {
     /// taller or shorter than at rest, and a picture framed by its rest
     /// cut its head off.
     pub fn bounds_in(&self, animation: Option<&str>, t: f32) -> (Vec3, Vec3) {
-        let find = |name: &str| self.base.animation(name);
-        let playing = animation
-            .and_then(|a| find(a).or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(a))));
+        let playing = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
         match (playing, animation) {
             (Some(a), Some(asked)) => {
                 self.bounds_with(&anim::pose(&self.base.gpu.model, a, t), Some((asked, a, t)))
@@ -579,5 +588,24 @@ mod ray_tests {
         assert!(ray_triangle(Vec3::new(-1.0, 0.2, 0.0), Vec3::X, a, b, c).is_none());
         assert!(ray_meets_box(Vec3::new(0.5, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE));
         assert!(!ray_meets_box(Vec3::new(2.0, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE));
+    }
+
+    /// A standing idle missing falls back to the other; a placeable's
+    /// state missing does not: a corpse placeable on a creature's
+    /// supermodel (`pause1`, no `default`) lies in its rest pose.
+    #[test]
+    fn only_a_standing_idle_falls_back_to_another() {
+        use super::playing;
+        use mg_mdl::Animation;
+        let anims: Vec<Animation> = ["pause1", "deadfnt"]
+            .map(|n| Animation { name: n.into(), ..Default::default() })
+            .to_vec();
+        let find = |n: &str| anims.iter().find(|a| a.name.eq_ignore_ascii_case(n));
+        let name = |a: Option<&Animation>| a.map(|a| a.name.clone());
+        assert_eq!(name(playing("default", find)), None);
+        assert_eq!(name(playing("open", find)), None);
+        assert_eq!(name(playing("deadfnt", find)), Some("deadfnt".into()));
+        assert_eq!(name(playing("CPAUSE1", find)), Some("pause1".into()));
+        assert_eq!(name(playing("pause1", find)), Some("pause1".into()));
     }
 }
