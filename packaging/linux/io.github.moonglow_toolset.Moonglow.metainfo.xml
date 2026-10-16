@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.32.0" date="2026-10-16">
+      <description>
+        <p>Painting placeables in the area view: scattered in a circle or
+        laid in a row. Drop onto Object sets the selection on what is
+        below it. The module tree lists objects by name and waypoints by
+        tag. Preview from the tree and the area. Test From Here, Choose
+        Character, and moonglow --user-dir for another user folder.</p>
+      </description>
+    </release>
     <release version="1.31.0" date="2026-10-14">
       <description>
         <p>Docking: the palettes dropped onto the middle join its tabs, a
