@@ -54,8 +54,13 @@ pub struct PaintState {
     last: Option<(Vec3, f64)>,
     /// Chooses the next dab, the one shown before it is laid.
     seed: u64,
+    /// Where the row being laid begins.
+    row_from: Option<Vec3>,
     /// Each blueprint as an unplaced object (`None`: it can't be read).
     templates: HashMap<ResKey, Option<AreaObject>>,
+    /// Each blueprint's model's box (its own space, unturned): how long a
+    /// piece of a row is.
+    bounds: HashMap<ResKey, (Vec3, Vec3)>,
     /// What the last frame showed see-through: the stroke's placeables
     /// and the next dab.
     pub shown: usize,
@@ -77,6 +82,13 @@ const TRIES: usize = 30;
 
 /// The radius's bounds, in centimeters.
 const RADIUS: (u16, u16) = (25, 5000);
+
+/// The least a row steps from one piece to the next, in meters (a piece
+/// with no length, or a gap that overlaps it all).
+const ROW_STEP: f32 = 0.05;
+
+/// The most pieces a row lays.
+const ROW_MAX: usize = 500;
 
 /// The placeables chosen in the palette to paint with: the one clicked and
 /// those chosen with Ctrl + click.
@@ -157,6 +169,59 @@ pub(crate) fn dab(
     out
 }
 
+/// A blueprint as a row's piece: which, how it stands unturned (its
+/// object's rotation), and its model's box.
+pub(crate) type Piece = (ResKey, f32, (Vec3, Vec3));
+
+/// What a row from `from` to `to` lays, by `seed`: pieces picked from
+/// `pieces`, each facing along the row (snapped to `snap` degrees) and
+/// turned on it by `turn`, end to end by their boxes' length along it with
+/// `gap` between (an overlap, less than 0), the first one's back at `from`,
+/// until the row reaches `to` (one piece, a row with no length). `ground`
+/// is the height at a point, `None` where there is none (`from`'s, then).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn row(
+    from: Vec3,
+    to: Vec3,
+    pieces: &[Piece],
+    turn: f32,
+    snap: Option<f32>,
+    (gap, lift): (f32, f32),
+    seed: u64,
+    ground: &dyn Fn(Vec2) -> Option<f32>,
+) -> Vec<Painted> {
+    if pieces.is_empty() {
+        return Vec::new();
+    }
+    let along = (to - from).truncate();
+    let length = along.length();
+    let angle = if length < 0.1 {
+        0.0
+    } else {
+        mg_area::arrange::snap_rotation(along.y.atan2(along.x), snap)
+    };
+    let d = Vec2::new(angle.cos(), angle.sin());
+    // The row's way, in a piece's own space: turned back by `turn`.
+    let (c, s) = (turn.cos(), turn.sin());
+    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut at = 0.0;
+    let mut out = Vec::new();
+    loop {
+        let (key, rotation, (min, max)) = pieces[rng.usize(..pieces.len())];
+        let ends = [(min.x, min.y), (min.x, max.y), (max.x, min.y), (max.x, max.y)]
+            .map(|(x, y)| x * c - y * s);
+        let lo = ends.into_iter().fold(f32::MAX, f32::min);
+        let hi = ends.into_iter().fold(f32::MIN, f32::max);
+        let p = from.truncate() + d * (at - lo);
+        let z = ground(p).unwrap_or(from.z) + lift;
+        out.push(Painted { key, position: p.extend(z), turn: angle + turn - rotation, scale: 1.0 });
+        at += (hi - lo + gap).max(ROW_STEP);
+        if at >= length || out.len() >= ROW_MAX {
+            return out;
+        }
+    }
+}
+
 /// The placeables near `center` (within `reach`) a dab must keep its
 /// distance from, the stroke's among them: where each stands, and whether
 /// it is of the brush's blueprints (counted towards Density).
@@ -199,6 +264,31 @@ fn next_dab(app: &Moonglow, view: &AreaView, keys: &[ResKey], center: Vec3) -> V
     dab(s, center, keys, &around, turn, snap, view.paint.seed, &ground)
 }
 
+/// The pieces of a row the brush lays with `keys` (those it has read).
+fn pieces(view: &AreaView, keys: &[ResKey]) -> Vec<Piece> {
+    let unknown = (Vec3::splat(-0.5), Vec3::splat(0.5));
+    keys.iter()
+        .filter_map(|k| {
+            let template = view.paint.templates.get(k)?.as_ref()?;
+            let bounds = view.paint.bounds.get(k).copied().unwrap_or(unknown);
+            Some((*k, template.rotation, bounds))
+        })
+        .collect()
+}
+
+/// The row `view`'s brush lays from where it began (or `to`, before a
+/// press) to `to`.
+fn row_to(app: &Moonglow, view: &AreaView, keys: &[ResKey], to: Vec3) -> Vec<Painted> {
+    let s = &app.settings.paint;
+    let from = view.paint.row_from.unwrap_or_else(|| view.snapped(to));
+    // On the ground, walkable or not (a floor over water), else level.
+    let ground = |p: Vec2| view.ground().and_then(|g| g.height(p, from.z));
+    let space = (f32::from(s.gap_cm) / 100.0, f32::from(s.lift_cm) / 100.0);
+    let pieces = pieces(view, keys);
+    let (turn, snap) = (view.ghost_turn(), view.snap_angle());
+    row(from, to, &pieces, turn, snap, space, view.paint.seed, &ground)
+}
+
 /// The ground under the pointer, if it is over the view (not over a
 /// window in front of it).
 fn pointer(ui: &egui::Ui, view: &AreaView) -> Option<Vec3> {
@@ -228,21 +318,33 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
     let Some(keys) = active(app) else {
         // (Read anew when it is next on: the blueprints may have changed.)
         view.paint.templates.clear();
+        view.paint.bounds.clear();
         view.paint.shown = 0;
         return Vec::new();
     };
     view.read_walkable(app);
-    let mut shown = view.paint.pending.clone();
-    if !view.paint.painting
-        && let Some(at) = pointer(ui, view)
-    {
-        shown.extend(next_dab(app, view, &keys, at));
-    }
     for key in &keys {
         if !view.paint.templates.contains_key(key) {
             let template = crate::area_view::template(app, *key);
+            if let Some(bounds) = template.as_ref().and_then(|t| view.bounds_of(app, t)) {
+                view.paint.bounds.insert(*key, bounds);
+            }
             view.paint.templates.insert(*key, template);
         }
+    }
+    let at = pointer(ui, view);
+    let row = app.settings.paint.row;
+    if row && view.paint.painting {
+        // The row as far as the pointer now.
+        if let Some(at) = at {
+            view.paint.pending = row_to(app, view, &keys, at);
+        }
+    }
+    let mut shown = view.paint.pending.clone();
+    match at.filter(|_| !view.paint.painting) {
+        Some(at) if row => shown.extend(row_to(app, view, &keys, at)),
+        Some(at) => shown.extend(next_dab(app, view, &keys, at)),
+        None => {}
     }
     let templates = &view.paint.templates;
     let objects: Vec<AreaObject> = shown
@@ -290,6 +392,7 @@ pub(crate) fn input(
     let Some(keys) = active(app) else {
         view.paint.pending.clear();
         view.paint.painting = false;
+        view.paint.row_from = None;
         return false;
     };
     view.read_walkable(app);
@@ -302,6 +405,7 @@ pub(crate) fn input(
         if view.paint.painting {
             view.paint.pending.clear();
             view.paint.painting = false;
+            view.paint.row_from = None;
         } else {
             app.paint = false;
         }
@@ -316,8 +420,23 @@ pub(crate) fn input(
     if pressed && hovered && !camera {
         view.paint.painting = true;
         view.paint.last = None;
+        let row = app.settings.paint.row;
+        view.paint.row_from = pointer(ui, view).filter(|_| row).map(|p| view.snapped(p));
     }
     if !view.paint.painting {
+        return true;
+    }
+    if app.settings.paint.row {
+        // A row: from where the press was to the pointer, laid when let go.
+        if let Some(to) = pointer(ui, view) {
+            view.paint.pending = row_to(app, view, &keys, to);
+        }
+        if !down {
+            view.paint.painting = false;
+            commit(app, view);
+            view.paint.row_from = None;
+            view.paint.seed = fastrand::u64(..);
+        }
         return true;
     }
     if let Some(at) = pointer(ui, view) {
@@ -385,10 +504,20 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
 
 /// The brush's circle, on the ground around the pointer.
 pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
-    if active(app).is_none() || app.settings.paint.row {
+    if active(app).is_none() {
         return;
     }
     let Some(at) = pointer(ui, view) else { return };
+    if app.settings.paint.row {
+        // The row's line, from where it began to the pointer.
+        if let Some(from) = view.paint.row_from.filter(|_| view.paint.painting) {
+            let ends = view.on_ground(&[from, at]);
+            if let Some(line) = view.screen_segment(ends[0], ends[1]) {
+                ui.painter_at(view.rect).line_segment(line, Stroke::new(2.0, CIRCLE));
+            }
+        }
+        return;
+    }
     let radius = f32::from(app.settings.paint.radius_cm) / 100.0;
     const POINTS: usize = 64;
     let circle: Vec<Vec3> = (0..POINTS)
@@ -424,6 +553,13 @@ pub(crate) fn status(app: &Moonglow) -> Option<String> {
     Some(match keys.len() {
         0 => "Paint: choose placeables in the palette (Ctrl + click for several); Escape: stop"
             .to_string(),
+        n if app.settings.paint.row => {
+            let what = if n == 1 { keys[0].resref.to_string() } else { format!("{n} placeables") };
+            format!(
+                "Laying a row of {what}: drag from one end to the other, Q and E: turn the pieces \
+                 on the row; right click or Escape: stop"
+            )
+        }
         n => {
             let what = if n == 1 { keys[0].resref.to_string() } else { format!("{n} placeables") };
             format!(
@@ -458,6 +594,9 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         ui.selectable_value(&mut s.row, false, "Scatter")
             .on_hover_text("Paint at random in a circle");
+        ui.selectable_value(&mut s.row, true, "Row").on_hover_text(
+            "Lay pieces end to end along a drag (floors, fences), each facing along the row",
+        );
         ui.separator();
         if !s.row {
             field_label(ui, "Radius");
@@ -496,6 +635,15 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
                     "Each one's scale, picked between these. Static placeables take none (the \
                      game gives them none)",
                 );
+        }
+        if s.row {
+            field_label(ui, "Gap");
+            let mut cm = i32::from(s.gap_cm);
+            meters(ui, &mut cm, (-10.0, 10.0)).on_hover_text(
+                "Room between pieces (an overlap, less than 0): a piece's length is its model's \
+                 box along the row, which parts that stick out make longer",
+            );
+            s.gap_cm = cm.clamp(-1000, 1000) as i16;
         }
         field_label(ui, "Height");
         let mut cm = i32::from(s.lift_cm);
@@ -587,6 +735,44 @@ mod tests {
         let s = settings();
         let laid = dab(&s, at, &keys, &[], 0.0, None, 5, &half);
         assert!(!laid.is_empty() && laid.iter().all(|p| p.position.x >= 20.0));
+    }
+
+    #[test]
+    fn a_row_lays_pieces_end_to_end_by_their_length() {
+        // A piece 2 m long (east to west) and 1 m wide.
+        let pieces =
+            [(key("plc_floor"), 0.0, (Vec3::new(-1.0, -0.5, 0.0), Vec3::new(1.0, 0.5, 1.0)))];
+        let from = Vec3::new(10.0, 10.0, 0.0);
+        let east = |to: f32, turn: f32, gap: f32| {
+            let to = Vec3::new(to, 10.0, 0.0);
+            row(from, to, &pieces, turn, None, (gap, 0.0), 1, &flat)
+        };
+        let laid = east(20.0, 0.0, 0.0);
+        let xs: Vec<f32> = laid.iter().map(|p| p.position.x).collect();
+        assert_eq!(xs, [11.0, 13.0, 15.0, 17.0, 19.0], "the first one's back at the start");
+        assert!(laid.iter().all(|p| p.turn == 0.0 && p.position.y == 10.0 && p.position.z == 2.0));
+        // Turned a quarter on the row: 1 m a piece; with a gap of 0.5 m, 1.5.
+        let laid = east(20.0, std::f32::consts::FRAC_PI_2, 0.5);
+        assert_eq!(laid.len(), 7);
+        assert!((laid[1].position.x - laid[0].position.x - 1.5).abs() < 1e-4);
+        assert!((laid[0].position.x - 10.5).abs() < 1e-4);
+        // No length: one piece.
+        assert_eq!(east(10.0, 0.0, 0.0).len(), 1);
+        // A model whose box isn't around its middle, turned a quarter: its
+        // own north (0 to 1 m) lies back along the row.
+        let north =
+            [(key("plc_floor"), 0.0, (Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0)))];
+        let to = Vec3::new(13.0, 10.0, 0.0);
+        let laid = row(from, to, &north, std::f32::consts::FRAC_PI_2, None, (0.0, 0.0), 1, &flat);
+        let xs: Vec<f32> = laid.iter().map(|p| p.position.x).collect();
+        assert_eq!(xs, [11.0, 12.0, 13.0]);
+        // Northeast, snapped to 45°: each faces along it.
+        let to = Vec3::new(17.0, 16.5, 0.0);
+        let laid = row(from, to, &pieces, 0.0, Some(45.0), (0.0, 0.0), 1, &flat);
+        let way = std::f32::consts::FRAC_PI_4;
+        assert!(laid.iter().all(|p| (p.turn - way).abs() < 1e-4));
+        let step = laid[1].position - laid[0].position;
+        assert!((step.x - step.y).abs() < 1e-4 && (step.length() - 2.0).abs() < 1e-4);
     }
 
     #[test]

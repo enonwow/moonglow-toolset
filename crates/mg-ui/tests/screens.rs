@@ -2032,6 +2032,30 @@ fn area_paint() {
     h.event(egui::Event::PointerMoved(rect.center() + egui::vec2(-120.0, -60.0)));
     h.run_steps(5);
     shoot(&mut h, &dir, "area-paint");
+    // A row of benches dragged out.
+    {
+        let app = h.state_mut();
+        app.palette.selected = Some(ResKey::parse("plc_bench", ResType::UTP).unwrap());
+        app.palette.chosen.clear();
+        app.settings.paint.row = true;
+        app.settings.paint.gap_cm = 40;
+    }
+    let (from, to) =
+        (rect.center() + egui::vec2(-160.0, 170.0), rect.center() + egui::vec2(100.0, 200.0));
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(2);
+    button(&mut h, from, true);
+    for k in 1..=10 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 10.0)));
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    // (See-through, what is about to be placed doesn't show in these
+    // pictures: the row is shot laid.)
+    button(&mut h, to, false);
+    h.event(egui::Event::PointerMoved(to + egui::vec2(40.0, -40.0)));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "area-paint-row");
 }
 
 #[test]

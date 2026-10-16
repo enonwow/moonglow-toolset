@@ -372,10 +372,21 @@ the next time.
 - Placeables go only on **walkable ground** (the walkmesh's walkable
   faces, as **Walkmesh…** shows them green), at the level nearest the
   pointer's: not into water, onto roofs or inside walls.
+- **Row** lays pieces end to end instead: drag from where the row
+  begins to where it ends (floor tiles, a fence, a line of benches). Each
+  piece faces along the row; **Q** and **E** turn the pieces on it
+  (Shift + Q by 90°, for a piece that is long the other way). A piece
+  takes up its model's length along the row. **Gap** adds room between
+  pieces, or overlaps them when below 0: a model's box takes in whatever
+  sticks out of it, so a little overlap may be what makes floors meet.
+  The row begins on the snapping grid, and its direction snaps to the
+  snapping angle. It follows the ground (walkable or not, so a walkway
+  can cross water), raised by **Height**. Of several placeables chosen,
+  each piece is a random pick.
 
-Before a press, the dab a click would lay shows see-through under the
-pointer, and a click lays exactly that. What a stroke lays shows
-see-through until you let go; then it goes into the area as one step,
+Before a press, the dab a click would lay (with Row, the first piece)
+shows see-through under the pointer, and a click lays exactly that. What
+a stroke lays shows see-through until you let go; then it goes into the area as one step,
 **Paint Placeables**, which one Undo takes away. Escape or a right click
 during a stroke drops it. Otherwise it turns Paint off, and the
 placeables stay chosen.

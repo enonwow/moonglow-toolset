@@ -858,6 +858,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   on the selection it raises or lowers it, as Alt + drag anywhere did.
   Not done of the issue: the camera's buttons and modifiers in Options ›
   Keyboard (the entry above). (S)
+- **Painting placeables** (the area view's Paint, from builders'
+  reports on 1.31.0) is in: Scatter and Row. Not done: an eraser
+  (taking the chosen blueprints' placeables out of the circle); the
+  brush's own Lock (painted placeables locked, so later clicks pass
+  through them); counting placeables that aren't the chosen blueprints
+  towards Density (Spacing keeps away from them; Density counts only the
+  brush's own); Spacing from each placeable's size rather than one
+  distance; a row along a path of several legs (a drag is one straight
+  line); random scale on static placeables (the game gives them none, so
+  Scale passes them by). Seen only in the test harness's pictures with
+  the stroke laid: what is about to be placed, drawn see-through,
+  doesn't show in that harness's pictures at all (`area_ghost`'s statue
+  is an empty box, before this work too), so the see-through dab is held
+  by the tests' counts, not by a picture. Looked at with it opaque, the
+  dab and the row stand where they're laid. (S each)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)

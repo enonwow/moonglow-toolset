@@ -609,6 +609,18 @@ impl AreaView {
         self.walkable.as_ref().and_then(|w| w.get(material as usize)).copied().unwrap_or(false)
     }
 
+    /// The box of `o`'s model (its own space, unturned), as the view
+    /// draws it: its models loaded and kept, as the area's are.
+    pub(crate) fn bounds_of(
+        &mut self,
+        app: &Moonglow,
+        o: &mg_area::AreaObject,
+    ) -> Option<(Vec3, Vec3)> {
+        let (scene, vp, game) =
+            (self.scene.as_mut()?, app.viewport.as_ref()?, app.game.as_deref()?);
+        Some(scene.ghost(&vp.gpu, game, o, self.time, 1.0).1)
+    }
+
     /// How far Q and E have turned what is about to be placed (radians).
     pub(crate) fn ghost_turn(&self) -> f32 {
         self.ghost_turn
@@ -777,7 +789,7 @@ impl AreaView {
     }
 
     /// A point snapped to the grid, on the ground there.
-    fn snapped(&self, at: Vec3) -> Vec3 {
+    pub(crate) fn snapped(&self, at: Vec3) -> Vec3 {
         if self.snap.0.is_none() {
             return at;
         }

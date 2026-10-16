@@ -6528,6 +6528,61 @@ fn area_viewer_paints_placeables() {
     assert_eq!(h.state().palette.chosen, [shrub]);
 }
 
+/// The placeable brush's Row: a drag lays one placeable end to end along
+/// it, each facing the same way, as one step.
+#[test]
+fn area_viewer_lays_a_row_of_placeables() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("paint-row") else { return };
+    let placeables = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Placeable List").unwrap_or(&[]).to_vec()
+    };
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = ResKey::parse("plc_statue1", ResType::UTP);
+        app.paint = true;
+        app.settings.paint.row = true;
+        app.settings.paint.gap_cm = 50;
+    }
+    h.run_steps(2);
+    h.get_by_label_contains("Laying a row of plc_statue1");
+    h.get_by_label("Gap");
+    let from = screen(&h, area, Vec3::new(8.0, 15.0, 0.0));
+    let to = screen(&h, area, Vec3::new(32.0, 15.0, 0.0));
+    h.hover_at(from);
+    h.run_steps(1);
+    assert_eq!(h.state().area_views[&area].paint.shown, 1, "a piece shows before the press");
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+    }
+    h.run_steps(1);
+    let shown = h.state().area_views[&area].paint.shown;
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let row = placeables(&mut h);
+    assert!(row.len() >= 3, "laid {}", row.len());
+    assert_eq!(row.len(), shown, "what showed is what is laid");
+    let x = |i: usize| row[i].float("X").unwrap();
+    let step = x(1) - x(0);
+    assert!(step > 0.5, "a piece's length and the gap: {step}");
+    for (i, p) in row.iter().enumerate() {
+        assert!((p.float("Y").unwrap() - 15.0).abs() < 0.05, "along the drag");
+        assert_eq!(p.float("Bearing"), row[0].float("Bearing"), "facing alike");
+        if i > 0 {
+            assert!((x(i) - x(i - 1) - step).abs() < 0.01, "evenly");
+        }
+    }
+    assert!(x(row.len() - 1) < 32.0 + step, "no further than the drag");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(placeables(&mut h).is_empty(), "one row, one command");
+}
+
 #[test]
 fn area_viewer_places_draws_boxes_and_turns() {
     use glam::Vec3;
