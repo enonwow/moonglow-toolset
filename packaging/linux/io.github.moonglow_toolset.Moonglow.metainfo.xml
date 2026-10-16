@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.32.1" date="2026-10-16">
+      <description>
+        <p>Scripts are read and saved in the codepage of the language
+        edited (Windows-1250 for Polish), as the game reads their text:
+        a Polish module's scripts showed and saved as mojibake. The
+        language server reads scripts in the game's codepage.</p>
+      </description>
+    </release>
     <release version="1.32.0" date="2026-10-16">
       <description>
         <p>Painting placeables in the area view: scattered in a circle or
