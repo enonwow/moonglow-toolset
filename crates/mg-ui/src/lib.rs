@@ -37,6 +37,7 @@ mod nui_view;
 pub mod nwsync_view;
 mod options;
 mod outside;
+pub mod paint_mode;
 pub mod palette_categories;
 pub mod palette_view;
 pub mod plugins;
@@ -479,6 +480,9 @@ pub struct Moonglow {
     pub after_new_area: (bool, bool),
     /// Tiles copied in an area viewer.
     pub tile_clip: Option<tile_select::TileClip>,
+    /// The area views' placeable brush is on (their toolbar's Paint): the
+    /// placeables chosen in the palette are painted, not placed one a click.
+    pub paint: bool,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
     /// The items copied in an inventory (their blueprints), to paste into
@@ -777,6 +781,7 @@ impl Moonglow {
             var_set_dir: None,
             reload_checked: None,
             tlk_stamp: None,
+            paint: false,
             object_clip: None,
             item_clip: Vec::new(),
             tile_clip: None,

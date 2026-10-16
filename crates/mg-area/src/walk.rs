@@ -102,6 +102,12 @@ impl Walkmesh {
 
     /// The heights of the faces above or below `p` (the model's space).
     pub fn heights(&self, p: Vec2) -> impl Iterator<Item = f32> + '_ {
+        self.surfaces(p).map(|(z, _)| z)
+    }
+
+    /// The faces above or below `p` (the model's space): each one's height
+    /// there and its surface material.
+    pub fn surfaces(&self, p: Vec2) -> impl Iterator<Item = (f32, u32)> + '_ {
         // (A point on the tile's edge, as a start location at a tile corner
         // is, may land a rounding error outside.)
         let e = 1e-3;
@@ -109,7 +115,10 @@ impl Walkmesh {
             || p.y < self.min.y - e
             || p.x > self.max.x + e
             || p.y > self.max.y + e;
-        self.faces.iter().filter(move |_| !outside).filter_map(move |f| height_on(f, p))
+        self.faces
+            .iter()
+            .filter(move |_| !outside)
+            .filter_map(move |f| height_on(f, p).map(|z| (z, f.material)))
     }
 
     /// The ground's level (the model's space): the median, over a 5 × 5
@@ -243,6 +252,19 @@ impl Ground {
         let base = to.transform_point3(Vec3::ZERO).z;
         w.heights(local.truncate())
             .map(|z| z + base)
+            .min_by(|a, b| (a - near).abs().total_cmp(&(b - near).abs()))
+    }
+
+    /// The ground's height at `p` nearest to `near`, as
+    /// [`height`](Self::height), on the faces whose surface material
+    /// (surfacemat.2da row) `keep` keeps.
+    pub fn height_on(&self, p: Vec2, near: f32, keep: impl Fn(u32) -> bool) -> Option<f32> {
+        let (w, to) = self.tiles.get(self.tile_at(p)?)?.as_ref()?;
+        let local = to.inverse().transform_point3(p.extend(0.0));
+        let base = to.transform_point3(Vec3::ZERO).z;
+        w.surfaces(local.truncate())
+            .filter(|(_, m)| keep(*m))
+            .map(|(z, _)| z + base)
             .min_by(|a, b| (a - near).abs().total_cmp(&(b - near).abs()))
     }
 

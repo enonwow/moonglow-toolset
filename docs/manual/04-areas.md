@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Areas
-description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
+description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T21:41:08Z }
 ---
@@ -70,6 +70,8 @@ looking straight down at their middle, north up, as in Aurora.
   Terrain). Without the toolbar: a double click on the ground selects its
   tile (Select Tiles comes on), and a click on an object while tiles are
   selected selects it (Select Tiles goes off).
+- **✏ Paint** (B): paint the placeables chosen in the palette onto the
+  ground (see [Painting placeables](#painting-placeables)).
 - **Area Properties**, **Reorient Camera** (north up again), **Go to Start
   Location**.
 - **To Scratch**: copy the area as it is now (its `.are`, `.git` and
@@ -336,6 +338,47 @@ placeables around.
   `.prefab.json` files to share them.
 - **Blueprints:** an object keeps everything it had when it was saved,
   and works without the blueprint it came from.
+
+## Painting placeables
+
+Trees, rocks, bushes, rubble: **✏ Paint** on the area's toolbar (or **B**
+with the pointer over the area) turns the placeable brush on, and the
+placeables chosen in the palette are painted onto the ground rather than
+placed one a click. Choose them in the **Placeables** palette, the
+game's or the module's: a click on one, **Ctrl + click** on more (Ctrl +
+click again takes one out). The brush picks among them at random. A strip
+of its settings shows above the view while it is on; they are kept for
+the next time.
+
+- **Scatter** paints in a green circle on the ground. Press to lay a dab,
+  drag to go on laying them. Hold the button still and it keeps laying
+  until the circle is full. **Shift + wheel** sizes the circle (the
+  **Radius**).
+- **Density** is how many placeables a tile's ground (10 by 10 m) holds
+  once painted. The brush adds placeables until the circle has its share,
+  counting those of the chosen blueprints already there. So going over a
+  painted place again fills its gaps and adds no more.
+- **Spacing** is the least distance between two placeables: those the
+  brush puts down, and any placeable already in the area.
+- **Flow** is how much of what the circle lacks each dab adds: at 100% a
+  click fills the circle at once; lower, it fills as you go over it.
+- **Turn**: each placeable faces the way **Q** and **E** turned the brush,
+  give or take half this (360°, the default, is any way at all; 0° all
+  alike). With the snapping angle on, facings snap to it.
+- **Scale**: each placeable's scale is picked between the two. Static
+  placeables take none: the game draws them at their own size.
+- **Height** raises them above the ground (or sinks them, below 0): roots
+  into a slope, rocks half buried.
+- Placeables go only on **walkable ground** (the walkmesh's walkable
+  faces, as **Walkmesh…** shows them green), at the level nearest the
+  pointer's: not into water, onto roofs or inside walls.
+
+Before a press, the dab a click would lay shows see-through under the
+pointer, and a click lays exactly that. What a stroke lays shows
+see-through until you let go; then it goes into the area as one step,
+**Paint Placeables**, which one Undo takes away. Escape or a right click
+during a stroke drops it. Otherwise it turns Paint off, and the
+placeables stay chosen.
 
 ## Painting terrain
 

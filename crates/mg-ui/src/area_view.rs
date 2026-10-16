@@ -461,6 +461,8 @@ pub struct AreaView {
     last_frame: Option<f64>,
     /// Where the view was last drawn, in points.
     pub rect: Rect,
+    /// The placeable brush's stroke (Paint).
+    pub paint: crate::paint_mode::PaintState,
 }
 
 /// What an area's picture is drawn from, the animations' time aside: the
@@ -577,11 +579,44 @@ impl AreaView {
             time: 0.0,
             last_frame: None,
             rect: Rect::NOTHING,
+            paint: Default::default(),
         }
     }
 
-    fn git(&self) -> ResKey {
+    pub(crate) fn git(&self) -> ResKey {
         ResKey::new(self.area, ResType::GIT)
+    }
+
+    /// The area's walkmesh, once read.
+    pub(crate) fn ground(&self) -> Option<&Ground> {
+        self.ground.as_ref()
+    }
+
+    /// Reads surfacemat.2da's `Walk` (once): which surface materials are
+    /// walked on.
+    pub(crate) fn read_walkable(&mut self, app: &Moonglow) {
+        if self.walkable.is_none() {
+            let walkable = app.game.as_deref().and_then(|g| g.table("surfacemat").ok()).map(|t| {
+                (0..t.len()).map(|r| t.get_int(r, "Walk").unwrap_or(0) != 0).collect::<Vec<bool>>()
+            });
+            self.walkable = Some(walkable.unwrap_or_default());
+        }
+    }
+
+    /// Whether surface material `material` (surfacemat.2da row) is walked
+    /// on, as [`read_walkable`](Self::read_walkable) read it.
+    pub(crate) fn walked_on(&self, material: u32) -> bool {
+        self.walkable.as_ref().and_then(|w| w.get(material as usize)).copied().unwrap_or(false)
+    }
+
+    /// How far Q and E have turned what is about to be placed (radians).
+    pub(crate) fn ghost_turn(&self) -> f32 {
+        self.ghost_turn
+    }
+
+    /// The angle turned objects snap to (degrees), if they do.
+    pub(crate) fn snap_angle(&self) -> Option<f32> {
+        self.snap.1
     }
 
     /// The camera.
@@ -1687,6 +1722,20 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             view.selection.clear();
             view.tile_selection.clear();
         }
+        if ui
+            .toggle_value(&mut app.paint, labelled(icons::PAINT, "Paint"))
+            .on_hover_text(app.keymap.titled(
+                "Paint the placeables chosen in the palette (Ctrl + click for several) onto the \
+                 ground: scattered in a circle, or in a row",
+                crate::keys::Cmd::PaintPlaceables,
+                ui.ctx(),
+            ))
+            .changed()
+            && app.paint
+        {
+            view.tile_mode = false;
+            app.palette.tile_brush = None;
+        }
         if ui.button(labelled(icons::PROPERTIES, "Area Properties")).clicked() {
             app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
         }
@@ -1742,9 +1791,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             }
         }
     });
+    // The placeable brush's settings, while Paint is on.
+    if app.paint {
+        crate::paint_mode::strip(app, ui);
+    }
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
-    let status = if let Some(b) = crate::terrain_mode::active(app, view) {
+    let status = if let Some(paint) = crate::paint_mode::status(app) {
+        paint
+    } else if let Some(b) = crate::terrain_mode::active(app, view) {
         let how = match b.brush {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
@@ -1934,6 +1989,17 @@ fn viewport(
         }
     }
     view.pasted_shown = pasted.len();
+    // What the placeable brush has painted in the stroke going on, and the
+    // dab it would lay next.
+    let painted = crate::paint_mode::ghosts(app, ui, view);
+    if let (Some(scene), Some(vp), Some(game)) =
+        (view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref())
+    {
+        for o in &painted {
+            let (instances, _) = scene.ghost(&vp.gpu, game, o, view.time, GHOST_OPACITY);
+            ghost_instances.extend(instances);
+        }
+    }
     // What follows the pointer is drawn every frame it is there (and once
     // more when it is gone).
     let follows = view.drag.is_some()
@@ -2099,6 +2165,7 @@ fn viewport(
     walkmesh_overlay(app, ui, view);
     object_walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
+    crate::paint_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     crate::tile_select::refused_overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen, when their
@@ -2114,12 +2181,7 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     if !view.walkmesh {
         return;
     }
-    if view.walkable.is_none() {
-        let walkable = app.game.as_deref().and_then(|g| g.table("surfacemat").ok()).map(|t| {
-            (0..t.len()).map(|r| t.get_int(r, "Walk").unwrap_or(0) != 0).collect::<Vec<bool>>()
-        });
-        view.walkable = Some(walkable.unwrap_or_default());
-    }
+    view.read_walkable(app);
     let (Some(ground), Some(walkable)) = (view.ground.as_ref(), view.walkable.as_ref()) else {
         return;
     };
@@ -2859,7 +2921,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let rectangle = view.rectangle || view.alt_held == Some(false);
     // (Whether something was in hand when the frame began: Escape drops it
     // and no more.)
-    let in_hand = view.drag.is_some() || view.pasting || brush(app).is_some() || view.held.on;
+    let in_hand =
+        view.drag.is_some() || view.pasting || brush(app).is_some() || app.paint || view.held.on;
     // (And said to the windows over the view: Escape with the pointer here
     // drops what is in hand and leaves the Properties window in front open.)
     if in_hand || view.redraw.is_some() || crate::terrain_mode::active(app, view).is_some() {
@@ -2867,6 +2930,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     view.held = Held::read(ui, response, view.held);
     let scaling = wheel_scales(app, ui, view, response, (command, shift));
+    // (Shift + wheel sizes the placeable brush, rather than zooming.)
+    let scaling = crate::paint_mode::wheel(app, ui, response) || scaling;
     app.area_hovered |= response.hovered();
     camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
     // (Asked of each kind only when that is what is dragged: asking takes
@@ -2887,7 +2952,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     // Q and E turn a blueprint about to be placed (dragged, or chosen in
     // the palette), as they turn a selection; doors face as their hooks do.
-    let placing = view.ghost_shown.as_ref().filter(|o| o.kind != ObjectKind::Door).is_some();
+    let placing = view.ghost_shown.as_ref().filter(|o| o.kind != ObjectKind::Door).is_some()
+        || crate::paint_mode::active(app).is_some();
     if placing && !ui.ctx().memory(|m| m.focused().is_some()) {
         for (cmd, by) in turn_keys(view) {
             if ui.input(|i| app.keymap.pressed(i, cmd)) {
@@ -2895,7 +2961,22 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             }
         }
     }
+    // B, the toolbar's Paint: the placeable brush on or off.
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    if !typing
+        && response.hovered()
+        && ui.input(|i| app.keymap.pressed(i, crate::keys::Cmd::PaintPlaceables))
+    {
+        app.paint = !app.paint;
+        if app.paint {
+            view.tile_mode = false;
+            app.palette.tile_brush = None;
+        }
+    }
     if crate::terrain_mode::input(app, ui, view, response) {
+        return;
+    }
+    if crate::paint_mode::input(app, ui, view, response) {
         return;
     }
     if crate::tile_select::paste_input(app, ui, view, response) {
@@ -3781,6 +3862,15 @@ fn instance_of(
     Ok(instance(&placing, key.restype, &blueprint, placement, relative))
 }
 
+/// Blueprint `key` as an object not yet placed (at the origin, unturned),
+/// as the view would show it; `None` if it can't be read.
+pub(crate) fn template(app: &mut Moonglow, key: ResKey) -> Option<mg_area::AreaObject> {
+    let kind = ObjectKind::from_restype(key.restype)?;
+    let placement = mg_module::instances::Placement { position: [0.0; 3], rotation: 0.0 };
+    let item = instance_of(app, key, placement, &[]).ok().flatten()?;
+    Some(mg_area::AreaObject::read(app.game.as_deref()?, kind, usize::MAX, &item))
+}
+
 /// The blueprint about to be placed, where it would go if the pointer
 /// placed it now: one dragged (from the palette or the module tree) over
 /// the view, else the palette's choice while the pointer is over it.
@@ -3795,7 +3885,10 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     let unnamed = appearance
         .as_ref()
         .and_then(|a| ResKey::parse(&format!("plc_app_{}", a.row), ResType::UTP));
-    let key = unnamed.or(dragged.map(|d| d.0)).or_else(|| brush(app));
+    // (The palette's placeables are painted, with Paint on: the brush shows
+    // its own.)
+    let painting = crate::paint_mode::active(app).is_some();
+    let key = unnamed.or(dragged.map(|d| d.0)).or_else(|| brush(app).filter(|_| !painting));
     let Some(key) = key.filter(|_| !view.pasting && view.outline.is_empty()) else {
         view.ghost = None;
         return None;

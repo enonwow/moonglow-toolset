@@ -35,6 +35,57 @@ impl Default for ScriptStyle {
     }
 }
 
+/// The area view's placeable brush, as its strip of settings has it
+/// (`paint_mode`): whole centimeters, percents and degrees, as the snapping
+/// settings are kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PaintSettings {
+    /// Lays a row (one piece end to end along a drag), rather than
+    /// scattering in a circle.
+    pub row: bool,
+    /// The circle's radius, in centimeters.
+    pub radius_cm: u16,
+    /// How many placeables a tile's ground (10 by 10 meters) holds once
+    /// painted: the brush adds until the circle has its share.
+    pub density: u16,
+    /// The least distance between two placeables it puts down, and
+    /// between them and the placeables already there, in centimeters.
+    pub spacing_cm: u16,
+    /// How much of what the circle lacks each dab adds, in percent.
+    pub flow: u8,
+    /// How far each placeable's facing strays from the brush's (Q and E
+    /// turn that), in degrees: 360 is any way at all.
+    pub turn_spread: u16,
+    /// Each placeable's scale is picked between these (percent); static
+    /// placeables take none.
+    pub scale_min: u16,
+    pub scale_max: u16,
+    /// How far above the ground they stand (below, if less than zero), in
+    /// centimeters.
+    pub lift_cm: i16,
+    /// A row's room between pieces (overlap, if less than zero), in
+    /// centimeters.
+    pub gap_cm: i16,
+}
+
+impl Default for PaintSettings {
+    fn default() -> PaintSettings {
+        PaintSettings {
+            row: false,
+            radius_cm: 500,
+            density: 6,
+            spacing_cm: 150,
+            flow: 25,
+            turn_spread: 360,
+            scale_min: 100,
+            scale_max: 100,
+            lift_cm: 0,
+            gap_cm: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -264,6 +315,9 @@ pub struct Settings {
     /// itself.
     #[serde(default)]
     pub turn_together: bool,
+    /// The area view's placeable brush (Paint): its strip's settings.
+    #[serde(default)]
+    pub paint: PaintSettings,
     /// Options > Sounds: Ambient music volume, of 127 (`None`: Aurora's 92).
     pub music_volume: Option<u8>,
     /// Options > Conversation Editor: Show popup when creating a new text

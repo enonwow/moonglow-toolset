@@ -149,6 +149,26 @@ fn axis(value: f32) -> Value {
     Value::Struct(s)
 }
 
+/// `VisTransformList`'s entry for scope 0 with `v`, as Aurora's Adjust
+/// Location writes it.
+fn visual_transform_entry(v: crate::VisualTransform) -> Struct {
+    let mut entry = Struct::new(6);
+    entry.set("Scope", Value::Int(0));
+    entry.set("AnimationSpeed", axis(1.0));
+    for (prefix, value) in [("Scale", v.scale), ("Rotate", v.rotate), ("Translate", v.translate)] {
+        for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+            entry.set(&format!("{prefix}{a}"), axis(value[i]));
+        }
+    }
+    entry
+}
+
+/// A new object's `VisTransformList`, giving it the visual transform `v`
+/// (as [`visual_transform_edits`] gives a placed one).
+pub fn visual_transform_list(v: crate::VisualTransform) -> Value {
+    Value::List(vec![visual_transform_entry(v)])
+}
+
 /// The edits that give object `o` (its GIT struct `s`) the visual
 /// transform `v`, as Aurora's Adjust Location writes it: `VisTransformList`
 /// with one entry for scope 0 (an older `VisualTransform` goes). Nothing
@@ -163,14 +183,7 @@ pub fn visual_transform_edits(
     if current.unwrap_or_default() == v && (current.is_some() || v.is_identity()) {
         return Vec::new();
     }
-    let mut entry = Struct::new(6);
-    entry.set("Scope", Value::Int(0));
-    entry.set("AnimationSpeed", axis(1.0));
-    for (prefix, value) in [("Scale", v.scale), ("Rotate", v.rotate), ("Translate", v.translate)] {
-        for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
-            entry.set(&format!("{prefix}{a}"), axis(value[i]));
-        }
-    }
+    let entry = visual_transform_entry(v);
     // Other scopes' entries stay.
     let mut list: Vec<Struct> = s
         .list("VisTransformList")

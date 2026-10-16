@@ -1970,6 +1970,72 @@ fn area_ghost() {
 
 #[test]
 #[ignore]
+fn area_paint() {
+    // The placeable brush: two placeables chosen, Paint on; its circle on
+    // the ground and the dab a press would lay, see-through.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 35f32.to_radians();
+            o.yaw = -55f32.to_radians();
+            o.distance *= 0.25;
+            o.target.x -= 8.0;
+        }
+    }
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(ResKey::parse("plc_tree", ResType::UTP).unwrap());
+        app.palette.chosen = vec![ResKey::parse("plc_shrub", ResType::UTP).unwrap()];
+        app.paint = true;
+        app.settings.paint.radius_cm = 600;
+        app.settings.paint.density = 3;
+    }
+    h.run_steps(3);
+    // A stroke across the square, let go; then the pointer beside it.
+    let rect = h.state().area_views[&area].rect;
+    let (from, to) =
+        (rect.center() + egui::vec2(-260.0, 40.0), rect.center() + egui::vec2(-60.0, 120.0));
+    let button = |h: &mut Harness<'_, Moonglow>, pos, pressed| {
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+        h.run_steps(1);
+    };
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(2);
+    button(&mut h, from, true);
+    for k in 1..=10 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 10.0)));
+        h.run_steps(1);
+    }
+    button(&mut h, to, false);
+    h.event(egui::Event::PointerMoved(rect.center() + egui::vec2(-120.0, -60.0)));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "area-paint");
+}
+
+#[test]
+#[ignore]
 fn readme_screenshots() {
     use egui_kittest::kittest::Queryable;
     mg_testkit::gpu::hold();

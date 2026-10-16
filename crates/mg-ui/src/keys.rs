@@ -74,6 +74,8 @@ pub enum Cmd {
     FullScreen,
     CommandPalette,
     SelectTiles,
+    /// The area view's placeable brush, on or off (its toolbar's Paint).
+    PaintPlaceables,
     TurnLeft,
     TurnRight,
     TurnLeft90,
@@ -131,7 +133,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 65] = [
+    pub const ALL: [Cmd; 66] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -152,6 +154,7 @@ impl Cmd {
         Cmd::FullScreen,
         Cmd::CommandPalette,
         Cmd::SelectTiles,
+        Cmd::PaintPlaceables,
         Cmd::TurnLeft,
         Cmd::TurnRight,
         Cmd::TurnLeft90,
@@ -223,6 +226,7 @@ impl Cmd {
             Cmd::FullScreen => ("full-screen", "Full Screen", General),
             Cmd::CommandPalette => ("command-palette", "Command Palette", General),
             Cmd::SelectTiles => ("select-tiles", "Select Tiles or Objects", Area),
+            Cmd::PaintPlaceables => ("paint-placeables", "Paint Placeables", Area),
             Cmd::TurnLeft => ("turn-left", "Turn Anticlockwise", Area),
             Cmd::TurnRight => ("turn-right", "Turn Clockwise", Area),
             Cmd::TurnLeft90 => ("turn-left-90", "Turn Anticlockwise 90°", Area),
@@ -308,6 +312,7 @@ impl Cmd {
             Cmd::FullScreen => vec![k(NONE, Key::F11)],
             Cmd::CommandPalette => vec![k(CTRL | SHIFT, Key::P)],
             Cmd::SelectTiles => vec![k(NONE, Key::F10)],
+            Cmd::PaintPlaceables => vec![k(NONE, Key::B)],
             Cmd::TurnLeft => vec![k(NONE, Key::Q)],
             Cmd::TurnRight => vec![k(NONE, Key::E)],
             Cmd::TurnLeft90 => vec![k(SHIFT, Key::Q)],

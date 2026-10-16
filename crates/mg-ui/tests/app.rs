@@ -6404,6 +6404,130 @@ fn area_viewer_selects_moves_and_deletes() {
     img.save(mg_testkit::scratch_dir("ui-area-move").join("area_view.png")).unwrap();
 }
 
+/// The placeable brush (Paint): two placeables chosen in the palette,
+/// painted in one stroke that one Undo takes away; a dab where the circle
+/// is full lays nothing; Q turns them; Shift + wheel sizes the circle
+/// rather than zooming; Escape puts the brush away.
+#[test]
+fn area_viewer_paints_placeables() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("paint") else { return };
+    let placeables = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Placeable List").unwrap_or(&[]).to_vec()
+    };
+    let at = |s: &mg_gff::Struct| glam::Vec2::new(s.float("X").unwrap(), s.float("Y").unwrap());
+    let tree = ResKey::parse("plc_tree", ResType::UTP).unwrap();
+    let shrub = ResKey::parse("plc_shrub", ResType::UTP).unwrap();
+    {
+        let app = h.state_mut();
+        // (The Placeables palette shown, not the tileset's.)
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(tree);
+        app.palette.chosen = vec![shrub];
+        app.paint = true;
+        app.settings.paint = mg_ui::settings::PaintSettings {
+            radius_cm: 400,
+            density: 20,
+            spacing_cm: 100,
+            flow: 100,
+            turn_spread: 0,
+            ..Default::default()
+        };
+    }
+    h.run_steps(2);
+    h.get_by_label_contains("Painting 2 placeables");
+    h.get_by_label("Density");
+
+    // A stroke: pressed at 12, 15 and dragged 8 m east, then let go.
+    let from = screen(&h, area, Vec3::new(12.0, 15.0, 0.0));
+    let to = screen(&h, area, Vec3::new(20.0, 15.0, 0.0));
+    h.hover_at(from);
+    h.run_steps(1);
+    // Before the press, the dab it would lay shows, see-through.
+    assert!(h.state().area_views[&area].paint.shown > 0, "the next dab shows");
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=8 {
+        h.hover_at(from + (to - from) * (k as f32 / 8.0));
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let painted = placeables(&mut h);
+    assert!(painted.len() >= 10, "painted {}", painted.len());
+    for (i, p) in painted.iter().enumerate() {
+        let q = at(p);
+        assert!((7.9..=24.1).contains(&q.x) && (10.9..=19.1).contains(&q.y), "{q} off the stroke");
+        let template = p.resref("TemplateResRef");
+        assert!(template.is_some_and(|t| t == tree.resref || t == shrub.resref), "{template:?}");
+        for o in &painted[i + 1..] {
+            assert!(q.distance(at(o)) >= 0.99, "{q} and {} too near", at(o));
+        }
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paint Placeables"));
+    // One Undo takes the whole stroke away.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(placeables(&mut h).is_empty(), "one stroke, one command");
+
+    // Q turns the brush: a click lays the circle's share (10 of 20 a
+    // tile on 50 m²), each turned 15°; a click there again, nothing more.
+    let spot = screen(&h, area, Vec3::new(28.0, 28.0, 0.0));
+    h.hover_at(spot);
+    h.run_steps(1);
+    h.key_press(egui::Key::Q);
+    h.run_steps(1);
+    let click = |h: &mut Harness<'_, Moonglow>| {
+        press(h, spot, true, egui::Modifiers::NONE);
+        press(h, spot, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    click(&mut h);
+    let painted = placeables(&mut h);
+    assert_eq!(painted.len(), 10);
+    for p in &painted {
+        let bearing = p.float("Bearing").unwrap();
+        assert!((bearing - 15f32.to_radians()).abs() < 1e-3, "turned {bearing}");
+    }
+    click(&mut h);
+    assert_eq!(placeables(&mut h).len(), 10, "the circle is full");
+
+    // Shift and the wheel: a bigger circle, no zoom.
+    let distance = h.state().area_views[&area].orbit.unwrap().distance;
+    let shift = egui::Modifiers::SHIFT;
+    h.event(egui::Event::ModifiersChanged(shift));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: shift,
+    });
+    h.run_steps(30);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+    assert!(h.state().settings.paint.radius_cm > 450, "{}", h.state().settings.paint.radius_cm);
+    let now = h.state().area_views[&area].orbit.unwrap().distance;
+    assert!((now - distance).abs() < 1e-3, "no zoom");
+
+    // Looked at from nearer and lower, the circle around what was painted.
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = Vec3::new(27.0, 26.0, 0.0);
+        o.distance = 22.0;
+        o.pitch = 0.75;
+    }
+    h.run_steps(2);
+    h.hover_at(screen(&h, area, Vec3::new(28.0, 28.0, 0.0)));
+    h.run_steps(2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-paint").join("area_view.png")).unwrap();
+    // Escape: Paint goes off; the placeables stay chosen.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().paint);
+    assert_eq!(h.state().palette.chosen, [shrub]);
+}
+
 #[test]
 fn area_viewer_places_draws_boxes_and_turns() {
     use glam::Vec3;

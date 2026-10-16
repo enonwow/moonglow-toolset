@@ -63,8 +63,8 @@ pub struct PaletteView {
     )>,
     /// Blueprints' tags, for Find: by palette (and module revision).
     tags: HashMap<(BlueprintKind, bool), (Option<u64>, Tags)>,
-    /// More custom blueprints chosen with Ctrl+click, for bulk edits (with
-    /// `selected`).
+    /// More blueprints chosen with Ctrl+click (with `selected`): custom
+    /// ones for bulk edits, placeables to paint (`paint_mode`).
     pub chosen: Vec<ResKey>,
     /// The palette shown last was brought back from the settings (once,
     /// when the palettes are first drawn).
@@ -601,6 +601,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 view.prefabs = false;
             }
             Some(Type::Kind(kind)) => {
+                if kind != view.kind {
+                    view.chosen.clear();
+                }
                 view.kind = kind;
                 view.tiles = false;
                 view.prefabs = false;
@@ -641,6 +644,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     if view.custom != custom_was {
         app.settings.palette_custom = view.custom;
+        // (Bulk edits are on one palette's blueprints.)
+        view.chosen.clear();
     }
     view.fold = None;
     if view.prefabs {
@@ -1414,9 +1419,11 @@ impl Tree<'_> {
             }
         });
         if r.clicked() {
-            // Ctrl+click chooses several custom blueprints.
+            // Ctrl+click chooses several: custom blueprints for bulk
+            // edits, placeables (custom or the game's) to paint.
             let sel = &mut self.sel;
-            if custom && ui.input(|i| i.modifiers.command) {
+            let several = custom || kind == BlueprintKind::Placeable;
+            if several && ui.input(|i| i.modifiers.command) {
                 if let Some(at) = sel.chosen.iter().position(|k| *k == key) {
                     sel.chosen.remove(at);
                 } else if sel.selected != Some(key) {

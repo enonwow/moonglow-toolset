@@ -17,6 +17,7 @@ pub(crate) const AMBIENT: &str = "🍃";
 pub(crate) const MUSIC: &str = "🎵";
 pub(crate) const WALKMESH: &str = "👣";
 pub(crate) const SELECT_TILES: &str = "⛶";
+pub(crate) const PAINT: &str = "✏";
 pub(crate) const PROPERTIES: &str = "ℹ";
 pub(crate) const CAMERA: &str = "🎥";
 pub(crate) const GO_TO_START: &str = "🏃";
