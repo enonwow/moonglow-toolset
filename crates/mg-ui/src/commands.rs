@@ -95,6 +95,25 @@ pub enum Id {
     ViewLog,
     HidePanels,
     ResetLayout,
+    /// Live: the service started or stopped (Options › Live › Enabled).
+    LiveToggle,
+    LiveAllowAgents,
+    /// Live: the shown area's view showing the running game, or the module.
+    LiveInArea,
+    LiveOptions,
+    LiveHelp,
+    /// Live › Live Log.
+    LiveLog,
+    LiveChat,
+    LiveFocus,
+    LiveGmCard,
+    LiveAtmosphere,
+    LiveLegend,
+    LiveScenes,
+    LiveVfx,
+    LiveLibrary,
+    LivePrepare,
+    LiveSkill,
 }
 
 /// What a menu holds, in order.
@@ -116,7 +135,7 @@ pub enum Item {
 use Item::{Do, Separator, Sub};
 
 /// The menu bar.
-pub const MENUS: [(&str, &[Item]); 8] = [
+pub const MENUS: [(&str, &[Item]); 9] = [
     (
         "File",
         &[
@@ -202,6 +221,28 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::PackTarget),
             Separator,
             Do(Id::AreaStatistics),
+        ],
+    ),
+    (
+        "Live",
+        &[
+            Do(Id::LiveToggle),
+            Do(Id::LiveAllowAgents),
+            Do(Id::LiveInArea),
+            Do(Id::LiveLog),
+            Do(Id::LiveChat),
+            Do(Id::LiveFocus),
+            Do(Id::LiveGmCard),
+            Do(Id::LiveAtmosphere),
+            Do(Id::LiveLegend),
+            Do(Id::LiveScenes),
+            Do(Id::LiveVfx),
+            Do(Id::LiveLibrary),
+            Do(Id::LivePrepare),
+            Do(Id::LiveSkill),
+            Separator,
+            Do(Id::LiveOptions),
+            Do(Id::LiveHelp),
         ],
     ),
     ("Plugins", &[Item::PluginCommands, Do(Id::Plugins), Do(Id::InstallPlugin)]),
@@ -433,6 +474,72 @@ impl Id {
                 "Reset Layout",
                 "The tree, the palettes and the log shown where they are at first",
             ),
+            Id::LiveToggle => (
+                "live-toggle",
+                "Start Live",
+                "The live API and the game link (Redis), as set in Options › Live",
+            ),
+            Id::LiveInArea => (
+                "live-in-area",
+                "Show Live in This Area",
+                "The running game in the area's view; actions there send commands to the server",
+            ),
+            Id::LiveOptions => ("live-options", "Live Options…", "Status, token, API and Redis"),
+            Id::LiveAllowAgents => (
+                "live-allow-agents",
+                "Allow LLM",
+                "Allow LLM connections through MCP / the agent API",
+            ),
+            Id::LiveHelp => ("live-help", "Live Mode Help", ""),
+            Id::LiveLegend => {
+                ("live-legend", "Legend", "Marker visibility for each Live area view")
+            }
+            Id::LiveAtmosphere => (
+                "live-atmosphere",
+                "Atmosphere...",
+                "Weather, fog, lighting, skybox and sound on the running server",
+            ),
+            Id::LiveGmCard => {
+                ("live-gm-card", "GM card...", "Private campaign guidance for LLM assistants")
+            }
+            Id::LiveFocus => (
+                "live-focus",
+                "Focus…",
+                "Watch players, NPCs and groups, their conversations and events",
+            ),
+            Id::LiveChat => (
+                "live-chat",
+                "Live Chat",
+                "What is said in the running game; say something as an NPC, to a player or to all",
+            ),
+            Id::LiveScenes => {
+                ("live-scenes", "Scenes…", "Timed sequences of live commands: record, edit, play")
+            }
+            Id::LiveVfx => (
+                "live-vfx",
+                "Visual Effects…",
+                "Browse visualeffects.2da with a preview; apply to or clear from the selection",
+            ),
+            Id::LiveLibrary => (
+                "live-library",
+                "NPC Library…",
+                "Keep a live NPC (look, name, inventory) and spawn it again later",
+            ),
+            Id::LivePrepare => (
+                "live-prepare",
+                "Prepare Module for Live?",
+                "Build a separate module copy with embedded Live scripts and server settings",
+            ),
+            Id::LiveSkill => (
+                "live-skill",
+                "Skill Check…",
+                "Players near the selection roll a skill; each sees the DM's text for success or failure",
+            ),
+            Id::LiveLog => (
+                "live-log",
+                "Live Log",
+                "What happens in the running game: chat, combat, players, the server log, commands",
+            ),
         };
         (id.into(), label.into(), hint)
     }
@@ -477,6 +584,7 @@ impl Id {
             Id::ViewPalettes => Cmd::TogglePalettes,
             Id::ViewLog => Cmd::ToggleLog,
             Id::HidePanels => Cmd::HidePanels,
+            Id::LiveInArea => Cmd::LiveInArea,
             _ => return None,
         })
     }
@@ -514,6 +622,17 @@ impl Id {
                 format!("{tick}{}", self.text().1)
             }
             Id::HidePanels if app.panels_hidden() => "Show All Panels".into(),
+            Id::LiveToggle if app.live_service.is_some() => "Stop Live".into(),
+            Id::LiveAllowAgents => {
+                let tick = if app.settings.live.allow_agents { "✔ " } else { "    " };
+                let status =
+                    if app.live_agents.connected() { "connected" } else { "no LLM connected" };
+                format!("{tick}Allow LLM · {status}")
+            }
+            Id::LiveInArea => {
+                let tick = if live_view(app).is_some_and(|on| on) { "✔ " } else { "    " };
+                format!("{tick}{}", self.text().1)
+            }
             _ => self.text().1.into_owned(),
         }
     }
@@ -557,6 +676,20 @@ impl Id {
             | Id::PreviousTab => true,
             Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
+            Id::LiveToggle | Id::LiveOptions | Id::LiveHelp | Id::LiveLog => true,
+            Id::LiveAllowAgents => app.live_service.is_some(),
+            Id::LiveLegend
+            | Id::LiveAtmosphere
+            | Id::LiveGmCard
+            | Id::LiveFocus
+            | Id::LiveChat
+            | Id::LiveScenes
+            | Id::LiveVfx
+            | Id::LiveLibrary
+            | Id::LivePrepare
+            | Id::LiveSkill => true,
+            // (As the view's own Live button.)
+            Id::LiveInArea => app.live_service.is_some() && live_view(app).is_some(),
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
@@ -750,6 +883,38 @@ impl Id {
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),
+            Id::LiveToggle => {
+                app.settings.live.enabled = app.live_service.is_none();
+                app.live_needs_apply = true;
+                return;
+            }
+            Id::LiveAllowAgents => {
+                crate::live_agents::set_allowed(app, ctx, !app.settings.live.allow_agents);
+                return;
+            }
+            Id::LiveInArea => {
+                if let Some(view) = shown_area(app).and_then(|a| app.area_views.get_mut(&a)) {
+                    view.live.on = !view.live.on;
+                }
+                return;
+            }
+            Id::LiveOptions => Action::LiveOptions,
+            Id::LiveLog => Action::OpenTab(Tab::LiveLog),
+            Id::LiveChat => Action::OpenTab(Tab::LiveChat),
+            Id::LiveLegend => Action::OpenTab(Tab::LiveLegend),
+            Id::LiveFocus => Action::OpenTab(Tab::LiveFocus),
+            Id::LiveGmCard => Action::OpenTab(Tab::LiveGmCard),
+            Id::LiveAtmosphere => Action::OpenTab(Tab::LiveAtmosphere),
+            Id::LiveScenes => Action::OpenTab(Tab::Scene),
+            Id::LiveVfx => Action::OpenTab(Tab::LiveVfx),
+            Id::LiveLibrary => Action::OpenTab(Tab::LiveLibrary),
+            Id::LivePrepare => Action::OpenTab(Tab::LivePrepare),
+            Id::LiveSkill => Action::OpenTab(Tab::LiveSkill),
+            Id::LiveHelp => {
+                let chapter = crate::manual::CHAPTERS.iter().position(|(f, _)| *f == LIVE_CHAPTER);
+                app.manual.chapter = chapter.unwrap_or_default();
+                Action::OpenTab(Tab::Manual)
+            }
         };
         app.actions.push(action);
     }
@@ -760,6 +925,15 @@ impl Id {
 fn shown_area(app: &Moonglow) -> Option<mg_core::ResRef> {
     app.palette.area.filter(|a| app.area_views.contains_key(a))
 }
+
+/// Whether the shown area's view shows the running game (`None`: no area
+/// shown).
+fn live_view(app: &Moonglow) -> Option<bool> {
+    shown_area(app).and_then(|a| app.area_views.get(&a)).map(|v| v.live.on)
+}
+
+/// The manual's chapter Live Mode Help opens (its "Live mode" section).
+const LIVE_CHAPTER: &str = "19-live-mode.md";
 
 /// A command's or a key command's name, by the id its keys are kept under.
 pub fn name_of(id: &str) -> String {
@@ -1298,6 +1472,11 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     if !hint.is_empty() {
         r = r.on_hover_text(hint);
     }
+    if id == Id::LiveAllowAgents {
+        r = r
+            .on_hover_text(crate::live_agents::hint(app))
+            .on_disabled_hover_text(crate::live_agents::OFF_REASON);
+    }
     if r.clicked() || chosen {
         id.run(app, ui.ctx());
         if chosen {
@@ -1536,6 +1715,14 @@ mod tests {
         assert_eq!(name_of("build-module"), "Build Module");
         assert_eq!(name_of("camera-forward"), "Move Camera Forward");
         assert_eq!(name_of("some-plugin.command"), "some-plugin.command");
+    }
+
+    #[test]
+    fn live_help_opens_a_chapter_about_live_mode() {
+        let (_, text) = crate::manual::CHAPTERS.iter().find(|(f, _)| *f == LIVE_CHAPTER).unwrap();
+        assert!(text.contains("## Live mode"));
+        let initials: HashSet<char> = MENUS.iter().map(|(name, _)| initial(name)).collect();
+        assert_eq!(initials.len(), MENUS.len(), "Alt and a letter opens one menu");
     }
 
     #[test]

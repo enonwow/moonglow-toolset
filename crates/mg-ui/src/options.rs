@@ -22,6 +22,7 @@ pub enum OptionsPage {
     ScriptEditor,
     ConversationEditor,
     Sounds,
+    Live,
     Language,
     Keyboard,
 }
@@ -31,6 +32,10 @@ pub enum OptionsPage {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OptionsDraft {
     pub page: OptionsPage,
+    pub live: mg_live::LiveConfig,
+    pub live_nwnx: String,
+    pub live_focus: bool,
+    pub live_faction_colors: crate::live_colors::Overrides,
     pub game_root: String,
     pub user_dir: String,
     pub script_style: ScriptStyle,
@@ -116,6 +121,10 @@ impl OptionsDraft {
     pub fn from_settings(s: &Settings) -> OptionsDraft {
         OptionsDraft {
             page: OptionsPage::default(),
+            live: s.live.clone(),
+            live_nwnx: s.live_nwnx.clone(),
+            live_focus: !s.no_live_focus,
+            live_faction_colors: s.live_faction_colors.clone(),
             keymap: crate::keys::Keymap::new(&s.key_bindings),
             plugin_commands: Vec::new(),
             recording: None,
@@ -185,6 +194,10 @@ impl OptionsDraft {
     /// The settings with these options.
     pub fn apply(&self, s: &Settings) -> Settings {
         Settings {
+            live: self.live.clone(),
+            live_nwnx: self.live_nwnx.clone(),
+            no_live_focus: !self.live_focus,
+            live_faction_colors: self.live_faction_colors.clone(),
             game_root: path(&self.game_root),
             user_dir: path(&self.user_dir),
             script_style: self.script_style.clone(),
@@ -264,10 +277,237 @@ impl OptionsDraft {
 /// Options › General › Interface size: the sizes offered, per cent.
 pub(crate) const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
 
+impl Moonglow {
+    /// Apply saved Live options, with explicit environment overrides, on the UI thread.
+    pub fn apply_live(&mut self, ctx: &egui::Context) {
+        self.live_needs_apply = false;
+        self.live_agents = Default::default();
+        self.live_error = None;
+        let was_running = self.live_service.take().is_some(); // Drop stops and joins workers.
+        let mut start = || -> Result<Option<mg_live::LiveService>, String> {
+            let mut config = self.settings.live.clone().from_env()?;
+            // The environment turns Live on when Moonglow starts (no store yet); after
+            // that Live › Stop Live and Options decide.
+            config.enabled &= self.settings.live.enabled || self.live.is_none();
+            if !config.enabled {
+                return Ok(None);
+            }
+            let store = self.live.get_or_insert_with(Default::default).clone();
+            let ctx = ctx.clone();
+            let mut service = mg_live::LiveService::start(
+                config,
+                store,
+                std::sync::Arc::new(move || crate::live_repaint::wake(&ctx)),
+            )?;
+            if let Some(data_dir) = self.recovery_dir.as_deref().and_then(std::path::Path::parent) {
+                service.publish_descriptor(data_dir)?;
+            }
+            Ok(Some(service))
+        };
+        match start() {
+            Ok(Some(service)) => {
+                let config = service.config();
+                // Save a newly generated credential, but never persist an env override.
+                if self.settings.live.token.is_empty()
+                    && std::env::var_os("MOONGLOW_LIVE_TOKEN").is_none()
+                {
+                    self.settings.live.token = config.token.clone();
+                    if let Some(draft) = &mut self.options {
+                        draft.live.token = config.token.clone();
+                    }
+                }
+                self.log.info(format!(
+                    "Live: API on {}, Redis {}:{} ({})",
+                    service.status()["api"].as_str().unwrap_or_default(),
+                    config.redis_host,
+                    config.redis_port,
+                    config.prefix,
+                ));
+                self.live_service = Some(service);
+            }
+            Ok(None) => {
+                if was_running {
+                    self.log.info("Live: stopped");
+                }
+            }
+            Err(error) => {
+                self.log.error(format!("Live: {error}"));
+                self.live_error = Some(error);
+            }
+        }
+    }
+}
+
+fn live_page(
+    ui: &mut Ui,
+    draft: &mut mg_live::LiveConfig,
+    running: Option<&mg_live::LiveConfig>,
+    status: Option<&serde_json::Value>,
+    error: Option<&str>,
+) {
+    ui.checkbox(&mut draft.enabled, "Enable live mode");
+    ui.weak("Apply starts or stops live mode. MOONGLOW_LIVE_* environment variables override these options.");
+    ui.separator();
+    ui.strong("API for clients");
+    ui.horizontal_wrapped(|ui| {
+        ui.label(format!("Address: {} (loopback only)", draft.api_bind));
+        ui.label("Port");
+        ui.add(egui::DragValue::new(&mut draft.api_port).range(0..=65535))
+            .on_hover_text("0 chooses an available port");
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Token");
+        ui.add(egui::TextEdit::singleline(&mut draft.token).password(true).desired_width(240.));
+        if ui
+            .button("Generate")
+            .on_hover_text("Create a new default token in this draft. Apply activates it.")
+            .clicked()
+        {
+            let result = mg_live::service::generate_token();
+            let failure = match result {
+                Ok(token) => {
+                    draft.token = token;
+                    None
+                }
+                Err(error) => Some(error),
+            };
+            ui.data_mut(|d| d.insert_temp(egui::Id::new("live-token-error"), failure));
+        }
+        if ui
+            .add_enabled(!draft.token.is_empty(), egui::Button::new("Copy token"))
+            .on_disabled_hover_text("Generate a token first.")
+            .on_hover_text("Copy the default token from this Options draft.")
+            .clicked()
+        {
+            ui.ctx().copy_text(draft.token.clone());
+        }
+    });
+    if let Some(error) =
+        ui.data(|d| d.get_temp::<Option<String>>(egui::Id::new("live-token-error"))).flatten()
+    {
+        ui.colored_label(ui.visuals().error_fg_color, error);
+    }
+    ui.weak("The token is saved in plain text in Moonglow's settings. An empty token is generated on Apply.");
+    ui.horizontal_wrapped(|ui| {
+        ui.label("curl -k … /live/v1/status");
+        if ui.button("Copy curl command").clicked() {
+            let config = running.unwrap_or(draft);
+            let quote = |s: &str| {
+                if cfg!(windows) {
+                    format!("'{}'", s.replace('\'', "''"))
+                } else {
+                    format!("'{}'", s.replace('\'', "'\"'\"'"))
+                }
+            };
+            let executable = if cfg!(windows) { "curl.exe" } else { "curl" };
+            let url = status
+                .and_then(|s| s["api"].as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("https://{}:{}", config.api_bind, config.api_port));
+            ui.ctx().copy_text(format!(
+                "{executable} -k -H {} {url}/live/v1/status",
+                quote(&format!("Authorization: Bearer {}", config.token))
+            ));
+        }
+    });
+    ui.separator();
+    ui.strong("Game link (Redis)");
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Host");
+        ui.add(egui::TextEdit::singleline(&mut draft.redis_host).desired_width(180.));
+        ui.label("Port");
+        ui.add(egui::DragValue::new(&mut draft.redis_port).range(1..=65535));
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Channel prefix");
+        ui.text_edit_singleline(&mut draft.prefix);
+    });
+    ui.weak(format!(
+        "The server publishes to {}.state and listens on {}.cmd (NWNX_REDIS_PUBSUB_CHANNELS).",
+        draft.prefix, draft.prefix
+    ));
+    #[cfg(windows)]
+    {
+        let mut keep = draft.keep_wsl_enabled();
+        if ui.checkbox(&mut keep, "Keep WSL running").changed() {
+            draft.keep_wsl = Some(keep);
+        }
+        ui.weak("Keeps WSL available while Live runs. Apply restarts Live.");
+    }
+    ui.separator();
+    crate::live_clients::ui(ui, draft);
+    ui.separator();
+    ui.strong("Commands");
+    ui.checkbox(&mut draft.policy.scripts, "Allow module scripts (run_script)");
+    ui.checkbox(&mut draft.policy.chunks, "Allow NWScript chunks (run_chunk)");
+    ui.colored_label(
+        ui.visuals().error_fg_color,
+        "Runs any code on the server; the server must also be started with MGLIVE_ALLOW_CHUNK=1.",
+    );
+    ui.checkbox(
+        &mut draft.policy.players,
+        "Allow actions on players (heal, raise, teleport, gold, XP, items)",
+    );
+    ui.colored_label(
+        ui.visuals().warn_fg_color,
+        "Changes players' characters; the server must also be started with MGLIVE_ALLOW_PLAYER_OPS=1.          Off: players and their companions are protected.",
+    );
+    ui.separator();
+    ui.strong("Logs");
+    ui.checkbox(&mut draft.keep_logs, "Keep the live events on disk (live/logs, 14 days, 500 MB)");
+    ui.add_enabled(draft.keep_logs, egui::Checkbox::new(&mut draft.log_chat, "Keep chat too"))
+        .on_hover_text("What players write: off unless the server's players agree")
+        .on_disabled_hover_text("Enable keeping Live events on disk first.");
+    ui.separator();
+    ui.strong("Status");
+    if let Some(error) = error {
+        ui.colored_label(ui.visuals().error_fg_color, format!("API: {error}"));
+    } else if let Some(status) = status {
+        ui.label(format!("API listening on {}", status["api"].as_str().unwrap_or_default()));
+        let redis = &status["redis"];
+        if redis["connected"].as_bool() == Some(true) {
+            ui.label("Redis connected");
+        } else {
+            let error = redis["lastError"].as_str().unwrap_or_default();
+            if error.starts_with("Redis connect:") || error == "Redis address is unavailable" {
+                ui.label("Redis unreachable — is WSL running?").on_hover_text(error);
+            } else {
+                ui.label(format!(
+                    "Redis disconnected: {}",
+                    if error.is_empty() { "connecting" } else { error }
+                ));
+            }
+        }
+        let age = redis["lastStateMs"]
+            .as_u64()
+            .map(|ms| format!("{:.1} s ago", mg_live::now_ms().saturating_sub(ms) as f64 / 1000.))
+            .unwrap_or_else(|| "none received".into());
+        ui.label(format!(
+            "Last state: {age}; published: {}; received: {}",
+            redis["published"], redis["received"]
+        ));
+        let events = &redis["events"];
+        ui.label(format!(
+            "Event queue: {} waiting; {} lost to overflow",
+            events["backlog"].as_u64().unwrap_or(0),
+            events["lost"].as_u64().unwrap_or(0)
+        ));
+        for field in ["error", "warning"] {
+            if let Some(message) = events[field].as_str().filter(|s| !s.is_empty()) {
+                ui.colored_label(ui.visuals().warn_fg_color, message);
+            }
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+    } else {
+        ui.label("Live mode is off");
+    }
+}
+
 /// The Options window's size when first opened.
 pub(crate) const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];
 
 enum Browse {
+    Nwnx,
     Game,
     User,
     Templates,
@@ -290,6 +530,20 @@ fn path_row(ui: &mut Ui, text: &mut String, browse: &mut Option<Browse>, which: 
 /// The Options tab: the buttons along the bottom, the pages listed beside,
 /// and the page scrolling in what is left. What is set is a draft until OK.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    let module = app.module_path();
+    let factions = if app.options.as_ref().is_some_and(|d| d.page == OptionsPage::Live) {
+        app.factions()
+    } else {
+        None
+    };
+    let live_status = app.live_service.as_ref().map(mg_live::LiveService::connection_status);
+    let live_config = app.live_service.as_ref().map(|s| s.config().clone());
+    let live_error = app.live_error.clone();
+    let mut allow_agents = app.settings.live.allow_agents;
+    let mut change_agents = false;
+    let mut agents_help = false;
+    let agents_connected = app.live_agents.connected();
+    let agents_hint = crate::live_agents::hint(app);
     let Some(draft) = &mut app.options else {
         // (A tab left from before, with nothing to show.)
         app.actions.push(Action::CloseTab(crate::Tab::Options));
@@ -302,25 +556,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     // Enter is OK while the pointer is over the tab (it is one window among
     // others now).
     let over = ui.rect_contains_pointer(ui.max_rect());
+    let valid_clients = crate::live_clients::error(&draft.live).is_none();
+    let mut apply = false;
     {
         {
             egui::Panel::bottom("options-buttons").frame(egui::Frame::NONE.inner_margin(6.0)).show(
                 ui,
                 |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() || (over && crate::widgets::enter(ui)) {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(valid_clients, egui::Button::new("OK")).clicked()
+                            || (valid_clients && over && crate::widgets::enter(ui))
+                        {
                             close = true;
-                            if draft.moves_game(&app.settings)
-                                || draft.edit_language != app.settings.edit_language
-                            {
-                                // (Another language: text is read again in
-                                // it, and the game's data where the install
-                                // has that language's.)
-                                app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
-                            } else {
-                                // Only looks: no reload.
-                                app.settings = draft.apply(&app.settings);
-                            }
+                            apply = true;
+                        }
+                        if ui.add_enabled(valid_clients, egui::Button::new("Apply")).clicked() {
+                            apply = true;
                         }
                         // (Escape closes it too, as the window in front:
                         // `tabs.rs`.)
@@ -330,6 +581,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 },
             );
+            if apply {
+                if draft.moves_game(&app.settings)
+                    || draft.edit_language != app.settings.edit_language
+                {
+                    // (Another language: text is read again in it, and the game's
+                    // data where the install has that language's.)
+                    app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
+                } else {
+                    // Only looks: no reload; Live restarts only when its options changed.
+                    app.live_needs_apply |= draft.live != app.settings.live;
+                    app.settings = draft.apply(&app.settings);
+                }
+            }
             egui::Panel::left("options-pages")
                 .resizable(false)
                 .exact_size(160.0)
@@ -343,6 +607,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             (OptionsPage::ScriptEditor, "Script Editor"),
                             (OptionsPage::ConversationEditor, "Conversation Editor"),
                             (OptionsPage::Sounds, "Sounds"),
+                            (OptionsPage::Live, "Live"),
                             (OptionsPage::Language, "Language"),
                             (OptionsPage::Keyboard, "Keyboard"),
                         ] {
@@ -354,6 +619,40 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui,
                 |ui| {
                     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| match draft.page {
+                        OptionsPage::Live => {
+                            crate::widgets::field_label(ui, "NWNX folder");
+                            path_row(ui, &mut draft.live_nwnx, &mut browse, Browse::Nwnx);
+                            ui.weak("Contains Binaries/NWScript.zip; used by Prepare Module for Live. WSL folders are accessible through the Windows network browser.");
+                            ui.separator();
+                            ui.horizontal_wrapped(|ui| {
+                                change_agents = ui.add_enabled(
+                                    live_config.is_some(),
+                                    egui::Checkbox::new(&mut allow_agents, "Allow LLM connections (MCP / agent API)"),
+                                ).on_hover_text(&agents_hint)
+                                    .on_disabled_hover_text(crate::live_agents::OFF_REASON).changed();
+                                crate::live_agents::dot(ui, agents_connected, &agents_hint);
+                            });
+                            ui.weak("Applies immediately and is saved, independently of Apply / Cancel.");
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Connect your assistant with moonglow-mcp.");
+                                agents_help = ui.link("Allow LLM: connection instructions").clicked();
+                            });
+                            ui.separator();
+                            ui.checkbox(&mut draft.live_focus, "Focus window").on_hover_text("Enable saved watch lists, conversations and unread alerts. Apply to change.");
+                            crate::live_colors::options(
+                                ui,
+                                &mut draft.live_faction_colors,
+                                module.as_deref(),
+                                factions.as_ref(),
+                            );
+                            live_page(
+                                ui,
+                                &mut draft.live,
+                                live_config.as_ref(),
+                                live_status.as_ref(),
+                                live_error.as_deref(),
+                            );
+                        }
                         OptionsPage::Keyboard => keyboard(ui, draft),
                         OptionsPage::Folders => {
                             crate::widgets::field_label(ui, "Neverwinter Nights installation");
@@ -438,7 +737,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  as when started from Steam. Off: the game's program is started \
                                  on its own, without Steam",
                             );
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 crate::widgets::field_label(ui, "Interface size");
                                 egui::ComboBox::from_id_salt("ui-scale")
                                     .selected_text(format!("{}%", draft.ui_scale))
@@ -543,7 +842,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  a nasher project's files changed by another program are read \
                                  again",
                             );
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.checkbox(
                                     &mut draft.autosave,
                                     "Keep a recovery copy of unsaved work every",
@@ -595,7 +894,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                         }
                         OptionsPage::Area => {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 crate::widgets::field_label(ui, "Background Color");
                                 let mut custom = draft.area_background.is_some();
                                 if ui.checkbox(&mut custom, "Custom").changed() {
@@ -612,7 +911,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Show Encounter Spawnpoint Markers",
                             );
                             ui.add_enabled_ui(draft.spawn_markers, |ui| {
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     crate::widgets::field_label(ui, "Height");
                                     ui.add(
                                         egui::DragValue::new(&mut draft.spawn_marker_size.0)
@@ -706,7 +1005,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
                                 ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
                             ] {
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     crate::widgets::field_label(ui, label);
                                     let mut rgb = color.unwrap_or(default);
                                     if ui.color_edit_button_srgb(&mut rgb).changed() {
@@ -740,7 +1039,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     });
                                 }
                             });
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.checkbox(
                                     &mut draft.dialog_backup,
                                     "Automatically backup the conversation files",
@@ -764,7 +1063,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                             ui.checkbox(&mut draft.ambient_sound, "Play ambient sound in area");
                             ui.checkbox(&mut draft.ambient_music, "Play ambient music in area");
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 crate::widgets::field_label(ui, "Ambient music volume");
                                 ui.add(egui::Slider::new(&mut draft.music_volume, 0..=127));
                             });
@@ -832,7 +1131,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_disabled_hover_text("With Open scripts in the external editor");
                             crate::widgets::field_label(ui, "External Script Compiler");
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut draft.external_compiler)
                                         .hint_text("the built-in compiler")
@@ -890,6 +1189,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
     } else if let Some(which) = browse {
         let (title, field) = match which {
+            Browse::Nwnx => ("NWNX folder", &mut draft.live_nwnx),
             Browse::Game => ("Neverwinter Nights installation", &mut draft.game_root),
             Browse::User => ("NWN user folder", &mut draft.user_dir),
             Browse::Templates => ("Code Templates Directory", &mut draft.script_templates),
@@ -930,6 +1230,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if close {
         app.options = None;
         app.actions.push(Action::CloseTab(crate::Tab::Options));
+    }
+    if change_agents {
+        crate::live_agents::set_allowed(app, ui.ctx(), allow_agents);
+    }
+    if agents_help {
+        crate::commands::Id::LiveHelp.run(app, ui.ctx());
     }
 }
 

@@ -283,6 +283,8 @@ pub enum DebugView {
 
 #[derive(Debug)]
 pub struct Renderer {
+    #[cfg(feature = "measure")]
+    pub measure_submit_ms: f64,
     pub debug: DebugView,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
     /// each is drawn by itself, in the order they came in: to compare).
@@ -341,6 +343,8 @@ pub struct Renderer {
 /// What a frame drew ([`Renderer::drawn`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Drawn {
+    /// Visible water/ripple/flow materials need time even with object animation off.
+    pub animated_materials: bool,
     /// The meshes drawn: one each, two for a see-through one.
     pub meshes: usize,
     /// The draws they were drawn with: meshes of one model in several
@@ -413,6 +417,52 @@ fn upload<T: bytemuck::Pod>(
 }
 
 impl Renderer {
+    /// Diagnostic resource payloads, excluding native allocator/driver overhead.
+    #[cfg(feature = "measure")]
+    pub fn measure_memory(&self) -> std::collections::BTreeMap<&'static str, u64> {
+        let mut textures = 0;
+        for entry in self.textures.values().flatten() {
+            let t = &entry.gpu.texture;
+            let (bw, bh) = t.format().block_dimensions();
+            let bytes = t.format().block_copy_size(None).unwrap_or(0) as u64;
+            let size = t.size();
+            for mip in 0..t.mip_level_count() {
+                textures += ((size.width >> mip).max(1).div_ceil(bw) as u64)
+                    * ((size.height >> mip).max(1).div_ceil(bh) as u64)
+                    * size.depth_or_array_layers as u64
+                    * bytes;
+            }
+        }
+        std::collections::BTreeMap::from([
+            ("texture_payload_bytes", textures),
+            ("texture_entries", self.textures.len() as u64),
+            (
+                "buffer_bytes",
+                [
+                    &self.particle_buffer,
+                    &self.line_buffer,
+                    &self.dynamic_buffer,
+                    &self.frame_buffer,
+                    &self.light_buffer,
+                    &self.bone_buffer,
+                    &self.draw_buffer,
+                    &self.order_buffer,
+                ]
+                .iter()
+                .map(|b| b.size())
+                .sum(),
+            ),
+            (
+                "cpu_uniform_bone_vertex_capacity_bytes",
+                (self.uniforms.capacity() * size_of::<DrawUniform>()
+                    + self.bones.capacity() * size_of::<[[f32; 4]; 4]>()
+                    + self.dynamic.capacity() * size_of::<Vertex>()) as u64,
+            ),
+            ("materials", self.materials.len() as u64),
+            ("surfaces", self.surfaces.len() as u64),
+        ])
+    }
+
     /// A renderer drawing into `color_format` targets with `sample_count`
     /// samples (1 = no MSAA).
     pub fn new(gpu: &Gpu, color_format: wgpu::TextureFormat, sample_count: u32) -> Renderer {
@@ -773,6 +823,8 @@ impl Renderer {
             bones: Vec::new(),
             dynamic: Vec::new(),
             drawn: Drawn::default(),
+            #[cfg(feature = "measure")]
+            measure_submit_ms: 0.,
         }
     }
 
@@ -1205,6 +1257,7 @@ impl Renderer {
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let mut hidden = 0;
+        let mut animated_materials = false;
         // (instance, sky, sky fade colour)
         let all = sky
             .iter()
@@ -1266,6 +1319,9 @@ impl Renderer {
                 let mat = &mesh.material;
                 let slots = &surface.slots;
                 let bound = surface.bound;
+                animated_materials |= surface.water
+                    || surface.ripple.is_some_and(|(size, speed)| size != 0. && speed != 0.)
+                    || slots.effect.is_some_and(|e| bound[7] && e.slide_speed != 0.);
                 let flag = |b: bool| if b { 1.0 } else { 0.0 };
                 let pass = if fade_color.is_some() {
                     Pass::SkyFade
@@ -1402,7 +1458,7 @@ impl Renderer {
                 }
             }
         }
-        self.drawn = Drawn { meshes: draws.len(), hidden, ..Drawn::default() };
+        self.drawn = Drawn { meshes: draws.len(), hidden, animated_materials, ..Drawn::default() };
         // Opaque (any order), then blended back to front by hint then depth,
         // then additive.
         draws.sort_by(|a, b| {
@@ -1656,7 +1712,14 @@ impl Renderer {
                 pass.draw(0..line_vertices.len() as u32, 0..1);
             }
         }
-        gpu.queue.submit([encoder.finish()]);
+        let commands = encoder.finish();
+        #[cfg(feature = "measure")]
+        let submit_started = std::time::Instant::now();
+        gpu.queue.submit([commands]);
+        #[cfg(feature = "measure")]
+        {
+            self.measure_submit_ms = submit_started.elapsed().as_secs_f64() * 1000.;
+        }
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
     }

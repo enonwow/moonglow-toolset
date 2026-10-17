@@ -10,6 +10,107 @@ use mg_resman::ResKey;
 use mg_schema::{ExoString, StructExt, ifo};
 use mg_ui::{Moonglow, NoDialogs, Tab};
 
+#[test]
+fn live_watch_areas_tracks_open_chat_and_live_map_without_starting_service() {
+    use serde_json::json;
+    let dir = mg_testkit::scratch_dir("ui-live-watch");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let area: ResRef = "start".parse().unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100., 850.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = |seq, watched, ack| {
+        json!({"v":1,"boot":"watch-ui","seq":seq,"watched_areas":watched,"ack":ack,"areas":[]})
+            .to_string()
+    };
+    store.sync(report(1, json!([]), json!([])).as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(4);
+    let sent = store.commands(mg_live::now_ms())["commands"][0].clone();
+    assert_eq!(sent["op"], "watch_areas");
+    assert_eq!(sent["areas"], json!(["start"]));
+    store
+        .sync(report(2, json!(["start"]), json!([sent["id"]])).as_bytes(), mg_live::now_ms())
+        .unwrap();
+    // Pinned chat keeps the subscription even with the map's Live switched off.
+    h.state_mut().dock = egui_dock::DockState::new(vec![Tab::Area(area), Tab::LiveChatArea(area)]);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = false;
+    h.run_steps(3);
+    assert!(store.commands(mg_live::now_ms())["commands"].as_array().unwrap().is_empty());
+    // A cached view and chat history must not keep a closed area watched.
+    h.state_mut().dock = egui_dock::DockState::new(vec![Tab::Welcome]);
+    h.run_steps(3);
+    let off = store.commands(mg_live::now_ms())["commands"][0].clone();
+    assert_eq!(off["on"], false);
+    assert_eq!(off["areas"], json!(["start"]));
+    store.sync(report(3, json!([]), json!([off["id"]])).as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(3);
+    assert!(store.commands(mg_live::now_ms())["commands"].as_array().unwrap().is_empty());
+    // Focus can bootstrap its saved areas before any objects are reported.
+    h.state_mut().live_focus.entries.push(mg_ui::live_focus::Entry {
+        name: "Guard".into(),
+        members: vec![
+            serde_json::from_value(json!({
+                "id":"a","tag":"guard","name":"Guard","kind":"Creature","pc":false,
+                "boot":"previous","area":"start","portrait":null,"appearance":null
+            }))
+            .unwrap(),
+        ],
+        rows: Default::default(),
+        unread: 0,
+        watched_from_ms: 0,
+    });
+    h.state_mut().settings.no_live_focus = false;
+    h.state_mut().dock = egui_dock::DockState::new(vec![Tab::LiveFocus]);
+    h.run_steps(3);
+    let focus = store.commands(mg_live::now_ms())["commands"][0].clone();
+    assert_eq!(focus["on"], true);
+    assert_eq!(focus["areas"], json!(["start"]));
+}
+
+#[test]
+fn live_prepare_uses_saved_source_browses_without_replacing_workspace() {
+    let dir = mg_testkit::scratch_dir("ui-live-prepare");
+    let path = sample_module(&dir);
+    let original = std::fs::read(&path).unwrap();
+    let mut app = app_with(vec![path.clone()]);
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::LivePrepare));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100., 850.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    assert_eq!(h.state().live_prepare.source, path.to_string_lossy());
+    assert!(h.state().live_prepare.output.ends_with("sample-live.mod"));
+    assert!(h.get_by_label("Build Live copy").accesskit_node().is_disabled());
+    h.get_by_label("Capture dialogue").click();
+    h.run_steps(2);
+    assert!(h.state().live_prepare.capture_dialogue);
+    h.get_by_label("Browse module…").click();
+    h.run_steps(2);
+    assert_eq!(h.state().module_path().unwrap(), path);
+    h.state_mut().install = Some(mg_resman::GameInstall::new(&dir, None, "en"));
+    h.state_mut().settings.live_nwnx = dir.join("missing-nwnx").to_string_lossy().into_owned();
+    h.run_steps(2);
+    h.get_by_label("Build Live copy").click();
+    for _ in 0..100 {
+        h.run_steps(1);
+        if h.state().live_prepare.error.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(h.state().live_prepare.error.as_ref().is_some_and(|e| e.contains("NWScript.zip")));
+    assert_eq!(std::fs::read(path).unwrap(), original);
+    assert!(!h.state().has_unsaved_work());
+}
+
 fn sample_module(dir: &std::path::Path) -> std::path::PathBuf {
     let mut m = Module::new();
     let mut info = Gff::new(*b"IFO ");
@@ -6355,11 +6456,19 @@ fn area_harness_on(
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
+    app.live_assistant.data_dir = Some(path.parent().unwrap().join("assistant-data"));
+    app.live_focus.data_dir = Some(path.parent().unwrap().join("assistant-data"));
+    app.live_scene.data_dir = Some(path.parent().unwrap().join("assistant-data"));
+    app.recovery_dir = Some(path.parent().unwrap().join("app-data/recovery"));
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     // Frames a 60th of a second apart, so that clicks can be double clicks.
     let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
+        .with_size(if name.starts_with("live") {
+            egui::vec2(1600., 1000.)
+        } else {
+            egui::vec2(1100., 800.)
+        })
         .with_step_dt(1.0 / 60.0)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -6382,6 +6491,1758 @@ fn screen(h: &Harness<'_, Moonglow>, area: ResRef, p: glam::Vec3) -> egui::Pos2 
 fn press(h: &Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool, modifiers: egui::Modifiers) {
     let button = egui::PointerButton::Primary;
     h.event_modifiers(egui::Event::PointerButton { pos, button, pressed, modifiers }, modifiers);
+}
+
+#[test]
+fn live_player_look_preserves_bare_right_foot_and_wide_only_part() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let mut game =
+        mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    // A memory-only model alias exercises the wide number independently of
+    // which custom high-numbered body parts this machine has installed.
+    let data = game.resman.get_named("pmh0_footl001", ResType::MDL).unwrap();
+    let mut memory = mg_resman::MemContainer::new();
+    memory.insert(ResKey::parse("pmh0_footl300", ResType::MDL).unwrap(), data.to_vec());
+    game.resman.add(100, "live-look-fixture", mg_resman::LayerClass::Directory, memory);
+    let mut gff = Gff::new(*b"UTC ");
+    gff.root = mg_preview::CreatureLook::new(6).to_utc();
+    let mut look = mg_gff::to_json(&gff, game.codepage()).unwrap();
+    let bare = mg_ui::live_view::player_look(&game, &look).unwrap();
+    assert!(bare.preview.unwrap().parts.iter().any(|p| p.model == "pmh0_footr001"));
+    look.as_object_mut().unwrap().remove("BodyPart_LFoot");
+    look["xBodyPart_LFoot"] = serde_json::json!({"type":"word","value":300});
+    let wide = mg_ui::live_view::player_look(&game, &look).unwrap();
+    assert!(wide.preview.unwrap().parts.iter().any(|p| p.model == "pmh0_footl300"));
+    assert!(mg_ui::live_view::player_look(&game, &serde_json::json!({"bad":true})).is_err());
+}
+
+#[test]
+fn live_targeting_cancels_confirms_and_tracks_destinations() {
+    use mg_ui::live_view::Aim;
+    let Some((mut h, area)) = area_harness("live-targeting") else { return };
+    let store = std::sync::Arc::new(mg_ui::live::LiveStore::default());
+    let report = |seq: u64, x: f32, y: f32| {
+        serde_json::json!({"v":1,"boot":"aim","seq":seq,"areas":[{
+        "area":area.to_string(),"full":true,"cre":[
+            {"id":"1","r":"nw_bandit001","name":"Guard","x":x,"y":y},
+            {"id":"2","pc":true,"name":"Player","x":23,"y":20}],
+        "plc":[{"id":"3","r":"plc_chest1","x":27,"y":20}]}]})
+    };
+    store.sync(report(1, 18., 20.).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live =
+        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
+    h.state_mut().apply_live(&egui::Context::default());
+    let v = h.state_mut().area_views.get_mut(&area).unwrap();
+    v.live.on = true;
+    v.live.selected = Some("1".into());
+    v.live.aim = Some(Aim::Move("1".into()));
+    h.run_steps(2);
+    let at = screen(&h, area, glam::vec3(25., 25., 0.));
+    h.hover_at(at);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Crosshair);
+
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].live.aim.is_none());
+    assert_eq!(h.state().area_views[&area].live.selected.as_deref(), Some("1"));
+    assert!(h.query_by_label("Destroy").is_none(), "cancel must not open a menu");
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.aim = Some(Aim::Move("1".into()));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].live.aim.is_none());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.aim = Some(Aim::Attack("1".into()));
+    for p in [glam::vec3(25., 25., 0.), glam::vec3(18., 20., 0.3), glam::vec3(27., 20., 0.3)] {
+        let at = screen(&h, area, p);
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        assert!(
+            h.state().area_views[&area].live.aim.is_some(),
+            "empty, self and placeables are not targets"
+        );
+    }
+    let victim = screen(&h, area, glam::vec3(23., 20., 0.3));
+    h.hover_at(victim);
+    press(&h, victim, true, egui::Modifiers::NONE);
+    press(&h, victim, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].live.aim.is_none());
+    assert_eq!(store.status(mg_live::now_ms())["queued"][0]["op"], "npc_attack");
+    assert_eq!(store.status(mg_live::now_ms())["queued"][0]["victim"], "2");
+    for attempt in 0..3 {
+        h.state_mut().area_views.get_mut(&area).unwrap().live.aim = Some(Aim::Move("1".into()));
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::SHIFT);
+        press(&h, at, false, egui::Modifiers::SHIFT);
+        h.run_steps(2);
+        assert!(h.state().area_views[&area].live.aim.is_none());
+        let v = &h.state().area_views[&area];
+        assert_eq!(v.live.destinations.len(), 1);
+        let d = &v.live.destinations[0];
+        let command = d.command.clone();
+        let destination = d.at;
+        let queued = store.status(mg_live::now_ms())["queued"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|q| q["id"] == command)
+            .unwrap()
+            .clone();
+        assert_eq!(queued["run"], true);
+        assert!((queued["x"].as_f64().unwrap() - 25.).abs() < 0.1);
+        assert!((queued["y"].as_f64().unwrap() - 25.).abs() < 0.1);
+        match attempt {
+            0 => {
+                store.sync(serde_json::json!({"v":1,"boot":"aim","seq":2,"results":[{"id":command,"ok":false,"err":"blocked","code":"invalid"}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+            }
+            1 => {
+                h.state_mut().area_views.get_mut(&area).unwrap().live.destinations[0].started_ms =
+                    mg_live::now_ms() - 30_001;
+            }
+            _ => {
+                store
+                    .sync(
+                        report(3, destination.x, destination.y).to_string().as_bytes(),
+                        mg_live::now_ms(),
+                    )
+                    .unwrap();
+            }
+        }
+        h.run_steps(2);
+        assert!(h.state().area_views[&area].live.destinations.is_empty(), "attempt {attempt}");
+    }
+}
+
+#[test]
+fn live_effects_controls_are_per_view_and_do_not_edit_the_module() {
+    use mg_ui::live_effects::EffectsMode;
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = serde_json::json!({"v":1,"boot":"effects","seq":1,"areas":[{
+        "area":area.to_string(),"cre":[{"id":"1","x":20,"y":20,"vfx":[411,999999]}]
+    }]});
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].live.effects, EffectsMode::Full);
+    for mode in [EffectsMode::Off, EffectsMode::Full, EffectsMode::Markers] {
+        let old = h.state().area_views[&area].live.effects;
+        h.get_by_value(&format!("Effects: {}", old.name())).click();
+        h.run_steps(2);
+        h.get_by_label(mode.name()).click();
+        h.run_steps(2);
+        assert_eq!(h.state().area_views[&area].live.effects, mode);
+    }
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_effects_root_parts_start_on_arrival_but_base_emitters_are_warmed() {
+    let Some((h, area)) = area_harness("live-effects") else { return };
+    let app = h.state();
+    let game = app.game.as_ref().unwrap();
+    let gpu = &app.viewport.as_ref().unwrap().gpu;
+    let model = app.area_views[&area].model.as_ref().unwrap();
+    let mut scene = mg_area::AreaScene::new(gpu, game, model);
+    let models = vec![mg_preview::vfx::VfxModel { model: "fx_flame01".into(), node: None }];
+    let mut object = mg_area::AreaObject::read(
+        game,
+        mg_area::ObjectKind::Creature,
+        usize::MAX,
+        &mg_preview::CreatureLook::new(6).to_utc(),
+    );
+    object.preview = Some(mg_preview::vfx::with_models(object.preview.unwrap(), &models));
+    // The rest emitter has a continuous birthrate, so warming is measurable.
+    object.preview.as_mut().unwrap().parts.last_mut().unwrap().animated = false;
+
+    let view = mg_area::View::of(model);
+    let camera = app.area_views[&area].camera().unwrap().view();
+    let fresh = |object: &mg_area::AreaObject| {
+        let load = |name: &str| -> Option<std::sync::Arc<mg_mdl::Model>> {
+            let data = game.resman.get_named(name, mg_core::ResType::MDL).ok()?;
+            mg_mdl::Model::read(&data).ok().map(std::sync::Arc::new)
+        };
+        let composed =
+            mg_preview::compose::Composed::new(gpu, object.preview.as_ref().unwrap(), &load)
+                .unwrap();
+        let mut batches = Vec::new();
+        for e in composed.all_emitters(composed.idle.as_deref(), 0.) {
+            let mut sim = mg_render::particles::Particles::new(e.model);
+            let place = object.model_transform() * e.place;
+            sim.update(e.model, e.playing, 0., 0., &e.pose, place);
+            batches.extend(sim.batches(e.model, e.playing, 0., &e.pose, place, camera));
+        }
+        batches
+    };
+    let mut sims = Default::default();
+    let parts =
+        scene.ghost_particles(gpu, game, &[("part", &object)], &view, &mut sims, 0., camera);
+    assert_eq!(
+        parts,
+        fresh(&object),
+        "new root parts match an unadvanced simulator, including any initial burst"
+    );
+    object.preview = mg_preview::vfx::at_location(&models);
+    let base = scene.ghost_particles(gpu, game, &[("base", &object)], &view, &mut sims, 0., camera);
+    assert!(base.iter().any(|b| !b.vertices.is_empty()), "a genuine base emitter is warmed");
+    assert_ne!(base, fresh(&object), "base warm-up still advances the emitter");
+}
+
+#[test]
+fn live_effects_full_attaches_bounded_models_and_clears_particles() {
+    use mg_ui::live_effects::EffectsMode;
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let table = h.state().game.as_ref().unwrap().table("visualeffects").unwrap();
+    let row =
+        (0..table.len()).find(|&r| table.get(r, "Label") == Some("VFX_DUR_DARKNESS")).unwrap();
+    let look = mg_gff::Gff {
+        file_type: *b"UTC ",
+        version: mg_gff::Gff::VERSION,
+        root: mg_preview::CreatureLook::new(6).to_utc(),
+    };
+    let look = mg_gff::to_json(&look, mg_core::Codepage::WINDOWS_1252).unwrap();
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let creatures: Vec<_> = (0..5)
+        .map(|i| {
+            serde_json::json!({
+                "id":i.to_string(),"r":"nw_bartender","x":16+i*2,"y":20,
+                "pc":i==0,"look":if i==0 {look.clone()} else {serde_json::Value::Null},
+                "vfx":vec![row;16]
+            })
+        })
+        .collect();
+    let report = |seq, creatures: serde_json::Value| {
+        serde_json::json!({
+            "v":1,"boot":"full-effects","seq":seq,"areas":[{
+                "area":area.to_string(),"full":true,"cre":creatures
+            }]
+        })
+    };
+    store
+        .sync(report(1, serde_json::json!(creatures)).to_string().as_bytes(), mg_live::now_ms())
+        .unwrap();
+    h.state_mut().live = Some(store.clone());
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.live.on = true;
+    view.live.effects = EffectsMode::Full;
+    h.run_steps(10);
+    let view = &h.state().area_views[&area];
+    assert_eq!(view.effect_models_shown, 64, "nearest attachments use the model budget");
+    assert!(view.live_particles_shown > 0 && view.live_particles_shown <= 20_000);
+    let drawn = view.pictures;
+    h.run_steps(6);
+    assert!(h.state().area_views[&area].pictures > drawn, "effects keep the scene repainting");
+    h.state_mut().area_views.get_mut(&area).unwrap().live.effects = EffectsMode::Markers;
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live_particles_shown, 0);
+    assert_eq!(h.state().area_views[&area].effect_models_shown, 0);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.effects = EffectsMode::Full;
+    store.sync(report(2, serde_json::json!([])).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().area_views[&area].live_particles_shown,
+        0,
+        "removed objects leave no particles"
+    );
+    assert_eq!(h.state().area_views[&area].effect_models_shown, 0);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_speech_expires_without_rebuilding_a_static_scene() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    store
+        .sync(
+            serde_json::json!({"v":1,"boot":"speech","seq":1,"areas":[{
+                "area":area.to_string(),"full":true,"cre":[{"id":"1","x":20,"y":20}]
+            }]})
+            .to_string()
+            .as_bytes(),
+            mg_live::now_ms(),
+        )
+        .unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.still_objects = true;
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.live.on = true;
+    view.live.effects = mg_ui::live_effects::EffectsMode::Off;
+    h.run_steps(4);
+    let pictures = h.state().area_views[&area].pictures;
+    store.sync(serde_json::json!({"v":1,"boot":"speech","seq":2,"areas":[],"events":[
+        {"seq":1,"kind":"chat","area":area.to_string(),"id":"1","text":"Za mną!","channel":1}
+    ]}).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.speech_bubbles, 1);
+    h.run_steps(210);
+    assert_eq!(h.state().area_views[&area].live.speech_bubbles, 1);
+    h.run_steps(40);
+    assert_eq!(h.state().area_views[&area].live.speech_bubbles, 0);
+    assert_eq!(h.state().area_views[&area].pictures, pictures, "speech uses only the overlay");
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_events_view_repaints_cues_without_rebuilding_a_static_scene() {
+    use mg_ui::live_effects::EffectsMode;
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let game = h.state().game.as_ref().unwrap();
+    assert_eq!(mg_ui::live_effects::spell_name(game, 58), "Fireball");
+    assert_eq!(mg_ui::live_effects::spell_radius(game, 58), Some(6.67));
+    assert_eq!(mg_ui::live_effects::spell_radius(game, -1), None);
+    assert_eq!(mg_ui::live_effects::spell_name(game, -1), "Unknown spell (-1)");
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    store
+        .sync(
+            serde_json::json!({"v":1,"boot":"cues","seq":1,"areas":[{
+                "area":area.to_string(),"full":true,"cre":[
+                    {"id":"1","x":18,"y":20},{"id":"2","x":22,"y":20}]
+            }]})
+            .to_string()
+            .as_bytes(),
+            mg_live::now_ms(),
+        )
+        .unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.still_objects = true;
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(4);
+    let pictures = h.state().area_views[&area].pictures;
+    let report = |seq| {
+        serde_json::json!({"v":1,"boot":"cues","seq":seq,"areas":[],"events":[
+            {"seq":seq*2,"kind":"vfx","subtype":"projectile","area":area.to_string(),"id":"1","target":"2","spell":107,"delta_ms":700},
+            {"seq":seq*2+1,"kind":"spell","area":area.to_string(),"id":"1","target":"7fffffff","spell":58,"instant":true,"position":{"x":20,"y":20,"z":0}}
+        ]})
+    };
+    store.sync(report(2).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.transient_effects, 2);
+    h.run_steps(75);
+    assert_eq!(h.state().area_views[&area].live.transient_effects, 0);
+    assert_eq!(
+        h.state().area_views[&area].pictures,
+        pictures,
+        "an overlay does not redraw static 3D"
+    );
+    h.state_mut().area_views.get_mut(&area).unwrap().live.effects = EffectsMode::Off;
+    store.sync(report(3).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.effects = EffectsMode::Markers;
+    h.run_steps(2);
+    assert_eq!(
+        h.state().area_views[&area].live.transient_effects,
+        0,
+        "Off consumes events without replay"
+    );
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_motion_reuses_static_images_and_picks_the_displayed_position() {
+    let Some((mut h, area)) = area_harness("live-motion") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = |seq, x, hp| {
+        serde_json::json!({"v":1,"boot":"motion","seq":seq,"areas":[{
+            "area":area.to_string(),"cre":[{"id":"1","name":"Moving marker","x":x,"y":20,"hp":[hp,10]}]
+        }]})
+    };
+    let first_ms = mg_live::now_ms();
+    store.sync(report(1, 18., 10).to_string().as_bytes(), first_ms).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.still_objects = true;
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(4);
+    let before = h.state().area_views[&area].pictures;
+    let reads = h.state().area_views[&area].live.report_reads;
+    let reconciliations = h.state().area_views[&area].live.reconciliations;
+    h.run_steps(30);
+    assert_eq!(
+        h.state().area_views[&area].live.report_reads,
+        reads,
+        "quiet frames reuse the report"
+    );
+    assert_eq!(
+        h.state().area_views[&area].live.reconciliations,
+        reconciliations,
+        "quiet frames reuse reconciliation"
+    );
+    assert_eq!(h.state().area_views[&area].pictures, before, "static Live keeps its GPU image");
+    store.sync(report(2, 22., 10).to_string().as_bytes(), first_ms + 1000).unwrap();
+    h.run_steps(30);
+    assert_eq!(h.state().area_views[&area].live.report_reads, reads + 1);
+    assert_eq!(
+        h.state().area_views[&area].live.reconciliations,
+        reconciliations + 1,
+        "interpolation reuses looks/reconciliation"
+    );
+    let moving = h.state().area_views[&area].pictures;
+    assert!(moving > before && moving - before < 30, "motion redraws at a bounded rate");
+    let at = screen(&h, area, glam::vec3(20., 20., 0.3));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().area_views[&area].live.selected.as_deref(),
+        Some("1"),
+        "pick the displayed midpoint, not the latest raw report position"
+    );
+    h.run_steps(35);
+    let stopped = h.state().area_views[&area].pictures;
+    assert!(stopped > moving);
+    h.run_steps(30);
+    assert_eq!(
+        h.state().area_views[&area].pictures,
+        stopped,
+        "motion ending draws once then rests"
+    );
+    store.sync(report(3, 22., 4).to_string().as_bytes(), first_ms + 2000).unwrap();
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pictures > stopped, "a new report invalidates the image");
+    let pictures = h.state().area_views[&area].pictures;
+    let replacement = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    replacement.sync(report(3, 8., 4).to_string().as_bytes(), first_ms + 2000).unwrap();
+    h.state_mut().live = Some(replacement);
+    h.run_steps(2);
+    assert!(
+        h.state().area_views[&area].pictures > pictures,
+        "a replacement store invalidates even an identical report stamp"
+    );
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_panel_filters_selection_and_follow_use_reports() {
+    use mg_ui::live_panel::Filter;
+    let Some((mut h, area)) = area_harness("live-panel") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = |seq, x| {
+        serde_json::json!({"v":1,"boot":"panel","seq":seq,"areas":[{
+            "area":area.to_string(),"full":true,"cre":[
+                {"id":"1","name":"Live player","r":"nw_bartender","pc":true,"x":15,"y":20,"hp":[20,20]},
+                {"id":"2","name":"Gate guard","tag":"gate_watch","r":"nw_bartender","x":x,"y":20,"hp":[4,10],"own":true,"combat":true,"hostile":["1"]},
+                {"id":"3","name":"Dead guard","r":"nw_bartender","x":25,"y":20,"hp":[0,10],"dead":true}
+            ],"plc":[{"id":"4","name":"Live chest","x":21,"y":20}],
+            "doors":[{"id":"5","name":"Live door","x":23,"y":20}],
+            "items":[{"id":"6","name":"Live sword","x":26,"y":20}]
+        }]})
+    };
+    store.sync(report(1, 18.).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live =
+        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
+    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(2);
+    h.get_by_label("Live Panel").click();
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::LivePanel).is_some());
+    let row_names =
+        ["Live player", "Gate guard", "Dead guard", "Live chest", "Live door", "Live sword"];
+    let shown = |h: &Harness<'_, Moonglow>| {
+        row_names
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| h.query_by_label(n).is_some().then_some(i))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shown(&h), [0, 1, 2, 3, 4, 5]);
+    h.get_by_label("Name").click();
+    h.run_steps(2);
+    assert_eq!(h.state().live_panel.sort, mg_ui::live_panel::Sort::Name);
+    h.get_by_label("Name ↑").click();
+    h.run_steps(2);
+    assert!(h.state().live_panel.descending);
+    for (heading, sort) in
+        [("HP", mg_ui::live_panel::Sort::Hp), ("Distance", mg_ui::live_panel::Sort::Distance)]
+    {
+        h.get_by_label(heading).click();
+        h.run_steps(2);
+        assert_eq!(h.state().live_panel.sort, sort);
+        assert!(!h.state().live_panel.descending);
+    }
+    h.get_by_label("Near camera").click();
+    h.run_steps(2);
+    assert_eq!(h.state().live_panel.sort, mg_ui::live_panel::Sort::Camera);
+    let cases: [(Filter, &[usize]); 10] = [
+        (Filter::Players, &[0]),
+        (Filter::Npcs, &[1, 2]),
+        (Filter::Own, &[1]),
+        (Filter::Hostile, &[1]),
+        (Filter::Combat, &[1]),
+        (Filter::Dead, &[2]),
+        (Filter::Wounded, &[1, 2]),
+        (Filter::Placeables, &[3]),
+        (Filter::Doors, &[4]),
+        (Filter::Items, &[5]),
+    ];
+    for (filter, expected) in cases {
+        h.get_all_by_label(filter.name()).last().unwrap().click();
+        h.run_steps(2);
+        assert_eq!(shown(&h), expected, "{}", filter.name());
+        h.get_by_label("Clear filters").click();
+        h.run_steps(2);
+    }
+    for query in ["GATE GUARD", "gate_watch", "nw_bartender"] {
+        h.get_by_label("Search live objects").click();
+        h.run_steps(2);
+        h.get_by_label("Search live objects").type_text(query);
+        h.run_steps(2);
+        assert_eq!(h.state().area_views[&area].live.filter.search, query);
+        assert_eq!(shown(&h), if query == "nw_bartender" { vec![0, 1, 2] } else { vec![1] });
+        h.get_by_label("Clear filters").click();
+        h.run_steps(2);
+    }
+    h.get_by_label("Hide module markers").click();
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].live.hide_module_markers);
+    h.run_steps(40); // Separate the selection gesture from the filter clicks.
+    h.get_by_label("Gate guard").click();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.selected.as_deref(), Some("2"));
+    assert_eq!(h.state().area_views[&area].orbit.unwrap().target, glam::vec3(18., 20., 0.));
+    assert!(h.state().live_panel.follow.is_none());
+    h.run_steps(40);
+    for _ in 0..2 {
+        h.get_by_label("Gate guard").click();
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().live_panel.follow.as_ref().unwrap().id, "2");
+    let next_ms = store.area(&area.to_string()).unwrap().received_ms + 1000;
+    store.sync(report(2, 22.).to_string().as_bytes(), next_ms).unwrap();
+    h.run_steps(2);
+    let moving = h.state().area_views[&area].orbit.unwrap().target.x;
+    assert!(moving > 18. && moving < 22., "follow interpolates: {moving}");
+    h.run_steps(65);
+    assert_eq!(h.state().area_views[&area].orbit.unwrap().target, glam::vec3(22., 20., 0.));
+    h.get_by_label("Stop following").click();
+    h.run_steps(2);
+    assert!(h.state().live_panel.follow.is_none());
+    store.sync(report(4, 18.).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    h.get_all_by_label("Players")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::LivePanel));
+    h.run_steps(3);
+    let at = screen(&h, area, glam::vec3(18., 20., 0.3));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert!(
+        h.state().area_views[&area].live.selected.is_none(),
+        "filtered markers cannot be picked"
+    );
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_panel_opens_followed_areas_and_stops_at_a_new_boot() {
+    use mg_ui::live_panel::Follow;
+    let Some((mut h, first)) = area_harness("live-panel-follow") else { return };
+    let game = h.state().game.clone().unwrap();
+    let second = mg_module::new::add_area(
+        &mut h.state_mut().ws.as_mut().unwrap().module,
+        &game,
+        &mg_module::new::AreaSpec {
+            name: "Second field".into(),
+            tileset: ResRef::from_str("ttr01").unwrap(),
+            width: 4,
+            height: 4,
+        },
+        &mut fastrand::Rng::with_seed(9),
+    )
+    .unwrap();
+    assert!(!h.state().area_views.contains_key(&second));
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = |boot, seq, area: ResRef| serde_json::json!({"v":1,"boot":boot,"seq":seq,"areas":[{"area":area.to_string(),"cre":[{"id":"1","x":8,"y":9}]}]});
+    store.sync(report("follow", 1, first).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().area_views.get_mut(&first).unwrap().live.on = true;
+    h.state_mut().live_panel.follow =
+        Some(Follow { area: first, id: "1".into(), boot: "follow".into() });
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&first].orbit.unwrap().target, glam::vec3(8., 9., 0.));
+    store.sync(serde_json::json!({"v":1,"boot":"follow","seq":2,"areas":[
+        {"area":first.to_string(),"cre":[]},{"area":second.to_string(),"cre":[{"id":"1","x":13,"y":14}]}
+    ]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().live_panel.follow.as_ref().unwrap().area, second);
+    assert_eq!(h.state().palette.area, Some(second));
+    assert_eq!(h.state().area_views[&second].orbit.unwrap().target, glam::vec3(13., 14., 0.));
+    store.sync(report("restarted", 1, second).to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert!(h.state().live_panel.follow.is_none());
+    assert!(h.state().live_panel.notice.as_ref().unwrap().contains("restarted"));
+}
+
+#[test]
+fn live_review_lightshaft_keeps_intrinsic_emitters_in_every_effects_mode() {
+    use mg_ui::live_effects::EffectsMode;
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = serde_json::json!({"v":1,"boot":"lightshaft","seq":1,"areas":[{"area":area.to_string(),"full":true,
+        "plc":[{"id":"a","r":"x3_plc_slightg","x":20,"y":20}]}]});
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    for mode in [EffectsMode::Markers, EffectsMode::Off, EffectsMode::Full] {
+        h.state_mut().area_views.get_mut(&area).unwrap().live.effects = mode;
+        h.run_steps(5);
+        assert!(
+            h.state().area_views[&area].live_particles_shown > 0,
+            "{mode:?} hides intrinsic emitter"
+        );
+    }
+    let pictures = h.state().area_views[&area].pictures;
+    h.run_steps(10);
+    assert!(h.state().area_views[&area].pictures > pictures, "base emitters keep animating");
+    let app = h.state();
+    let game = app.game.as_ref().unwrap();
+    let gpu = &app.viewport.as_ref().unwrap().gpu;
+    let mut model = app.area_views[&area].model.as_ref().unwrap().clone();
+    let g =
+        mg_gff::Gff::read(&game.resman.get_named("x3_plc_slightg", ResType::UTP).unwrap()).unwrap();
+    model.objects =
+        vec![mg_area::AreaObject::read(game, mg_area::ObjectKind::Placeable, 0, &g.root)];
+    let scene = mg_area::AreaScene::new(gpu, game, &model);
+    let mut sims = Default::default();
+    let settings = mg_area::View::of(&model);
+    let camera = app.area_views[&area].camera().unwrap().view();
+    scene.particles(&model, &settings, &mut sims, 0., camera);
+    assert!(sims.keys().any(|(i, _)| *i == 0));
+    scene.particles_without(&model, &settings, &mut sims, 0., camera, &[0]);
+    assert!(!sims.keys().any(|(i, _)| *i == 0), "replaced GIT emitters must be removed");
+    store.sync(serde_json::json!({"v":1,"boot":"lightshaft","seq":2,"areas":[{"area":area.to_string(),"full":true,"plc":[]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(5);
+    assert_eq!(h.state().area_views[&area].live_particles_shown, 0);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_props_sends_once_on_release_and_applies_numeric_transforms() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = serde_json::json!({"v":1,"boot":"props","seq":1,"areas":[{"area":area.to_string(),"full":true,
+        "plc":[{"id":"a","r":"plc_chest1","name":"Chest","x":20,"y":20,"f":0,"vt":{"scale":1.3,"rotate":{"x":10,"y":20,"z":30},"translate":{"x":1,"y":2,"z":3}}}],
+        "doors":[{"id":"b","name":"Door","x":27,"y":20}]}]});
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live = mg_live::LiveConfig {
+        enabled: true,
+        api_port: 0,
+        redis_port: 1,
+        keep_wsl: Some(false),
+        ..Default::default()
+    };
+    h.state_mut().apply_live(&egui::Context::default());
+    let v = h.state_mut().area_views.get_mut(&area).unwrap();
+    v.live.on = true;
+    v.live.select(Some("a".into()), false);
+    h.run_steps(3);
+    let marker = screen(&h, area, glam::vec3(20., 20., 0.3));
+    h.hover_at(marker);
+    h.run_steps(1);
+    let key = |pressed| egui::Event::Key {
+        key: egui::Key::Q,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(key(true));
+    h.run_steps(3);
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.event(key(false));
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"][0]["op"], "set_facing");
+    assert!((status["queued"][0]["f"].as_f64().unwrap() - 15.).abs() < 0.001);
+    let at = glam::vec3(20., 20., 0.05);
+    let radius = ((h.state().area_views[&area].camera().unwrap().eye - glam::vec3(20., 20., 0.))
+        .length()
+        * 0.0765)
+        .max(0.5);
+    let from = screen(&h, area, at + glam::Vec3::X * radius);
+    let to = screen(&h, area, at + glam::Vec3::Y * radius);
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(3);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 1);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"].as_array().unwrap().len(), 2);
+    assert_eq!(status["queued"][1]["op"], "set_facing");
+    let f = status["queued"][1]["f"].as_f64().unwrap();
+    assert!((f - 105.).abs() < 1., "{f}");
+    let destination = screen(&h, area, glam::vec3(23., 22., 0.3));
+    h.hover_at(marker);
+    press(&h, marker, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(destination);
+    h.run_steps(3);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 2);
+    press(&h, destination, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"].as_array().unwrap().len(), 3);
+    assert_eq!(status["queued"][2]["op"], "set_position");
+    assert!((status["queued"][2]["x"].as_f64().unwrap() - 23.).abs() < 0.1);
+    // The direct context entry opens the numeric editor for the clicked object.
+    h.hover_at(destination);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: destination,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    review_click(&mut h, "Visual Transform…");
+    h.run_steps(2);
+    for (label, value) in [
+        ("Scale", "2.25"),
+        ("Rotate X", "-15"),
+        ("Rotate Y", "-35"),
+        ("Rotate Z", "70"),
+        ("Translate X", "4"),
+        ("Translate Y", "5"),
+        ("Translate Z", "6"),
+    ] {
+        h.get_by_label(label).click();
+        h.run_steps(1);
+        h.event(egui::Event::Text(value.into()));
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+    }
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 3);
+    h.get_by_label("Apply Transform").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = &status["queued"][3];
+    assert_eq!(q["op"], "set_visual_transform");
+    assert!((q["scale"].as_f64().unwrap() - 2.25).abs() < 0.001);
+    assert_eq!(q["rotate"]["y"], -35.0);
+    assert_eq!(q["translate"]["z"], 6.0);
+    h.get_by_label("Reset Transform").click();
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"][4]["reset"], true);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.select(Some("b".into()), false);
+    h.run_steps(2);
+    h.get_by_label("Apply Transform").click();
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"][5]["target"], "b");
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_group_selects_markers_and_queues_each_eligible_object() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    let report = serde_json::json!({"v":1,"boot":"group","seq":1,"factions":[{"id":2,"name":"Commoner"}],"areas":[{"area":area.to_string(),"full":true,"cre":[
+        {"id":"1","name":"One","x":18,"y":20},{"id":"2","name":"Two","x":21,"y":20},
+        {"id":"3","name":"Three","x":24,"y":20},{"id":"4","name":"Player","pc":true,"x":30,"y":20}]}]});
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live = mg_live::LiveConfig {
+        enabled: true,
+        api_port: 0,
+        redis_port: 1,
+        keep_wsl: Some(false),
+        ..Default::default()
+    };
+    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(3);
+    let p1 = screen(&h, area, glam::vec3(18., 20., 0.3));
+    let p2 = screen(&h, area, glam::vec3(21., 20., 0.3));
+    let p3 = screen(&h, area, glam::vec3(24., 20., 0.3));
+    for p in [p1, p2, p1] {
+        h.hover_at(p);
+        press(&h, p, true, egui::Modifiers::CTRL);
+        press(&h, p, false, egui::Modifiers::CTRL);
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().area_views[&area].live.selection_ids().collect::<Vec<_>>(), vec!["2"]);
+    let box_rect = egui::Rect::from_two_pos(p1, p3).expand(18.);
+    h.hover_at(box_rect.min);
+    press(&h, box_rect.min, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.event_modifiers(egui::Event::PointerMoved(box_rect.max), egui::Modifiers::NONE);
+    h.run_steps(2);
+    press(&h, box_rect.max, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.selection_ids().count(), 3);
+    assert!(!h.state().area_views[&area].live.is_selected("4"));
+    // Group keys take precedence over camera digit keys and Ctrl+digit tab switching.
+    let old_camera = h.state().area_views[&area].camera().unwrap();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
+    h.run_steps(2);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.select(None, false);
+    h.key_press(egui::Key::Num1);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.selection_ids().count(), 3);
+    assert_eq!(h.state().area_views[&area].camera().unwrap().target, old_camera.target);
+    h.key_press(egui::Key::Num1);
+    h.run_steps(2);
+    assert!(
+        h.state().area_views[&area].camera().unwrap().target.distance(glam::vec3(21., 20., 0.))
+            < 0.01
+    );
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().target =
+        old_camera.target;
+    h.run_steps(2);
+    let ground = screen(&h, area, glam::vec3(25., 26., 0.));
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(ground);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: ground,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+    };
+    open(&mut h);
+    assert!(h.query_by_label("Stop Fighting").is_none());
+    review_click(&mut h, "Walk in Formation…");
+    h.run_steps(2);
+    h.hover_at(ground);
+    press(&h, ground, true, egui::Modifiers::NONE);
+    press(&h, ground, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let queued = status["queued"].as_array().unwrap();
+    assert_eq!(queued.len(), 3);
+    let mut targets = std::collections::BTreeSet::new();
+    let mut places = std::collections::BTreeSet::new();
+    for q in queued {
+        assert_eq!(q["op"], "npc_move");
+        assert_eq!(q["hold"], true);
+        targets.insert(q["target"].as_str().unwrap());
+        places.insert(format!("{},{}", q["x"], q["y"]));
+    }
+    assert_eq!(targets, std::collections::BTreeSet::from(["1", "2", "3"]));
+    assert_eq!(places.len(), 3);
+    open(&mut h);
+    review_click(&mut h, "Walk to One Point…");
+    h.run_steps(2);
+    h.hover_at(ground);
+    press(&h, ground, true, egui::Modifiers::NONE);
+    press(&h, ground, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let queued = status["queued"].as_array().unwrap();
+    assert_eq!(queued.len(), 6);
+    assert_eq!(queued[3]["x"], queued[5]["x"]);
+    assert_eq!(queued[3]["y"], queued[5]["y"]);
+    open(&mut h);
+    review_click(&mut h, "Group Attack…");
+    h.run_steps(2);
+    let victim = screen(&h, area, glam::vec3(30., 20., 0.3));
+    h.hover_at(victim);
+    press(&h, victim, true, egui::Modifiers::NONE);
+    press(&h, victim, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let queued = status["queued"].as_array().unwrap();
+    assert_eq!(queued.len(), 9);
+    for q in &queued[6..] {
+        assert_eq!(q["op"], "npc_attack");
+        assert_eq!(q["victim"], "4");
+    }
+    h.hover_at(victim);
+    press(&h, victim, true, egui::Modifiers::CTRL);
+    press(&h, victim, false, egui::Modifiers::CTRL);
+    h.run_steps(2);
+    open(&mut h);
+    review_click(&mut h, "Faction ⏵");
+    h.run_steps(2);
+    h.get_by_label("2: Commoner").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    for q in &status["queued"].as_array().unwrap()[9..] {
+        assert_eq!(q["op"], "set_faction");
+        assert_ne!(q["target"], "4");
+    }
+    open(&mut h);
+    review_click(&mut h, "Freeze ⏵");
+    h.run_steps(2);
+    h.get_by_label("Freeze Now").click();
+    h.run_steps(2);
+    for label in ["Unfreeze", "Kill", "Destroy"] {
+        open(&mut h);
+        review_click(&mut h, label);
+        h.run_steps(2);
+    }
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 24);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::LivePanel));
+    h.run_steps(3);
+    assert!(h.get_all_by_label("4 selected").count() >= 1);
+    assert!(!h.state().has_unsaved_work());
+    store.sync(serde_json::json!({"v":1,"boot":"new-group","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.selection_ids().count(), 0);
+}
+
+#[test]
+fn live_labels_toolbar_switches_modes_without_hiding_objects() {
+    use mg_ui::live_view::LabelMode;
+    let Some((mut h, area)) = area_harness("live-labels") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    store.sync(serde_json::json!({"v":1,"boot":"labels","seq":1,"areas":[{
+        "area":area.to_string(),"full":true,"cre":[{"id":"1","r":"nw_bartender","x":18,"y":20}]
+    }]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live =
+        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
+    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(2);
+    let mut previous = LabelMode::NearSelected;
+    use mg_ui::live_colors::ColorMode;
+    let mut previous_color = ColorMode::Faction;
+    for mode in [ColorMode::Hostility, ColorMode::Kind, ColorMode::Faction] {
+        h.get_by_value(&format!("Colours: {}", previous_color.name())).click();
+        h.run_steps(2);
+        h.get_all_by_label(mode.name()).last().unwrap().click();
+        h.run_steps(2);
+        assert_eq!(h.state().area_views[&area].live.colors, mode);
+        previous_color = mode;
+    }
+    for mode in [LabelMode::All, LabelMode::Hover, LabelMode::None, LabelMode::NearSelected] {
+        h.get_by_value(&format!("Labels: {}", previous.name())).click();
+        h.run_steps(2);
+        h.get_all_by_label(mode.name()).last().unwrap().click();
+        h.run_steps(2);
+        assert_eq!(h.state().area_views[&area].live.labels, mode);
+        let at = screen(&h, area, glam::vec3(18., 20., 0.3));
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        assert_eq!(h.state().area_views[&area].live.selected.as_deref(), Some("1"));
+        previous = mode;
+    }
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    if std::env::var_os("MGLIVE_CAPTURE_CONTROLS").is_some() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/test-output/live-next/visual/factions-controls-after.png");
+        h.render().unwrap().save(path).unwrap();
+    }
+    let module = h.state().module_path().unwrap();
+    h.state_mut()
+        .settings
+        .live_faction_colors
+        .entry(module.clone())
+        .or_default()
+        .insert(2, [12, 34, 56]);
+    h.state_mut().actions.push(mg_ui::Action::LiveOptions);
+    h.run_steps(3);
+    h.get_by_label("Factions").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("2: Commoner").is_some());
+    h.get_by_label("Reset faction colours").click();
+    h.run_steps(2);
+    assert!(!h.state().options.as_ref().unwrap().live_faction_colors.contains_key(&module));
+    // A discarded draft leaves the saved module-specific choice alone.
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings.live_faction_colors[&module][&2], [12, 34, 56]);
+    let draft = mg_ui::OptionsDraft::from_settings(&h.state().settings);
+    let saved = draft.apply(&h.state().settings);
+    let back: mg_ui::Settings =
+        serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert_eq!(back.live_faction_colors[&module][&2], [12, 34, 56]);
+}
+
+#[test]
+fn live_spawning_arms_places_once_repeats_and_cancels() {
+    use mg_ui::live_view::Aim;
+    let Some((mut h, area)) = area_harness("live-spawning") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    store.sync(serde_json::json!({"v":1,"boot":"spawn","seq":1,"areas":[{
+        "area":area.to_string(),"full":true,"cre":[{"id":"1","r":"nw_bartender","x":18,"y":20}]
+    }]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live =
+        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
+    h.state_mut().apply_live(&egui::Context::default());
+    let v = h.state_mut().area_views.get_mut(&area).unwrap();
+    v.live.on = true;
+    v.live.selected = Some("1".into());
+    let key = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    h.state_mut().palette.selected = Some(key);
+    h.run_steps(2);
+    let at = screen(&h, area, glam::vec3(25., 25., 0.));
+    let click = |h: &mut Harness<'_, Moonglow>, modifiers| {
+        h.hover_at(at);
+        press(h, at, true, modifiers);
+        press(h, at, false, modifiers);
+        h.run_steps(2);
+    };
+    let count = || store.status(mg_live::now_ms())["queued"].as_array().unwrap().len();
+    h.hover_at(at);
+    h.run_steps(2);
+    assert_eq!(count(), 0);
+    assert!(matches!(h.state().area_views[&area].live.aim, Some(Aim::Spawn(_))));
+    assert!(h.state().area_views[&area].ghost_shown.is_some());
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Crosshair);
+    click(&mut h, egui::Modifiers::NONE);
+    assert_eq!(count(), 1);
+    assert!(h.state().area_views[&area].live.aim.is_none());
+    assert!(h.state().palette.selected.is_none());
+    assert!(h.state().area_views[&area].ghost_shown.is_none());
+    click(&mut h, egui::Modifiers::NONE);
+    assert_eq!(count(), 1, "ordinary subsequent clicks do not spawn");
+    h.state_mut().palette.selected = Some(key);
+    h.run_steps(2);
+    click(&mut h, egui::Modifiers::SHIFT);
+    click(&mut h, egui::Modifiers::SHIFT);
+    assert_eq!(count(), 3);
+    assert!(matches!(h.state().area_views[&area].live.aim, Some(Aim::Spawn(_))));
+    h.state_mut().area_views.get_mut(&area).unwrap().live.selected = Some("1".into());
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    assert_eq!(count(), 3);
+    assert!(h.state().area_views[&area].live.aim.is_none());
+    assert_eq!(h.state().area_views[&area].live.selected.as_deref(), Some("1"));
+    assert!(h.query_by_label("Destroy").is_none());
+    h.state_mut().palette.selected = Some(key);
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].live.aim.is_none());
+    assert_eq!(count(), 3);
+}
+
+#[test]
+fn live_viewer_queues_actions_without_editing_the_git() {
+    let Some((mut h, area)) = area_harness("live") else { return };
+    let store = std::sync::Arc::new(mg_ui::live::LiveStore::default());
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    store
+        .sync(
+            serde_json::json!({"v":1,"boot":"test","seq":1,"areas":[{
+                "area":area.to_string(),"full":true,"cre":[
+                    {"id":"1","r":"nw_bandit001","x":18,"y":20,"f":90},
+                    {"id":"2","pc":true,"x":23,"y":20}]
+            }]})
+            .to_string()
+            .as_bytes(),
+            now,
+        )
+        .unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live =
+        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
+    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    let git_key = ResKey::new(area, ResType::GIT);
+    let before = h.state_mut().ws.as_mut().unwrap().doc(&git_key).unwrap().clone();
+    let undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    h.state_mut().palette.selected = Some(ResKey::parse("nw_bandit001", ResType::UTC).unwrap());
+    h.run_steps(2);
+    let point = screen(&h, area, glam::Vec3::new(25., 25., 0.));
+    h.hover_at(point);
+    press(&h, point, true, egui::Modifiers::NONE);
+    press(&h, point, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(
+        store.status(now)["queued"].as_array().unwrap().len(),
+        1,
+        "palette arms; first map click spawns"
+    );
+    let queued = store.status(now)["queued"].clone();
+    assert_eq!(queued[0]["op"], "spawn");
+    assert!((queued[0]["x"].as_f64().unwrap() - 25.).abs() < 0.1);
+    assert!((queued[0]["y"].as_f64().unwrap() - 25.).abs() < 0.1);
+
+    h.state_mut().palette.selected = None;
+    h.state_mut().area_views.get_mut(&area).unwrap().live.selected = Some("1".into());
+    h.hover_at(point);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    assert_eq!(store.status(now)["queued"][1]["op"], "destroy");
+
+    let actor = screen(&h, area, glam::Vec3::new(18., 20., 0.3));
+    h.hover_at(actor);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: actor,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Walk Here…").click();
+    h.run_steps(2);
+    h.hover_at(point);
+    press(&h, point, true, egui::Modifiers::SHIFT);
+    press(&h, point, false, egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    let queued = store.status(now)["queued"].clone();
+    assert_eq!(queued[2]["op"], "npc_move");
+    assert_eq!(queued[2]["target"], "1");
+    assert_eq!(queued[2]["run"], true);
+    assert!((queued[2]["x"].as_f64().unwrap() - 25.).abs() < 0.1);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.selected = Some("2".into());
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    assert_eq!(store.status(now)["queued"].as_array().unwrap().len(), 3);
+    let chest_name = {
+        let game = h.state().game.as_deref().unwrap();
+        let bp = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        game.locstring(bp.root.locstring("LocName").unwrap()).unwrap()
+    };
+    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    h.state_mut().palette.tiles = false;
+    h.state_mut().palette.filter = "plc_chest1".into();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label(&chest_name).click();
+    h.run_steps(1);
+    let from = h.get_by_label(&chest_name).rect().center();
+    let to = screen(&h, area, glam::Vec3::new(25., 25., 0.));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for t in [0.1, 0.4, 0.7, 1.] {
+        h.hover_at(from + (to - from) * t);
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(store.status(now)["queued"].as_array().unwrap().len(), 3, "drop arms the preview");
+    press(&h, to, true, egui::Modifiers::NONE);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(store.status(now)["queued"][3]["op"], "spawn");
+    assert_eq!(store.status(now)["queued"][3]["kind"], "placeable");
+    h.state_mut().palette.selected = None;
+    let menu_at = |h: &mut Harness<'_, Moonglow>, p| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+    };
+    // A script may deliberately target a player; the ordinary actions stay protected.
+    menu_at(&mut h, glam::Vec3::new(23., 20., 0.3));
+    review_reveal(&mut h, "Run Script…");
+    assert!(
+        h.get_by_label("Run NWScript…").accesskit_node().is_disabled(),
+        "chunks off disables the command"
+    );
+    h.get_by_label("Run Script…").click();
+    h.run_steps(2);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.script.as_mut().unwrap().text =
+        "mglive_probe".into();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let scripted = store.status(now)["queued"][4].clone();
+    assert_eq!(scripted["op"], "run_script");
+    assert_eq!(scripted["target"], "2");
+
+    // Empty ground selects the area, not the previously selected object.
+    menu_at(&mut h, glam::Vec3::new(30., 30., 0.));
+    h.get_by_label("Run Script…").click();
+    h.run_steps(2);
+    let draft = h.state_mut().area_views.get_mut(&area).unwrap().live.script.as_mut().unwrap();
+    assert_eq!(draft.target, None);
+    draft.text = "mglive_probe".into();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    assert!(store.status(now)["queued"][5]["target"].is_null());
+
+    // The DM's controls in submenus: a faction, a freeze; a player's only with its switch on.
+    let last = |op: &str| {
+        let status = store.status(now);
+        status["queued"].as_array().unwrap().iter().rev().find(|c| c["op"] == op).cloned()
+    };
+    menu_at(&mut h, glam::Vec3::new(18., 20., 0.3));
+    review_click(&mut h, "Faction ⏵");
+    h.run_steps(2);
+    h.get_by_label("Hostile").click();
+    h.run_steps(2);
+    let faction = last("set_faction").expect("set_faction queued");
+    assert_eq!(
+        (faction["target"].as_str(), faction["faction"].as_str()),
+        (Some("1"), Some("hostile"))
+    );
+    menu_at(&mut h, glam::Vec3::new(18., 20., 0.3));
+    review_click(&mut h, "Freeze ⏵");
+    h.run_steps(2);
+    h.get_by_label("30 s").click();
+    h.run_steps(2);
+    assert_eq!(last("freeze").expect("freeze queued")["seconds"], 30.0);
+    menu_at(&mut h, glam::Vec3::new(18., 20., 0.3));
+    review_click(&mut h, "Kill");
+    h.run_steps(2);
+    assert_eq!(last("kill").expect("kill queued")["target"], "1");
+    menu_at(&mut h, glam::Vec3::new(18., 20., 0.3));
+    review_click(&mut h, "AI ⏵");
+    h.run_steps(2);
+    h.get_by_label("Very Low").click();
+    h.run_steps(2);
+    assert_eq!(last("set_ai").expect("set_ai queued")["level"], "very_low");
+    menu_at(&mut h, glam::Vec3::new(30., 30., 0.));
+    h.get_by_label("Set Time ⏵").click();
+    h.run_steps(2);
+    h.get_by_label("06:00").click();
+    h.run_steps(2);
+    assert_eq!(last("set_time").expect("set_time queued")["hour"], 6);
+    menu_at(&mut h, glam::Vec3::new(23., 20., 0.3));
+    h.get_by_label("Player: actions are off");
+    review_reveal(&mut h, "Give Gold ⏵");
+    assert!(h.get_by_label("Give Gold ⏵").accesskit_node().is_disabled());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    store.set_policy(mg_ui::live::Policy { scripts: true, chunks: false, players: true });
+    menu_at(&mut h, glam::Vec3::new(23., 20., 0.3));
+    review_click(&mut h, "Give Gold ⏵");
+    h.run_steps(2);
+    h.get_by_label("Give Gold Now").click();
+    h.run_steps(2);
+    let gold = last("pc_give_gold").expect("pc_give_gold queued");
+    assert_eq!((gold["target"].as_str(), gold["amount"].as_u64()), (Some("2"), Some(100)));
+    store.set_policy(mg_ui::live::Policy { scripts: true, chunks: false, players: false });
+
+    store.set_policy(mg_ui::live::Policy { scripts: false, chunks: true, players: false });
+    menu_at(&mut h, glam::Vec3::new(30., 30., 0.));
+    assert!(h.query_by_label("Run Script…").is_none());
+    h.get_by_label("Run NWScript…").click();
+    h.run_steps(2);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.script.as_mut().unwrap().text =
+        "bad code".into();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let status = store.status(now);
+    let chunk =
+        status["queued"].as_array().unwrap().iter().find(|c| c["op"] == "run_chunk").unwrap();
+    assert_eq!(chunk["wrap"], true);
+    assert!(chunk["target"].is_null());
+    let id = chunk["id"].as_str().unwrap();
+    let succeeded = status["queued"][0]["id"].as_str().unwrap();
+    store
+        .sync(
+            serde_json::json!({"v":1,"boot":"test","seq":2,"areas":[],
+        "results":[{"id":id,"ok":false,"err":"compiler detail"},{"id":succeeded,"ok":true}]})
+            .to_string()
+            .as_bytes(),
+            now,
+        )
+        .unwrap();
+    // Results still log after Live is switched off; subsequent frames do not duplicate them.
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = false;
+    h.run_steps(4);
+    let expected = format!("Live: {id} failed: compiler detail");
+    assert_eq!(h.state().log.entries.iter().filter(|(_, line)| line == &expected).count(), 1);
+    let expected = format!("Live: {succeeded} ok");
+    assert_eq!(h.state().log.entries.iter().filter(|(_, line)| line == &expected).count(), 1);
+    assert!(h.state().log.entries.iter().any(|(_, line)| line.starts_with("Live: run_chunk")));
+    assert_eq!(h.state_mut().ws.as_mut().unwrap().doc(&git_key).unwrap(), &before);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned), undo);
+}
+
+#[test]
+fn live_scene_records_saves_validates_plays_and_stops_with_a_fake_store() {
+    use mg_live::{
+        scene,
+        store::{Command, LiveStore},
+    };
+    let dir = mg_testkit::scratch_dir("ui-live-scene");
+    let module = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&module);
+    app.live_scene.data_dir = Some(dir.join("data"));
+    let store = std::sync::Arc::new(LiveStore::default());
+    store.sync(serde_json::json!({"v":1,"boot":"scene","seq":1,"areas":[{"area":"start","full":true,"cre":[{"id":"7","name":"Guard","x":20,"y":20},{"id":"b","name":"Second guard","x":22,"y":20}]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    app.live = Some(store.clone());
+    app.settings.live.enabled = true; // Fake store, no service/listener or WSL.
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Scene));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280., 1000.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let path = h.state().dock.find_tab(&Tab::Scene).unwrap();
+    assert!(path.surface.is_main(), "Scenes uses the Live tools pane");
+    h.run_steps(3);
+    h.get_by_label("Record").click();
+    h.run_steps(2);
+    let say = |text| {
+        serde_json::from_value::<Command>(
+            serde_json::json!({"area":"start","op":"npc_say","target":"7","text":text}),
+        )
+        .unwrap()
+    };
+    mg_ui::live_scene::enqueue(h.state_mut(), say("Za mną!")).unwrap();
+    assert!(mg_ui::live_scene::enqueue(h.state_mut(), say("")).is_err());
+    mg_ui::live_scene::enqueue(h.state_mut(), say("Pilnujcie bramy.")).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().live_scene.draft.steps.len(), 2);
+    h.get_by_label("Recording... / Stop").click();
+    h.run_steps(2);
+    h.state_mut().live_scene.draft.name = "Guard greeting".into();
+    h.run_steps(2);
+    scene_file_click(&mut h, "Save scene");
+    h.run_steps(2);
+    let saved = scene::load(&dir.join("data"), "sample", "Guard greeting").unwrap();
+    assert_eq!(saved.steps.len(), 2);
+    assert!(saved.steps.iter().all(|s| s.input.get("id").is_none()));
+    let copy_path = dir.join("data/live/scenes/sample/Guard copy.json");
+    let export_path = dir.join("scene-export.json");
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { save: vec![copy_path.clone()], ..Default::default() });
+    scene_file_click(&mut h, "Save As...");
+    h.run_steps(2);
+    assert_eq!(h.state().live_scene.draft.name, "Guard copy");
+    assert_eq!(scene::load(&dir.join("data"), "sample", "Guard copy").unwrap().steps, saved.steps);
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { save: vec![export_path.clone()], ..Default::default() });
+    scene_file_click(&mut h, "Export...");
+    h.run_steps(2);
+    let exported: scene::Scene =
+        serde_json::from_slice(&std::fs::read(&export_path).unwrap()).unwrap();
+    assert_eq!(exported.steps, saved.steps);
+    let count = store.status(mg_live::now_ms())["queued"].as_array().unwrap().len();
+    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![export_path], ..Default::default() });
+    scene_file_click(&mut h, "Import...");
+    h.run_steps(2);
+    assert!(h.state().live_scene.draft.dirty);
+    assert_eq!(h.state().live_scene.draft.checked(Default::default()).unwrap(), exported);
+    assert_eq!(
+        store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(),
+        count,
+        "file actions never execute a scene"
+    );
+    scene_file_click(&mut h, "Save scene");
+    h.run_steps(2);
+    let bad = dir.join("invalid-scene.json");
+    std::fs::write(&bad,br#"{"name":"Bad","steps":[{"op":"live_npc_move","input":{"area":"start","target":"7","x":"wrong"}}]}"#).unwrap();
+    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![bad], ..Default::default() });
+    scene_file_click(&mut h, "Import...");
+    h.run_steps(2);
+    assert_eq!(
+        h.state().live_scene.draft.name,
+        "Guard copy",
+        "invalid import preserves current scene"
+    );
+    h.state_mut().dialogs = Box::new(NoDialogs::default());
+    scene_file_click(&mut h, "Save As...");
+    h.run_steps(2);
+    assert_eq!(
+        h.state().live_scene.draft.name,
+        "Guard copy",
+        "cancelled file dialog preserves current scene"
+    );
+
+    scene_file_click(&mut h, "New scene");
+    h.run_steps(2);
+    assert!(h.state().live_scene.draft.steps.is_empty());
+    h.get_by_label("Scene").click();
+    h.run_steps(2);
+    h.get_by_label("Load scene \u{23f5}").click();
+    h.run_steps(2);
+    h.get_all_by_label("Guard greeting").last().unwrap().click();
+    h.run_steps(2);
+    assert_eq!(h.state().live_scene.draft.steps.len(), 2);
+    h.get_all_by_value("Guard").next().unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Second guard").click();
+    h.run_steps(2);
+    let input: serde_json::Value =
+        serde_json::from_str(&h.state().live_scene.draft.steps[0].input).unwrap();
+    assert_eq!(input["target"], "b", "the inline target edits the actual command");
+    h.get_all_by_label("Delay").last().unwrap().click();
+    h.run_steps(1);
+    h.event(egui::Event::Text("250".into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().live_scene.draft.steps[1].delay_ms, 250);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), count);
+    h.get_all_by_label("Edit step").last().unwrap().click();
+    h.run_steps(2);
+    h.get_all_by_label("Step input (JSON)").last().unwrap().scroll_to_me();
+    h.run_steps(3);
+    h.get_all_by_label("Step input (JSON)").last().unwrap().click();
+    h.run_steps(1);
+    h.get_all_by_label("Step input (JSON)").last().unwrap().type_text("{");
+    h.run_steps(3);
+    assert!(h.get_by_label("Play scene").accesskit_node().is_disabled());
+    h.get_by_label("Scene").click();
+    h.run_steps(2);
+    assert!(h.get_by_label("Save scene").accesskit_node().is_disabled());
+    scene_file_click(&mut h, "Discard changes");
+    h.run_steps(2);
+    h.get_by_label("Play scene").click();
+    h.run_steps(2);
+    for _ in 0..100 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.run_steps(1);
+        if h.state().live_scene.status["last"]["ok"] == true {
+            break;
+        }
+    }
+    assert_eq!(h.state().live_scene.status["last"]["ok"], true);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 4);
+    assert_eq!(h.state().live_scene.draft.steps.len(), 2, "playback does not record itself");
+    h.state_mut().live_scene.draft.steps[0].delay_ms = 5000;
+    h.run_steps(2);
+    h.get_by_label("Play scene").click();
+    h.run_steps(2);
+    h.get_by_label("Stop scene").click();
+    h.run_steps(2);
+    assert_eq!(h.state().live_scene.status["last"]["error"], "Scene stopped");
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 4);
+    h.get_by_label("Record").click();
+    h.run_steps(2);
+    h.state_mut().close();
+    h.run_steps(2);
+    assert!(!h.state().live_scene.recording);
+    h.state_mut().open_module(&module);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().live_scene.draft.steps[0].delay_ms,
+        5000,
+        "module switching retains the draft"
+    );
+    assert!(h.state().live_service.is_none());
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_clients_draft_validates_rotates_applies_and_cancels() {
+    use mg_live::access::ClientGroup;
+    let mut app = app_with(Vec::new());
+    app.actions.push(mg_ui::Action::LiveOptions);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280., 1000.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let path = h.state().dock.find_tab(&Tab::Options).unwrap();
+    h.state_mut()
+        .dock
+        .get_window_state_mut(path.surface)
+        .unwrap()
+        .set_position(egui::pos2(50., 40.))
+        .set_size(egui::vec2(1120., 900.));
+    h.run_steps(3);
+    #[cfg(windows)]
+    {
+        h.get_by_label("Keep WSL running").click();
+        h.run_steps(2);
+    }
+    h.get_by_label("Named clients").click();
+    h.run_steps(2);
+    h.get_by_label("Add client").click();
+    h.run_steps(2);
+    let first = h.state().options.as_ref().unwrap().live.clients[0].token.clone();
+    assert!(first.len() >= 32);
+    assert!(h.state().settings.live.clients.is_empty());
+    h.get_by_label("npc").click();
+    h.get_by_label("variables").click();
+    h.get_by_label("Generate token").click();
+    h.run_steps(2);
+    assert!(h.state().options.as_ref().unwrap().live.clients[0].token != first);
+    h.get_by_label("Copy client token").click();
+    h.run_steps(1);
+    assert!(
+        h.output()
+            .platform_output
+            .commands
+            .iter()
+            .any(|c| matches!(c, egui::OutputCommand::CopyText(_)))
+    );
+    h.state_mut().options.as_mut().unwrap().live.clients[0].name = "default".into();
+    h.run_steps(2);
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+    let draft = &mut h.state_mut().options.as_mut().unwrap().live;
+    draft.clients[0].name = "Story assistant".into();
+    draft.clients[0].per_minute = 30;
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let config = &h.state().settings.live;
+    assert_eq!(config.clients[0].name, "Story assistant");
+    assert_eq!(config.clients[0].per_minute, 30);
+    assert!(config.clients[0].groups.contains(&ClientGroup::Variables));
+    assert!(config.clients[0].groups.contains(&ClientGroup::Npc));
+    #[cfg(windows)]
+    assert_eq!(config.keep_wsl, Some(false));
+    let restored: mg_ui::Settings =
+        serde_json::from_str(&serde_json::to_string(&h.state().settings).unwrap()).unwrap();
+    assert!(restored.live == *config);
+    h.get_by_label("Remove client").click();
+    h.run_steps(2);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings.live.clients.len(), 1);
+    assert!(h.state().live_service.is_none(), "disabled Live starts no listener or WSL child");
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_options_apply_starts_restarts_stops_and_refuses_chunks_over_https() {
+    use std::io::{Read, Write};
+    use std::sync::Arc;
+    let mut app = app_with(Vec::new());
+    // Service commands require the same durable identity setup as desktop startup.
+    app.recovery_dir = Some(mg_testkit::scratch_dir("ui-live-options-service").join("recovery"));
+    app.settings.live.keep_logs = false;
+    app.settings.live.keep_wsl = Some(false);
+    let old: mg_ui::Settings = serde_json::from_str("{}").unwrap();
+    assert!(!old.live.enabled && !old.live.policy.chunks && old.live.policy.scripts);
+    app.settings.live.api_port = 0;
+    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+    app.options = Some(mg_ui::OptionsDraft::from_settings(&app.settings));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100., 900.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_all_by_label("Live").last().unwrap().click();
+    h.run();
+    h.get_by_label("Enable live mode").click();
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let service = h.state().live_service.as_ref().expect("Apply starts the service");
+    let port = service.config().api_port;
+    assert_ne!(port, 0);
+    assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_err());
+    let token = service.config().token.clone();
+    assert_eq!(h.state().settings.live.token, token);
+    assert!(!format!("{:?}", h.state().settings).contains(&token), "Debug must redact the token");
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
+    assert_eq!(back.live, h.state().settings.live);
+    let store = h.state().live.as_ref().unwrap().clone();
+    store
+        .sync(
+            br#"{"v":1,"boot":"options","seq":1,"areas":[{"area":"start","full":true,"cre":[]}]}"#,
+            mg_live::now_ms(),
+        )
+        .unwrap();
+
+    // External calls need the owner's explicit consent as well as the chunk policy.
+    h.get_by_label("Allow LLM connections (MCP / agent API)").click();
+    h.run_steps(2);
+    let service = h.state().live_service.as_ref().unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(rustls::pki_types::CertificateDer::from(service.certificate().to_vec())).unwrap();
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let client =
+        rustls::ClientConnection::new(Arc::new(config), "moonglow-live".try_into().unwrap())
+            .unwrap();
+    let socket = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+    let mut tls = rustls::StreamOwned::new(client, socket);
+    let body = r#"{"area":"start","op":"run_chunk","code":"SetName(OBJECT_SELF, \"test\");"}"#;
+    write!(tls, "POST /live/v1/command HTTP/1.1\r\nHost: moonglow-live\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    tls.flush().unwrap();
+    let mut response = String::new();
+    tls.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+    assert!(response.contains("NWScript chunks are off in Options"), "{response}");
+    drop(tls);
+
+    // Applying again must release the exact listening port before rebinding it.
+    h.state_mut().options.as_mut().unwrap().live.api_port = port;
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    assert_eq!(h.state().live_service.as_ref().unwrap().config().api_port, port);
+    h.get_by_label("Enable live mode").click();
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    assert!(h.state().live_service.is_none());
+    assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok());
+    assert!(Arc::ptr_eq(h.state().live.as_ref().unwrap(), &store));
+    assert!(store.area("start").is_some(), "Off retains the last report");
+    h.get_by_label("Live mode is off");
+}
+
+#[test]
+fn live_menu_starts_and_stops_live_and_opens_its_options() {
+    let mut app = app_with(Vec::new());
+    app.settings.live.api_port = 0;
+    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100., 900.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Live").click();
+    h.run();
+    // No area shown: the view's command can't be chosen.
+    assert!(
+        h.get_by_label("    Show Live in This Area Ctrl+Shift+L").accesskit_node().is_disabled()
+    );
+    h.get_by_label("Start Live").click();
+    h.run_steps(3);
+    assert!(h.state().settings.live.enabled);
+    assert!(h.state().live_service.is_some(), "the menu starts the service");
+
+    h.get_by_label("Live").click();
+    h.run();
+    h.get_by_label("Stop Live").click();
+    h.run_steps(3);
+    assert!(!h.state().settings.live.enabled);
+    assert!(h.state().live_service.is_none());
+
+    // The live windows open from the Live menu.
+    for (item, tab) in [
+        ("Scenes…", Tab::Scene),
+        ("Visual Effects…", Tab::LiveVfx),
+        ("NPC Library…", Tab::LiveLibrary),
+        ("Skill Check…", Tab::LiveSkill),
+    ] {
+        h.get_all_by_label("Live").next().unwrap().click();
+        h.run();
+        h.get_by_label(item).click();
+        h.run_steps(2);
+        assert!(h.state().dock.find_tab(&tab).is_some(), "{item} opens {tab:?}");
+    }
+    h.get_all_by_label("Live").next().unwrap().click();
+    h.run();
+    h.get_by_label("Live Options…").click();
+    h.run();
+    h.get_by_label("Enable live mode");
+}
+
+#[test]
+fn live_chat_shows_speech_and_messages_every_player() {
+    let mut app = app_with(Vec::new());
+    // Service commands require the same durable identity setup as desktop startup.
+    app.recovery_dir = Some(mg_testkit::scratch_dir("ui-live-chat-service").join("recovery"));
+    app.settings.live.keep_logs = false;
+    app.settings.live.keep_wsl = Some(false);
+    app.settings.live.api_port = 0;
+    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100., 900.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_all_by_label("Live").next().unwrap().click();
+    h.run();
+    h.get_by_label("Start Live").click();
+    h.run_steps(3);
+    let store = h.state().live.as_ref().expect("Live started").clone();
+    store.set_policy(mg_ui::live::Policy { scripts: true, chunks: false, players: true });
+    let report = serde_json::json!({"v":1,"boot":"chat","seq":1,"areas":[{"area":"gate","full":true,
+        "cre":[{"id":"7","name":"Gate Guard","portrait":"po_hu_m_99_"},{"id":"9","name":"Simo","pc":true}]}],"events":[
+        {"seq":1,"kind":"chat","id":"7","name":"Gate Guard","area":"gate","channel":1,"text":"Halt!"},
+        {"seq":2,"kind":"chat","id":"7","name":"Gate Guard","area":"gate","channel":5,"text":"NW_I_WAS_ATTACKED"}]});
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.get_all_by_label("Live").next().unwrap().click();
+    h.run();
+    h.get_by_label("Live Chat").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Gate Guard: Halt!");
+    assert!(h.query_by_label_contains("NW_I_WAS_ATTACKED").is_none(), "AI shouts are not chat");
+    // The speaker's portrait (without game data, its placeholder) beside the line.
+    assert_eq!(h.query_all_by_label("?").count(), 1);
+    h.get_by_label("To all players").click();
+    h.state_mut().live_chat.text = "The gates close at dusk.".into();
+    h.run();
+    h.get_by_label("Send").click();
+    h.run_steps(2);
+    let queued = store.status(mg_live::now_ms())["queued"].clone();
+    let sent: Vec<_> =
+        queued.as_array().unwrap().iter().filter(|c| c["op"] == "pc_message").collect();
+    assert_eq!(sent.len(), 1, "{queued}");
+    assert_eq!(
+        (sent[0]["target"].as_str(), sent[0]["text"].as_str()),
+        (Some("9"), Some("The gates close at dusk."))
+    );
+}
+
+#[test]
+fn live_log_shows_the_game_s_events_by_page() {
+    let mut app = app_with(Vec::new());
+    app.settings.live.api_port = 0;
+    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100., 900.))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Live").click();
+    h.run();
+    h.get_by_label("Start Live").click();
+    h.run_steps(3);
+    let store = h.state().live.as_ref().expect("Live started").clone();
+    let report = serde_json::json!({"v":1,"boot":"log","seq":1,"areas":[{"area":"gate","full":true,
+        "cre":[{"id":"7","name":"Gate Guard"},{"id":"9","name":"Bandit"}]}],"events":[
+        {"seq":1,"kind":"chat","id":"7","name":"Gate Guard","area":"gate","channel":2,"text":"Halt!"},
+        {"seq":2,"kind":"death","id":"9","name":"Bandit","area":"gate","killer":"7"}]});
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    store.server_log(
+        &serde_json::json!({"v":1,"kind":"server_log","stream":"s","seq":1,"line":"Script error: boom","script_error":true}),
+        mg_live::now_ms(),
+    );
+    h.get_by_label("Live").click();
+    h.run();
+    h.get_by_label("Live Log").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Gate Guard (shout): Halt!");
+    h.get_by_label_contains("Bandit dies (killed by Gate Guard)");
+    h.get_by_label_contains("Script error: boom");
+    h.get_by_label("Chat").click();
+    h.run_steps(2);
+    h.get_by_label_contains("Halt!");
+    assert!(
+        h.query_by_label_contains("Script error: boom").is_none(),
+        "the Chat page shows chat only"
+    );
+    // Clear hides what is shown; agents still read it from the store.
+    h.get_by_label("Clear").click();
+    h.run_steps(2);
+    h.get_by_label_contains("0 events");
+    assert_eq!(store.events(&mg_live::events::Query::default()).0.len(), 3);
 }
 
 #[test]
@@ -15412,24 +17273,24 @@ fn an_area_s_picture_is_kept_until_something_in_it_changes() {
         frame(&mut h, 0.005);
     }
     assert_eq!(pictures(&h), drawn, "kept from frame to frame");
-    // The animations step some 25 times a second.
+    // A plain grass field has no timed animation to redraw.
     frame(&mut h, 0.03);
-    assert_eq!(pictures(&h), drawn + 1, "drawn as the animations step");
+    assert_eq!(pictures(&h), drawn, "static scenery keeps its image across animation steps");
     // The camera turned: at once.
     h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw += 0.1;
     frame(&mut h, 0.005);
-    assert_eq!(pictures(&h), drawn + 2, "drawn as the camera moves");
+    assert_eq!(pictures(&h), drawn + 1, "drawn as the camera moves");
     // By night.
     h.state_mut().area_views.get_mut(&area).unwrap().night ^= true;
     frame(&mut h, 0.005);
-    assert_eq!(pictures(&h), drawn + 3, "drawn as the view changes");
+    assert_eq!(pictures(&h), drawn + 2, "drawn as the view changes");
     // The pointer over it, with nothing to place: the same picture.
     let waypoint = screen(&h, area, glam::Vec3::new(20.0, 20.0, 0.9));
     h.hover_at(waypoint);
     frame(&mut h, 0.005);
     h.hover_at(waypoint + egui::vec2(3.0, 0.0));
     frame(&mut h, 0.005);
-    assert_eq!(pictures(&h), drawn + 3, "kept under the pointer");
+    assert_eq!(pictures(&h), drawn + 2, "kept under the pointer");
     // The area edited (a waypoint deleted).
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Waypoint, 0)];
@@ -15439,7 +17300,7 @@ fn an_area_s_picture_is_kept_until_something_in_it_changes() {
     let ws = h.state_mut().ws.as_mut().unwrap();
     let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
     assert_eq!(git.root.list("WaypointList").map(<[mg_gff::Struct]>::len), Some(1));
-    assert!(pictures(&h) > drawn + 3, "drawn as the area changes");
+    assert!(pictures(&h) > drawn + 2, "drawn as the area changes");
     let drawn = pictures(&h);
     for _ in 0..3 {
         frame(&mut h, 0.005);
@@ -17498,6 +19359,1003 @@ fn look_palette_in_language() {
     eprintln!("LANG {:?} sample {:?}", game.language, game.string(mg_core::StrRef(6686)));
 }
 
+#[path = "support/live_windows.rs"]
+mod live_windows;
+#[test]
+fn hexxar_vfx_window_fake_store() {
+    live_windows::vfx_app();
+}
+#[test]
+fn hexxar_appearance_live_confirmation() {
+    live_windows::appearance_app();
+}
+#[test]
+fn hexxar_library_window_fake_store() {
+    live_windows::library_app();
+}
+#[test]
+fn hexxar_skill_window_fake_store() {
+    live_windows::skill_app();
+}
+
+#[test]
+fn live_review_patrol_aims_groups_bounds_points_and_observes_progress() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    store.sync(serde_json::json!({"v":1,"boot":"patrol-ui","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[
+        {"id":"1","x":18,"y":20},{"id":"2","x":21,"y":20},{"id":"3","pc":true,"x":24,"y":20}]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live = mg_live::LiveConfig {
+        enabled: true,
+        api_port: 0,
+        redis_port: 1,
+        keep_wsl: Some(false),
+        ..Default::default()
+    };
+    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(3);
+    for id in ["1", "2", "3"] {
+        h.state_mut().area_views.get_mut(&area).unwrap().live.select(Some(id.into()), true);
+    }
+    h.run_steps(2);
+    let ground = screen(&h, area, glam::vec3(25., 26., 0.));
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        let ground = if h.state().area_views[&area].live.selection_ids().count() == 1 {
+            screen(h, area, glam::vec3(18., 20., 0.3))
+        } else {
+            ground
+        };
+        h.hover_at(ground);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: ground,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+    };
+    open(&mut h);
+    review_click(&mut h, "Patrol…");
+    h.run_steps(2);
+    h.get_by_label("Loop").click();
+    h.get_by_label("Run").click();
+    h.run_steps(2);
+    for n in 0..17 {
+        let at = screen(&h, area, glam::vec3(18. + (n % 2) as f32 * 5., 22., 0.));
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    }
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.get_by_label("2 NPCs · 16 / 16 points");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let at = screen(&h, area, glam::vec3(18., 22., 0.));
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 2);
+    for cmd in q {
+        assert_eq!(cmd["op"], "patrol");
+        assert_ne!(cmd["target"], "3");
+        assert_eq!(cmd["points"].as_array().unwrap().len(), 16);
+        assert_eq!(cmd["loop"], true);
+        assert_eq!(cmd["run"], true);
+    }
+    let results: Vec<_> = q.iter().map(|c| serde_json::json!({"id":c["id"],"ok":true})).collect();
+    store.sync(serde_json::json!({"v":1,"boot":"patrol-ui","seq":2,"areas":[],"results":results,"events":[{"seq":1,"kind":"patrol","area":area.to_string(),"id":"1","generation":1,"point":0,"lap":0,"status":"reached","position":{"x":18,"y":22,"z":-1.3}}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.patrol_paths, 2);
+    open(&mut h);
+    review_click(&mut h, "Stop Patrol");
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 2);
+    assert!(q.iter().all(|c| c["op"] == "stop_patrol"));
+    let results: Vec<_> = q.iter().map(|c| serde_json::json!({"id":c["id"],"ok":true})).collect();
+    store
+        .sync(
+            serde_json::json!({"v":1,"boot":"patrol-ui","seq":3,"areas":[],"results":results})
+                .to_string()
+                .as_bytes(),
+            mg_live::now_ms(),
+        )
+        .unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.patrol_paths, 0);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.select(Some("1".into()), false);
+    open(&mut h);
+    review_click(&mut h, "Patrol…");
+    h.run_steps(2);
+    h.get_by_label("Close window").click();
+    h.run_steps(2);
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    open(&mut h);
+    review_click(&mut h, "Patrol…");
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    open(&mut h);
+    review_click(&mut h, "Patrol…");
+    h.run_steps(2);
+    let ground = screen(&h, area, glam::vec3(18., 22., 0.));
+    h.run_steps(30);
+    for _ in 0..2 {
+        h.hover_at(ground);
+        press(&h, ground, true, egui::Modifiers::NONE);
+        press(&h, ground, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    }
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 1);
+    assert_eq!(q[0]["points"].as_array().unwrap().len(), 1);
+    assert_eq!(q[0]["loop"], false);
+    store.sync(serde_json::json!({"v":1,"boot":"patrol-new","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[{"id":"1","x":18,"y":20},{"id":"2","x":21,"y":20}]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().area_views[&area].live.patrol_paths,
+        0,
+        "old boot events cannot revive paths"
+    );
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_tiles_confirm_observe_restore_and_preserve_the_module() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    store.sync(serde_json::json!({"v":1,"boot":"tiles-ui","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live = mg_live::LiveConfig {
+        enabled: true,
+        api_port: 0,
+        redis_port: 1,
+        keep_wsl: Some(false),
+        ..Default::default()
+    };
+    h.state_mut().apply_live(&egui::Context::default());
+    let revision = h.state().ws.as_ref().unwrap().revision();
+    let are_key = ResKey::new(area, ResType::ARE);
+    let before = h.state_mut().ws.as_mut().unwrap().doc(&are_key).unwrap().clone();
+    let original = h.state().area_views[&area].model.as_ref().unwrap().tiles[2].clone();
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+    h.run_steps(3);
+    h.get_all_by_label("Live: painting the running server").next().unwrap();
+    h.get_by_label("Close window").click();
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+    h.run_steps(2);
+    let at = screen(&h, area, glam::vec3(25., 5., 0.));
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.get_by_label("Tile 2, 0 (grid coordinates)");
+    h.get_by_label("Advanced").click();
+    h.run_steps(2);
+    let replacement = if original.id == 0 { 1 } else { 0 };
+    for (label, value) in [
+        ("Tile ID", replacement.to_string()),
+        ("Orientation", "1".into()),
+        ("Tile height", "1".into()),
+    ] {
+        h.get_by_label(label).click();
+        h.run_steps(1);
+        h.event(egui::Event::Text(value));
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+    }
+    h.get_by_label("Apply Live Tile").click();
+    h.run_steps(2);
+    h.get_by_label("Confirm live tile painting");
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.get_by_label("Cancel Tile Change").click();
+    h.run_steps(2);
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.get_by_label("Apply Live Tile").click();
+    h.run_steps(2);
+    h.get_by_label("Confirm Live Painting").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 1);
+    assert_eq!(q[0]["op"], "set_tile");
+    assert_eq!(q[0]["x"], 2);
+    assert_eq!(q[0]["y"], 0);
+    assert_eq!(q[0]["tile_id"], replacement);
+    assert_eq!(q[0]["orientation"], 1);
+    assert_eq!(q[0]["height"], 1);
+    assert_eq!(
+        h.state().area_views[&area].model.as_ref().unwrap().tiles[2].id,
+        original.id,
+        "no optimistic terrain changes"
+    );
+    let old = serde_json::json!({"tile_id":original.id,"orientation":original.orientation,"height":original.height});
+    store.sync(serde_json::json!({"v":1,"boot":"tiles-ui","seq":2,"areas":[],"results":[{"id":q[0]["id"],"ok":true}],"events":[{"seq":1,"kind":"tile","area":area.to_string(),"x":2,"y":0,"tile_id":replacement,"orientation":1,"height":1,"before":old}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(3);
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    let shown = &model.tiles[2];
+    assert_eq!(shown.id, replacement);
+    assert_eq!(shown.orientation, 1);
+    assert_eq!(shown.position.z, model.height_step);
+    h.get_by_label("Restore First Observed Tile").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 1);
+    assert_eq!(q[0]["tile_id"], original.id);
+    assert_eq!(q[0]["height"], original.height);
+    assert!(h.query_by_label("Confirm Live Painting").is_none());
+    // Paint neighbouring cells through the same queue, without editing the ARE.
+    h.get_by_label("Paint single tiles").click();
+    h.run_steps(2);
+    let to = screen(&h, area, glam::vec3(35., 5., 0.));
+    h.hover_at(to);
+    press(&h, to, true, egui::Modifiers::NONE);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 2);
+    assert!(q.iter().any(|c| c["x"] == 3 && c["y"] == 0));
+    let next = screen(&h, area, glam::vec3(35., 15., 0.));
+    h.hover_at(to);
+    press(&h, to, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.hover_at(next);
+    h.run_steps(3);
+    press(&h, next, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 3);
+    assert!(q.iter().any(|c| c["x"] == 3 && c["y"] == 1));
+    let failed: Vec<_> = q
+        .iter()
+        .map(|c| serde_json::json!({"id":c["id"],"ok":false,"err":"tile refused","code":"invalid"}))
+        .collect();
+    store
+        .sync(
+            serde_json::json!({"v":1,"boot":"tiles-ui","seq":3,"areas":[],"results":failed})
+                .to_string()
+                .as_bytes(),
+            mg_live::now_ms(),
+        )
+        .unwrap();
+    h.run_steps(2);
+    h.get_by_label("Tile command failed: tile refused");
+    assert_eq!(h.state().area_views[&area].model.as_ref().unwrap().tiles[2].id, replacement);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
+    assert!(h.state().palette.tile_brush.is_none());
+    assert!(h.state().palette.selected.is_none());
+    // Off restores authoring presentation; reopening reapplies observed changes.
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = false;
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].model.as_ref().unwrap().tiles[2].id, original.id);
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].model.as_ref().unwrap().tiles[2].id, replacement);
+    // A new boot invalidates tile observations and requires fresh confirmation.
+    store.sync(serde_json::json!({"v":1,"boot":"tiles-ui-new","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].model.as_ref().unwrap().tiles[2].id, original.id);
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.get_by_label("Apply Live Tile").click();
+    h.run_steps(2);
+    h.get_by_label("Confirm Live Painting");
+    h.get_by_label("Cancel Tile Change").click();
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    // Palette selection arms a height-preserving brush. Rotation uses the editor binding.
+    let tile_model = mg_area::tileset(
+        h.state().game.as_deref().unwrap(),
+        h.state().area_views[&area].model.as_ref().unwrap().tileset.unwrap(),
+    )
+    .unwrap()
+    .tiles[replacement as usize]
+        .model
+        .clone();
+    h.get_by_label(&format!("Use tile {tile_model}")).click();
+    h.run_steps(2);
+    h.hover_at(to);
+    h.key_press(egui::Key::Q);
+    h.run_steps(2);
+    press(&h, to, true, egui::Modifiers::NONE);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.get_by_label("Confirm Live Painting").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 1);
+    assert_eq!(q[0]["tile_id"], replacement);
+    assert_eq!(q[0]["orientation"], (original.orientation + 1) % 4);
+    assert_eq!(q[0]["height"], h.state().area_views[&area].model.as_ref().unwrap().tiles[3].height);
+    let camera = h.state().area_views[&area].camera().unwrap();
+    assert_eq!(h.state().ws.as_ref().unwrap().revision(), revision);
+    h.hover_at(to);
+    press(&h, to, true, egui::Modifiers::NONE);
+    h.hover_at(next);
+    h.run_steps(3);
+    press(&h, next, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"].as_array().unwrap().len(), 2);
+    assert_eq!(h.state().area_views[&area].camera().unwrap().target, camera.target);
+    assert_eq!(h.state().ws.as_ref().unwrap().revision(), revision);
+    h.get_by_label("Stop painting").click();
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
+    assert!(h.state().palette.tile_brush.is_none() && h.state().palette.selected.is_none());
+    assert!(h.query_by_label("Stop painting").is_none());
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(
+        store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(),
+        2,
+        "ordinary click after Stop cannot paint"
+    );
+    assert!(!h.state().has_unsaved_work());
+    assert!(h.state_mut().ws.as_mut().unwrap().doc(&are_key).unwrap() == &before);
+}
+
+fn review_live_start(
+    h: &mut Harness<'_, Moonglow>,
+    area: ResRef,
+    mut report: serde_json::Value,
+) -> std::sync::Arc<mg_live::store::LiveStore> {
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    report["v"] = 1.into();
+    report["boot"] = "accept2".into();
+    report["seq"] = 1.into();
+    report["areas"][0]["area"] = area.to_string().into();
+    report["areas"][0]["full"] = true.into();
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.state_mut().live = Some(store.clone());
+    h.state_mut().settings.live = mg_live::LiveConfig {
+        enabled: true,
+        api_port: 0,
+        redis_port: 1,
+        keep_wsl: Some(false),
+        policy: mg_live::store::Policy { players: true, ..Default::default() },
+        ..Default::default()
+    };
+    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
+    h.run_steps(4);
+    store
+}
+
+fn review_open_menu(h: &mut Harness<'_, Moonglow>, area: ResRef, _player: bool) {
+    let pos = screen(h, area, glam::vec3(20., 20., 0.3));
+    h.hover_at(pos);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+}
+
+fn review_number(h: &mut Harness<'_, Moonglow>, label: &str, value: &str) {
+    h.get_by_label(label).click();
+    h.run_steps(1);
+    h.event(egui::Event::Text(value.into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+}
+
+#[test]
+fn live_review_layout_places_tools_right_and_selection_focus_keeps_the_group() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{"cre":[{"id":"a","name":"First","x":20,"y":20,"hp":[6,10]},{"id":"b","name":"Second","x":25,"y":20}]}]}),
+    );
+    let pane = h.state().dock.find_tab(&Tab::Palette).unwrap();
+    for tab in [
+        Tab::LivePanel,
+        Tab::LiveSelection,
+        Tab::LiveChat,
+        Tab::LiveVfx,
+        Tab::LiveSkill,
+        Tab::Scene,
+        Tab::LiveInventory,
+        Tab::LiveLibrary,
+    ] {
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        assert!(at.surface.is_main());
+        assert_eq!(at.node, pane.node);
+    }
+    assert!(h.state().dock.find_tab(&Tab::LiveLog).is_none());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::LiveLog));
+    h.run_steps(2);
+    assert_eq!(h.state().dock.find_tab(&Tab::LiveLog).unwrap().node, pane.node);
+    assert_ne!(h.state().dock.find_tab(&Tab::Area(area)).unwrap().node, pane.node);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.live.select(Some("a".into()), false);
+    view.live.select(Some("b".into()), true);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::LiveSelection));
+    h.run_steps(3);
+    h.get_by_label("6/10");
+    h.get_by_label("Second").click();
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].live.selection_ids().count(), 2);
+    assert!(
+        h.state().area_views[&area].camera().unwrap().target.distance(glam::vec3(25., 20., 0.))
+            < 0.01
+    );
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_reported_appearance_overrides_blueprint_and_refreshes_its_cache() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let game = h.state().game.as_deref().unwrap();
+    let table = game.table("placeables").unwrap();
+    let row = (0..table.len())
+        .find(|&r| table.get(r, "Label").is_some_and(|s| s.to_lowercase().contains("cabinet")))
+        .unwrap();
+    let model = table.get(row, "ModelName").unwrap().to_ascii_lowercase();
+    let mut report = serde_json::json!({"v":1,"boot":"accept2","seq":1,"areas":[{"area":area.to_string(),"full":true,"plc":[{"id":"a","r":"plc_chest1","name":"Cabinet","app":row,"x":20,"y":20}]}]});
+    let store = review_live_start(&mut h, area, report.clone());
+    assert_eq!(h.state().area_views[&area].live.preview("a").unwrap().base.model, model);
+    report["seq"] = 2.into();
+    report["areas"][0]["plc"][0]["app"] = serde_json::Value::Null;
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(3);
+    assert_ne!(h.state().area_views[&area].live.preview("a").unwrap().base.model, model);
+    // An absent blueprint still has a native appearance; it must draw that model.
+    report["seq"] = 3.into();
+    report["areas"][0]["plc"][0]["r"] = "missing_live_bp".into();
+    report["areas"][0]["plc"][0]["app"] = row.into();
+    store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].live.preview("a").unwrap().base.model, model);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_static_transform_explains_and_queues_make_dynamic() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{"plc":[{"id":"a","name":"Static chest","r":"plc_chest1","x":20,"y":20,"static":true}]}]}),
+    );
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Visual Transform…");
+    h.run_steps(2);
+    h.get_by_label("Static: VFX and visual transforms are unavailable.");
+    assert!(h.get_by_label("Apply Transform").accesskit_node().is_disabled());
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.get_by_label("Make Dynamic").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"][0]["op"], "set_static");
+    assert_eq!(status["queued"][0]["static"], false);
+}
+
+#[test]
+fn live_review_player_values_and_boot_confirmation_use_the_clicked_target() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{"cre":[{"id":"a","name":"Test player","pc":true,"x":20,"y":20}]}]}),
+    );
+    review_open_menu(&mut h, area, true);
+    review_click(&mut h, "Give Gold ⏵");
+    h.run_steps(2);
+    review_number(&mut h, "Gold amount", "237");
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.get_by_label("Give Gold Now").click();
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"][0]["amount"], 237);
+    review_open_menu(&mut h, area, true);
+    review_click(&mut h, "Freeze ⏵");
+    h.run_steps(2);
+    review_number(&mut h, "Freeze seconds", "17");
+    h.get_by_label("Freeze Now").click();
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"][1]["seconds"], 17.);
+    review_open_menu(&mut h, area, true);
+    review_click(&mut h, "Boot…");
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 2);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    review_open_menu(&mut h, area, true);
+    review_click(&mut h, "Boot…");
+    h.run_steps(2);
+    h.get_by_label("Confirm Boot").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"][2]["op"], "pc_boot");
+    assert_eq!(status["queued"][2]["target"], "a");
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Skill Check…");
+    h.run_steps(3);
+    assert_eq!(h.state().live_skill.single, None);
+    assert_eq!(h.state().area_views[&area].live.selected.as_deref(), Some("a"));
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_run_commands_and_shift_shortcut_queue_running_moves() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{"cre":[
+        {"id":"a","name":"Runner","x":20,"y":20},
+        {"id":"b","name":"Second","x":23,"y":20},
+        {"id":"c","name":"Player","pc":true,"x":28,"y":20}]}]}),
+    );
+    let destination = screen(&h, area, glam::vec3(30., 30., 0.));
+    for (id, x, _player, label, modifiers) in [
+        ("a", 20., false, "Run Here…", egui::Modifiers::NONE),
+        ("c", 28., true, "Run Here…", egui::Modifiers::NONE),
+        ("a", 20., false, "Walk Here…", egui::Modifiers::SHIFT),
+    ] {
+        let at = screen(&h, area, glam::vec3(x, 20., 0.3));
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+        review_click(&mut h, label);
+        h.run_steps(2);
+        h.hover_at(destination);
+        press(&h, destination, true, modifiers);
+        press(&h, destination, false, modifiers);
+        h.run_steps(2);
+        let status = store.status(mg_live::now_ms());
+        let q = status["queued"].as_array().unwrap().last().unwrap();
+        assert_eq!(q["target"], id);
+        assert_eq!(q["run"], true);
+        assert_eq!(q["op"], "npc_move");
+    }
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.live.select(Some("a".into()), false);
+        view.live.select(Some("b".into()), true);
+    }
+    for (label, formation) in [("Run in Formation…", true), ("Run to One Point…", false)] {
+        h.hover_at(destination);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: destination,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+        review_click(&mut h, label);
+        h.run_steps(2);
+        h.hover_at(destination);
+        press(&h, destination, true, egui::Modifiers::NONE);
+        press(&h, destination, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        let status = store.status(mg_live::now_ms());
+        let q = status["queued"].as_array().unwrap();
+        let pair = &q[q.len() - 2..];
+        assert!(pair.iter().all(|v| v["run"] == true));
+        assert_eq!(pair[0]["x"] != pair[1]["x"] || pair[0]["y"] != pair[1]["y"], formation);
+    }
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 7);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_numeric_menu_values_and_npc_skill_radius() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{"cre":[{"id":"a","name":"NPC centre","x":20,"y":20}]}]}),
+    );
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Heal ⏵");
+    h.run_steps(2);
+    review_number(&mut h, "Heal amount", "42");
+    assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
+    h.get_by_label("Heal Amount").click();
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"][0]["amount"], 42);
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Skill Check…");
+    h.run_steps(3);
+    assert_eq!(h.state().live_skill.single, None);
+    assert!(h.get_by_label("Selected player").accesskit_node().is_disabled());
+    h.get_by_label("Players in radius");
+    let at = screen(&h, area, glam::vec3(30., 30., 0.));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Set Time ⏵").click();
+    h.run_steps(2);
+    review_number(&mut h, "Hour", "7");
+    review_number(&mut h, "Minute", "23");
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 1);
+    h.get_by_label("Set Server Time").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    assert_eq!(status["queued"][1]["hour"], 7);
+    assert_eq!(status["queued"][1]["minute"], 23);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_teleport_all_kinds_facing_and_cancel() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{"size":[100,100],"cre":[{"id":"a","x":20,"y":20,"f":90}]}]}),
+    );
+    let revision = h.state().ws.as_ref().unwrap().revision();
+    for (n, field, pc) in [
+        (0, "cre", false),
+        (1, "plc", false),
+        (2, "doors", false),
+        (3, "items", false),
+        (4, "cre", true),
+    ] {
+        let mut a = serde_json::json!({"area":area.to_string(),"full":true,"size":[100,100],"cre":[],"plc":[],"doors":[],"items":[]});
+        a[field] = serde_json::json!([{"id":"a","name":"Traveller","x":20,"y":20,"f":90,"pc":pc}]);
+        store
+            .sync(
+                serde_json::json!({"v":1,"boot":"accept2","seq":n+2,"areas":[a]})
+                    .to_string()
+                    .as_bytes(),
+                mg_live::now_ms(),
+            )
+            .unwrap();
+        h.run_steps(3);
+        review_open_menu(&mut h, area, pc);
+        review_click(&mut h, "Teleport…");
+        h.run_steps(2);
+        let destination = screen(&h, area, glam::vec3(30., 30., 0.));
+        h.hover_at(destination);
+        h.key_press(egui::Key::Q);
+        h.run_steps(2);
+        assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), n as usize);
+        press(&h, destination, true, egui::Modifiers::NONE);
+        press(&h, destination, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        let status = store.status(mg_live::now_ms());
+        let q = &status["queued"][n as usize];
+        assert_eq!(q["op"], "teleport");
+        assert_eq!(q["target"], "a");
+        assert_eq!(q["area"], area.to_string());
+        assert!((q["x"].as_f64().unwrap() - 30.).abs() < 0.1);
+        assert!((q["y"].as_f64().unwrap() - 30.).abs() < 0.1);
+        assert_ne!(q["f"], 90.);
+    }
+    for escape in [true, false] {
+        review_open_menu(&mut h, area, true);
+        review_click(&mut h, "Teleport…");
+        h.run_steps(2);
+        let at = screen(&h, area, glam::vec3(30., 30., 0.));
+        h.hover_at(at);
+        if escape {
+            h.key_press(egui::Key::Escape);
+        } else {
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+        }
+        h.run_steps(2);
+        assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 5);
+        assert!(h.query_by_label("Teleport…").is_none(), "cancel must not open the menu");
+    }
+    store.set_policy(mg_live::store::Policy::default());
+    review_open_menu(&mut h, area, false);
+    h.get_by_label("Player: actions are off");
+    assert!(h.query_by_label("Teleport…").is_none());
+    assert_eq!(h.state().ws.as_ref().unwrap().revision(), revision);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_teleport_group_offsets_and_destination_area() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[
+        {"size":[100,100],"cre":[{"id":"a","name":"NPC","x":20,"y":20,"f":90},{"id":"c","name":"Player","pc":true,"x":26,"y":20,"f":180}],"items":[{"id":"b","name":"Ground item","x":23,"y":22,"z":1}]},
+        {"area":"other","full":true,"size":[60,40]}]}),
+    );
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    for (id, toggle) in [("a", false), ("b", true), ("c", true)] {
+        view.live.select(Some(id.into()), toggle);
+    }
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Teleport…");
+    h.run_steps(2);
+    let at = screen(&h, area, glam::vec3(30., 30., 0.));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        press(&h, at, pressed, egui::Modifiers::NONE);
+    }
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 3);
+    let a = q.iter().find(|q| q["target"] == "a").unwrap();
+    let b = q.iter().find(|q| q["target"] == "b").unwrap();
+    assert!((b["x"].as_f64().unwrap() - a["x"].as_f64().unwrap() - 3.).abs() < 0.01);
+    assert!((b["y"].as_f64().unwrap() - a["y"].as_f64().unwrap() - 2.).abs() < 0.01);
+    assert!((b["z"].as_f64().unwrap() - a["z"].as_f64().unwrap() - 1.).abs() < 0.01);
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Teleport to Area…");
+    h.run_steps(2);
+    h.get_by_label("Destination area").click();
+    h.run_steps(2);
+    h.get_by_label("other").click();
+    h.run_steps(2);
+    review_number(&mut h, "Destination X", "59");
+    assert!(h.query_by_label("Keep every landing point inside the area.").is_some());
+    h.get_by_label("Area Centre").click();
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 3);
+    h.get_by_label("Destination map").click();
+    h.run_steps(2);
+    let status = store.status(mg_live::now_ms());
+    let q = status["queued"].as_array().unwrap();
+    assert_eq!(q.len(), 6);
+    assert!(q[3..].iter().all(|q| q["area"] == "other" && q["op"] == "teleport"));
+    // The first selected object anchors the translated group; the centre is (30,20).
+    let anchor = h.state().area_views[&area].live.selection_ids().next().unwrap();
+    let at = q[3..].iter().find(|q| q["target"] == anchor).unwrap();
+    assert_eq!(at["x"], 30.);
+    assert_eq!(at["y"], 20.);
+    // Reconstructed same-area item: the report/result replaces the selected ID.
+    let command = q.iter().find(|q| q["target"] == "b").unwrap()["id"].clone();
+    store.sync(serde_json::json!({"v":1,"boot":"accept2","seq":2,"areas":[{"area":area.to_string(),"full":true,"cre":[{"id":"a"},{"id":"c","pc":true}],"items":[{"id":"d","x":33,"y":32}]}],"results":[{"id":command,"ok":true,"obj":"d"}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].live.is_selected("d"));
+    assert!(!h.state().area_views[&area].live.is_selected("b"));
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[test]
+fn live_review_stop_attack_targets_only_selected_living_creatures_and_gates_players() {
+    let Some((mut h, area)) = area_harness("live-effects") else { return };
+    let store = review_live_start(
+        &mut h,
+        area,
+        serde_json::json!({"areas":[{
+        "cre":[
+            {"id":"a","name":"NPC","x":20,"y":20,"combat":true},
+            {"id":"b","name":"Player","x":25,"y":20,"pc":true,"combat":true},
+            {"id":"c","name":"Unselected neighbour","x":30,"y":20,"combat":true},
+            {"id":"d","name":"DM","x":35,"y":20,"dm":true},
+            {"id":"e","name":"Corpse","x":20,"y":28,"dead":true}],
+        "plc":[{"id":"f","name":"Chest","x":25,"y":28}]}]}),
+    );
+    let revision = h.state().ws.as_ref().unwrap().revision();
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Stop Attack");
+    h.run_steps(2);
+    let q = store.status(mg_live::now_ms())["queued"][0].clone();
+    assert_eq!(q["target"], "a");
+    assert_eq!(q["op"], "stop_combat");
+    for key in ["x", "y", "radius"] {
+        assert!(q.get(key).is_none());
+    }
+    review_open_menu(&mut h, area, false);
+    review_click(&mut h, "Stop Fighting Here (10 m)");
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 1);
+    let point = screen(&h, area, glam::vec3(20., 20., 0.));
+    h.hover_at(point);
+    press(&h, point, true, egui::Modifiers::NONE);
+    press(&h, point, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let q = store.status(mg_live::now_ms())["queued"][1].clone();
+    assert_eq!(q["radius"], 10.);
+    assert!(q.get("target").is_none());
+    // Same click path on a PC; no region or faction fields are sent.
+    let player = screen(&h, area, glam::vec3(25., 20., 0.3));
+    h.hover_at(player);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: player,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    review_click(&mut h, "Stop Attack");
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"][2]["target"], "b");
+    for players in [true, false] {
+        store.set_policy(mg_live::store::Policy { players, ..Default::default() });
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.live.select(Some("a".into()), false);
+        for id in ["b", "d", "e", "f"] {
+            view.live.select(Some(id.into()), true);
+        }
+        review_open_menu(&mut h, area, false);
+        review_click(&mut h, "Stop Attack");
+        h.run_steps(2);
+    }
+    let status = store.status(mg_live::now_ms());
+    let commands = status["queued"].as_array().unwrap();
+    assert_eq!(commands.len(), 6);
+    let group: std::collections::BTreeSet<_> =
+        commands[3..5].iter().map(|q| q["target"].as_str().unwrap()).collect();
+    assert_eq!(group, std::collections::BTreeSet::from(["a", "b"]));
+    assert_eq!(commands[5]["target"], "a");
+    for q in commands.iter().enumerate().filter(|(i, _)| *i != 1).map(|(_, q)| q) {
+        assert_eq!(q["op"], "stop_combat");
+        for key in ["x", "y", "radius", "faction"] {
+            assert!(q.get(key).is_none());
+        }
+    }
+    h.state_mut().area_views.get_mut(&area).unwrap().live.select(Some("b".into()), false);
+    h.hover_at(player);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: player,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Player: actions are off");
+    review_reveal(&mut h, "Stop Attack");
+    assert!(h.get_by_label("Stop Attack").accesskit_node().is_disabled());
+    review_click(&mut h, "Stop Attack");
+    h.run_steps(2);
+    assert_eq!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().len(), 6);
+    assert_eq!(h.state().ws.as_ref().unwrap().revision(), revision);
+    assert!(!h.state().has_unsaved_work());
+}
+
+#[path = "support/live_accept3.rs"]
+mod live_accept3;
+
+#[path = "support/live_accept4.rs"]
+mod live_accept4;
+
+fn review_reveal(h: &mut Harness<'_, Moonglow>, label: &str) {
+    if h.query_by_label(label).is_some() {
+        return;
+    }
+    let section = match label {
+        "Run Here…"
+        | "Teleport…"
+        | "Teleport to Area…"
+        | "Patrol…"
+        | "Stop Patrol"
+        | "Walk in Formation…"
+        | "Run in Formation…"
+        | "Walk to One Point…"
+        | "Run to One Point…" => "Move",
+        "Stop Attack" | "Stop Fighting Here (10 m)" | "Freeze ⏵" | "Unfreeze" => "Combat",
+        "Faction ⏵" | "Heal ⏵" | "Take Gold ⏵" | "Take XP ⏵" | "Give Gold ⏵" | "Give XP ⏵"
+        | "Remove Level" | "AI ⏵" | "Invulnerable ⏵" | "Immortal ⏵" => "Character",
+        "Animation ⏵"
+        | "Apply VFX…"
+        | "Appearance…"
+        | "Visual Transform…"
+        | "Visual Transform ⏵"
+        | "Turn ⏵" => "Look and effects",
+        "Skill Check…" | "Message…" | "Journal…" => "Talk",
+        "Boot…" => "Player",
+        "Run Script…" | "Run NWScript…" => "Scripts",
+        "Kill" | "Limbo" | "Force Rest" | "Destroy" => "DANGER",
+        _ => panic!("Unknown context menu entry: {label}"),
+    };
+    h.get_by_label(&format!("{section} \u{23f5}")).click();
+    h.run_steps(2);
+}
+fn review_click(h: &mut Harness<'_, Moonglow>, label: &str) {
+    let label = if label == "Group Attack…" { "Attack\u{2026}" } else { label };
+    review_reveal(h, label);
+    if label == "Destroy" {
+        h.get_by_label("Remove from game (no body)").click();
+        h.run_steps(3);
+        h.get_all_by_label_contains("Remove ")
+            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .unwrap()
+            .click();
+    } else if matches!(label, "Kill" | "Limbo") {
+        h.get_by_label(&format!("{label} \u{23f5}")).click();
+        h.run_steps(2);
+        h.get_by_label(&format!("Confirm {label}")).click();
+    } else {
+        h.get_all_by_label(label).last().unwrap().click();
+    }
+}
+
+fn scene_file_click(h: &mut Harness<'_, Moonglow>, label: &str) {
+    if h.query_by_label(label).is_none() {
+        h.get_by_label("Scene").click();
+        h.run_steps(2);
+    }
+    h.get_by_label(label).click();
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(1);
+}
+
+#[path = "support/live_session_factions.rs"]
+mod live_session_factions;
+
+#[path = "support/live_accept5.rs"]
+mod live_accept5;
+
+#[path = "support/live_portrait.rs"]
+mod live_portrait;
+
+#[path = "support/live_npc_menu.rs"]
+mod live_npc_menu;
+
+#[path = "support/live_accept5_factions.rs"]
+mod live_accept5_factions;
+#[path = "support/live_accept5_scene.rs"]
+mod live_accept5_scene;
+#[path = "support/live_accept5_teleport_map.rs"]
+mod live_accept5_teleport_map;
+
+#[path = "support/live_accept5_effects.rs"]
+mod live_accept5_effects;
+
+#[path = "support/live_focus.rs"]
+mod live_focus;
+
 const SMALL_TABLE: &[u8] = b"2DA V2.0\r\n\r\n   Label   Cost\r\n0  Bread   1\r\n1  Cheese  2\r\n";
 
 fn table_of(h: &Harness<'_, Moonglow>, id: u32) -> mg_2da::TwoDa {
@@ -18350,3 +21208,11 @@ fn a_game_table_is_edited_as_a_copy() {
     h.run_steps(3);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
 }
+
+#[path = "support/live_accept6.rs"]
+mod live_accept6;
+#[path = "support/live_agents.rs"]
+mod live_agents;
+
+#[path = "support/live_audit7.rs"]
+mod live_audit7;

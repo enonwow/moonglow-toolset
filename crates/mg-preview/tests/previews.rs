@@ -556,3 +556,107 @@ fn a_race_s_body_part_wears_the_human_s_texture_of_its_name() {
     let chest = elf.parts.iter().find(|p| p.model == "pme0_chest003").expect("the chest");
     assert_eq!(chest.textures.get("pmh0_chest004").map(String::as_str), Some("pmh0_chest003"));
 }
+
+/// The game's own `visualeffects.2da`: every row reads, lasting and instant
+/// effects with models are common, and the models it names exist.
+#[test]
+fn visual_effects_from_the_game_table() {
+    use mg_preview::vfx::{Size, Vfx, VfxKind};
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let table = game.table("visualeffects").expect("visualeffects.2da");
+    let rows: Vec<Vfx> = (0..table.len()).filter_map(|r| Vfx::read(&table, r)).collect();
+    let with_models = |kind| rows.iter().filter(|v| v.kind == kind && v.has_models()).count();
+    assert!(with_models(VfxKind::Duration) > 100, "lasting effects with models");
+    assert!(with_models(VfxKind::Instant) > 100, "instant effects with models");
+    let entangle = rows.iter().find(|v| v.label == "VFX_DUR_ENTANGLE").expect("VFX_DUR_ENTANGLE");
+    assert_eq!(entangle.kind, VfxKind::Duration);
+    let models = entangle.models(Size::Medium);
+    assert!(!models.is_empty(), "entangle shows a model");
+    // The models a sample of rows name are in the game's data.
+    let mut missing = Vec::new();
+    for v in rows.iter().filter(|v| v.has_models()).take(60) {
+        for m in v.models(Size::Medium) {
+            if game.resman.get_named(&m.model, ResType::MDL).is_err() {
+                missing.push(format!("{} ({})", m.model, v.label));
+            }
+        }
+    }
+    assert!(missing.len() <= 3, "models named but not found: {missing:?}");
+}
+
+/// A lasting effect hung from a creature (the game's first with particles:
+/// a glow such as VFX_DUR_GLOW_RED has no models, the engine draws it)
+/// lets out particles from its parts; the creature alone has none.
+#[test]
+fn an_effect_hung_from_a_creature_emits_particles() {
+    use mg_preview::vfx::{Size, Vfx, VfxKind, with_models};
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let data = rm.get_named(name, ResType::MDL).ok()?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    let emits = |name: &str| {
+        load(name)
+            .is_some_and(|m| m.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_))))
+    };
+    let table = game.table("visualeffects").expect("visualeffects.2da");
+    let glow = (0..table.len())
+        .filter_map(|r| Vfx::read(&table, r))
+        .find(|v| v.label == "VFX_DUR_GLOW_RED");
+    assert!(glow.is_some_and(|g| g.models(Size::Medium).is_empty()), "a glow is no model");
+    let effect = (0..table.len())
+        .filter_map(|r| Vfx::read(&table, r))
+        .find(|v| {
+            let models = v.models(Size::Medium);
+            v.kind == VfxKind::Duration
+                && !models.is_empty()
+                && models.iter().all(|m| load(&m.model).is_some())
+                && models.iter().any(|m| emits(&m.model))
+        })
+        .expect("a lasting effect with particles");
+    let bare = creature(&game, &CreatureLook::new(6).to_utc(), &|_| None).unwrap();
+    let plain = Composed::new(&gpu, &bare, &load).unwrap();
+    assert!(
+        plain.all_emitters(plain.idle.as_deref(), 0.).is_empty(),
+        "a creature alone emits nothing"
+    );
+
+    let hung = with_models(bare, &effect.models(Size::Medium));
+    let composed = Composed::new(&gpu, &hung, &load).unwrap();
+    assert!(composed.missing.is_empty(), "{}: {:?}", effect.label, composed.missing);
+    let emitting = composed.all_emitters(composed.idle.as_deref(), 0.);
+    assert!(!emitting.is_empty(), "{}: the effect's parts have emitters", effect.label);
+    assert!(emitting.iter().all(|e| !e.is_base), "parts never inherit base warm-up");
+    let view = Mat4::look_at_rh(glam::Vec3::new(0., -5., 2.), glam::Vec3::ZERO, glam::Vec3::Z);
+    let mut count = 0;
+    for e in &emitting {
+        let mut sim = mg_render::particles::Particles::new(e.model);
+        for step in 0..40 {
+            sim.update(e.model, e.playing, step as f32 * 0.05, 0.05, &e.pose, e.place);
+        }
+        count += sim
+            .batches(e.model, e.playing, 2.0, &e.pose, e.place, view)
+            .iter()
+            .map(|b| b.vertices.len())
+            .sum::<usize>();
+    }
+    assert!(count > 0, "{}: two seconds in, it has particles", effect.label);
+    eprintln!(
+        "{}: {} particle vertices from {} emitting models",
+        effect.label,
+        count,
+        emitting.len()
+    );
+}

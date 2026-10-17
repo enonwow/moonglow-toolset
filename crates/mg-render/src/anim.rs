@@ -25,6 +25,17 @@ use mg_mdl::{AnimMeshSets, AnimNode, Animation, Controller, Mesh, Model};
 use crate::model::{GpuModel, Vertex};
 use crate::scene::MeshState;
 
+/// A single rest key does not require timed redraws.
+pub fn changes_with_time(animation: &Animation) -> bool {
+    animation.length > 0.
+        && animation.nodes.iter().any(|n| {
+            n.controllers.iter().any(|c| c.times.len() > 1)
+                || n.anim_mesh
+                    .as_ref()
+                    .is_some_and(|m| m.vertex_sets.len() > 1 || m.uv_sets.len() > 1)
+        })
+}
+
 /// An animation's time at `t`: `t` within the animation (its length
 /// included), else wrapped (looping).
 pub fn time_in(anim: &Animation, t: f32) -> f32 {
@@ -505,6 +516,23 @@ pub fn node_position(pose: &[Mat4], node: usize) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rest_keys_do_not_schedule_animation_but_multiple_keys_do() {
+        let mut animation = Animation {
+            length: 1.,
+            nodes: vec![AnimNode {
+                controllers: vec![Controller { times: vec![0.], ..Default::default() }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!changes_with_time(&animation));
+        animation.nodes[0].controllers[0].times.push(1.);
+        assert!(changes_with_time(&animation));
+        animation.length = 0.;
+        assert!(!changes_with_time(&animation));
+    }
 
     #[test]
     fn keys_interpolate_and_clamp() {

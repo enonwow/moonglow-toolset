@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod describe;
 mod diff;
 mod edits;
 mod lsp;
@@ -45,6 +46,22 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Describe every command and its flat input schema for external clients.
+    Describe,
+    /// Prepare a new module copy for Live using the built-in compiler; never overwrite the source.
+    LiveBuild {
+        /// Source .mod, module folder or nasher project.
+        module: PathBuf,
+        /// NWNX directory containing Binaries/NWScript.zip.
+        #[arg(long)]
+        nwnx: PathBuf,
+        /// New output archive (default: <name>-live.mod beside the source).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Capture NPC and player dialogue nodes without changing their text.
+        #[arg(long)]
+        capture_dialogue: bool,
+    },
     /// List the contents of an ERF archive (mod, hak, erf, nwm, sav).
     Ls { archive: PathBuf },
     /// Unpack an ERF archive into a directory.
@@ -1039,6 +1056,12 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
+        Cmd::Describe => {
+            let document = describe::document().map_err(anyhow::Error::msg)?;
+            let mut out = Output::new(document.clone());
+            out.line(serde_json::to_string_pretty(&document)?);
+            out
+        }
         Cmd::Ls { archive } => {
             let data = std::fs::read(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
@@ -1231,6 +1254,48 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Verify { module, unused, plugins } => {
             verify(&install(cli)?, module, *unused, plugins)?
+        }
+        Cmd::LiveBuild { module, nwnx, out, capture_dialogue } => {
+            let request = mg_live::build::Request {
+                module: module.clone(),
+                nwnx: nwnx.clone(),
+                out: out.clone(),
+                capture_dialogue: *capture_dialogue,
+            };
+            let report = mg_live::build::prepare(&request, &install(cli)?)?;
+            let mut output = Output::new(serde_json::to_value(&report)?);
+            output.failed = !report.ok;
+            output.line(format!(
+                "{}: {}",
+                if report.ok { "Prepared" } else { "Not written" },
+                report.output.display()
+            ));
+            output.line(&report.module_ifo);
+            for name in &report.added {
+                output.line(format!("added {name}"));
+            }
+            for name in &report.replaced {
+                output.line(format!("replaced {name}"));
+            }
+            output.line(format!(
+                "{} dialogue nodes; {} compiled scripts",
+                report.dialogues.len(),
+                report.compiled
+            ));
+            for warning in &report.warnings {
+                output.line(format!("warning: {warning}"));
+            }
+            for error in &report.errors {
+                output.line(format!("error: {error}"));
+            }
+            if report.ok {
+                output.line(format!(
+                    "Settings: {}\nStart: bash {}",
+                    report.settings.display(),
+                    report.start_script.display()
+                ));
+            }
+            output
         }
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,

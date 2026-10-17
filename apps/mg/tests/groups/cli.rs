@@ -8,6 +8,8 @@ mod areas;
 mod attach;
 #[path = "../compile.rs"]
 mod compile;
+#[path = "../describe.rs"]
+mod describe;
 #[path = "../dialog_io.rs"]
 mod dialog_io;
 #[path = "../diff.rs"]
@@ -20,6 +22,8 @@ mod encoding;
 mod export_files;
 #[path = "../json.rs"]
 mod json;
+#[path = "../live_build.rs"]
+mod live_build;
 #[path = "../lsp.rs"]
 mod lsp;
 #[path = "../minimap.rs"]

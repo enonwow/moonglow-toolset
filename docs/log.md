@@ -1,5 +1,237 @@
 # Update log
 
+* **Discoverable NPC guidance (2026-10-16)**: first-level Live NPC context actions open the stable NPC card and Focus Memory, with player/DM exclusions and the Focus setting respected. [Click proof and pictures](live-mode-next.md#npc-card-and-memory-menu-2026-10-16).
+
+* **Live portrait fallback (2026-10-16)**: reproduced the demo's chicken portraits from its real report; shared Selection/Focus/Chat resolution now honors appearance defaults and humanoid race/gender without an animal placeholder. [Diagnosis, pictures and reproduction](live-mode-next.md#shared-live-portrait-fallback-2026-10-16).
+
+* **Automatic Live area subscriptions (2026-10-16)**: module-wide `watch_areas`, authoritative watched-area status, view-owned subscriptions replayed on boot/reconnect, and empty launcher/builder extras by default. [Contract and proof](live-ops-wire.md#area-subscriptions-2026-10-16).
+
+* **Durable Live events (2026-10-16)**: native callbacks and followed server logs use a bounded Redis stream with retry-safe XADD, per-instance pending recovery, a durable local inbox, exact overflow diagnostics, backlog status and restart-safe JSONL receipts. [Contract and proof](live-mode-redis.md#durable-event-queue-2026-10-16).
+
+* **Prepare Module for Live (L1?L4)**: one embedded Rust implementation for `mg live-build`, the Live preparation window and demo packaging. Source-preserving output, original-first load chain, byte-preserving dialogue actions, built-in compilation and verification, private server sidecars. [Implementation and checks](live-build.md).
+
+* **Live atmosphere (H6)**: seven scoped operations with native weather/fog/light/skybox/audio readbacks, point-sound lifecycle proof, input guards and OpenAPI. [Wire and reproduction](live-ops-wire.md#atmosphere-audit-h6-2026-10-15).
+
+* **Conversation-only client profile (H15)**: narrow speech and memory permissions, default local approval, both PC consent switches retained. [Contract](agent-protocol.md#conversation-client-profile-audit-h15-2026-10-15).
+
+* **Durable Live command IDs (H4)**: flushed per-server-boot reservations prevent old explicit IDs from running again after Moonglow restarts, including uncertain prior outcomes. Startup/corruption/writer conflicts fail closed; no payloads or secrets stored. Median enqueue cost10 ->740us. [Contract and tests](agent-protocol.md#durable-command-ids-audit-h4-2026-10-15).
+
+* **Full-scale native instruction guard (H3)**:223 objects, three530KB raw look surrogates,256 loaded factions and256 real damage events complete without TMI. Worst observed stack543,134/1,048,576 instructions; inventory/locals/capture bounds and GFF parsing pass. Client-only/unexercised branches are stated explicitly. [Reproduction and coverage](live-game-performance.md#full-scale-instruction-guard-audit-h3-2026-10-15).
+
+* **Redis restart guard (H2)**: the pinned local NWNX patch survives three owned 10-second outages, including state, one-shot commands and buffered chat, with unchanged game boot/PID. Replaced the obsolete outage runner with the marker/identity-guarded 5126/6392 harness. [Proof](live-mode-redis.md#patched-redis-restart-proof-audit-h2-2026-10-15).
+
+* **Stable Live look identity (H1)**: walking changes no longer invalidate appearance hashes; sparse moving deltas reuse exact-hash looks. Private 39-packet sample:42 -> 0 false invalidations, median bytes42,567 -> 2,508, delta tick36.1 -> 26.3ms. GFF/native/Rust guards pass. [Proof](live-game-performance.md#stable-appearance-hashes-audit-h1-2026-10-15).
+
+* **Reply to player speech**: Players-gated reply resolves a PC's latest DM route or selects a nearby NPC voice. Native nearest/explicit speaker events and refusals pass; targeted DM submission/display remains a connected-client check. Catalogue/OpenAPI and exact-wire tests updated. [Contract and proof](live-ops-wire.md#reply-to-player-speech-2026-10-15).
+
+* **Immediate chat and event watches**: native chat publishes immediately with buffered fallback and exact game-sequence deduplication; scoped condition-variable waits, player/DM filters, reported nearby context and boot/history-loss signals. Private marker-to-HTTPS median 1133.691 -> 0.770 ms (20 messages); clock and client limitations are explicit. [Proof and reproduction](live-game-performance.md#chat-response-latency-2026-10-15).
+
+* **Fast agent loop**: cache descriptions by descriptor/ETag, validate conditional calls, reuse TLS in MCP, and stream filtered events with `watch`. Isolated shell median 473.8 -> 12.6 ms; boot/history loss stops the stream for reconciliation. Campaign recipe now listens and uses `live_reply_to_player`; 15 adapter tests and two campaign example gates pass. [Contract, measurements and reproduction](agent-protocol.md#shell-and-stream-latency-measurements-2026-10-15).
+
+* **Patrol obstruction recovery**: retain the order beyond the old 120-second cutoff, retry native moves with bounded sidesteps and emit blocked/resumed transitions. Private chest obstruction/removal proves automatic recovery and two laps; normal cancellation gates still pass. [Contract and reproduction](live-ops-wire.md#npc-patrols).
+
+* **Large-look VM regression**: a 515 KB native inventory/equipment snapshot passes the uncached look/tick path; fixed pruning remains bounded. Native nested/delayed budget probes and a deliberate private TMI separate script-stack sharing from later callbacks. The owner's routine failure remains un-attributed without its stack. [Proof and reproduction](live-game-performance.md#large-look-and-routine-vm-regression-2026-10-15).
+
+* **Allow LLM UI**: shared immediate consent controls in the toolbar, Live menu and Options, cached authenticated-client presence and a scheduled 60-second expiry. The manual explains MCP connection, token scope and revocation; local DM controls remain available. [Implementation and verification](live-windows.md#allow-llm-consent-and-presence-ui-2026-10-15).
+
+* **Post-sixth Live UI optimization**: controlled Debug/Release crowd, effects and populated multi-area windows; shared target helpers and preview rebuild extraction. Macro preflight, borrowed area grouping and cheap revision polling show isolated gains; 1,641 workspace tests plus Clippy/fmt pass. Priority creature-look and Focus fixes are recorded separately. [Measurements and limits](live-gui-performance.md#post-sixth-acceptance-gui-optimization-2026-10-15).
+
+* **Visual look decoding defence**: missing UTC metadata and unencodable PC/item prose no longer hide otherwise valid creature previews. Numeric appearance, wide twins and equipment are preserved; two parser fixtures and a real-resource before/after view prove the repair. [Reproduction](live-windows.md#visual-look-decoding-defence-2026-10-15).
+
+* **Post-sixth-acceptance performance baseline**: refresh native probes for NPC equipment cache and add opt-in API dispatch/poll timings. The larger NPC look reports are the main regression; external compilation overlap is explicit. [Measurement and reproduction](live-game-performance.md#post-sixth-acceptance-optimization-2026-10-15).
+
+* **D8 integration closure**: native equipment reports and store replacement (`dc31430`) now pair with the view consumer (`bbb17a5`); 11 real-resource UI checks pass and equipped/empty pictures are inspected. D10 UI (`a01d400`) keeps private feedback semantics explicit. [Native and view proof](live-events-wire.md#npc-equipment-looks-sixth-acceptance-d8).
+
+* **Sixth acceptance verification and retirement cleanup**: six private native phases, offline HAK migration, 121 mg-live and 668 guarded UI checks passed; both all-target Clippy runs clean. Removed 23.09 MiB of owned obsolete colour/shader artifacts, preserving negative proof and current evidence. Running demo untouched; connected DM feedback remains a client check. [Reproduction and retention](live-ops-wire.md#sixth-acceptance-verification-and-retention).
+
+* **D1 session pane**: reject editor-only faction IDs and show restart guidance; native server names drive labels and commands. App regression and inspected picture pass. [Record](live-windows.md#server-factions-in-the-session-pane-d1).
+
+* **D2 Inventory Drop**: move Drop/Take confirmation into adjacent item submenus, remove bottom controls. Fourteen focused inventory checks and repeated native potion-ground proof pass; before/after pictures inspected. [Record](live-windows.md#inventory-context-confirmation-sixth-acceptance-d2).
+
+* **D8 NPC equipment looks**: native NPC appearance/equipment snapshots and hashes refresh on visible slot changes; authoritative empty equipment survives full/delta merges. Native inventory and independent action equip/unequip proof pass. [Wire and cache contract](live-events-wire.md#npc-equipment-looks-sixth-acceptance-d8).
+
+* **D10 To DM**: explicit DM-audience flags, native channel proof, and player-gated DM-prefixed private feedback with honest submission-only result. [Contract and connected-client check](live-events-wire.md#sixth-acceptance-player-to-dm-chat-d10).
+
+* **D15 retirement**: owner removed Live Shaders, material/player uniforms and unused Live texture replacement. Native animation replacement remains, with four-kind private readback/reset proof. [Retained operation](live-ops-wire.md#object-animation-replacement-retained-after-d15).
+
+* **D1 server factions**: report the boot-time native repute.fac catalogue, expose it through status/area state and reset on server restart. Nine-faction private engine proof includes empty Session 1 and nonexistent editor-only ID refusal. [Contract](live-ops-wire.md#server-faction-catalogue-sixth-acceptance-d1).
+
+* **Sixth acceptance E7**: reproduce unset human portraits from the running demo; use the game fallback when appearance.2da supplies none. Beholder resource loads; Chat, Focus and Selection pictures checked. [Record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+* **Sixth acceptance D5/D6**: remove colour input, helper code/assets/HAK generation and tests; retain native Scale/Offset/Rotation. Guarded mg-live suite and private `vfx_transform` pass; offline packed-module retirement verifies only the retired HAK is detached. Existing running demo is deliberately untouched. [Negative proof](live-ops-wire.md#vfx-colour-removed-after-native-proof).
+
+* **Sixth acceptance: VFX**: remove the dropped colour controls and shader filter; ordinary effect application and resource refresh remain. [UI record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+* **VFX shader filter**: cache declared MTR parameters from every effect size/ending model, mark/filter rows and show parameter names; stock-empty guidance, resource-refresh tests and before/after pictures. [Resolution and proof](live-windows.md#d15-removal).
+
+* **Parameter-VFX target proof**: native/client MgColour probe keeps attached effects blue on a placeable and creature while the own-model control turns green; ground effects have no uniform target. [Applicability table and reproduction](live-ops-wire.md#vfx-colour-removed-after-native-proof).
+
+* **Optional coloured effects (retired by D5/D6)**: demo HAK defaults off; explicit `-ColouredEffects`, safe owned detach and packed-module `-SkipBuild` guard. Real-archive off/on/on/off and launcher preflight checks pass. [Contract](live-ops-wire.md#vfx-colour-removed-after-native-proof).
+
+* **Focus window**: saved per-module watches, conversation/events, shared NPC/player/group replies and unread alerts. Proximity is explicitly approximate; dialogue and DM feedback limits stay visible. [Implementation and checks](live-windows.md#focus-window-implementation-2026-10-14).
+
+* **Focus dialogue capture**: opt-in Actions Taken collector with native entry/reply context, speaker/listener and node identity, existing Polish byte decoder and read_chat protection. NPC-only native proof passes; uninstrumented dialogues, one-liners and connected PC clicks remain explicit limits. [Contract and reproduction](live-events-wire.md#focus-opt-in-dialogue-node-events-2026-10-14).
+
+* **Focus chat routing**: explicit recipient/audience and speaker position, preserving raw channels and private-message targets. Private callback/native-speech checks pass; connected PC/DM delivery remains unverified. [Wire and proof](live-events-wire.md#focus-chat-recipients-and-speaker-position-2026-10-14).
+
+* **Fifth acceptance C5 colour (retired by D5/D6)**: authored GPL ring/aura/glow helpers, RGBA controls and offline client HAK generation. Native lifecycle/transform/readback checks and isolated client blue/green/texture-gold captures pass; active demo untouched. [Contract, reproduction and limits](live-ops-wire.md#vfx-colour-removed-after-native-proof).
+
+* **Fifth acceptance C4**: Full effects by default, resource-based cast/projectile/Fireball and acknowledged ground VFX; fix animation-event detonation and transient warm-up. App/particle tests and inspected pictures pass. [Proof, reproduction and server-event limit](live-windows.md#fifth-acceptance-c4-full-effects-and-event-particles).
+
+* **Fifth acceptance C6/C7**: Teleport to Area includes unreported module areas and their tile minimaps, grid, coordinates and landing ghosts. App proof queues only on the destination-map click. [Map and checks](live-windows.md#fifth-acceptance-c6c7-complete-area-picker-and-tile-destination-map).
+
+* **Fifth acceptance C5b**: a selected NPC can generate a playable Say/Walk example scene with readable rows and waits. App proof runs both steps through replies and arrival. [Example and checks](live-windows.md#fifth-acceptance-c5b-playable-scene-example).
+
+* **Fifth acceptance C8 UI**: Character → Faction lists module and session names and queues their real IDs; custom row 6 proved by the app test. [Menu proof](live-windows.md#fifth-acceptance-c8-module-faction-menu).
+
+* **Fifth acceptance C5a (retired by D15)**: explain Live Shaders and disable object menus without editable material parameters, with a reason. [Window proof](live-windows.md#d15-removal).
+
+* **Fifth acceptance C2**: Selection and Chat use the appearance portrait when the report has none, and resolve stock portrait sizes. The current loader already displays the reported beholder portrait; that owner symptom was not reproduced. [Resource proof and checks](live-windows.md#fifth-acceptance-gui-2026-10-14).
+
+* **Live GUI optimization 8**: report wakes coalesce, moving UI passes fall 36.9 -> 24.9/s, and moving CPU 46.89% -> 44.55%. Native controls, unchanged 40 ms budget and CPU tradeoffs are [recorded](live-gui-performance.md#step-8---one-data-wake-and-bounded-animation-deadlines).
+
+* **Live GUI optimization 7**: lazy emitter attachment poses save 3.0-3.3 ms/redraw; Full-effects replay CPU falls 52.43% -> 45.40%, with all 16 models retained. [Measurements and visual-test limits](live-gui-performance.md#step-7---avoid-unused-emitter-attachment-poses).
+
+* **Live GUI optimization 3**: bounded event copies cut Chat/Log query-window work by 0.55 ms/pass; a Panel cache was measured and reverted for lack of gain. Repaired the 880c0b1 menu test and verified player gates. [Measurements and checks](live-gui-performance.md#step-3---bounded-event-copies-panel-cache-rejected).
+
+- 2026-10-13: Added mutually exclusive target or radius selection for stop_combat in NWScript, mg-live and OpenAPI. Two-fight private proof isolates selected action queues; Rust refusals cover malformed selections and protected/dead/missing/wrong-area targets. [Wire contract and UI initializer handoff](live-ops-wire.md#stop_combat).
+
+- 2026-10-13: Skill checks now build player NUI results with an OK/30s close, preserve the module NUI handler, and fall back to chat. Private `pc_skill_nui` proves compiled layouts, handler forwarding and no-client native return; positive tokens/rendering await a connected client. See [wire and client checklist](live-ops-wire.md#nearby-player-skill-check).
+
+* **Owner combat regression**: [Quest-fight factions](live-ops-wire.md#owner-regression-fixes-and-quest-fight-factions): reproduced Hostile-vs-Hostile failure, temporary distinct/explicit faction fix with attack/restoration proof and Rust wire validation.
+
+## 2026-10-14
+* **Session factions (B15)**: offline spare factions, boot-scoped Live labels, NPC reputation access and an engine-proven correction for reverse-based native adjustments. [Contract and proof](live-ops-wire.md#session-factions-fourth-acceptance-b15).
+
+## 2026-10-13
+* **VFX transforms and colour (B10)**: bounded scale/offset/rotation, native effect readback, and an inspected client experiment: material override reaches its object, not the attached VFX. [Proof and reproduction](live-ops-wire.md#vfx-transforms-and-colour-fourth-acceptance-b10).
+* **Fourth-acceptance Live UI**: shared single/group menus, explicit removal semantics, one Inventory entry, discoverable Attack, Live Log on demand, Record/Review/Replay Scenes, creature-only faction colours, and individual window polish (including VFX after B10 release). Guarded app checks and inspected before/after pictures; running demo and application binaries preserved. [Implementation and scope](live-mode-next.md#fourth-acceptance-ui-follow-up-2026-10-13), [window checks](live-windows.md#fourth-acceptance-ui-audit-preparation).
+* **Skill NUI layout (B13)**: skill title, bonus breakdown, large Roll button, result colour bindings and optional text; no locked zero-bonus field or empty message box. Native constructors/calculation/layout tests pass; connected-client rendering remains explicit. [Proof](live-ops-wire.md#skill-nui-layout-fourth-acceptance-b13).
+* **Original appearance (B8)**: per-run/object baseline reports and confirmed restore for live creatures/placeables. Native change/restore readback, app tests and inspected gallery pictures. [Contract](live-ops-wire.md#restore-original-appearance-fourth-acceptance-b8).
+* **Immediate inventory drop (B7)**: reproduced a false-success queued drop; native ground copy now preserves locals and removes the held instance, returning its new identity. Private native holder/inventory/position checks pass. [Contract and identity limit](live-ops-wire.md#immediate-ground-drops-fourth-acceptance-b7).
+* **Inventory item menus (B5)**: right-click backpack/equipment actions, retained drag and drop, and removal of duplicate action buttons. App interaction checks and inspected context-menu picture. [Window](live-windows.md#inventory-item-menus-fourth-acceptance-b5).
+* **Inventory auto-load (B4)**: opening or switching the holder queries once with loading feedback; late replies cannot replace the new selection. Guarded app tests and inspected loading/populated pictures. [Window](live-windows.md#automatic-inventory-loading-fourth-acceptance-b4).
+* **Mixed module speech (B17)**: native JSON loses bytes with the empty game charset; explicit cp1250 preserves UTF-8 and legacy text per string. Private byte probes and production API regression cover both exact demo lines. The next-start launcher fix leaves the running demo untouched. [Evidence and limits](live-events-wire.md#mixed-module-speech-and-native-json-loss-fourth-acceptance-b17).
+* **Fourth Live acceptance integration**: guarded workspace checks, an explicit GUI-only build option, current window status and a concrete owner click checklist. The manual link regression introduced by e2f4ad5 is fixed by b1e075d; the final 1,175-test workspace gate and GUI build pass. Exact OKF-tool and original item-number mapping gaps remain explicit. [Record](live-mode-next.md#fourth-acceptance-integration-2026-10-13).
+* **Live campaign recipe**: safe observe/act/wait/verify procedures, task JSON inputs and a catalogue/semantic regression guard. Scene save/play/stop remains UI-only. [Recipe](live-campaign.md).
+* **Live camera input**: Ctrl+drag pans from ground or a marker; Ctrl+click still toggles selection. Plain boxes replace and Shift boxes add. [Record](live-mode-next.md#live-filter-and-camera-regressions-2026-10-13).
+* **Live filter recovery**: the map reports hidden object counts and offers Show all to reset panel chips/search and toolbar kinds, with no cache invalidation. [Record](live-mode-next.md#live-filter-and-camera-regressions-2026-10-13).
+* **Live Inventory grid**: paperdoll/backpack game icons from runtime item appearance, drag equip/unequip, confirmed drop/destroy, palette giving and gold controls. Native slot/holder readback fixes NWNX unequip false return; local-only backpack placement documented. [Window/proof](live-windows.md#inventory-and-owner-follow-up-windows-2026-10-13).
+* **Creature animation playback**: bounded native animation queue, temporary custom replacements with restoration, player gates, native state and active-request reports. [Wire and proof](live-ops-wire.md#creature-animation-playback-third-acceptance).
+* **Live third acceptance, removals**: numeric Take Gold/XP and Remove Level for NPCs, permitted players and groups, with no-send editing and per-target tests. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Live third acceptance, portraits**: cached reported creature portraits in Selection, small/medium fallback and portrait focus preserving the group. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Gold and XP removal**: native gold destruction, clamped XP subtraction/absolute XP, actual level loss, player gates and schemas. Creature-context gold fix proven in reports. [Contract](live-ops-wire.md#gold-and-xp-removal-third-acceptance).
+* **Live portrait reports**: native portrait base resrefs, including custom names, for Selection and chat. [Contract and proof](live-events-wire.md#creature-portraits-third-acceptance).
+* **Live third acceptance, animations**: shared NPC/player/group chooser with script constant names, custom name, loop and speed, now wired to the proven core operation with per-target queue tests. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Live third acceptance, effects**: visible Markers hint, actual player-look mind-effect particles and crowd timing evidence; the Full-default attempt was withdrawn after an active-effect GPU timeout. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Interactive skill rolls**: player Roll button, locked DM bonus, optional DC, configurable no-roll timeout; partial/final command results and DM table/log. Native rank/feat/item/effect proof, duplicate-click and timeout checks, fake-store UI tests and inspected wrapped-table picture. [Contract](live-ops-wire.md#nearby-player-skill-check).
+* **Live third acceptance, Scenes**: readable steps, prominent recording, JSON Save As/Import/Export and launcher-enabled runtime state. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Live third acceptance, painting**: visible Stop painting button and full Esc exit clear the brush and pending confirmation. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Module-origin Polish (BUG28)**: preserve raw game/log bytes and decode once in mg-live, including UTF-8 literals discovered in the owner module. Private module TLK/name/chat/log API proof and legacy-report regressions. [Wire contract and reproduction](live-events-wire.md#module-text-receive-boundary-owner-bug28).
+* **Live third acceptance, groups**: full creature command menu for selections, per-target eligibility and allowed-player group movement. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Live third acceptance, aiming**: shared map click/cancel, following radius circles and library NPC model ghosts; place actions arm before sending. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Live Shader window (item27; retired by D15)**: runtime appearance/model/MTR discovery, declared defaults and typed controls, throttled material edits, parameter/material resets, and player-global inputs. Real LC ship HAK resolves row16606/tlcr_map/tlcr_m25; inspected picture shows all five sail-logo controls. [Window proof, inputs, tests and cleanup](live-windows.md#d15-removal); [manual](manual/19-live-mode.md#vfx-transforms-and-colour).
+* **Live third acceptance, legend**: removed duplicate Colour key; 15 view tests and inspected before/after pictures pass. [Record](live-mode-next.md#third-owner-view-acceptance-2026-10-13).
+* **Live shaders (item27), core (retired by D15)**: 1-based player global slots with strict int/float/vec4 dispatch, object animation/texture replacement and reset, bounded native override readback. Private server verifies all four object kinds and reset isolation; real PC visuals remain a client check. [Contract and reproducible proof](live-ops-wire.md#object-animation-replacement-retained-after-d15).
+* **Stop Attack UI (owner 25)**: core 11158f6 unblocks exact-target NPC/PC/group menus, disabled player hint and separate 10m NPC radius action. 15 focused UI checks plus 1,144 guarded workspace tests pass (0 failed); Clippy/fmt clean and both normal executables unchanged. Manual/picture proof recorded. [Implementation](live-mode-next.md#25-stop-attack).
+* **PC Stop Attack (item25)**: exact-target stop_combat gains a player-gated action-only path, with no faction/reputation changes or NPC calm hold. Native stand-in proof and Rust permission/wire tests; [contract and connected-client checklist](live-ops-wire.md#targeted-pc-stop-owner-item25).
+* **Stop Attack (owner 25) blocker**: current Rust and native targeted stop_combat reject direct players even with the switch enabled. Item24 was committed; this prerequisite was later resolved by 11158f6 and the Stop Attack UI batch. [Exact findings and handoff](live-mode-next.md#25-stop-attack).
+* **Teleport UI (owner 24)**: all live kinds and mixed selections share facing-aware landing ghosts; destination-area map/coordinates and replacement-ID tracking. 14 app cases, scoped Clippy and inspected before/after pictures; module/binaries unchanged. [Record](live-mode-next.md#owner-additions-24-and-25-2026-10-13).
+* **Unified teleport (item24)**: NPC/PC jumps and scenery/item movement across areas, native bounds, saved-state recreation with new IDs, door-facing fallback, player scopes, alias, area size reports and 71-op OpenAPI. Private engine readbacks prove all four kinds, patrol/hold cancellation and preservation; connected-client checks remain explicit. [Wire, proof and UI handoff](live-ops-wire.md#unified-teleport-owner-item-24).
+* **Live second acceptance UI complete**: closable/palette-driven tools, right dock, RTS groups, marker filters, numeric/player menus, reported appearances and explicit Run commands. 12 focused UI cases and 1,137 workspace tests pass; Clippy/fmt clean. Scene harness adapted to docking; Moonglow unchanged. Final verification caught cargo test rebuilding mg.exe for CLI integration tests; stopped for coordinator decision. [Validation and cleanup](live-mode-next.md#closure-and-coordinator-handoff-2026-10-13).
+* **Live acceptance 10**: Expose Run Here and both group Run destinations. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 8**: Offer player orders and explicit message, journal and Boot dialogs. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 7**: Enter action values and open tools for the clicked target. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 4**: Dock Live tools to the right when Live turns on. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 5**: Select live groups with plain drag and configurable control keys. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 6**: Filter Live marker categories and factions per view. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 9**: Draw live placeables and doors by reported appearance. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **Live acceptance 3**: Open numeric Visual Transform from the object menu. Guarded app checks and inspected pictures; [record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+* **New**: [Live mode](manual/19-live-mode.md), a manual chapter for Live (Options › Live in full, the Live menu, windows, agents); Live Mode Help opens it. Live Log: every area seen, speaker colours, the AI's silent shouts hidden by default.
+
+* **Live crowd CPU work**: reuse report/reconciliation/look data, share input snapshots and pose models only for GPU redraws. Controlled crowd CPU median improves from 15.92 to 1.91 ms (Markers); tail rendering/GPU stalls still require native acceptance. [Measurements and limits](live-mode-next.md#owner-view-review-after-the-combined-acceptance).
+
+* **Live area spell cues**: localized names and table-backed spherical radii, including Fireball at 6.67 m; public name helper for Live Log. Guarded app checks, Clippy/fmt and inspected replay pictures pass. [Record](live-mode-next.md#owner-view-review-after-the-combined-acceptance).
+* **Live intrinsic emitters**: the Green Lightshaft now draws its beam even in Markers/Off; all Live extras retain their own emitters, with duplicate GIT emitters suppressed. Pictures and app checks pass. The 218-object profile does not yet establish headroom for Full as default. [Measurements and reproduction](live-mode-next.md#owner-view-review-after-the-combined-acceptance).
+
+## 2026-10-12
+* **Live object properties**: numeric transforms, name/useability and editor-style placeable turn/move gestures send commands on Apply/release; reported transforms replace matched module drawings without duplicate emitters. Before/after pictures and guarded app checks cover the controls. [Record](live-mode-next.md#owner-view-review-after-the-combined-acceptance).
+* **Live group selection**: Ctrl-click and Shift-drag select reported objects in the view and Panel; group movement, attack, faction, freeze, kill and destroy enqueue each eligible object separately. Coordinator defers group Stop Fighting until the targeted op lands. Guarded UI checks and inspected crowd pictures pass. [Record](live-mode-next.md#owner-view-review-after-the-combined-acceptance).
+* **Live legend review**: the corner key now has a compact collapse/reopen header, synchronized with the toolbar and remembered per view. App checks and inspected before/after pictures preserve selection and prove no module mutation. The next item is blocked because stop_combat is radius-based, with no selected-object target. [Acceptance review record](live-mode-next.md#owner-view-review-after-the-combined-acceptance).
+* **Live UI/recipe batch complete**: coordinator fix `57f7859` resolves typed-local null schemas. Final guarded workspace: **1,096 passed / 0 failed / 99 ignored**, mg-live 73 passed / 3 ignored, clippy/fmt clean; mg, moonglow and moonglow-mcp built. The recipe examples/links pass validation; no branch merge or native demo action. [Cumulative record, error-key handoff and retained evidence](live-mode-next.md#e7e8-ui-batch-after-e4-acceptance).
+* **Live agent recipe (E7.5)**: [Discover, observe, act and verify](agent-protocol.md#llm-recipe-discover-observe-act-and-verify-e75) documents scoped sessions, boot/freshness checks, bounded event cursors, object lookup, queued commands, native waits, arrival checks and returned chunk values. JSON inputs are checked against the current OpenAPI schemas; examples do not execute game actions.
+* **Live Scenes UI**: a module-scoped window lists, validates, saves and plays timed operation sequences, records manual Live commands and stops on session/module changes. Fake-store app checks and inspected before/after pictures cover the editor and playback. [Record and integration API](live-mode-next.md#e7e8-ui-batch-after-e4-acceptance).
+* **Live client Options**: Windows keepalive, named clients/scopes/quotas, token generation/copy/removal and the audit-folder link use the existing Apply/Cancel draft. Guarded lint/app checks and inspected before/after pictures pass. [Record](live-mode-next.md#e7e8-ui-batch-after-e4-acceptance).
+* **Live E4.4 speech bubbles and gate**: new chat events appear over their speaker for four seconds, follow movement, replace earlier speech and avoid markers/labels. Polish-text and expiry unit checks, the real-install app check and inspected before/after pictures pass; static scenes retain their GPU image. Final workspace: 1,078 passed / 97 ignored, clippy/fmt and all app builds clean. [The cumulative record](live-mode-next.md#e44-working-record-and-file-ownership) separates headless proof from the pending E4 two-monitor acceptance; minimal evidence is retained, no new copies or deletions.
+* **Live E4.4 transient cues**: the view consumes new event-log entries for spell/projectile arcs and damage flashes; duplicate cast notifications coalesce, cues expire, and Off consumes them without replay. Unit checks, an app check proving static GPU-image reuse, and inspected pictures pass. [Record](live-mode-next.md#e44-working-record-and-file-ownership).
+* **Live E4.4 Full effects**: attached models use appearance size and a duration animation; live emitters are keyed by object ID with 64-model/20,000-particle limits. Three app checks and inspected pictures pass. Source review corrected a root-effect warm-up heuristic. [The record](live-mode-next.md#e44-working-record-and-file-ownership) preserves the counterexample and proposed explicit emitter identity fix. The coordinator resumed work after acceptance ended; explicit emitter identity and an arrival-time regression correct the heuristic. Transient cues and speech follow.
+* **DM cleanup/Unicode regression**: [Closing record](live-ops-wire.md#reproduction-and-closing-checks-for-the-dm-batch): restored the existing Polish fixture literal, native cp1250 proof passed, guarded cleanup removed 262913 logical bytes across closed-run transients; required evidence and active history retained.
+* **DM closing validation**: [Reproduction and checks](live-ops-wire.md#reproduction-and-closing-checks-for-the-dm-batch): wide-integer native refusal proof, 73 guarded Rust tests and warning-free Clippy; exact source/binary provenance and private-client proof limits.
+* **DM player controls**: [Progression, alignment, abilities and reputation](live-ops-wire.md#dm-player-progression-abilities-and-reputation): exact wire/scopes/OpenAPI and surrogate native effect proof; complete DM event coverage and UI handoff, connected-client limits stated.
+* **DM traps**: [Trap operations](live-ops-wire.md#dm-traps): attach/disable on doors and placeables, native type/trapped readback and row validation; distinguish active flag from actual trap presence.
+* **DM world controls**: [Clock/calendar/gather](live-ops-wire.md#dm-world-controls): native time-scale conversion, forward-only calendar and player gates; difficulty setter unavailable, connected-client gather proof pending.
+* **DM inventory**: [Inventory wire](live-ops-wire.md#dm-inventory): bounded backpack/equipment readback and ownership-checked whole-stack removal; explicit equipment scan fixes native iterator omission.
+* **DM locals**: [Typed locals](live-ops-wire.md#dm-local-variables), read-only native queries, bounded dumps and independent variables scope; all five native types proven on object/module/area.
+* **DM creatures**: [Wire contract](live-ops-wire.md#dm-creature-controls): kill/heal, invulnerability/immortality, AI scheduling readback, rest and identity-preserving limbo; native proof and guarded Rust wire/permission tests.
+* **Live E4.4 effect markers**: per-view Off / Markers / Full control defaults to Markers; coloured rings and labels preserve glows and unknown effects without models. [Working record](live-mode-next.md#e44-working-record-and-file-ownership) covers guarded app/unit checks, inspected pictures and protection of the running owner acceptance. Full model/particle wiring follows as a separate item.
+* **Live E2.6 Grid layout**: Grid returns after Animations; Turn wraps before it can overflow the toolbar. The inspected 1280-pixel Live-off picture has no horizontal scrollbar and Grid clicks work. Guarded workspace checks pass 1,046 tests, with the existing narrow-width Live controls test and before/after pictures. [The record](live-mode-next.md#e2-working-record-and-file-ownership) prepares the clean-tree E3 merge and combined owner acceptance.
+* **Live E2.5 smooth movement**: [The record](live-mode-next.md#e2-working-record-and-file-ownership) and [manual](manual/04-areas.md#live-mode) add interpolated positions/turns, shared picking/follow positions, available movement gaits and a five-second trail. Static views keep their GPU image; movement, keyed animation and moving materials redraw. Workspace 1,046 passed, corpus checks and inspected pictures pass. The optional guarded `-UiUnoptimized` profile resolves LLVM memory exhaustion for functional UI checks; it is not a performance benchmark.
+* **E8.1 delta reports proved**: [Wire contract](live-ops-wire.md#e81-delta-reports-and-resync) covers object hashes, tombstones, baseline recovery and old-report compatibility. A private 600-placeable API proof measured 110495-byte full reports versus 212-byte quiet deltas, automatic resync after an injected gap and a periodic full 30 ticks later. 55 active mg-live tests pass.
+* **MCP schema compatibility**: [Portable schema subset](agent-protocol.md#portable-schema-subset) now matches mg-live faction unions and exclusive numeric bounds. Every generated live schema is discoverable; all six adapter checks pass. The portability scan explicitly distinguishes the coordinator-pinned native proof from portable shipping sources.
+* **E7.4 returned chunk JSON**: [Contract and native proof](live-ops-wire.md#e74-json-chunk-returns) and [agent recipe](agent-protocol.md#querying-the-game-with-returned-nwscript-values) add return:true, MgReturn, a 16 KiB JSON value, explicit null and isolation between executions. Private HTTPS/live_wait proof and 53 guarded unit tests pass.
+* **Live Rust operations proved through HTTPS**: [Reproduction and evidence](live-ops-wire.md#real-https-proof-and-rust-closure) records real production API/Redis/native report checks for freeze/unfreeze, faction, visual transform/reset, a local-policy gold refusal with the server switch on, and exact Polish name/chat. 52 unit tests and mg-live all-target clippy pass; UI remains outside this batch.
+* **Polish Redis publisher**: [Encoding contract](live-ops-wire.md#rust-integration-2026-10-12) now has the single outbound Rust conversion to ASCII JSON Unicode escapes. Polish, surrogate-pair, escaping and reconnect tests pass; API/store strings stay Unicode.
+* **Live operation API catalogue**: [Contract](live-ops-wire.md#rust-integration-2026-10-12) and generated OpenAPI describe 29 operations with all capabilities on, shared command dispatch, complete bounds and policy-controlled discovery. Both routes have exact wire-payload coverage; 51 guarded mg-live tests pass.
+* **Live operation Rust store**: [Wire contract](live-ops-wire.md#rust-integration-2026-10-12) records typed E5/E6 commands, policy-owned player permission, report compatibility and exact game JSON/refusal tests. The guarded mg-live gate passes 50 tests; UI remains with the coordinating workers.
+* **Update**: [Areas](manual/04-areas.md#live-mode): the **Live Log** (E3.5) and the live event log behind it (E3.1: the game's events, the server log channel, command answers and changes between reports, 1000 per area), with the agent operations `live_events` and `live_find` (E3.7).
+* **Live E2.4 faction colours**: [The record](live-mode-next.md#e2-working-record-and-file-ownership) and [manual](manual/04-areas.md#live-mode) add Faction/Hostility/Kind modes, the module faction palette and per-module Options colours. The game reports faction and friendly/hostile PC IDs outside combat; old missing data stays unknown. The private WSL probe matches four faction IDs to native GFF readback, all guarded checks pass (1,041 workspace tests), and wide/narrow/Options pictures were inspected. Selected-player relationships remain for owner acceptance.
+* **Live E2.3 combat shown**: [The record](live-mode-next.md#e2-working-record-and-file-ownership) and [area manual](manual/04-areas.md#live-mode) add red combat rings, dashed target arrows, grey corpse crosses and a toggleable legend. Hidden, dead or absent targets have no line. Guarded checks pass 1,039 workspace tests, with the corpus toggle test and inspected before/after pictures. Faction/hostility colours follow in E2.4.
+* **Live E2 audit corrections**: [The record](live-mode-next.md#e2-working-record-and-file-ownership) reserves marker rectangles during label placement and adds default camera-distance ordering plus clickable Name/HP/Distance sorts. Rows remain stable through a follow double-click. Guarded checks pass 1,038 workspace tests, with inspected before/after pictures. Low-memory builds can use `check.ps1 -Jobs 1 -NoUiDebug`; only mg-ui test/dev debug symbols are omitted, as the coordinator verified.
+* **Live E2.2 panel**: [The cumulative record](live-mode-next.md#e2-working-record-and-file-ownership) and [area manual](manual/04-areas.md#live-mode) add the reported-object table, shared search and filters, module-marker hiding, selection and follow across open areas. The record preserves the dock-drawing and action/mode constant-collision findings, repeatable fixture paths and validation.
+* **Live E2.1 labels**: [The cumulative record](live-mode-next.md#e2-working-record-and-file-ownership) and [area manual](manual/04-areas.md#live-mode) describe the four label modes, stable priority placement without overlapping names, and distance fading. The crowd comparison replays the existing morning report and module; the merged-tree baseline passed before E2 work began. Component checks and owner acceptance are tracked separately in the record.
+* **Astra2 operations batch closed for review**: [Canonical contract and commit table](live-ops-wire.md#batch-closure-2026-10-12) cover E5/E6/E7 game-side work. 21 phase manifests and final chat regression pass; 35 scripts compile, no Cargo run. True door facing returns `disabled`; real client paths remain untested. Removed 12 generated own runtime/cache files (133,103 logical bytes), retained the one current module and proofs, confirmed 5126/6392 free, preserved active history and other workers' data. OKF index maintained by hand because the tool is unavailable.
+* **E7.1 Polish boundary proved**: [Contract](live-ops-wire.md#polish-text-and-the-encoding-boundary) isolates raw UTF-8 misinterpretation at native JsonParse and default-charset loss. Escaped Unicode JSON plus the private server's cp1250 setting returns the exact phrase in names and chat, with 17 native bytes. The proposed single Rust conversion point is the Redis publisher; client glyph rendering remains untested.
+* **E6 naming passed**: [Contract](live-ops-wire.md#set_name) defines bounded native names and reports exact quotes/backslash on NPC, chest and door. Engine proof also fixed the shared speech/name blank check, which previously accepted tab-only text.
+* **E6 useability passed**: [Contract](live-ops-wire.md#set_useable) records both object types changing the native flag. The engine getter only handles placeables, so door reports use the independently probed serialized `Useable` byte; no cached command-value substitute or native patch.
+* **E6 animations passed**: [Contract](live-ops-wire.md#play_animation) defines four placeable names and door open/close. Engine reports prove native chest states 73-76 and both door open-state transitions. Doors require their dedicated actions; placeable animation constants had no effect on them.
+* **E6 physical positions passed**: [Contract](live-ops-wire.md#set_position) specifies NWNX Object dependency and subarea updates. Both authored chest and door report exact new XYZ and preserved facing; invalid coordinate types are refused. Include extraction and launcher flags are updated.
+* **E6 transforms passed**: [Contract](live-ops-wire.md#set_visual_transform) defines partial scale/rotation/translation updates, validated bounds, base-scope reset and sparse `vt` reports. Both chest and door report all seven native values, reset to identity, and retain physical coordinates/facing.
+* **E6 placeable facing passed; door facing limited**: [Contract](live-ops-wire.md#set_facing) records the native door no-op, guarded `disabled` result and later NWNX requirement. Chest facing changes in engine reports; door refusals preserve orientation. Other E6 work continues.
+* **E5 inventory grant passed**: [Contract](live-ops-wire.md#pc_give_item) specifies the `resref` field and item-ID result. A native inventory scan proves one added potion with matching ID in a subsequent report; missing/bad blueprints and command permission are refused. The WSL launcher forwards the server player switch.
+* **E5 XP passed**: [Contract](live-ops-wire.md#pc_give_xp) adds bounded XP grants and total reports. Native GiveXPToCreature increases an owned NPC's reported XP by exactly 25; validation and command gate pass.
+* **E5 gold passed**: [Contract](live-ops-wire.md#pc_give_gold) adds bounded gold grants and creature balance reports. The private engine reports the exact increase on an owned NPC, with invalid amounts and missing command permission refused.
+* **E5 teleport passed**: [Contract](live-ops-wire.md#pc_teleport) defines same-area native teleport and finite coordinates. Engine reports show requested X/Y, preserved facing and native ground-height adjustment on an owned NPC.
+* **E5 resurrection passed**: [Contract](live-ops-wire.md#pc_raise) records native resurrection/full healing. An owned NPC changes from dead to living with full HP in the next report; living-target and missing-permission refusals pass. Real PC client UI is not claimed.
+* **E5 player gate and healing passed**: [Contract](live-ops-wire.md#player-permission-and-associate-protection) defines independent server/command switches and associate protection. All six operations refuse server-off requests; enabled healing changes an owned NPC stand-in's HP in engine reports. Actual PC/master classification remains a client check.
+* **E5 spawn options passed**: [Contract](live-ops-wire.md#spawn-count-and-faction) adds count 1-10, creature faction, spread positions and complete created-ID results. Engine proof observes ten owned merchant NPCs, separation after native walkmesh adjustment and no leftovers from refused batches.
+* **E5 speech volume passed**: [Wire contract](live-ops-wire.md#npc_say-volume) adds talk/whisper/shout with game validation. Native chat events prove channels 1/3/2 and exact message text; unknown/non-string values are refused.
+* **E5 freeze/unfreeze passed**: [Contract](live-ops-wire.md#freeze--unfreeze) defines bounded duration, owned effect tag and creature `frozen` field. Engine proof covers immobility, expiry, movement recovery and preserving another script?s paralysis.
+* **E5 faction changes passed**: [Contract](live-ops-wire.md#set_faction) defines standard names/raw module IDs, result and creature report field. Engine reports agree with independent native GFF faction values; invalid/nonexistent IDs, missing objects and dead targets are refused.
+* **E5 stop-combat engine proof passed**: [Operation contract](live-ops-wire.md#stop_combat) records radius validation, NPC-only action clearing, decaying personal calm, native reputation direction, outside-radius preservation and later-tick combat cessation. Native temporary neutrality failed on the hostile fixture; no server binary changes.
+* **Game operations batch started**: [Wire contract](live-ops-wire.md) tracks E5/E6/E7.1 game-only work; authorized merge brings `live-mode` at `061e2a7` into the events worktree. Existing movement hold is checked through native commandability and changed positions. Shared compiler reused; no Cargo build.
+* **Astra2 event phase closed for review**: All four private proof phases pass, including a repeated isolated cast/projectile check; 27 NWScript compilations have zero failures. [The canonical record](live-events-wire.md#ownership-evidence-and-cleanup) and exact local manifests retain sources/current MOD/proof and record 181,849 logical bytes removed from redundant own diagnostics and generated scratch. Owned children exited, 5126/6392 are free; shared builds and other servers untouched. Player lifecycle still requires a client, and general instant VFX remains deferred. Active session history is preserved for separately authorized cleanup.
+* **E4.3 lasting VFX and projectile proof passed**: [Wire contract](live-events-wire.md#lasting-vfx-in-creature-reports) records native effect integers `411 0 0 0 0 0 0 0`, permanent/temporary rows, the 16-row cap and removal. Private UDP 5126/Redis 6392 also proves spell 107 with object target and fireball 58 at a location, each with a real projectile callback. General instant VFX remains deferred; no NWNX C++ or new Rust changes. The log proof now removes its own completed rotation copy and records the removal.
+* **E3.4 server-log helper passed**: [Wire contract](live-events-wire.md#server-log-channel) documents owned scratch selection, `.log` envelope, error classification, retry/deduplication and limits. Private engine proof covers new log lines, an explicitly labeled error-classifier fixture, subscriber gaps, rotation and truncation. No claim that all engine diagnostics use `nwserverLog1.txt`. Exact helper/server/Redis children exited; no other server touched.
+* **E3.3 combat and spell proof passed**: [Game event wire contract](live-events-wire.md) defines attacks, typed damage, deduplicated observed deaths, spells and compiled player lifecycle callbacks. Private UDP 5126/Redis 6392 proves attack/damage/death with killer and spell 107 with target. Fixed the test's sloped-tile fixture and held spell casting after establishing perception. Real player join/leave remains pending a client. Authorized merge brings Phase 1b into `live-mode-events`; no new Rust changes.
+* **E3.2 game chat and buffer passed**: [Wire contract](live-events-wire.md): registered chat collector, 256-entry queue, per-boot event sequence and cumulative overflow count; NPC speech, all channel callbacks, 300-message overflow and subscriber-gap retention proved on private UDP 5126/Redis 6392. Player-only delivery is excluded from the scripted fixture. Coordinator narrowed E4.3 and resumed; no NWNX C++ change. Rust untouched.
+* **Live-events source preflight blocked (Astra2)**: [The game-side wire record](live-events-wire.md) binds the installed NWNX include and source showing that `NWNX_ON_EFFECT_APPLIED_AFTER` filters out visual and instant effects. Stopped under the coordinator's wrong-fact rule before implementation, compilation or server launch; correction needed for E4.3. No task commit or runtime proof. Minimal manifest and coordinator mailbox retained; nothing deleted, 0 bytes reclaimed. `okf` unavailable; index updated directly.
+* **Live E2.1 labels**: [The cumulative record](live-mode-next.md#e2-working-record-and-file-ownership) and [area manual](manual/04-areas.md#live-mode) describe the four label modes, stable priority placement without overlapping names, and distance fading. The crowd comparison replays the existing morning report and module; the merged-tree baseline passed before E2 work began. Component checks and owner acceptance are tracked separately in the record.
+* **Update**: [Areas](manual/04-areas.md#live-mode): the **Live** menu (E2.7) - Start/Stop Live, Show Live in This Area (Ctrl+Shift+L), Live Options…, Live Mode Help. NWNX_Redis reconnect patch, build script and Redis outage test in `tools/nwnx-redis/` (E9.1): the stock plugin fails the restart test, the patched one passes.
+* **Live-next Phase 1b committed**: [the record](live-mode-next.md#phase-1b-resumed-engine-result) - a same-faction attack fights (temporary hostile faction, restored after timeout, a new order or the victim's death), hold/timeout on move and attack, dead creatures lie down, spawning by a targeting cursor, a private demo without player/DM passwords, one schema validation for both command routes. Engine gate, workspace, clippy, fmt and inspected pictures pass.
+* **Live-next Phase 1b resumed**: Claude accepted the same-faction reputation finding and approved temporarily switching the attacker to Hostile, restoring its original faction at order/hold end. The result reports the switch; documentation states that it also makes the attacker hostile to players. [The cumulative record](live-mode-next.md#phase-1b-blocker-prescribed-hostility-did-not-produce-combat) retains the failed probe and correction. Game-side events/VFX work is now assigned to the separate Astra2 worktree.
+* **Live master roadmap accepted**: [The complete roadmap](live-mode-roadmap.md), committed by Claude as `a70cd30`, adds menu/logs/effects, scaling, scenes, NWNX reconnect and editor operations. The mailbox task plan assigns separate file ownership and clean-tree merge windows; Phase 1b also gains movement hold fields and common HTTP schema validation.
+* **Live-next Phase 1b blocked at the engine gate**: [The revised plan and record](live-mode-next.md#implementation-record) follow `91c1708`: effective same-faction attacks with bounded holds, death poses checked against the game's supermodels, explicit spawning, and the owner's private-demo password decision. Existing working sets and the recovery MOD are reused; the later owner-approved master roadmap sets checkpoints after E2+E3, E4, E5+E6 and at the end. Same-faction attacks still report no combat/target and reputation 100 despite the prescribed hostility calls (also reproduced without plot protection). Movement hold recovery and password checks pass. No Phase 1b commit; evidence and the decision request are recorded, owned test sessions stopped, ship demo preserved.
+* **Update**: [Live mode, next](live-mode-next.md): the owner's Phase 1 acceptance - attack that really fights, dead creatures lie down, a private demo without player/DM passwords, spawning on purpose (Phase 1b); faction colours (Phase 2); placeables and doors in Live (Phase 4b); script return values for LLMs (Phase 5).
+* **Live-next Phase 1 checks passed; owner acceptance due**: [The cumulative record](live-mode-next.md#implementation-record) documents Claude's corrected appearance deny-list, targeting feedback/cancellation, player models and structured errors. Workspace 1,013 passed; focused UI fixtures, inspected GPU pictures and 57-script compilation pass. After the owner-approved demo closure, the private WSL gate measures a 6,795-byte trimmed look and proves both store/game `code: dead` refusals. Test actors/sessions are removed, the ship demo is preserved, and one accepted-module recovery point is retained. Stop for the owner's two-monitor player-model/armour/targeting acceptance before Phase 2.
+* **Update**: [Live mode, next: implementation plan](live-mode-next.md) (accepted): what the first two-monitor session showed, and six phases - targeting cursor, player model, clear errors; a readable view; events; the DM's controls; Polish text, Options and scoped tokens; documentation.
+* **Phase F and Morning acceptance passed**: G is locally committed as `6cf66de`; F completes the manual and acceptance harness. Guarded checks pass 1,008 tests (82 ignored), clippy and fmt, plus the inspected before/after GPU pictures. Curl and the real MCP SDK client pass arrival, scripts, chunks and compiler-error checks on owner-approved temporary bartenders; stdio/HTTP discover the same 62 tools. Redis outage/restart, deduplication, expiry and both chunk-off gates pass. [The implementation record](live-mode-redis.md#implementation-record) preserves earlier failures, their resolution and cleanup. Native-window observation and a game-client join remain manual; H is excluded. Owned processes/actors were stopped/removed, system Redis and the source module preserved. No push.
+* **Phase E engine acceptance passed under the owner's revised outage decision**: [Live mode over Redis](live-mode-redis.md#implementation-record): the WSL keeper, Options hint, portable launchers and client-only probe are implemented. Game actions/scripts, GUI deduplication, Moonglow Redis reconnect, the required game restart with old-command expiry, and both chunk-off gates pass. The installed NWNX plugin's reconnect limitation is documented and its repair deferred separately. G/F, MCP proof and the morning run follow; system Redis was untouched.
+* **Phase G guarded resumption**: the owner authorized resumption after an ad hoc test omitted the native-game guard and entered a Windows engine test. A fresh inventory confirms the recorded process chain has exited and UDP 5121 is free. The [implementation record](live-mode-redis.md#implementation-record) preserves the incident; all subsequent Rust tests use `tools/live/check.ps1`.
+* **Phase G complete**: [agent/CLI discovery](agent-protocol.md), generated OpenAPI, descriptors, packaging and independent MCP stdio/HTTP passed the clean guarded rebuild: 1,008 tests, warning-free clippy and fmt; fresh real SDK discovery found 61 identical tools. Only the authorized LC experiment was removed. The owner resolved the external build-output cleanup blocker; its exact record is preserved in the [implementation record](live-mode-redis.md#implementation-record). The curl/MCP Morning harness is ready for final acceptance.
+
+## 2026-10-11
+* **Implementation**: [Live mode v1](live-mode-proposal.md#where-it-stands): authenticated HTTPS API, live viewer/actions, NWScript dispatch and a verified private WSL demo, with [viewer controls](manual/04-areas.md#live-mode), [startup/API instructions](manual/09-build-and-test.md#live-mode-with-nwnx) and [v1 limits](deferred.md#live-mode). Real engine tests cover commands, reconnect deduplication and server restart; GPU evidence renders recorded engine reports. The implementation record distinguishes tested behavior, manual acceptance, reproducibility and cleanup.
+
 ## 2026-10-17
 * **Update**: [Areas](manual/04-areas.md) and [the deferred list](deferred.md): builders' reports after 1.32.2. The placeable brush's **Fill** covers a rectangle dragged from corner to corner with rows of the chosen placeables (dansen9191's ask: floors), as one step: on a grid Q and E turn, the rectangle's sides with it, each piece facing along it; a row's pieces end to end by each one's own length and Gap, the next row past the deepest of the one before. Tile models whose first byte is zero but not their next three (587 of a fancy-mapped CTP Babylon hak's, beginning `\0CTP` or `\0OMB`) are read as compiled models, as the game and Aurora read them: Moonglow read them as text, found them empty and drew their tiles as missing (troubletcat's report; seen in a picture before and after).
 * **Update**: [The deferred list](deferred.md): builders' reports on 1.32.1. A cloak lying in an area (`gi_cloak01`) is drawn with the environment map it has worn: a shiny color's palette alpha was drawn see-through, the floor showing through a cloak Aurora draws solid and shiny, and a color whose alpha is 0 not drawn at all (seen in pictures before and after, `area_items` and `area_dropped_cloaks` in `screens.rs`, the latter compared with Aurora's view of the same probe module: the same shapes, colors and solid shine); dropped armor has the items' one. A small item with height (a potion, a gem, a healer's kit) is selected by a box around its model: it was taken for a model of nothing to see, as the game's invisible light is (a flat square of 0.2 m), and had a marker's box a metre wide.
@@ -192,3 +424,190 @@
 * **Update**: [Blueprints](manual/05-blueprints.md) (the Appearance Gallery's creatures and doors, the Creature Wizard, the inventory, talk-table text), [areas](manual/04-areas.md) (clicking between tiles and objects); [the deferred list](deferred.md).
 * **Update**: [Blueprints](manual/05-blueprints.md): drag and drop and right-click menus in inventories; [the deferred list](deferred.md).
 * **Update**: [Blueprints](manual/05-blueprints.md): items dragged between inventories and within a list, Copy and Paste; [the deferred list](deferred.md).
+
+* **2026-10-12 E7.2**: [Agent protocol](agent-protocol.md): service-owned Windows WSL keepalive, automatic loopback default, explicit override, and proven Windows/Linux child shutdown.
+
+* **2026-10-12 E7.3**: [Agent protocol](agent-protocol.md) and [live operations](live-ops-wire.md): named token groups, command quotas/Retry-After, isolated result/chat views, player flag intersection, payload-free request/completion audit, and real TLS tests.
+
+* **2026-10-12 E7/E8 closure**: [Live operations](live-ops-wire.md): exact reproduction commands, private chunk/delta proof identities, owned file retention/cleanup and active-history separation. Audit rows append as complete records and policy precedes the API listener.
+
+- 2026-10-12: Forced live kill temporarily overrides plot/immortal, restores protections and reports actual death; private plot+immortal corpse proof in live-ops-wire.md.
+
+- 2026-10-12: Demo -AllowPlayerOps forwards an explicit off/on server switch; offline mock proof and private lifecycle proof added, with real connected-PC limitation documented.
+
+- 2026-10-12: Added tagged apply/clear VFX with Rust schema, scopes and bounds; engine proves lasting/expiry/ownership, client-only rendering limits documented.
+
+- 2026-10-12: Added report-ingestion regression for the new original/temporary fighting-faction result pair; legacy numeric/string result fields still parse.
+
+- 2026-10-12: Added set_appearance, optional report app, native readback proof and API schema/scopes/refusal tests.
+
+- 2026-10-12: Added bounded native object capture/restore, checked GFF trust boundary, combined spawn/scripts scope and library UI handoff; native OnSpawn inventory addition documented.
+
+- 2026-10-12: Added players-gated radius skill checks with messages/outcomes, schemas/bounds; private no-client and native-roll proofs pass, real PC delivery remains pending.
+
+- 2026-10-12: Added cancellable NPC patrol routes and measured arrival events; private two-lap, new-order, stop, completion and freeze proofs.
+
+- 2026-10-12: Added set_tile with active-tileset/area validation, native before/after result and tile event; isolated four-cell change-and-restore engine proof.
+
+- 2026-10-12: Closed owner-regression batch evidence: 85 mg-live tests, Clippy, real capture ingestion and offline launcher wiring; 31,560-byte library round trip/295,752-byte refusal. UI handoff, client proof limits and session retention recorded; 24 owned transients (131,652 logical bytes) removed via identity-checked cleanup.
+
+- 2026-10-13: Added Hexxar Live VFX browser and named live Appearance Gallery confirmation. Model-view hooks simulate attached particles, animate effect mesh alpha and frame effect bounds. Fake-store commands and inspected renderer/ground-click proof recorded in [live-windows.md](live-windows.md); coordinator integration fixes are `50c5a7b`.
+
+- 2026-10-13: Added module NPC library with bounded native creature JSON, safe names, capture-result-before-save, rename/delete, appearance thumbnail and camera/selection spawn. Fake-store round trip and inspected window picture pass; [handoff](live-windows.md).
+
+- 2026-10-13: Added Live Skill Check window with skills.2da choices, player policy, selected centre, per-player outcomes and full Live Log result formatting. Six app regressions, 110 unit tests and Clippy with denied warnings pass; seven renderer pictures inspected. Owner desktop/client acceptance remains separate; [proof and menu handoff](live-windows.md).
+
+- 2026-10-13: Added Live NPC/group patrol targeting, bounded numbered routes, Loop/Run, stop and observed progress. Five review app tests and the inspected area picture pass; reproduction and event limitations are in [the cumulative record](live-mode-next.md#patrol-and-tile-view-tools-after-the-combined-acceptance). Demo protected, no Build.
+
+- 2026-10-13: Added confirmed Live single-tile painting through Select Tiles, event-driven presentation, native-before restore, and module-write bypass. Six review app tests and confirmation/after pictures pass. Restart regressions prevent ambiguous retained event history from reviving tiles or patrols; late-join terrain snapshots and transition brushes remain deferred. [Record](live-mode-next.md#patrol-and-tile-view-tools-after-the-combined-acceptance).
+
+- 2026-10-13: Second owner acceptance: Patrol and Live Tile Properties close buttons cancel unsent work. Shared-tree checks gain non-mutating CheckFmt; exact evidence and worker ownership are in [the cumulative record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+
+- 2026-10-13: Fixed Hexxar windows rejecting fresh reports when environment overrides enable the running service but saved Options remain off. Fresh-store app reproducer failed before and passes after, including VFX, skill result and library Spawn; stale reports remain refused. [Proof](live-windows.md#owner-follow-up-runtime-freshness-2026-10-13).
+
+- 2026-10-13: Live tile painting now uses Tiles palette thumbnails, a preview and configured Q/E rotation; numeric fields moved to Advanced. Six guarded app cases and the inspected picture passed; module terrain remains unchanged. [Record](live-mode-next.md#second-owner-view-acceptance-2026-10-13).
+
+- 2026-10-13: [Skill checks](live-ops-wire.md#skill-check-one-pc-or-a-radius-b) accept one PC or a radius and optional texts. Private proof records empty-text native NUI JSON and refusals; connected-PC rendering awaits the owner. Native fixtures compile through guarded library tests without app binaries.
+
+- 2026-10-13: [Silent AI chat](live-events-wire.md#silent-ai-chat-2026-10-13-owner-fix-c) now carries the engine-proven silent flag (channels13/14, preserving PC-to-DM chat); stock NW_I_AM_DEAD and audible talk proved on the private server. Agents retain all events.
+
+- 2026-10-13: [Runtime appearance](live-ops-wire.md#runtime-placeable-and-door-appearance-e) now reports the actual placeable row and wide generic-door row. Native getter/snapshot/report proof distinguishes instance row5 from template row4; running demo untouched.
+
+- 2026-10-13: [NPC loot/drop controls](live-ops-wire.md#corpse-loot-and-owned-drop-flags-d): bounded inventory/equipment mutation, owned restoration preserving later script changes, report loot and native flag proof.
+
+- 2026-10-13: [Placeable appearance setter](live-ops-wire.md#placeable-appearance-setter-and-pc-consent-f) uses native instance mutation/readback, with a proven capture/spawn clone fallback. Immediate client refresh remains unverified; no implicit deletion or reference migration.
+
+- 2026-10-13: [Static placeables](live-ops-wire.md#static-placeables-g): native getter/report toggles and dynamic transform proved; documented client reentry and useability side effects.
+
+- 2026-10-13: [PC force orders and actions](live-ops-wire.md#dm-force-player-orders-and-new-player-actions-h): both-switch gates, per-PC messages/journal/removal/boot/fade/positional sound; compiled native refusal proof and Rust payload/bounds checks. Positive connected-client acceptance remains explicit.
+
+- 2026-10-13: [Material uniforms](live-ops-wire.md#object-animation-replacement-retained-after-d15): int32/finite Vec4/reset operations with native-call proof and validation. Client assets/visual verification and per-player shader API limits documented.
+
+- 2026-10-13: [Live Inventory and owner windows](live-windows.md#inventory-and-owner-follow-up-windows-2026-10-13): bounded rows/icons/equip info, palette Give, confirmed Take, fresh-store tests, inspected pictures and docked Library clipping fix. Action/Tab LiveInventory handed off.
+
+- 2026-10-13: [Owner DM follow-up validation](live-ops-wire.md#shared-tree-validation-retention-and-handoff): 70-op schema, 92 Rust unit tests, seven app checks, nine private phases and inspected pictures; client-only limits, commit handoff and owned cleanup recorded.
+
+- 2026-10-13: Guarded package Clippy now runs with the requested UI memory profile; mg-live and mg-ui all-target checks pass with warnings denied. Exact refusal-code tests, fixture reuse, documentation links and final owned cleanup verified. [Evidence and retention](live-ops-wire.md#shared-tree-validation-retention-and-handoff).
+
+- 2026-10-13: Live B9 replaces the resref-first Give Item row with a searchable module/standard palette, categories and icons, double-click/Give and an advanced resref fallback. App tests and installed-resource picture: docs/live-windows.md. Index maintained by hand (okf unavailable).
+
+- 2026-10-13: Live B6 enforces native equipment masks and exposes faithful item use plus inventory transfer, with player gates at both endpoints. Native potion healing/stack decrement and transfer readback pass; item menus and proof recipe are in docs/live-ops-wire.md and docs/live-windows.md.
+
+- 2026-10-14: [Live game/wire measurement](live-game-performance.md): private 218-object/70-row module baseline and section probes, look/array amplification, 256-event burst, legacy/delta wire/CPU comparisons, routine heartbeat and scheduler observations, Rust test/dev-profile replay, ranked later candidates and client-only gaps. Measurement helpers/tests only; production behavior and running demo unchanged. OKF unavailable; index maintained by hand.
+
+- 2026-10-14: [Live GUI measurement](live-gui-performance.md): opt-in native replay spans and process/allocation counters compare debug, optimized dev and release with 218 crowd objects and 16 lasting effects. Records repaint controls, startup, resource census, limits of the 919 MiB private-commit attribution and ranked candidates. No optimization or demo lifecycle action; index maintained by hand because OKF is unavailable.
+- 2026-10-14: [Live optimization plan](live-optimization-plan.md) from the two measurement reports: eight ranked steps (optimized demo build, event buffer, queries, store merges, tick JSON assembly, event enqueue, emitter posing, repaint coalescing) and a re-measure gate before the riskier ones.
+
+- 2026-10-14: [GUI optimization follow-up](live-gui-performance.md): step 1 selects/builds the Release demo GUI with one compiler job, preserves ordinary debug development and owned-session identity. Re-measured crowd CPU 83.52% to 49.93%, redraws 9.41 to 23.42/s; application build/lifecycle deferred per coordinator.
+- 2026-10-14: Optimization step 2: acknowledged event clearing measured at 33,565 -> 21 us for 256 events (seven bursts); tick 42,940 -> 9,397 us. Native prefix/reentrant/overflow contracts and guarded mg-live tests pass. Methods/results: docs/live-game-performance.md follow-up; existing OKF index entry retained.
+- 2026-10-14: Optimization step 4: single prepared delta merge and borrowed prior creature rows; identical replay sync medians87.1->48.9us (ordinary),388.6->110.0us (retained look). Private engine unchanged/native contracts pass;114unit tests plus atomic-rejection/order/kind-move regression checks. Follow-up in docs/live-game-performance.md; existing index entry retained.
+- 2026-10-14: Optimization step 5: native JsonDump-fragment collection assembly and late envelope attachment; full ticks8.641->5.503ms (no look),18.097->9.454ms (one),34.966->18.118ms (three). Frozen native JSON oracle and new-packet mg-live replay/tests/Clippy pass; exact methods and low-sample delta-baseline limits in live-game-performance.md.
+- 2026-10-14: Optimization step 6: bounded per-slot event queue;256-event enqueue35508->3133us, tick6449->7781us (snapshot/freeing tradeoff), combined work41957->10914us. Native wrap/overflow/reentrant/UTF8-companion/slot-release and zero-subscriber reconnect proofs pass;114mg-live tests. Cleanup and exact methods in live-game-performance.md; existing index entry retained.
+
+* **Fifth acceptance C8**: [Custom module faction IDs](live-ops-wire.md#fifth-acceptance-custom-module-factions-c8) accepted by native and Rust paths; test/session memberships proved in reports. Menus send raw repute.fac IDs.
+
+* **Fifth acceptance C1**: [DM inventory Drop](live-ops-wire.md#fifth-acceptance-dm-inventory-drop-c1) reproduces and fixes the lamplighter potion refusal while preserving plot protection and no-drop flags.
+* **Fifth acceptance C3**: [Give Item uses the actual palette hierarchy](live-windows.md#fifth-acceptance-c3-the-actual-item-palette-tree), with Standard/Module roots, category order, icons, cross-tree search and exact-command UI regressions.
+
+* **Sixth acceptance E13**: shared area tabs, labelled All chat, pinned Chat windows and stable tool scope with two maps visible. [Record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+* **Sixth acceptance E14**: Focus area tabs and member drilldown, with event-time membership and scoped replies. [Record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+* **Sixth acceptance E12**: Legend is a separate default Live tool, with per-area marker settings and no map overlay. [Record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+* **Sixth acceptance D1 UI**: live faction eligibility comes from the server catalogue; editor-only IDs are disabled. [Record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+* **Sixth acceptance E11**: follow opens the next area and keeps camera/tool scope across report gaps. [Record](live-windows.md#sixth-acceptance-ui-2026-10-14).
+
+- Sixth acceptance E10: Chat To DM filtering and explicit PC replies; guarded
+  live_accept6 app11/11, picture inspected. Native feedback limitation labelled.
+
+- Sixth acceptance E4: counted group removal confirmation for Delete and menu;
+  app regression and before/after pictures pass (accept6 suite11/11).
+
+- Sixth acceptance E11 follow-up: preserve the active tool when following into
+  a new map; Focus stays visible in the transfer app regression.
+
+- Sixth acceptance D8: NPC reported equipment redraws on look-hash changes,
+  including matched module objects and authoritative empty equipment; app11/11
+  and equipped/unequipped pictures checked against Astra2 native producer.
+
+- Sixth acceptance E3: NPC/placeable capture clipboard, grouped model ghosts,
+  rotation, safe confirmed Cut; app13/13 and pictures inspected.
+
+- Sixth acceptance E9/E9b: visible saved macros, Save, row Play, rename/delete,
+  named step targets and rounded coordinates. Acceptance app13/13, existing
+  Scenes workflow1/1; before/after pictures inspected.
+
+- Sixth acceptance final UI audit: acceptance13/13; full guarded mg-ui670 passed
+  (18 ignored); final units243; view23, acceptance4 seven, Chat/Focus and Scenes
+  regressions pass. Workspace Clippy/fmt and local doc links pass. Retired/stale
+  manual descriptions corrected; demo/binary hashes unchanged. Reproduction,
+  source-commit fixture changes and cleanup in live-windows sixth-acceptance record.
+
+- 2026-10-15 Astra2: cache immutable Live operation schemas and share the API scope/schema gate; quiet dispatch 498?832 ?s -> ~2 ?s, all policy/OpenAPI/refusal tests unchanged. See live-game-performance.md.
+
+- 2026-10-15 Astra2: pure Live revision/event-cursor getters for GUI cache invalidation; same-run polling drops from 3.6/1.9 ?s to 0.1/<0.1 ?s, with boot and between-report log tests.
+
+- 2026-10-15 Astra2: delta preflight plans move unchanged rows/looks instead of deep cloning them; quiet native-area sync 2.797 -> 0.997 ms, preserving all-area size validation and derived events.
+
+- 2026-10-15 Astra2: remove the final shader-only private-fixture declaration filter and rename its retained native API excerpt; keep removal-regression and migration safeguards.
+
+- 2026-10-15 Astra2: urgent NPC/PC look decoder repair: preserve GFF metadata and prune render-irrelevant prose, including equipment. Actual private packets parse in default/cp1250; native Unicode control proves the failure/repair. A cold-load instruction overflow remains recorded explicitly in live-events-wire.md.
+
+- 2026-10-15 Astra2: extract the exact142-line pre-lock report decoder/validator from store.sync into store_report.rs; same guard/normalization/error order, full mg-live tests and Clippy pass.
+
+- 2026-10-15 Astra2: native in-place area collections: quiet tick medians45.1 ->39.6 ms (0 extra looks),55.9 ->45.0 ms (1),67.1 ->62.2 ms (3). Corrected-look paired builders27.39 ->16.85 ms with exact JSON equality. Engine contracts, final core tests/lint/fmt pass; cold-load VM limit and client/tail-latency limits explicitly recorded.
+
+- 2026-10-15 Astra2: optimization closeout records final proofs, exact commits, cold-load/client limits and actual cleanup of20,827,633 logical bytes; retained minimal reproducible inputs/receipts and active history.
+
+- 2026-10-15 Astra2 G1: bound cold/expired NPC look builds to four separate VM invocations per continuation; production cold-start seq1..35 and all37 simultaneous expirations pass without TMI at the unchanged native limit. Wire unchanged; reproducible proof in live-game-performance.md.
+
+- 2026-10-15 Astra2 G2: explicit persisted Allow LLM consent defaults off and cannot be enabled by env; all authenticated API routes gated, descriptor toggles without restart, bounded60s presence/revision and store-free ping. MCP owns20s heartbeats for discovered sessions; real TLS toggle and both idle transports proven, final core/MCP tests and lint/fmt pass. API/ownership contract in agent-protocol.md; UI/manual19 coordinated with Astra1.
+
+- 2026-10-15 Astra H12: named-client speech can wait for local DM review; approvals revalidate policy/identity, preserve original command results and emit scoped outcomes. Six core tests and all-target Clippy pass; details in live-windows.md.
+
+- 2026-10-15 Astra H12 UI: shared Chat/Focus Send/Edit/Reject/Send all panel, per-client Auto/Drafts setting and Enter shortcut; authenticated fake-agent app proof and inspected before/after pictures. Manual19 and campaign recipe explain pending and terminal outcomes.
+
+- 2026-10-15 Astra H13/H14: module GM/NPC cards, server-scoped persisted conversation memory and summary operations; Selection/Focus editors and Focus Memory. Core persistence/privacy/bounds tests, authenticated app proof and inspected pictures; recipe in live-campaign.md and manual19.
+
+- 2026-10-15 Astra H7: live creature/item/group drag ghosts, formation-preserving release-only orders and cancellation; app proof covers queue counts, offsets, unchanged module and Ctrl pan. Before/after pictures inspected; manual19 updated.
+
+- 2026-10-15: Audit7 H9 private DM notes in Selection/Focus, cached map badges and Live Panel search; six Audit7 app tests pass (two opt-in baseline guards). Details: [Live windows](live-windows.md#audit-7-h9-private-object-notes-2026-10-15).
+
+- 2026-10-15: Audit7 H10 configurable saved-macro slots, Ctrl+6..9 over Live maps; persisted assignments and repeat-event guard. See [Live windows](live-windows.md#audit-7-h10-saved-macro-hotkeys-2026-10-15).
+
+- 2026-10-15: Audit7 H6 Atmosphere tool with shared area tabs, typed commands and server readback; fake-store weather/fog routing and module-unchanged proof. [Live windows](live-windows.md#audit-7-h6-atmosphere-window-2026-10-15).
+
+- 2026-10-15: Audit7 H15 one-click conversation client and shared LLM attribution marks in Chat/Focus/Log; isolated Focus/Scenes fixture persistence. [Live windows](live-windows.md#audit-7-h15-conversation-profile-and-attribution-2026-10-15).
+
+- 2026-10-15: Audit7 H8 palette world-object aiming, selected-UTT rectangle and reported markers. Encounter removal explicitly disabled after Astra2's native negative proof; other kinds use confirmed removal. [Live windows](live-windows.md#audit-7-h8-world-palette-aiming-and-native-removal-limit-2026-10-15).
+
+* **Additional live spawn kinds (H8)**: waypoint/sound/encounter/store/trigger creation and reports, bounded trigger shapes with palette UTT, native removal proofs and explicit encounter refusal. [Contract](live-ops-wire.md#additional-spawn-kinds-audit-h8-2026-10-15).
+
+- 2026-10-15 Astra2 H11: automatic output-only DLG wrappers, default-on demo capture switch, byte-exact enable/rebuild/disable and preserved original actions/parameters. Two source demo conversations and Polish authored nodes pass on private5126/6392. [Contract/proof](live-events-wire.md#focus-dialogue-node-events-automatic-live-build-capture-h11).
+
+- 2026-10-15 Astra2 H15: authenticated by labels on native commands, results/events and audit; explicit deferred speech/patrol/skill provenance, native stack guard and kill/death correlation. Private attribution phase and156 core tests pass; unrelated local speech remains unmarked. [Contract](agent-protocol.md#command-authorship-audit-h15).
+
+- 2026-10-15 Astra2 audit H closure: final223-object/3large-look/256-event native guard passes; maximum tick638,614 instructions,409,962 remaining.156 core tests, explicit GFF reader, Clippy/fmt/MCP portability pass. Own obsolete artifacts removed:3,795,746 logical bytes. [Reproduction and limits](live-game-performance.md#audit-h-final-native-guard-and-handoff-2026-10-15).
+
+- 2026-10-15 Astra: reusable T1-T3 GUI soak diagnostics; five-area/1,000-object smoke and 30k synthetic-turn retention control pass. Timed baseline and optimizations pending. [Method](live-gui-performance.md#stress-replay-t1-t3-2026-10-15).
+
+- 2026-10-15 Astra2 S1/S2: completed private five-area/1,000-object/6-large-look/3-agent 30-minute baseline; cold multi-area TMI isolated, event loss and synchronized look refresh gaps measured. Bounded rolling-log collector prevents lost timing evidence. [Method and baseline](live-game-performance.md#session-stress-preparation-and-scope-2026-10-15).
+
+- 2026-10-15 Astra2 S3 backlog:2,048 buffered /256 per report; first300seconds native gaps354?0 and drops970?0, repeated with Redis outage. Deliberate2,400-event overflow retains2,048 and reports352 drops. [Proof](live-game-performance.md#s3-retain-a-bounded-burst-backlog).
+
+* **Stress measurement guards**: require initial native speech before timing, collect rotating VM logs and separate expected Redis outage diagnostics, and reproduce loss counts after buffer drain. [Method](live-game-performance.md#s3-retain-a-bounded-burst-backlog).
+
+* **Staggered Live look expiry**: the same five-area/1,000-object workload reduces worst contiguous report gap7.403 ->2.553s; refresh-age bound and immediate equipment detection preserved. Thirty-minute native run, GFF decoder proof and equip/unequip regression pass. [Numbers and tradeoff](live-game-performance.md#s3-spread-periodic-npc-look-refreshes).
+
+* **Session-sized Live stress completed**: thirty minutes at five areas/1,000 objects, six large-look surrogates and three agents; native stack headroom, API/replay timing, memory and burst delivery measured. Explicitly separates zero native-buffer loss from648 service reconnect omissions. Compact GUI replay delivered; temporary cleanup blocked by automatic review (0 bytes deleted). [Results, limits and next priorities](live-game-performance.md#final-session-stress-result-and-supported-limits).
+
+- 2026-10-16 Astra: completed1810s five-area/1000-object GUI baseline and12k-event query control. Per-refresh Chat/Log display lookup cache reduces matched five-minute CPU82.55->59.98%onecore,UI31.97->13.88ms,Chat18.72->3.31ms; portraits/colours/layout preserved. Unit/app tests and Clippy pass. Minimized attempt excluded. [Measured follow-up](live-gui-performance.md#follow-up-1-event-display-lookup-cache).
+
+* **Bounded newest-event queries**: common-text query at 12k retained rows 27.698 -> 1.766 ms, last-eight 0.0688 -> 0.0155 ms; 600 reference comparisons and core tests pass. Sparse-filter and GUI timing limits are explicit. [Measured follow-up](live-gui-performance.md#follow-up-2-bounded-newest-event-queries).
+
+* **Panel follow regression test**: the old E2 test still expected following to stop in an unopened area after accepted cross-area follow change `b39d00e`. It now checks the explicit Stop following control; the transition test starts with the destination unopened and verifies automatic opening, centring and reboot stop. Both installed-resource app tests pass. Production behavior is unchanged.
+
+* **Panel report cache**: one source/boot/area/revision-keyed report, independent of map reconciliation; report access0.998 ->0.0287ms, Panel2.764 ->1.250ms, process CPU57.26 ->53.93% in matched five-minute replay. Invalidation and installed-resource app tests pass. [Proof](live-gui-performance.md#follow-up-3-panel-report-cache).
+- 2026-10-16: [deferred](deferred.md): NESS support in Live postponed by the owner; what works today and what a NESS layer would add.

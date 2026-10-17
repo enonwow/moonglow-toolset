@@ -1,0 +1,223 @@
+diff --git a/Plugins/Redis/Config.cpp b/Plugins/Redis/Config.cpp
+index 73cc38cb70..14305db04b 100644
+--- a/Plugins/Redis/Config.cpp
++++ b/Plugins/Redis/Config.cpp
+@@ -1,6 +1,10 @@
+ #include "Redis.hpp"
+ #include "Internal.hpp"
+ 
++#include <algorithm>
++#include <chrono>
++#include <thread>
++
+ 
+ namespace Redis
+ {
+@@ -20,6 +24,60 @@ std::unique_ptr<cpp_redis::redis_client> Redis::PoolMakeFunc()
+     return p;
+ }
+ 
++void Redis::ConnectPubSub()
++{
++    using namespace std::placeholders;
++    try
++    {
++        m_internal->m_connection_pubsub.disconnect();
++    }
++    catch (cpp_redis::redis_error& e)
++    {
++        LOG_NOTICE("Error while reconfiguring pubsub client: %s", e.what());
++    }
++    m_internal->m_connection_pubsub.connect(
++        m_internal->m_config.m_host, static_cast<size_t>(m_internal->m_config.m_port));
++
++    auto bound = std::bind(&Redis::OnPubsub, this, _1, _2);
++    for (auto& ch : m_internal->m_config.m_pubsub_channels)
++    {
++        LOG_INFO("PubSub: Subscribing to %s", ch);
++        m_internal->m_connection_pubsub.psubscribe(ch, bound);
++    }
++    m_internal->m_connection_pubsub.commit();
++}
++
++void Redis::WatchPubSub()
++{
++    int wait = 2;
++    while (!m_stop)
++    {
++        for (int i = 0; i < wait * 10 && !m_stop; ++i)
++            std::this_thread::sleep_for(std::chrono::milliseconds(100));
++        if (m_stop)
++            break;
++        std::lock_guard<std::mutex> lock(m_internal->m_config_mtx);
++        if (m_internal->m_config.m_pubsub_channels.empty() ||
++            m_internal->m_connection_pubsub.is_connected())
++        {
++            wait = 2;
++            continue;
++        }
++        try
++        {
++            ConnectPubSub();
++            LOG_INFO("PubSub: reconnected to %s:%d", m_internal->m_config.m_host,
++                     m_internal->m_config.m_port);
++            wait = 2;
++        }
++        catch (const std::exception& e)
++        {
++            LOG_NOTICE("PubSub: reconnect failed (%s); retrying in %d s", e.what(), wait);
++            wait = std::min(wait * 2, 30);
++        }
++    }
++}
++
+ void Redis::Reconfigure()
+ {
+     using namespace std::placeholders;
+@@ -42,24 +100,7 @@ void Redis::Reconfigure()
+ 
+         LOG_INFO("PubSub: Using NWScript: %s", m_internal->m_config.m_pubsub_script);
+ 
+-        try
+-        {
+-            m_internal->m_connection_pubsub.disconnect();
+-        }
+-        catch (cpp_redis::redis_error& e)
+-        {
+-            LOG_NOTICE("Error while reconfiguring pubsub client: %s", e.what());
+-        }
+-        m_internal->m_connection_pubsub.connect(
+-            m_internal->m_config.m_host, static_cast<size_t>(m_internal->m_config.m_port));
+-
+-        auto bound = std::bind(&Redis::OnPubsub, this, _1, _2);
+-        for (auto& ch : m_internal->m_config.m_pubsub_channels)
+-        {
+-            LOG_INFO("PubSub: Subscribing to %s", ch);
+-            m_internal->m_connection_pubsub.psubscribe(ch, bound);
+-        }
+-        m_internal->m_connection_pubsub.commit();
++        ConnectPubSub();
+ 
+         LOG_INFO("%s", "Connected!");
+     }
+diff --git a/Plugins/Redis/Pool.hpp b/Plugins/Redis/Pool.hpp
+index f4eaed7fc7..8c2c4e799e 100644
+--- a/Plugins/Redis/Pool.hpp
++++ b/Plugins/Redis/Pool.hpp
+@@ -26,6 +26,7 @@ class Pool
+ public:
+     typedef std::unique_ptr<T> Contained;
+     typedef std::function<Contained()> MakeFunc;
++    typedef std::function<bool(T&)> HealthFunc;
+ 
+ public:
+     Pool(Pool<T>& other) = delete;
+@@ -67,6 +68,14 @@ public:
+         LOG_INFO("Pool reconfigured: min=%d, max=%d", m_min, m_max);
+     }
+ 
++    // Instances failing this check (e.g. a lost connection) are dropped
++    // instead of being handed out or kept.
++    void SetHealthCheck(HealthFunc healthy)
++    {
++        std::lock_guard<std::mutex> lock(m_pool_mtx);
++        m_healthy = healthy;
++    }
++
+     // Borrow a T with a function, ensuring it gets put back into to the pool
+     // after returning from your callback.
+     template <typename Ret>
+@@ -86,6 +95,21 @@ public:
+     {
+         std::lock_guard<std::mutex> lock(m_pool_mtx);
+ 
++        if (m_healthy)
++        {
++            std::queue<Contained> kept;
++            while (!m_pool_available.empty())
++            {
++                auto inst = std::move(m_pool_available.front());
++                m_pool_available.pop();
++                if (inst && m_healthy(*inst))
++                    kept.push(std::move(inst));
++                else
++                    LOG_INFO("Pool: dropped an unhealthy instance");
++            }
++            m_pool_available = std::move(kept);
++        }
++
+         while (m_pool_available.size() < 1 + m_min)
+         {
+             m_pool_available.push(m_make());
+@@ -106,6 +130,8 @@ public:
+     {
+         std::lock_guard<std::mutex> lock(m_pool_mtx);
+ 
++        if (t && m_healthy && !m_healthy(*t))
++            return;
+         if (m_pool_available.size() < m_max)
+             m_pool_available.push(std::move(t));
+     }
+@@ -117,6 +143,7 @@ private:
+     std::queue<Contained> m_pool_available;
+ 
+     MakeFunc m_make;
++    HealthFunc m_healthy;
+     size_t m_min;
+     size_t m_max;
+ };
+diff --git a/Plugins/Redis/Redis.cpp b/Plugins/Redis/Redis.cpp
+index c0505f86b0..a493e36eb2 100644
+--- a/Plugins/Redis/Redis.cpp
++++ b/Plugins/Redis/Redis.cpp
+@@ -25,14 +25,22 @@ Redis::Redis(Services::ProxyServiceList* services)
+     m_ClearStackHook = Hooks::HookFunction(&CVirtualMachineStack::ClearStack, &CleanState, Hooks::Order::Early);
+ 
+     m_internal = new Internal(std::bind(&Redis::PoolMakeFunc, this));
++    // A client whose connection dropped (Redis restarted) is replaced.
++    m_internal->m_redis_pool.SetHealthCheck(
++        [](cpp_redis::redis_client& c) { return c.is_connected(); });
+ 
+     Reconfigure();
+ 
+     RegisterWithNWScript();
++
++    m_watchdog = std::thread([this] { WatchPubSub(); });
+ }
+ 
+ Redis::~Redis()
+ {
++    m_stop = true;
++    if (m_watchdog.joinable())
++        m_watchdog.join();
+     delete m_internal;
+ }
+ 
+diff --git a/Plugins/Redis/Redis.hpp b/Plugins/Redis/Redis.hpp
+index c4b9cff14d..150d280a89 100644
+--- a/Plugins/Redis/Redis.hpp
++++ b/Plugins/Redis/Redis.hpp
+@@ -6,7 +6,9 @@
+ #include "API/CVirtualMachine.hpp"
+ #include "API/CExoString.hpp"
+ 
++#include <atomic>
+ #include <functional>
++#include <thread>
+ 
+ namespace cpp_redis
+ {
+@@ -83,6 +85,13 @@ private:
+     Internal* m_internal;
+ 
+     void Reconfigure();
++    // Connects pub/sub and subscribes the configured channels; the
++    // config mutex must be held.
++    void ConnectPubSub();
++    // Reconnects pub/sub after Redis went away, with back-off.
++    void WatchPubSub();
++    std::thread m_watchdog;
++    std::atomic<bool> m_stop{false};
+     void RegisterWithNWScript();
+     void HookSCORCO();
+     void OnPubsub(const std::string& channel, const std::string& message);

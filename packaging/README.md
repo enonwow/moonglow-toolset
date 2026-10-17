@@ -2,7 +2,7 @@
 
 Moonglow ships as an AppImage and a Flatpak on Linux, an installer on
 Windows and a disk image on macOS. Each package holds the GUI (`moonglow`),
-the command-line tools (`mg`), the license, the third-party license notices
+the command-line tools (`mg`), the independent agent adapter (`moonglow-mcp`), the license, the third-party license notices
 and the user manual (`docs/manual`). The manual's
 [command-line chapter](../docs/manual/11-command-line.md) says how to run
 `mg` from each. Packages are built with the `dist` Cargo profile: release
@@ -10,6 +10,12 @@ with thin LTO, keeping function names for crash reports.
 
 `.github/workflows/release.yml` builds all three on a `v*` tag and drafts a
 GitHub release with them. Run by hand, it leaves them as the run's artifacts.
+It also publishes a standalone `moonglow-mcp` archive per OS. The adapter
+discovers a running agent or a separately installed CLI; it has no linked
+Moonglow dependency. AppImage links named `moonglow-mcp` select the adapter;
+Flatpak can run it with `--command=moonglow-mcp`. On macOS it is beside `mg`
+inside the application bundle. Its [protocol](../docs/agent-protocol.md)
+documents configuration and portability checks.
 
 | Folder | What |
 | --- | --- |

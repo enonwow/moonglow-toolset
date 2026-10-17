@@ -8,7 +8,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use crate::Moonglow;
 
 /// The chapters: file name and text, the contents first.
-pub(crate) const CHAPTERS: [(&str, &str); 19] = [
+pub(crate) const CHAPTERS: [(&str, &str); 20] = [
     ("README.md", include_str!("../../../docs/manual/README.md")),
     ("01-getting-started.md", include_str!("../../../docs/manual/01-getting-started.md")),
     ("02-main-window.md", include_str!("../../../docs/manual/02-main-window.md")),
@@ -28,6 +28,7 @@ pub(crate) const CHAPTERS: [(&str, &str); 19] = [
     ("16-writing-plugins.md", include_str!("../../../docs/manual/16-writing-plugins.md")),
     ("17-plugin-api.md", include_str!("../../../docs/manual/17-plugin-api.md")),
     ("18-nui-creator.md", include_str!("../../../docs/manual/18-nui-creator.md")),
+    ("19-live-mode.md", include_str!("../../../docs/manual/19-live-mode.md")),
 ];
 
 /// A chapter without its frontmatter. The manual is part of an Open

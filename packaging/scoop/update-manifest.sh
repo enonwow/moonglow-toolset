@@ -36,7 +36,7 @@ cat > "$manifest" <<JSON
             "hash": "$hash"
         }
     },
-    "bin": "mg.exe",
+    "bin": ["mg.exe", "moonglow-mcp.exe"],
     "shortcuts": [
         [
             "moonglow.exe",

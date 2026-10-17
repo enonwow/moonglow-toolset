@@ -170,6 +170,40 @@ impl Factions {
         new
     }
 
+    /// Reserve native IDs before starting the server. Names are collision-safe;
+    /// all cross-faction reputations start neutral, self-reputation friendly.
+    pub fn add_session_factions(&mut self, count: u8) -> Result<Vec<u32>, &'static str> {
+        if self.factions.len() < STANDARD.len() {
+            return Err("Standard factions are missing");
+        }
+        if !(1..=32).contains(&count) {
+            return Err("Reserve 1-32 factions at a time");
+        }
+        if self.factions.len() + usize::from(count) > 65536 {
+            return Err("Faction IDs exceed the game limit");
+        }
+        let mut ids = Vec::new();
+        let mut suffix = 1;
+        for _ in 0..count {
+            let name = loop {
+                let name = format!("Session {suffix}");
+                suffix += 1;
+                if !self.factions.iter().any(|f| f.name.eq_ignore_ascii_case(&name)) {
+                    break name;
+                }
+            };
+            let id = self.add(&name, true, 2);
+            for other in 0..=id {
+                self.set_reputation(id, other, if id == other { 100 } else { 50 });
+                if other > 0 {
+                    self.set_reputation(other, id, if id == other { 100 } else { 50 });
+                }
+            }
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
     /// Removes a faction (not a standard one): its reputations go, and the
     /// factions after it move down one id. Returns the old-to-new id map
     /// for objects that refer to factions ([`renumber_faction_users`]).
@@ -284,5 +318,31 @@ mod tests {
         assert_eq!(id, 5);
         assert!(f.remove(id).is_some());
         assert_eq!(f.factions, standard.factions);
+    }
+}
+
+#[cfg(test)]
+mod session_reserve_tests {
+    use super::*;
+    #[test]
+    fn session_spares_keep_ids_names_and_existing_reputations() {
+        let mut f = Factions::read(&crate::new::default_factions());
+        assert_eq!(f.factions.len(), 5);
+        f.add("Session 1", true, 2);
+        f.set_reputation(1, 2, 17);
+        let ids = f.add_session_factions(2).unwrap();
+        assert_eq!(ids, [6, 7]);
+        assert_eq!(f.factions[6].name, "Session 2");
+        assert_eq!(f.factions[7].name, "Session 3");
+        assert_eq!(f.reputation(1, 2), Some(17));
+        assert_eq!(f.reputation(6, 7), Some(50));
+        assert_eq!(f.reputation(7, 6), Some(50));
+        assert_eq!(f.reputation(6, 6), Some(100));
+        assert!(f.factions[6].global);
+        let round = Factions::read(&f.to_gff());
+        assert_eq!(round.factions.len(), 8);
+        assert_eq!(round.reputation(6, 7), Some(50));
+        assert!(f.add_session_factions(0).is_err());
+        assert!(f.add_session_factions(33).is_err());
     }
 }

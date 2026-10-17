@@ -288,6 +288,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
         }
     });
+    if crate::live_vfx::appearance(app, ui, &mut state) {
+        app.placeable_gallery = Some(state);
+        return;
+    }
     let kind = state.kind;
     // The one object it was opened for, as it is now.
     let one = state.target.clone().and_then(|(key, path)| {

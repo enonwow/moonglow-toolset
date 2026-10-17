@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..\..")
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 
-cargo build --profile dist --locked -p moonglow -p mg
+cargo build --profile dist --locked -p moonglow -p mg -p moonglow-mcp
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 python packaging\third_party_licenses.py --target x86_64-pc-windows-msvc `
     --output target\dist\THIRD-PARTY-LICENSES.txt
@@ -16,12 +16,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $portable = "target\dist\portable"
 if (Test-Path $portable) { Remove-Item -Recurse -Force $portable }
 New-Item -ItemType Directory -Path $portable | Out-Null
-Copy-Item target\dist\moonglow.exe, target\dist\mg.exe, target\dist\THIRD-PARTY-LICENSES.txt $portable
+Copy-Item target\dist\moonglow.exe, target\dist\mg.exe, target\dist\moonglow-mcp.exe, target\dist\THIRD-PARTY-LICENSES.txt $portable
 Copy-Item LICENSE (Join-Path $portable "LICENSE.txt")
 Copy-Item -Recurse docs\manual (Join-Path $portable "manual")
 $zip = "target\dist\Moonglow-$version-windows-x64.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Compress-Archive -Path "$portable\*" -DestinationPath $zip
+Compress-Archive -Path target\dist\moonglow-mcp.exe, LICENSE, target\dist\THIRD-PARTY-LICENSES.txt -DestinationPath "target\dist\moonglow-mcp-$version-windows-x64.zip" -Force
 Remove-Item -Recurse -Force $portable
 
 $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source

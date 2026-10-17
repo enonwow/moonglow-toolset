@@ -40,7 +40,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: target/dist/*.AppImage
+          path: |
+            target/dist/*.AppImage
+            target/dist/moonglow-mcp-*-linux-*.tar.gz
 
   windows:
     name: Windows installer
@@ -74,7 +76,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: target/dist/*.dmg
+          path: |
+            target/dist/*.dmg
+            target/dist/moonglow-mcp-*-macos-*.tar.gz
 
   release:
     name: Draft release

@@ -187,12 +187,12 @@ enum Drag {
 /// The ring around the selection for turning it: taken anywhere on it and
 /// led round with the pointer.
 #[derive(Debug, Clone, Copy)]
-struct TurnRing {
+pub(crate) struct TurnRing {
     /// The object's place: the ring lies level around it.
-    pivot: Vec3,
-    radius: f32,
+    pub(crate) pivot: Vec3,
+    pub(crate) radius: f32,
     /// The way the object faces: a mark on the ring is there.
-    facing: f32,
+    pub(crate) facing: f32,
 }
 
 /// A ring for tilting the selection's models: upright around the first
@@ -288,15 +288,15 @@ const WHEEL_REST: f64 = 0.4;
 const WHEEL_SCALE: f32 = 0.001;
 
 /// The straight pieces the ring is drawn (and taken) as.
-const RING_SEGMENTS: usize = 48;
+pub(crate) const RING_SEGMENTS: usize = 48;
 
 impl TurnRing {
-    fn point(&self, angle: f32) -> Vec3 {
+    pub(crate) fn point(&self, angle: f32) -> Vec3 {
         self.pivot + Vec3::new(angle.cos(), angle.sin(), 0.0) * self.radius
     }
 
     /// The ends of its `k`th piece.
-    fn segment(&self, k: usize) -> (Vec3, Vec3) {
+    pub(crate) fn segment(&self, k: usize) -> (Vec3, Vec3) {
         let at = |k: usize| self.point(std::f32::consts::TAU * k as f32 / RING_SEGMENTS as f32);
         (at(k), at(k + 1))
     }
@@ -304,11 +304,15 @@ impl TurnRing {
 
 /// A brush cursor's outlines (their points on the ground) and colours.
 pub type CursorShapes = Vec<(Vec<Vec3>, Color32)>;
+type LiveParticles =
+    std::collections::HashMap<(String, usize, usize), mg_render::particles::Particles>;
 
 /// An open area's view.
 #[derive(Debug)]
 pub struct AreaView {
     pub area: ResRef,
+    pub live: crate::live_view::LiveView,
+    pub(crate) live_tiles: crate::live_tiles::Tiles,
     pub model: Option<AreaModel>,
     scene: Option<AreaScene>,
     /// The workspace revision `model` was read at.
@@ -403,6 +407,12 @@ pub struct AreaView {
     /// The placed objects' particles, from frame to frame
     /// (`AreaScene::particles`).
     particles: std::collections::HashMap<(usize, usize), mg_render::particles::Particles>,
+    pub(crate) live_particles: LiveParticles,
+    cue_particles: std::collections::HashMap<String, LiveParticles>,
+    pub transient_models_shown: usize,
+    /// Live effect model attachments and particle quads in the last picture.
+    pub effect_models_shown: usize,
+    pub live_particles_shown: usize,
     /// How many particles were drawn last frame.
     pub particles_shown: usize,
     /// The blueprint about to be placed (dragged over the view, or chosen
@@ -413,12 +423,12 @@ pub struct AreaView {
     pub ghost_shown: Option<mg_area::AreaObject>,
     /// How far Q and E have turned the blueprint about to be placed
     /// (radians, anticlockwise); it is placed so.
-    ghost_turn: f32,
+    pub(crate) ghost_turn: f32,
     /// Where the context menu was opened (on the ground).
     menu_at: Option<Vec3>,
     /// Snapping (the settings', copied each frame): grid in meters, angle in
     /// degrees.
-    snap: (Option<f32>, Option<f32>),
+    pub(crate) snap: (Option<f32>, Option<f32>),
     /// Several selected objects turn about their middle as one
     /// (Options: the toolbar's Together).
     turn_together: bool,
@@ -455,6 +465,7 @@ pub struct AreaView {
     /// while that stays as it is, the picture is kept, and drawn anew only
     /// as the animations step ([`ANIMATION_STEP`]).
     drawn: Option<(Drawn, f32)>,
+    materials_animate: bool,
     /// How many times the picture has been drawn.
     pub pictures: u64,
     time: f32,
@@ -481,6 +492,7 @@ struct Drawn {
     merchant_signs: bool,
     spawn_markers: bool,
     follows: bool,
+    live: Option<crate::live_view::LiveDrawn>,
 }
 
 /// How long the area's picture is kept while nothing but its animations
@@ -492,6 +504,18 @@ struct Drawn {
 const ANIMATION_STEP: f32 = 0.04;
 
 impl AreaView {
+    #[cfg(feature = "measure")]
+    pub(crate) fn measure_scene(&self) -> Option<std::collections::BTreeMap<&'static str, u64>> {
+        let mut values = self.scene.as_ref()?.measure_memory();
+        if let Some((target, _)) = &self.targets {
+            values.insert("target_width", target.size.0 as u64);
+            values.insert("target_height", target.size.1 as u64);
+            // RGBA8 resolved, RGBA8 x4 MSAA and depth32 x4; excludes native padding.
+            values.insert("target_payload_bytes", target.size.0 as u64 * target.size.1 as u64 * 36);
+        }
+        Some(values)
+    }
+
     /// Reads the area's tiles and objects again from the game data (after
     /// Reload Resources), keeping the camera.
     pub(crate) fn reload(&mut self) {
@@ -509,6 +533,8 @@ impl AreaView {
     fn new(area: ResRef) -> AreaView {
         AreaView {
             area,
+            live: Default::default(),
+            live_tiles: Default::default(),
             model: None,
             scene: None,
             revision: None,
@@ -556,6 +582,11 @@ impl AreaView {
             pasted_shown: 0,
             particles: std::collections::HashMap::new(),
             particles_shown: 0,
+            live_particles: Default::default(),
+            cue_particles: Default::default(),
+            transient_models_shown: 0,
+            effect_models_shown: 0,
+            live_particles_shown: 0,
             ghost: None,
             ghost_shown: None,
             ghost_turn: 0.0,
@@ -575,6 +606,7 @@ impl AreaView {
             set_name: None,
             targets: None,
             drawn: None,
+            materials_animate: false,
             pictures: 0,
             time: 0.0,
             last_frame: None,
@@ -841,7 +873,7 @@ impl AreaView {
         self.turn_rings(self.model.as_ref()?).into_iter().find(|ring| self.on_ring(ring, pos))
     }
 
-    fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
+    pub(crate) fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
         self.on_line(&|k| ring.segment(k), pos)
     }
 
@@ -1162,7 +1194,7 @@ impl AreaView {
 
     /// The angle around `pivot` of the point under `pos` (on the level
     /// plane through it).
-    fn angle_about(&self, pivot: Vec3, pos: Pos2) -> Option<f32> {
+    pub(crate) fn angle_about(&self, pivot: Vec3, pos: Pos2) -> Option<f32> {
         let d = self.ray(pos)?.at_height(pivot.z)? - pivot;
         (d.truncate().length() > 1e-3).then(|| d.y.atan2(d.x))
     }
@@ -1423,6 +1455,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
     view.error = None;
     view.model = Some(model);
+    view.live_tiles.rebase();
 }
 
 /// The module's start location, if it is in this area: position and facing.
@@ -1512,7 +1545,23 @@ impl Fade {
     }
 }
 
+/// Ensure a newly followed area is Live before its first draw.
+pub(crate) fn ensure_live(app: &mut Moonglow, area: ResRef) {
+    let view = app.area_views.entry(area).or_insert_with(|| {
+        let mut view = AreaView::new(area);
+        view.lit = !app.settings.unlit_areas;
+        view.sound_ranges = app.settings.sound_ranges;
+        view.fade = Fade::of(app.settings.fade_geometry);
+        view
+    });
+    view.live.on = true;
+    // Following must not reopen the tool layout and steal the active tool tab.
+    view.live.layout_on = true;
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
+    #[cfg(feature = "measure")]
+    let _measure = crate::measure::span("area.ui");
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| {
         // Lighting and Sound Ranges as they were last left.
         let mut view = AreaView::new(area);
@@ -1542,7 +1591,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
             app.viewport.is_some(),
         )
     });
-    app.palette.area = Some(area);
+    // Multiple area panes can redraw together. Rendering order is not focus.
+    if app
+        .palette
+        .area
+        .is_none_or(|a| !app.panes_tabs.iter().flatten().any(|t| *t == crate::Tab::Area(a)))
+        || (ui.rect_contains_pointer(ui.max_rect()) && ui.input(|i| i.pointer.any_pressed()))
+    {
+        app.palette.area = Some(area);
+    }
     view.snap = (
         app.settings.snap_grid.map(|cm| f32::from(cm) / 100.0),
         app.settings.snap_angle.map(f32::from),
@@ -1786,6 +1843,17 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
         }
+        crate::live_view::toolbar(app, ui, view);
+        if view.live.on {
+            view.selection.clear();
+            view.drag = None;
+            view.wheel_scale = None;
+            view.pasting = false;
+            view.tile_pasting = false;
+            view.outline.clear();
+            view.redraw = None;
+            view.start_selected = false;
+        }
         if let Some(m) = &view.model {
             ui.separator();
             let n = m.objects.iter().filter(|o| view.show[o.kind.index()]).count();
@@ -1809,7 +1877,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     }
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
-    let status = if let Some(paint) = crate::paint_mode::status(app) {
+    let status = if view.live.on {
+        let report = app.live.as_ref().and_then(|s| s.area(&view.area.to_string()));
+        crate::live_view::aim_text(view, report.as_ref(), ui.input(|i| i.pointer.hover_pos()))
+            .or_else(|| view.notice.clone())
+            .unwrap_or_else(|| "Live: select a reported object; right-click for actions. Choose a blueprint in the palette to spawn it.".into())
+    } else if let Some(paint) = crate::paint_mode::status(app) {
         paint
     } else if let Some(b) = crate::terrain_mode::active(app, view) {
         let how = match b.brush {
@@ -1921,16 +1994,33 @@ fn viewport(
     start: Option<(Vec3, f32)>,
 ) {
     view.turn_ring = !app.settings.no_turn_ring;
+    let clock = ui.input(|i| i.time);
+    let live_started = std::time::Instant::now();
+    let mut live = crate::live_view::frame(app, view, clock);
+    if crate::live_tiles::apply(view) {
+        view.drawn = None;
+        view.particles.clear();
+        if let (Some(game), Some(model)) = (app.game.as_deref(), view.model.as_ref()) {
+            if let Some(ground) = &mut view.ground {
+                ground.update(game, model);
+            }
+            if let (Some(scene), Some(vp)) = (&mut view.scene, &app.viewport) {
+                scene.update(&vp.gpu, game, model);
+            }
+        }
+    }
+    view.live.frame_cpu_ms[0] = live_started.elapsed().as_secs_f64() * 1000.;
+    let hide_markers = view.live.on && view.live.hide_module_markers;
     if let Some(scene) = view.scene.as_mut() {
-        scene.merchant_signs = app.settings.merchant_signs;
-        scene.spawn_markers = !app.settings.no_spawn_markers;
+        scene.merchant_signs = app.settings.merchant_signs && !hide_markers;
+        scene.spawn_markers = !app.settings.no_spawn_markers && !hide_markers;
     }
     // The blueprint about to be placed, see-through where it would go.
     let ghost = ghost(app, ui, view);
     view.ghost_shown.clone_from(&ghost);
     // What a tile brush's click would make, under the pointer: the tiles in
     // place of those they replace.
-    let settings = View {
+    let mut settings = View {
         time: view.time,
         night: view.night,
         fog: view.fog,
@@ -1939,8 +2029,23 @@ fn viewport(
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),
     };
+    if hide_markers {
+        for kind in [
+            ObjectKind::Encounter,
+            ObjectKind::Sound,
+            ObjectKind::Store,
+            ObjectKind::Trigger,
+            ObjectKind::Waypoint,
+        ] {
+            settings.show[kind.index()] = false;
+        }
+    }
     let shift = ui.input(|i| i.modifiers.shift);
-    let preview = crate::terrain_mode::preview(app, view, shift);
+    let preview = if view.live.on {
+        crate::live_tiles::preview(view)
+    } else {
+        crate::terrain_mode::preview(app, view, shift)
+    };
     let (preview_instances, hidden) =
         match (preview, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref()) {
             (Some((tiles, hidden)), Some(scene), Some(vp), Some(game)) => {
@@ -1967,7 +2072,12 @@ fn viewport(
     // pointer would put it: see-through too, each object in its place
     // around the others.
     let mut ghost_instances = ghost_instances;
-    let pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
+    let mut live_animates = settings.animate
+        && live.as_ref().is_some_and(|live| {
+            live.extras.iter().any(|extra| view.show[extra.object.kind.index()] && extra.animates)
+        });
+    view.live.frame_cpu_ms[1] = 0.;
+    let mut pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
         (Some(clip), true) => {
             // Over the view, not over a window in front of it.
             let over = |p: &Pos2| {
@@ -1992,6 +2102,7 @@ fn viewport(
         }
         _ => Vec::new(),
     };
+    pasted.extend(crate::live_clipboard::ghosts(ui, view));
     if let (Some(scene), Some(vp), Some(game)) =
         (view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref())
     {
@@ -2003,7 +2114,8 @@ fn viewport(
     view.pasted_shown = pasted.len();
     // What the placeable brush has painted in the stroke going on, and the
     // dab it would lay next.
-    let painted = crate::paint_mode::ghosts(app, ui, view);
+    // (Not in Live: the view shows the running game, not the brush.)
+    let painted = if view.live.on { Vec::new() } else { crate::paint_mode::ghosts(app, ui, view) };
     if let (Some(scene), Some(vp), Some(game)) =
         (view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref())
     {
@@ -2044,12 +2156,22 @@ fn viewport(
         merchant_signs: scene.merchant_signs,
         spawn_markers: scene.spawn_markers,
         follows,
+        live: live.as_ref().map(|f| f.key.clone()),
     };
+    let live_hidden = live.as_ref().map_or(&[][..], |f| f.hidden.as_slice());
+    let animated = (settings.animate
+        && live.is_some()
+        && view.live.effects == crate::live_effects::EffectsMode::Full
+        && view.live.cues.has_models(|id| live.as_ref().is_some_and(|f| f.allows_cue(id))))
+        || live.as_ref().is_some_and(|f| f.moving)
+        || live_animates
+        || scene.animates(model, &settings, live_hidden)
+        || view.materials_animate;
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     let kept = !follows
         && view.targets.as_ref().is_some_and(|(t, _)| t.size == (w, h))
         && view.drawn.as_ref().is_some_and(|(was, _)| *was == from)
-        && since.is_some_and(|s| (0.0..ANIMATION_STEP).contains(&s));
+        && (!animated || since.is_some_and(|s| (0.0..ANIMATION_STEP).contains(&s)));
 
     // The scene, with the drag applied to what it moves.
     let dragged = view.dragged();
@@ -2083,17 +2205,111 @@ fn viewport(
     vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
-        let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+        let live_hidden = live.as_ref().map_or(&[][..], |f| f.hidden.as_slice());
+        #[cfg(feature = "measure")]
+        let scene_measure = crate::measure::span("area.scene");
+        let mut frame = scene.scene_without(&shown, &settings, &hidden, live_hidden);
+        #[cfg(feature = "measure")]
+        drop(scene_measure);
+        let scene = view.scene.as_mut().expect("scene checked above");
+        // Pose live models only when the GPU picture will actually be redrawn.
+        let live_started = std::time::Instant::now();
+        #[cfg(feature = "measure")]
+        let poses_measure = crate::measure::span("area.live_poses");
+        if let Some(live) = &mut live {
+            for extra in &mut live.extras {
+                let o = &extra.object;
+                if !view.show[o.kind.index()] {
+                    continue;
+                }
+                let speed = if settings.animate && o.kind == ObjectKind::Creature {
+                    view.live.motion.speed(&extra.id, clock)
+                } else {
+                    0.
+                };
+                let pose = mg_area::LivePose { dead: extra.dead, speed, combat: extra.combat };
+                let time = if settings.animate { view.time } else { 0. };
+                frame.instances.extend(scene.ghost_live(&vp.gpu, game, o, time, 1.0, pose).0);
+                extra.animates =
+                    (!extra.dead && scene.ghost_animates(o)) || extra.effect_models > 0;
+                live_animates |= settings.animate && extra.animates;
+            }
+        }
+        let cues = if live.is_some() && view.live.effects == crate::live_effects::EffectsMode::Full
+        {
+            view.live.cues.objects(
+                clock,
+                crate::live_effects::MAX_MODELS.saturating_sub(view.effect_models_shown),
+                |id| live.as_ref().is_some_and(|f| f.allows_cue(id)),
+            )
+        } else {
+            Vec::new()
+        };
+        view.transient_models_shown =
+            cues.iter().map(|c| c.object.preview.as_ref().map_or(0, |p| p.parts.len() + 1)).sum();
+        for cue in &cues {
+            frame.instances.extend(scene.ghost(&vp.gpu, game, &cue.object, cue.time, 1.).0);
+        }
+        view.cue_particles.retain(|key, _| cues.iter().any(|c| c.id == *key));
+        view.live.frame_cpu_ms[1] = live_started.elapsed().as_secs_f64() * 1000.;
+        #[cfg(feature = "measure")]
+        drop(poses_measure);
+        #[cfg(feature = "measure")]
+        let particles_measure = crate::measure::span("area.particles");
+        let live_hidden = live.as_ref().map_or(&[][..], |f| f.hidden.as_slice());
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {
             let camera = orbit.camera().view();
             let step = since.map_or(dt, |s| s.clamp(0.0, 0.25));
-            frame.particles = scene.particles(&shown, &settings, &mut view.particles, step, camera);
+            frame.particles = scene.particles_without(
+                &shown,
+                &settings,
+                &mut view.particles,
+                step,
+                camera,
+                live_hidden,
+            );
+            // Every live model keeps its intrinsic emitters. Effects mode only
+            // controls extra models attached from the reported VFX list.
+            if let Some(live) = &live {
+                let objects: Vec<_> =
+                    live.extras.iter().map(|extra| (extra.id.as_str(), &extra.object)).collect();
+                let mut particles = scene.ghost_particles(
+                    &vp.gpu,
+                    game,
+                    &objects,
+                    &settings,
+                    &mut view.live_particles,
+                    step,
+                    camera,
+                );
+                for cue in &cues {
+                    particles.extend(scene.cue_particles(
+                        &vp.gpu,
+                        game,
+                        &[(cue.id.as_str(), &cue.object)],
+                        &View { time: cue.time, ..settings },
+                        view.cue_particles.entry(cue.id.clone()).or_default(),
+                        step,
+                        camera,
+                    ));
+                }
+                view.live_particles_shown = crate::live_effects::cap_particles(&mut particles);
+                frame.particles.extend(particles);
+            } else {
+                view.live_particles.clear();
+                view.live_particles_shown = 0;
+            }
         } else {
             view.particles.clear();
+            view.live_particles.clear();
+            view.cue_particles.clear();
+            view.live_particles_shown = 0;
         }
-        view.particles_shown = frame.particles.iter().map(|b| b.vertices.len() / 4).sum();
+        #[cfg(feature = "measure")]
+        drop(particles_measure);
+        view.particles_shown = frame.particles.iter().map(|b| b.vertices.len() / 6).sum();
         frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
         frame.instances.extend(ghost_instances);
         frame.instances.extend(preview_instances);
@@ -2105,6 +2321,8 @@ fn viewport(
             frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
         }
         let camera = orbit.camera();
+        #[cfg(feature = "measure")]
+        let render_measure = crate::measure::span("area.encode_submit");
         vp.renderer.render(
             &vp.gpu,
             &game.resman,
@@ -2115,7 +2333,12 @@ fn viewport(
             &targets.depth,
             (w, h),
         );
+        #[cfg(feature = "measure")]
+        drop(render_measure);
         view.drawn = Some((from, view.time));
+        view.materials_animate = vp.renderer.drawn.animated_materials;
+        #[cfg(feature = "measure")]
+        crate::measure::value("renderer.queue_submit", vp.renderer.measure_submit_ms);
         view.pictures += 1;
     }
     let response = ui.add(
@@ -2129,9 +2352,9 @@ fn viewport(
         dragged.map(|d| d.0).or_else(|| brush(app)).is_some_and(|k| k.restype == ResType::UTD);
     let (height, width) = app.settings.spawn_marker_size.unwrap_or(SPAWN_MARKER);
     let marks = Marks {
-        spawn_points: (!app.settings.no_spawn_markers)
+        spawn_points: (!app.settings.no_spawn_markers && !hide_markers)
             .then_some((f32::from(height) / 10.0, f32::from(width) / 10.0)),
-        door_arrows: !app.settings.no_door_arrows,
+        door_arrows: !app.settings.no_door_arrows && !hide_markers,
         ghost_box,
     };
     // The start location where it is being dragged to.
@@ -2139,8 +2362,26 @@ fn viewport(
         Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
         _ => start,
     };
-    overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
-    sound_range_overlay(app, ui, view, &shown);
+    if view.live.on && !hide_markers {
+        let mut overlay_model = shown.clone().into_owned();
+        if let Some(live) = &live {
+            overlay_model.objects = overlay_model
+                .objects
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, o)| (!live.hidden.contains(&i)).then_some(o))
+                .collect();
+        }
+        if !hide_markers {
+            overlays(ui, view, &overlay_model, start, None, false, marks);
+        }
+    } else if !view.live.on {
+        overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
+        sound_range_overlay(app, ui, view, &shown);
+    }
+    let pending = app.live.as_ref().map(|s| s.pending_targets()).unwrap_or_default();
+    crate::live_view::overlay(ui, view, live.as_ref(), &pending);
+    crate::live_tiles::paint(ui, view);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
     view.pointer = ui
         .ctx()
@@ -2176,14 +2417,23 @@ fn viewport(
     }
     walkmesh_overlay(app, ui, view);
     object_walkmesh_overlay(app, ui, view);
-    crate::terrain_mode::overlay(app, ui, view);
-    crate::paint_mode::overlay(app, ui, view);
-    crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
-    crate::tile_select::refused_overlay(ui, view);
-    // Tiles animate: keep drawing while the view is on screen, when their
-    // next step is due.
-    let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
-    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+    if !view.live.on {
+        crate::terrain_mode::overlay(app, ui, view);
+        crate::paint_mode::overlay(app, ui, view);
+        crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
+        crate::tile_select::refused_overlay(ui, view);
+    }
+    if animated || live_animates || view.materials_animate || follows {
+        let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
+        // The clock above is the frame's start. Account for work already done,
+        // and avoid egui's early wake followed by another pass keeping the picture.
+        let due = std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0));
+        crate::live_repaint::after(ui.ctx(), due.saturating_sub(live_started.elapsed()));
+    } else if live.is_some() {
+        // The age label still advances when a server goes quiet; keep the GPU picture.
+        crate::live_repaint::after(ui.ctx(), std::time::Duration::from_secs(1));
+    }
+    view.live.cached = live;
     input(app, ui, view, &response);
 }
 
@@ -2941,11 +3191,18 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         app.area_tool_at = ui.ctx().cumulative_pass_nr();
     }
     view.held = Held::read(ui, response, view.held);
-    let scaling = wheel_scales(app, ui, view, response, (command, shift));
-    // (Shift + wheel sizes the placeable brush, rather than zooming.)
-    let scaling = crate::paint_mode::wheel(app, ui, response) || scaling;
+    let scaling = !view.live.on && wheel_scales(app, ui, view, response, (command, shift));
+    // (Shift + wheel sizes the placeable brush, rather than zooming; not in Live.)
+    let scaling = (!view.live.on && crate::paint_mode::wheel(app, ui, response)) || scaling;
     app.area_hovered |= response.hovered();
     camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
+    if view.live.on {
+        if crate::live_tiles::input(app, ui, view, response) {
+            return;
+        }
+        crate::live_view::input(app, ui, view, response);
+        return;
+    }
     // (Asked of each kind only when that is what is dragged: asking takes
     // the payload, whatever it is.)
     type Blueprint = crate::palette_view::Dragged;
@@ -3612,7 +3869,11 @@ fn camera_input(
     // Nor the arrow keys while they are the palette's (after a click in
     // its tree, until the pointer is back in an area's view).
     let no_arrows = crate::palette_view::has_arrows(ui.ctx());
-    let held = |c: Cmd| ui.input(|i| keys.held_but(i, c, typing, no_arrows));
+    let live_group_key = view.live.on
+        && ui.input(|i| {
+            crate::live_group::control_held(i, keys) || crate::live_scene::macro_held(i, keys)
+        });
+    let held = |c: Cmd| !live_group_key && ui.input(|i| keys.held_but(i, c, typing, no_arrows));
     let axis =
         |plus: Cmd, minus: Cmd| f32::from(u8::from(held(plus))) - f32::from(u8::from(held(minus)));
     let dt = ui.input(|i| i.stable_dt).min(0.1);
@@ -3645,6 +3906,7 @@ fn camera_input(
         view.tile_selection.clear();
     }
     if !typing
+        && !live_group_key
         && ui.input(|i| keys.pressed(i, Cmd::Overview))
         && let Some(model) = &view.model
     {
@@ -3759,7 +4021,7 @@ fn append_object(
 const RECENT: usize = 12;
 
 /// The palette's chosen blueprint, if it is one to place.
-fn brush(app: &Moonglow) -> Option<ResKey> {
+pub(crate) fn brush(app: &Moonglow) -> Option<ResKey> {
     app.palette.selected.filter(|k| ObjectKind::from_restype(k.restype).is_some())
 }
 
@@ -3805,7 +4067,7 @@ fn place(
 
 /// The turn keys and how far each turns (radians, anticlockwise): Q and E
 /// by the snapping angle (15° when free), Shift + Q and E by 90°.
-fn turn_keys(view: &AreaView) -> [(crate::keys::Cmd, f32); 4] {
+pub(crate) fn turn_keys(view: &AreaView) -> [(crate::keys::Cmd, f32); 4] {
     use crate::keys::Cmd;
     let step = view.snap.1.unwrap_or(15.0).to_radians();
     [
@@ -3863,7 +4125,7 @@ fn lift(kind: ObjectKind) -> f32 {
 /// Blueprint `key` as an instance at `placement` (`relative`: an outline
 /// from there), its blueprint (and items) as their editors have them, not
 /// as last saved; an error if the blueprint can't be read.
-fn instance_of(
+pub(crate) fn instance_of(
     app: &mut Moonglow,
     key: ResKey,
     placement: mg_module::instances::Placement,
@@ -3894,6 +4156,9 @@ pub(crate) fn template(app: &mut Moonglow, key: ResKey) -> Option<mg_area::AreaO
 /// Snapped to the grid, a door on the nearest hook; not for triggers and
 /// encounters (drawn point by point).
 fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_area::AreaObject> {
+    if view.live.on && view.live.place_aim.is_some() {
+        return crate::live_aim::ghost(ui, view);
+    }
     let dragged = egui::DragAndDrop::payload::<crate::palette_view::Dragged>(ui.ctx());
     // An appearance dragged from the Placeable Gallery: the placeable it
     // would place (kept under a name of its own, no blueprint's).
@@ -3905,7 +4170,15 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     // (The palette's placeables are painted, with Paint on: the brush shows
     // its own.)
     let painting = crate::paint_mode::active(app).is_some();
-    let key = unnamed.or(dragged.map(|d| d.0)).or_else(|| brush(app).filter(|_| !painting));
+    let chosen = if view.live.on {
+        match view.live.aim {
+            Some(crate::live_view::Aim::Spawn(key)) => Some(key),
+            _ => None,
+        }
+    } else {
+        brush(app).filter(|_| !painting)
+    };
+    let key = unnamed.or(dragged.map(|d| d.0)).or(chosen);
     let Some(key) = key.filter(|_| !view.pasting && view.outline.is_empty()) else {
         view.ghost = None;
         return None;
@@ -4057,6 +4330,11 @@ pub(crate) fn commit_wheel_scales(app: &mut Moonglow) {
         app.area_views.iter().filter(|(_, v)| v.wheel_scale.is_some()).map(|(a, _)| *a).collect();
     for area in pending {
         let Some(mut view) = app.area_views.remove(&area) else { continue };
+        if view.live.on {
+            view.wheel_scale = None;
+            app.area_views.insert(area, view);
+            continue;
+        }
         if let Some(wheel) = view.wheel_scale.take() {
             let scaled = view.scaled_by(&wheel.selection, wheel.factor);
             if let Some(command) = visuals_command(app, &view, "Scale", &scaled)
@@ -4137,6 +4415,10 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
 /// ones, and triggers and encounters (which have outlines) are left. How
 /// many were replaced.
 pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) -> usize {
+    if app.area_views.get(&area).is_some_and(|v| v.live.on) {
+        app.log.warn("Live mode sends commands; switch Live off to replace module instances");
+        return 0;
+    }
     use mg_module::instances::Placement;
     let Some(kind) = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline()) else {
         app.log.warn("Triggers and encounters are drawn, not replaced");

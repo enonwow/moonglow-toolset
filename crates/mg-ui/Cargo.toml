@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Opt-in diagnostics only; normal GUI builds contain no measurement spans.
+measure = ["mg-render/measure", "mg-area/measure", "mg-live/measure"]
+measure-alloc = ["measure"]
+
 [dependencies]
 log = "0.4"
 egui.workspace = true
@@ -17,6 +22,7 @@ fastrand.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
 mg-area.workspace = true
+mg-live.workspace = true
 mg-audio.workspace = true
 mg-edit.workspace = true
 mg-image.workspace = true
@@ -45,13 +51,19 @@ toml.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+eframe.workspace = true
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 mg-erf.workspace = true
 mg-testkit.workspace = true
+rustls.workspace = true
 
 [lints]
 workspace = true
 
+[[example]]
+name = "live_measure"
+required-features = ["measure"]
 # Run by hand (every test in them is ignored: pictures and timings), so
 # `cargo test` does not link them; `cargo test -p mg-ui --test screens`
 # builds one as before. Clippy's --all-targets leaves them out too: CI and

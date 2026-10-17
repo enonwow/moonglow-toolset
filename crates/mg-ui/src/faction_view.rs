@@ -17,6 +17,9 @@ pub struct FactionView {
     pub selected: u32,
     /// Also show how the others regard the selected faction.
     pub full_detail: bool,
+    pub session_spares: u8,
+    pub live_mode: bool,
+    pub live: crate::live_factions::LiveFactions,
     pub adding: Option<AddFaction>,
     pub renaming: Option<(u32, String)>,
 }
@@ -54,7 +57,7 @@ pub fn attitude(rep: u32) -> &'static str {
 impl Moonglow {
     /// The factions as currently edited (the workspace's copy of
     /// `repute.fac`, or the standard factions).
-    fn factions(&mut self) -> Option<Factions> {
+    pub(crate) fn factions(&mut self) -> Option<Factions> {
         let ws = self.ws.as_mut()?;
         Some(match ws.doc(&key()) {
             Ok(g) => Factions::read_in(g, crate::text::game_codepage()),
@@ -122,10 +125,22 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
     let mut remove = None;
 
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut view.advanced, false, "Basic");
-        ui.selectable_value(&mut view.advanced, true, "Advanced");
+        if ui.selectable_label(!view.live_mode && !view.advanced, "Basic").clicked() {
+            view.live_mode = false;
+            view.advanced = false;
+        }
+        if ui.selectable_label(!view.live_mode && view.advanced, "Advanced").clicked() {
+            view.live_mode = false;
+            view.advanced = true;
+        }
+        ui.selectable_value(&mut view.live_mode, true, "Live session");
     });
     ui.separator();
+    if view.live_mode {
+        crate::live_factions::ui(app, ui, &mut view.live, &f);
+        app.faction_view = view;
+        return;
+    }
     // The chart or grid has the room; the list beside it what it needs.
     let room = ui.available_size();
     let list = 280.0_f32.min(room.x * 0.4);
@@ -217,6 +232,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         row.separator();
         // The faction list and its commands.
         row.vertical(|ui| {
+        ui.set_width(list);
+        ui.style_mut().wrap_mode=Some(egui::TextWrapMode::Wrap);
         crate::widgets::section_heading(ui, "Factions");
         for (i, fac) in f.factions.iter().enumerate() {
             let r = ui.selectable_label(view.selected == i as u32, &fac.name);
@@ -225,7 +242,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button("Add Faction…").clicked() {
                 view.adding = Some(AddFaction { name: String::new(), global: true, parent: 1 });
             }
@@ -237,6 +254,19 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
                 view.renaming = Some((view.selected, f.factions[view.selected as usize].name.clone()));
             }
         });
+        ui.separator();
+        ui.label("Reserve factions for a live session");
+        view.session_spares=view.session_spares.clamp(1,32);
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::DragValue::new(&mut view.session_spares).range(1..=32).suffix(" spare factions"));
+            if ui.button("Add session factions").clicked() {
+                match f.add_session_factions(view.session_spares) {
+                    Ok(ids) => { view.selected=ids[0];changed=Some(format!("Reserve {} session factions",ids.len())); },
+                    Err(error) => app.log.error(error),
+                }
+            }
+        });
+        ui.weak("Adds Session 1..N to repute.fac. Save and load this module on the server before playing; it does not change the running server.");
         let sel = view.selected as usize;
         let mut global = f.factions[sel].global;
         if ui

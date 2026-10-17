@@ -1,0 +1,17 @@
+[package]
+name = "moonglow-mcp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "GPL-3.0-only"
+description = "Independent MCP adapter for discovered agent and CLI protocols"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+ring = "0.17"
+
+[dev-dependencies]
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }

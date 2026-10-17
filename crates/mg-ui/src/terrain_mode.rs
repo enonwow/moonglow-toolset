@@ -421,6 +421,9 @@ pub(crate) fn tile_command_keeping(
     label: &str,
     kept: &[((u32, u32), mg_gff::Struct)],
 ) {
+    if view.live.on {
+        return;
+    }
     let (Some(ws), Some(game), Some(tools)) =
         (app.ws.as_mut(), app.game.as_deref(), view.terrain.as_ref())
     else {
@@ -960,6 +963,10 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.label("Open an area to paint its tiles.");
         return;
     };
+    if app.area_views.get(&area).is_some_and(|v| v.live.on) {
+        crate::live_tiles::palette(app, ui, area);
+        return;
+    }
     let tileset = app.area_views.get(&area).and_then(|v| v.terrain.as_ref().map(|t| t.tileset));
     crate::trace::changed("tile palette", || {
         format!(

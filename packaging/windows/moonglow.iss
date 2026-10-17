@@ -43,6 +43,7 @@ Name: modassoc; Description: "Open modules (.mod) with Moonglow Toolset"; GroupD
 [Files]
 Source: "{#Source}\moonglow.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\mg.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Source}\moonglow-mcp.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"
 Source: "{#Source}\THIRD-PARTY-LICENSES.txt"; DestDir: "{app}"
 Source: "..\..\docs\manual\*"; DestDir: "{app}\manual"; Flags: recursesubdirs skipifsourcedoesntexist

@@ -101,6 +101,13 @@ impl Default for PaintSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Options › Live. The API token is stored in plain text with these settings.
+    pub live: mg_live::LiveConfig,
+    /// NWNX folder used only by the module preparer, never a server lifecycle setting.
+    pub live_nwnx: String,
+    /// Focus watch lists and alerts are enabled unless explicitly disabled.
+    pub no_live_focus: bool,
+    pub live_faction_colors: crate::live_colors::Overrides,
     /// Recently opened or saved modules, most recent first.
     pub recent: Vec<PathBuf>,
     /// The area opened last in each module (its path and the area's

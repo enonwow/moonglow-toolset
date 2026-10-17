@@ -45,3 +45,9 @@ member, all the others turn too.
 
 Creatures, doors, placeables, triggers and encounters belong to a faction
 (their Basic page).
+
+For a campaign session, **Basic > Add session factions** reserves neutral spare
+factions in the module before it is loaded on the server. **Live session** gives
+those existing IDs temporary Moonglow labels and sends explicit native assignment
+and reputation commands. It does not create factions in a running module or save
+runtime standings back into this file. See [Session factions](19-live-mode.md#session-factions).

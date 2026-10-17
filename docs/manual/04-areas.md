@@ -1,8 +1,8 @@
 ---
 type: Manual Page
 title: Areas
-description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
-tags: [manual, areas, terrain, tiles]
+description: Areas - the viewer's toolbar, live game reports and commands, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
+tags: [manual, areas, terrain, tiles, live]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T21:13:04Z }
 ---
 
@@ -78,6 +78,411 @@ looking straight down at their middle, north up, as in Aurora.
   `.gic`) into the scratch folder (chosen the first time; Tools › Options
   › Folders changes it).
 
+## Live mode
+
+**Live**, beside **Grid**, shows what a running NWNX server reports about this
+area. In **Tools › Options › Live**, select **Enable live mode** and **Apply**.
+Connect the server to the same Redis host, port and channel prefix as described
+in [Build, verify and test](09-build-and-test.md). Live mode starts off; its
+settings are saved, and environment variables only override them. Open the same
+module and HAKs that the server runs, then open its area and turn Live on.
+
+Turning Live on applies the **Live layout**: Live Chat, Focus, Legend, Live Panel, Selection,
+Skill Check, VFX, NPC Library, Scenes and Inventory open as tabs to the right of
+the area, beside Palettes. Live Chat is shown first; Live Log opens only from the Live menu. Close tabs with their close
+buttons; opening a Live tool again docks it on the right. Turning Live off and
+on reapplies the layout. Options > Live wraps narrow controls and explains token
+drafts: Generate/Remove change the draft; Apply activates those changes.
+
+The **Live** menu does the same from anywhere: **Start Live** / **Stop Live**
+(the option above), **Show Live in This Area** (Ctrl+Shift+L, the area shown
+last), **Live Options…** (the Options window at its Live page: status, token,
+API and Redis) and **Live Mode Help** (this section).
+
+Right-click one object or a selection for the same organised menu. **Walk Here...**,
+**Attack...**, **Say...** and (for exactly one eligible creature) **Inventory...**
+are direct shortcuts. Submenus group the other actions: **Move**, **Combat**,
+**Character**, **Look and effects**, **Talk**, **Player**, and **Scripts**.
+**Attack...** also appears under Combat for a group; one map target orders each
+eligible attacker. A disabled Attack explains that no living creature is allowed.
+The header counts selected/allowed objects; the footnote explains eligibility.
+
+The separated **DANGER** submenu confirms **Kill**, **Remove from game (no body)**
+and **Limbo** before sending. Kill causes a death event and leaves the corpse/loot
+according to the creature's settings. Remove from game deletes the object without
+a body or loot and cannot be undone. Hover either action for this distinction.
+**Inventory...** opens Live Inventory; it never sends an inventory dump to the Log.
+A group offers it only when exactly one selected creature is eligible; opening it
+focuses that creature while retaining the selection. Inventory explains unavailable
+actions on hover. Give Item explains double-clicking, search results and the selected recipient.
+
+Right-click a reported object for the DM controls. NPCs offer **Kill**, **Heal**,
+**Force Rest**, **Limbo**, **Invulnerable**, **Immortal**, **AI**, **Faction**,
+**Freeze**, **Stop Attack**, **Stop Fighting Here (10 m)**, **Inventory** and **Locals**. **Heal** accepts
+an amount or **Full Heal**; **Freeze** accepts seconds (up to 300), with presets
+as shortcuts. **Apply VFX...**, **Appearance...**, **Skill Check...** and
+**Inventory...** open tools for the clicked target. Skill Check targets the clicked
+player; Players in radius arms a circle to position with a map click.
+Doors and placeables also
+offer **Disable Trap** and **Trap**. On empty ground, **Set Time** accepts hour
+and minute fields as well as presets. Fields send nothing until their action
+button is clicked.
+
+With **Allow actions on players** in Options > Live and the server's player
+switch enabled, player commands use the same submenus: Walk Here, Run Here, Attack, Stop Attack, Freeze, Kill,
+Heal, Raise,
+Teleport, gold, XP, level and alignment. **Give Gold** and **Give XP** accept
+numeric amounts. Teleport uses the same targeting flow as other live objects.
+**Message...** chooses chat, floating text or NUI; **Journal...** takes a quest
+tag and state; **Fade** fades to or from black. **Boot...** names the player and
+requires **Confirm Boot**. Closing or cancelling sends nothing. DM and possessed
+creatures remain protected. Every action uses the Live command queue and the
+server's permission checks. Possess and Appear/Disappear are the DM client's own.
+
+Live Chat explains an empty conversation and why Send is unavailable; recipient
+and volume choices wrap to fit the dock.
+
+The Log explains empty or paused views; hover a truncated event to read it in full.
+
+**Live › Live Log** shows what happens in the running game, newest at the
+bottom: chat, attacks, damage, deaths, spells, players joining and leaving,
+creatures entering and leaving the area, the server log (script errors in
+red) and the game's answers to commands. Its pages (All, Chat, Combat,
+Players, Server, Commands), a search and **This area only** narrow it;
+**Pause** holds it still, **Copy** copies the lines shown, and a click on a
+line selects its object in the area's view. Times are UTC. Agents read the
+same events with `live_events` and find objects with `live_find`.
+
+While Live runs, Moonglow also keeps the events on disk, a folder per server
+run under its data folder's `live/logs` (a file each for combat, players,
+server, commands and other events). Runs older than 14 days are removed, and
+the oldest go once all of them pass 500 MB. Chat is kept only with **Keep
+chat too** (Options › Live › Logs): it is what players write.
+
+A scene is a **macro: a recorded list of DM commands you can replay**. The **Scenes** window manages these macros. Follow its three
+steps: **1 Record** (the same button changes to **Recording... / Stop**),
+**2 Review steps** (readable action/target summary with inline action, named target
+and delay fields (IDs are on hover; coordinates round to 0.1 m)), then **3 Replay** (**Play scene** / **Stop scene**).
+The empty list shows a guard greeting-and-walking example. Expand **Edit step**
+for JSON input, the operation schema and wait conditions. Invalid inputs identify
+their step and disable Save/Play; disabled buttons explain why on hover.
+
+For a first example, select one living NPC and click **Try it: make an example
+scene with the selected NPC**. It creates a draft: the NPC says Hello, then walks
+5 m after a one-second delay. The rows show the NPC's name, destination and waits.
+Press **Play scene** to execute it; creating the example sends nothing. Save or
+discard an existing draft before replacing it. The game still checks navigation.
+
+**Saved macros** lists module macros with a Play button beside each. Click a name
+to load it; right-click to rename or delete. **Save** is beside the scene name.
+The compact **Scene** menu also holds **New scene**, **Load scene** (choose a saved
+name), **Save scene**, **Save As...**, **Import...** and **Export...**.
+Save writes beneath the application data folder's `live/scenes/<module basename>/`;
+scene names accept ASCII letters, digits, spaces, underscore, hyphen and dot.
+**Save As...** chooses a new JSON filename through a file dialog and keeps that
+named copy in this module's scene list. **Export...** writes JSON without
+changing the current scene. **Import...** validates a JSON file and opens it as
+an unsaved draft; save or discard existing edits first. Invalid input or a
+cancelled dialog leaves the current scene intact. File actions never play a
+scene. Review recorded targets when using a different server session.
+
+Choose **Record**, then issue commands from the Live view. Only
+successfully queued commands are appended, with the time since the preceding
+one and fresh IDs on replay. Stop recording before editing or saving. **Play
+scene** runs the steps in order and shows completion or the first error. Delays
+start after the preceding step and its wait finish. **Stop scene** prevents
+later steps; commands already sent remain in the game. Closing/changing the
+module, disabling Live or a new server boot also stops recording/playback.
+Saved object IDs must be reviewed after a server restart. Unsaved drafts remain
+in memory while switching modules; save before exiting the application.
+
+The module supplies the tiles and static scenery. Creatures appear at reported
+positions, updated about once a second; placeables, doors and ground items
+refresh about every five seconds. Missing non-static objects disappear after
+a full report. A creature's blueprint supplies its model; a player's reported
+appearance supplies their equipped model. A reported placeable or door
+appearance overrides its blueprint or module instance (including changes since
+spawn). Older reports without that field fall back to the blueprint. An unknown
+model keeps its marker. Names and HP bars accompany them. A door or placeable
+can have an **open** or **locked** label.
+
+**Colours** chooses **Faction** (default), **Hostility** to the selected player, or
+**Kind**. Faction names come from the open module: PC blue, Hostile red, Commoner
+orange, Merchant gold and Defender green, with a fixed palette for custom
+factions. **Options › Live › Factions** edits those colours; Apply saves them
+for this module path and faction index, Cancel discards the draft, and Reset
+restores the defaults. The separate **Legend** window has one NPC factions colour/filter list per area view.
+
+In Hostility mode select a player: enemies are red, friends green and neutral
+creatures orange. Grey means an older report without relationship data or no
+selected player. These are the game's reported relationships, including personal
+reputation. Kind uses blue for players, violet for DMs/possession, green for
+objects made live and orange for others. Non-creatures keep their Kind colours.
+
+**Labels** in the Live toolbar chooses **All**, **Near and selected** (the
+default), **Hover only**, or **None**. Nearby means within 15 metres of the
+selected object, or the camera target when nothing is selected. Crowded names
+give way to selected objects, players, combatants and objects made live, in
+that order; their markers and HP bars remain. Names fade between 40 and 80
+metres from the camera, except the selected name.
+
+Creatures in combat have a red ring. A dashed red arrow points from an attacker
+to its reported target; hidden, missing or dead targets have no line. Dead
+objects have a grey cross and keep their name under the chosen label mode.
+A plain left drag on empty ground selects a box of live objects. **Shift** adds
+to the selection. **Ctrl+click** toggles one marker; **Ctrl+drag** pans the
+camera, including when starting on a marker. Ctrl never draws a selection box. The
+selected count opens **Selection**, listing creature portraits, names, HP and
+kind. Click a portrait or name to focus the camera while keeping the group.
+Selection, Live Chat and Focus use the reported portrait, then the reported appearance
+default from `appearance.2da`, then the installed default portrait. The default
+picture is not a claim about that creature's chosen likeness. A missing custom
+asset still has a placeholder/hint when no fallback image can be loaded.
+Portraits use the reported native resref plus the small (`s`) size, falling back
+to medium (`m`); unavailable custom assets show a placeholder with a hint. **Ctrl+1..5** stores a group,
+**1..5** recalls it and a quick second tap centres the camera. The keys are
+configurable under **Options > Keyboard > Live Area**; in Live they take
+precedence over camera digits and Ctrl+digit tab switching. A server restart
+clears saved groups. The Live Panel also highlights selected rows. Its **Filters
+and selection help** explains map visibility; empty results point to the filters.
+An empty Selection window explains the map selection gestures.
+
+Right-click keeps a group selected and offers walking in a two-metre formation
+or to one point, Attack, Kill, Heal (amount/full), Freeze (seconds)/Unfreeze,
+Faction, AI, Invulnerable, Immortal, Force Rest, Limbo, Say, VFX, Appearance,
+Animation, Stop Attack, Teleport and Patrol. Inventory opens only for exactly one eligible creature. Each
+eligible object gets its own command through the same queue. **Animation** opens the same
+chooser for an NPC, a permitted player or a group: ANIMATION_* names from the
+loaded game's script constants, a custom animation name, Loop, speed and seconds.
+**Play animation** submits the validated command to each eligible creature.
+Custom names have 1–16 resource-name characters. Speed is 0.1–10, duration
+0.1–300 seconds. Looping constants use the duration; one-shot constants play
+once, or repeat with Loop. Editing fields never sends; an invalid name disables
+Play with an explanation. Players require both player switches.
+**Take Gold** and **Take XP** accept a positive amount to remove, with an explicit
+Take button; the Give actions remain separate. **Remove Level** removes one
+actual level and is disabled for a reported level-one creature. These actions
+also work on eligible members of a selection, once each; players require both
+player switches. Gold floors at zero. XP reduction can remove earned levels.
+VFX and appearance tools keep the selection and act on eligible objects of the
+appropriate kind. Live VFX explains unavailable Apply/Clear actions on hover;
+**Aim on the ground** enables Apply without a selection and waits for a map click.
+Long effect names have full hover text; no-match results explain how to reset the search.
+
+**Stop Attack** targets only the selected living
+creatures, including players when both player switches are enabled; it never
+uses a radius. The single-NPC menu separately keeps **Stop Fighting Here (10 m)**
+for nearby NPCs. Player Stop Attack is disabled with the player-switch hint when
+player actions are off. It clears the player's orders without changing factions
+or reputation. DMs and possessed creatures are excluded. Permitted players
+also receive Walk/Run, Attack, Kill, Heal, Freeze, rest, AI, invulnerability,
+immortality, VFX, appearance and inventory commands. Faction, Patrol and Limbo
+require NPCs; Say speaks through NPCs or placeables.
+
+Choose **Patrol...** on an NPC or group, then click up to 16 points. **Loop** repeats
+the route and **Run** changes the pace. Double-click the final point to send one
+order per NPC. Enter or **Finish on next click** arms a final map click; neither
+sends by itself. Right-click, Escape or **Cancel Patrol**
+cancels. The title-bar close button also cancels the draft. **Stop Patrol** clears the route; new orders also replace it. Selected
+NPCs show known routes and reported arrival progress. **Observed patrol points**
+means only reached points were reported, not a complete route; stale paths expire. Opening the view or restarting the server starts a fresh
+observation window; unlabelled old event history is not replayed.
+
+Right-click a live placeable or door and choose **Visual Transform...** to open
+the numeric editor; **Live Properties** in the toolbar opens the same window.
+It includes the name,
+useability and numeric visual transform (scale, rotation in degrees and translation
+in metres). **Apply Transform** sends the values; **Reset Transform** restores
+identity; **Reload Report** discards unsent edits without a server command, including
+for static objects. Fields show their units. A selected placeable turns with
+Q/E, its orange rotation ring or Alt+right drag; drag its marker to move it.
+Releasing sends one command. Escape cancels a gesture. Doors support movement
+and visual transforms; physical door rotation remains unavailable in the game.
+A reported static placeable explains why VFX and visual transforms are disabled.
+**Make Dynamic** sends the static flag change; game clients must re-enter the
+area before the engine updates that flag on their side.
+
+A live object's own model and emitters (for example Green Lightshaft) stay
+visible in every Effects mode. The Effects selector controls attached spell
+models and event cues; Animations still controls emitter simulation. Full
+is the default for new area views.
+
+The **Legend** toolbar button opens the separate **Live > Legend** window.
+Its shared Area tabs choose which view it controls; no key covers the map. **NPC factions** is the creature-only faction colour list;
+there is no duplicate Colour key section. Its checkboxes hide markers for players, DMs,
+NPCs, NPC factions, placeables, doors, items and dead objects. Combat rings,
+attack lines and labels have separate switches. Each view remembers these
+choices; they affect our overlays and leave the reported models visible.
+A selected combatant also has a white selection ring.
+
+In **Colours: Faction**, only creatures use faction colours. Placeables, doors
+and ground items use muted kind colours matching their legend entries, even
+when the game reports them as Commoner. NPC faction filters never hide them.
+
+The view reuses report-derived models and lists between updates, while movement
+and gesture previews continue smoothly. Live models are posed on animation
+redraws; static scenes retain their GPU picture.
+
+**Effects** in the Live toolbar chooses **Off**, **Markers**
+or **Full** (the default) for this area view. Markers show coloured rings and effect names;
+glows and unknown effects keep a marker even when no model is available.
+Full adds attached effect models and particles to both NPCs and player looks,
+using the creature's appearance size. When a visible creature has reported
+effects in Markers mode, a hint explains that models are hidden and **Show
+Full effects** switches them on. It keeps at most 64 attached models and 20,000 live particle quads or
+trail segments, nearest objects first; rings remain beyond the budget.
+Animations Off pauses particles. These display controls do not change the
+running game's effects.
+
+Location-targeted spells show a short circle when the loaded spell table gives
+a spherical radius; its label gives the localized spell name and metres.
+Unknown/non-circular areas keep a named point flash without an inferred radius.
+In Full, spell events also draw the loaded spell table's cast/projectile models
+and particles. The stock Fireball impact is resolved from its shipped script;
+unknown scripted impacts keep their marker. **Apply VFX → Aim on the ground**
+draws the chosen effect at the clicked point after a successful command reply.
+Ground effects from other clients require a position/VFX event from the server;
+without one they cannot be reconstructed. These ground cues belong to this view
+and are cleared by Effects Off or a server restart.
+Spell and projectile events draw brief arcs with a moving marker and an arrival
+flash; damage events flash at the victim with the reported amount. These are
+event cues, not a simulation of spell success. Object targets use their reported
+position; location casts use the event position. Off hides them. Opening Live or
+a server restart starts at the current log cursor, so old spells are not replayed.
+
+Chat appears above a reported speaker for four seconds after receipt. A new
+message replaces that speaker's bubble. Bubbles follow the speaker and share
+the view's filters; crowded bubbles give priority to the selected speaker and
+avoid markers, other bubbles and the legend. They remain visible with Effects
+Off. The bubble shows up to 240 characters; Live Log keeps the complete message.
+
+Every place action uses a targeting cursor and a ghost before it sends:
+**Walk/Run**, **Attack**, **Teleport** (including its destination-area map),
+**Patrol**, palette and **NPC Library Spawn**, **Skill Check in radius**,
+**Stop Fighting in Radius**, **Apply VFX** with **Aim on the ground**, and
+**Jump All Players**. A map click executes; Escape or right-click cancels.
+Live NPC Library explains Capture > select saved entry > Spawn and aim; hover
+the module label for its storage folder and disabled actions for the reason.
+
+Library spawn shows the saved NPC model. Radius fields update the following
+circle while aiming. Skill Check states the next step above Send and explains
+disabled controls on hover; **How player rolls work** holds the detailed rules. A selected-player skill check and effects applied directly
+to selected objects need no ground point. Jump All Players needs both player
+switches; Stop Fighting's radius still affects NPCs only.
+
+**Live Panel** opens the reported-object table for the current area. Search
+names, tags or resrefs; the kind chips combine, while state chips narrow the
+results together. **Hostile** means hostile to the selected player, or any
+player when none is selected. **Wounded** means below half maximum HP.
+The same filters hide live markers and their extra models in the view.
+When these filters or the toolbar kind toggles hide reported objects, the map
+shows **N of M hidden by filters** below its Live report age. **Show all** clears
+the panel chips and search and enables creatures, placeables, doors and items
+in the toolbar. It does not change the separate legend marker preferences.
+**Hide module markers** hides authoring flags and arrows while Live is on.
+Click a name to select it and centre the camera; double-click to follow it.
+Following moves to another area only if its view is already open; otherwise
+it stops and names the area to open. **Stop following**, switching Live off,
+closing the area view or restarting the game ends following.
+
+The panel initially sorts by distance from the camera target (**Near camera**).
+Click **Name**, **HP**, or **Distance** to sort that column; click again to reverse
+the order. Distance is from the selected object, or the camera target when none
+is selected. Names in the viewport also give way to nearby object markers.
+
+The corner shows the report's age. It turns red after three seconds without
+fresh data, or says **Live: no report for this area**. The last report stays
+visible during an outage; it is not a guarantee that the game is still connected.
+
+**Teleport…** is available for NPCs, placeables, doors and ground items, and in
+**Player** when player actions are allowed. It also works on a mixed selection:
+click a destination in the view and the green landing ghosts keep the selected
+objects' relative offsets. The usual turn keys (Q/E, Shift for 90°) adjust facing;
+Escape or right-click cancels without sending. Dead, DM/possessed and disabled
+player targets are excluded. Placeables can still be dragged to move them.
+**Teleport to Area…** lists every area in the open module, together with reported
+server areas. Choose an area and click its tile minimap to send. The map shows a
+10 m grid and coordinates, blue current positions when in that area, and green
+landing ghosts following the cursor. Z and the facing offset are editable. The
+default is the area's centre; unreported areas use the module's dimensions and
+map. Runtime tile edits may differ from that map. Every landing point must fit inside
+the area. The server checks whether each object can move (including doors and
+static placeables); the Live Log shows any refusal. These commands never edit
+the module. Cross-area scenery/items and rotated doors may be recreated with
+new IDs; selection follows the reported replacement (in the destination view
+when already open). Creature landing positions can be adjusted by navigation.
+
+Live positions and turns move smoothly over the measured report interval, so
+the picture trails the newest report by at most that interval. Teleports over
+ten metres and death snap into place. Following and picking use the displayed
+position too. **Trail** shows the selected object's last five seconds of travel.
+Moving creatures use an available walk, run or combat-walk animation; **Animations**
+still controls model animation. Static views reuse their rendered
+image until something changes, while movement and animated scenery keep updating.
+
+- Choose or drag a creature, placeable or item blueprint from the palette and
+  then click the map to spawn it. Dragging a blueprint arms the same preview;
+  dropping it does not send. Shift-click keeps spawning.
+- Click near a live marker to select it; Delete sends **Remove from game (no body)**.
+- Group menus offer **Run in Formation…** and **Run to One Point…** beside
+  their Walk commands. Shift-click also runs when aiming a group Walk command.
+- Right-click an NPC for **Walk Here…**, **Run Here…**, **Say…**, **Attack…** or **Remove from game (no body)**.
+  Walk Here and Run Here take the next ground click. Shift-click is also a run
+  shortcut while aiming Walk Here; Attack takes the next
+  creature marker. Escape cancels either choice.
+- A door or placeable offers **Open**, **Close**, **Lock**, **Unlock** under Look and effects > Object state, and
+  **Remove from game (no body)**. DMs and possessed creatures remain protected; player orders
+  require both player-action switches.
+- **Run Script…** runs a compiled module script on the selected object. Enter
+  its resref (1–16 ASCII letters, digits or underscores, without `.ncs`).
+- **Run NWScript…** sends 1–8000 nonblank characters of source to the game.
+  Wrapping into `void main()` is on by default. This menu requires **Allow
+  NWScript chunks** in Options and the server must have `MGLIVE_ALLOW_CHUNK=1`.
+  Chunks are off by default because they can run arbitrary code.
+
+The script dialogs show their target; a ground-menu invocation runs on the
+area. Script commands may intentionally target a player or DM. The module
+script menu is controlled by **Allow module scripts** (on by default).
+Queued commands and their results, including compiler errors, appear in the
+Log even when the Live view has since been switched off. Sending a script
+does not change the module's source files.
+
+With Live on, open **Palettes > Tiles**, pick a tile thumbnail and click or drag
+on the area. **Q/E** rotates the tile by a quarter turn (the normal Turn key
+bindings, configurable in Options). Each cell keeps its current height. The
+translucent preview shows the replacement before sending it. The yellow
+**Live: painting the running server** banner identifies the active brush.
+**Stop painting**, right-click or Escape leaves tile mode and clears the palette
+selection and unsent confirmation; subsequent map clicks cannot paint. The first change in each server session asks
+for confirmation with the exact area, cell and tile values.
+
+Live Tile Properties opens below the painting banner; hover Restore for why it
+is unavailable when no previous server tile was observed.
+
+**Select Tiles** opens **Live Tile Properties** for inspecting a cell. Numeric
+**Tile ID**, **Orientation** and **Tile height**, plus **Apply Live Tile** and
+painting with explicit height, are under **Advanced**. Close the window with its
+title-bar close button to leave tile painting and discard an unsent change.
+
+Changes appear after the server reports them. **Restore First Observed Tile**
+sends the first reported previous values for that cell. The module is unchanged;
+leaving Live displays its original terrain again. Only changes observed by this
+open view are known: there is no full live terrain snapshot, and opening the
+view or restarting the server discards ambiguous event history. Terrain
+transitions, tile groups and adjacent doors/heights are not adjusted; existing
+terrain brushes direct you to single-tile replacement in Live.
+
+These viewport actions change the running game and are not module Undo steps.
+Normal GIT placement, dragging, scaling, pasting and terrain edits are bypassed
+while Live is on. An hourglass beside a target means its command is pending;
+commands expire after 30 seconds without acknowledgement. Turn Live off to
+resume ordinary area editing.
+
+The view uses idle creature poses and labels for door/placeable state; it does not
+animate their open/closed poses. Particles belonging to hidden module objects
+can remain visible. Overlapping objects at the same position and resref may
+not be distinguishable.
+
 ## Minimaps
 
 **Export Minimap…** (an area's right-click menu in the module tree) saves
@@ -94,7 +499,7 @@ Options › Keyboard):
 
 | Do | To |
 | --- | --- |
-| Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
+| Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it), including in Live; no box selection or tile painting |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Alt + middle drag, or Alt + drag begun off the selection | move the camera (Alt + drag on the selection raises or lowers it) |
 | Wheel | zoom (slowly with Shift, or with Ctrl when nothing selected takes a scale; when painting tiles, Shift is the brush's) |
@@ -606,3 +1011,13 @@ The toolbar also has:
 
 To use the tileset, put the `.set`, palette, models, walkmeshes, textures
 and minimap pictures in a hak (Tools › Haks › Build Hak from Folder…).
+
+
+
+Live **Character → Faction** lists only the running server's reported factions
+and session names, with their IDs. Editor-only factions are disabled until the
+module is saved, rebuilt and restarted. It applies the selected ID to each eligible
+NPC; faction 0 (the engine's player faction) is excluded.
+
+For shared area tabs, private DM chat, Focus drilldown, follow across areas,
+Live copy/cut/paste and counted group removal, see [Live mode](19-live-mode.md).

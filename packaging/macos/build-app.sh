@@ -15,11 +15,11 @@ APP="$OUT/Moonglow Toolset.app"
 export MACOSX_DEPLOYMENT_TARGET=11.0
 
 for t in aarch64-apple-darwin x86_64-apple-darwin; do
-    cargo build --profile dist --locked -p moonglow -p mg --target $t
+    cargo build --profile dist --locked -p moonglow -p mg -p moonglow-mcp --target $t
 done
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-for b in moonglow mg; do
+for b in moonglow mg moonglow-mcp; do
     lipo -create -output "$APP/Contents/MacOS/$b" \
         target/aarch64-apple-darwin/dist/$b target/x86_64-apple-darwin/dist/$b
 done
@@ -30,6 +30,7 @@ python3 packaging/third_party_licenses.py --target aarch64-apple-darwin \
     --output "$APP/Contents/Resources/THIRD-PARTY-LICENSES.txt"
 [ -d docs/manual ] && cp -R docs/manual "$APP/Contents/Resources/manual"
 codesign --force --deep --options runtime --sign "${CODESIGN_IDENTITY:--}" "$APP"
+tar -czf "$OUT/moonglow-mcp-$VERSION-macos-universal.tar.gz" -C "$APP/Contents/MacOS" moonglow-mcp -C ../Resources LICENSE THIRD-PARTY-LICENSES.txt
 
 DMG="$OUT/Moonglow-$VERSION-macos.dmg"
 STAGE="$OUT/dmg"

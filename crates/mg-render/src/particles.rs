@@ -370,13 +370,25 @@ impl Particles {
                             a.nodes.iter().find(|x| x.name.eq_ignore_ascii_case(&node.name))
                         })
                         .and_then(|an| an.controllers.iter().find(|c| c.name == "detonate"));
-                    let fired = match (keys, e.last_time) {
-                        (Some(c), Some(last)) => c.times.iter().any(|&k| {
+                    let crossed = |k: f32| {
+                        e.last_time.map_or(k <= t, |last| {
                             if last <= t { last < k && k <= t } else { k > last || k <= t }
-                        }),
-                        _ => false,
+                        }) && k <= anim.map_or(f32::INFINITY, |a| a.length)
                     };
-                    if fired { p("birthrate", 0.0).max(0.0) as usize } else { 0 }
+                    // Stock impact models (e.g. vff_explfire) detonate through
+                    // animation events, without a controller on each emitter.
+                    // Include time zero on the first update, never on a redraw.
+                    let events = anim.map_or(0, |a| {
+                        a.events
+                            .iter()
+                            .filter(|(k, name)| {
+                                name.eq_ignore_ascii_case("detonate") && crossed(*k)
+                            })
+                            .count()
+                    });
+                    let keyed =
+                        usize::from(keys.is_some_and(|c| c.times.iter().copied().any(crossed)));
+                    events.max(keyed) * p("birthrate", 0.0).max(0.0) as usize
                 }
                 "fountain" => {
                     e.owed += p("birthrate", 0.0).max(0.0) * if trail { moved } else { dt };
@@ -870,6 +882,31 @@ mod tests {
         r.parent = Some(1);
         r.position = [0.0, 0.0, -2.0];
         Model { name: "m".into(), nodes: vec![root, n, r], ..Default::default() }
+    }
+
+    #[test]
+    fn explosion_animation_events_start_once_and_repeat_on_loop() {
+        let m = emitter(
+            Emitter { update: "Explosion".into(), ..Default::default() },
+            &[("birthrate", 2.), ("lifeexp", 10.)],
+        );
+        let anim = Animation {
+            length: 1.,
+            events: vec![(0., "detonate".into()), (0.5, "detonate".into()), (0.6, "sound".into())],
+            ..Default::default()
+        };
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        let mut update = |time| {
+            p.update(&m, Some(&anim), time, 0.01, &pose, Mat4::IDENTITY);
+            p.emitters[0].particles.len()
+        };
+        assert_eq!(update(0.), 2);
+        assert_eq!(update(0.), 2, "redrawing does not detonate twice");
+        assert_eq!(update(0.1), 2, "future events do not fire early");
+        assert_eq!(update(0.6), 4);
+        assert_eq!(update(0.9), 4, "other animation events do not detonate");
+        assert_eq!(update(1.1), 6, "time zero fires on the next loop");
     }
 
     #[test]

@@ -20,7 +20,7 @@ import pathlib
 import subprocess
 import sys
 
-PROGRAMS = ["moonglow", "mg"]
+PROGRAMS = ["moonglow", "mg", "moonglow-mcp"]
 LICENSE_FILES = ("license", "licence", "copying", "notice", "unlicense", "copyright")
 # Folders with the licenses of what a crate bundles (fonts, ...).
 BUNDLED = ("fonts", "licenses", "licences")

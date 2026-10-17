@@ -11,6 +11,8 @@ pub enum FileKind {
     Erf,
     /// Any file (resource export).
     Any,
+    /// A Live scene: `.json`.
+    LiveScene,
     /// A script set: `.ini`.
     ScriptSet,
     /// A class spell list: `.ini`.
@@ -44,6 +46,8 @@ impl FileKind {
             (FileKind::Erf, true) => "Export",
             (FileKind::Any, false) => "Open",
             (FileKind::Any, true) => "Save As",
+            (FileKind::LiveScene, false) => "Import Live Scene",
+            (FileKind::LiveScene, true) => "Save Live Scene JSON",
             (FileKind::ScriptSet, false) => "Load Script Set",
             (FileKind::ScriptSet, true) => "Save Script Set",
             (FileKind::SpellList, false) => "Load Class Spell List",
@@ -70,6 +74,7 @@ impl FileKind {
             (FileKind::Module, true) => Some(("Module", &["mod"])),
             (FileKind::Erf, _) => Some(("Exported resources", &["erf"])),
             (FileKind::Any, _) => None,
+            (FileKind::LiveScene, _) => Some(("Live scene JSON", &["json"])),
             (FileKind::ScriptSet, _) => Some(("Script sets", &["ini"])),
             (FileKind::SpellList, _) => Some(("Spell lists", &["ini"])),
             (FileKind::Conversation(f), _) => Some((f.name(), f.extensions())),

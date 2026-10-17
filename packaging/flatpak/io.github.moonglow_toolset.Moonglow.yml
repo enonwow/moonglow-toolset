@@ -37,9 +37,10 @@ modules:
     buildsystem: simple
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
-      - cargo --offline build --profile dist --locked -p moonglow -p mg
+      - cargo --offline build --profile dist --locked -p moonglow -p mg -p moonglow-mcp
       - install -Dm755 target/dist/moonglow -t /app/bin/
       - install -Dm755 target/dist/mg -t /app/bin/
+      - install -Dm755 target/dist/moonglow-mcp -t /app/bin/
       - install -Dm644 packaging/linux/io.github.moonglow_toolset.Moonglow.desktop -t /app/share/applications/
       - install -Dm644 packaging/linux/io.github.moonglow_toolset.Moonglow.metainfo.xml -t /app/share/metainfo/
       - install -Dm644 packaging/linux/moonglow-mime.xml /app/share/mime/packages/io.github.moonglow_toolset.Moonglow.xml

@@ -20,6 +20,63 @@ decision or by design is in the last section.
 
 Size: S (an hour or two), M (a day or so), L (several days).
 
+## Live mode
+
+- **NESS spawn system in Live** (postponed by the owner on 2026-10-16, "maybe in
+  the future"): NESS-spawned creatures already appear, fight, die and walk their
+  routes like any creature, but Live does not know NESS - spawn-point waypoints
+  (`SP_...` flags) are not decoded on the map, a creature is not linked to the point
+  that spawned it, the points' runtime state (count, next spawn, active) is not
+  reported, and there are no NESS actions (spawn now, clear, enable/disable). (M)
+
+- **True door facing in live controls**: native SetFacing ignores doors on the
+  pinned private server; set_facing returns `disabled` for them. Visual rotation
+  is proved and available separately. A later NWNX orientation setter is needed;
+  see [the operation proof](live-ops-wire.md#set_facing).
+
+- **General instant VFX capture**: deferred by the coordinator on 2026-10-12.
+  `NWNX_ON_EFFECT_APPLIED_*` excludes visual effects and instant durations.
+  Live reports lasting effects, spell casts and projectiles; arbitrary instant
+  effects need a later verified NWNX hook. See [the wire contract](live-events-wire.md).
+- Routine NPCs can override ordinary live orders. Phase 1b adds API/game
+  `hold` and a restoring timeout for movement and attack; the remaining
+  **Walk Here (hold)** / Ctrl gesture belongs to the DM-controls phase of
+  [the next plan](live-mode-next.md). (S)
+- Close NPC labels overlap; the readable-view phase adds label modes and
+  collision-free placement. See [the next plan](live-mode-next.md). (S)
+
+- **Upstreaming NWNX_Redis reconnect** requires owner consent; no PR opened.
+  Local pool recovery/pubsub resubscription is complete and verified over three
+  private Redis restarts without a game restart. [H2 proof](live-mode-redis.md#patched-redis-restart-proof-audit-h2-2026-10-15).
+
+Durable event transport is implemented with Redis Streams, per-instance pending
+recovery and bounded local replay. [Contract and proof](live-mode-redis.md#durable-event-queue-2026-10-16).
+Persistence provisioning for existing externally managed Redis, indefinite archival beyond the queue/inbox
+bounds, and recovery of events never accepted from a crashed game/log producer remain
+outside that guarantee.
+
+Redis live mode, Options, script commands and the independent discovery-based
+MCP adapter are implemented. The [current implementation record](live-mode-redis.md)
+describes private WSL checks and their limits. Remaining work:
+
+- Report diffs and multiple simultaneous servers. (M)
+- Open/closed door and placeable poses via `AnimationState`, and walking
+  creature animations instead of idle poses. Hidden objects' particles may
+  remain visible today. (M)
+- Drag live objects to move them; spawn doors, waypoints, triggers, encounters,
+  sounds and stores. Live mode spawns only creatures, placeables and items. (M)
+- Remote client authentication and verified certificates for remote use.
+  The current API is loopback only; the game link is local Redis pub/sub. (M)
+- Phase H: expose editor operations on unsaved state through the discovery
+  table. Excluded from the current Redis task. (L)
+- Durable command identity across GUI restarts is implemented (H4): a flushed
+  per-server-boot journal rejects previously reserved IDs. [Contract and tests](agent-protocol.md#durable-command-ids-audit-h4-2026-10-15).
+- A server's own database-backed DM command catalogue (for example MySQL). (L)
+- NWNX support in `mg-serve`; the live demo currently uses its dedicated private
+  WSL launcher. (M)
+- Manual client-join/player-motion acceptance and direct desktop-window
+  interaction proof. The automated checks cover real HTTPS/NWNX and GPU views
+  of captured engine reports; the computer-use helper was unavailable. (S)
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
 - **Sweeps still walked more than once:** the areas of every module by
@@ -2106,6 +2163,10 @@ is not taken for a new gap.
   challenge ratings wrapped onto a second line in a narrow pane), cut
   short as the module tree's are, whole under the pointer. Not an
   option.
+
+* Live DM change_difficulty: NWNX exposes a notification but no safe setter in the inspected unified include/Administration API; requires a supported NWNX setter, not a memory patch. Connected-PC gather movement also needs a private-client proof. See [world operations](live-ops-wire.md#dm-world-controls).
+
+- Live Inventory native backpack-cell placement/pages/footprints and stack splitting: no cell setter in the installed NWScript/NWNX interfaces. The current grid rearranges the local view; native equip/unequip/drop are supported. A later NWNX inventory repository hook is needed. [Contract](live-ops-wire.md#inventory-equipment-and-grid-third-acceptance).
 - **The module tree and the object selected in the area:** the tree
   goes to it only where its area is opened out there; an area left
   closed stays closed. Asked for by the user (it was opened out and
@@ -2113,3 +2174,5 @@ is not taken for a new gap.
   tree was not captured doing so). With several objects selected, or
   none, it stays where it is; there is no way to turn it off.
   (from builders' reports after 1.19.1)
+
+* **Live encounter destruction (H8, 2026-10-15)**: native DestroyObject leaves an encounter active/valid after20s; no safe installed NWNX deletion setter found. Command refuses disabled; a dedicated engine hook is needed. Live sound reports currently enumerate only Live-created sounds. [Native proof](live-ops-wire.md#additional-spawn-kinds-audit-h8-2026-10-15).

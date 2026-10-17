@@ -59,10 +59,16 @@ pub enum Tab {
     /// Several areas' Properties, edited together.
     AreasProperties(Vec<mg_core::ResRef>),
     /// Several objects of one type placed in an area, edited together.
-    Instances { area: mg_core::ResRef, paths: Vec<mg_edit::GffPath> },
+    Instances {
+        area: mg_core::ResRef,
+        paths: Vec<mg_edit::GffPath>,
+    },
     /// An object placed in an area (its entry in the area's GIT), in its
     /// Properties editor.
-    Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
+    Instance {
+        area: mg_core::ResRef,
+        path: mg_edit::GffPath,
+    },
     /// Help › User Manual.
     Manual,
     /// Find References: where something is used.
@@ -71,11 +77,35 @@ pub enum Tab {
     PlaceableGallery,
     /// Tools › Options.
     Options,
+    /// Reported objects and filters for the open Live area.
+    LivePanel,
+    LiveSelection,
+    LiveLegend,
+    /// Live › Live Log: chat, combat, players, the server log, commands.
+    LiveLog,
+    /// Live › Live Chat: what is said, and saying something back.
+    LiveChat,
+    /// A chat window pinned to one area, independent of map focus.
+    LiveChatArea(mg_core::ResRef),
+    LiveFocus,
+    LiveGmCard,
+    LiveAtmosphere,
+    LiveNpcCard(String),
+    LiveVfx,
+    LivePrepare,
+    LiveSkill,
+    LiveInventory,
+    LiveLibrary,
+    /// Saved and recorded operations for the open module.
+    Scene,
     /// Tile Properties of the tiles selected in an area: their lights,
     /// loops and, of one tile, its variants.
     TileProperties,
     /// What an object placed in an area looks like, in the 3D viewer.
-    InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
+    InstanceModel {
+        area: mg_core::ResRef,
+        path: mg_edit::GffPath,
+    },
 }
 
 impl Tab {
@@ -123,6 +153,22 @@ impl Tab {
             Tab::References => "references",
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
+            Tab::LivePanel => "live-panel",
+            Tab::LiveSelection => "live-selection",
+            Tab::LiveLegend => "live-legend",
+            Tab::LiveLog => "live-log",
+            Tab::LiveChat => "live-chat",
+            Tab::LiveChatArea(_) => "live-chat-area",
+            Tab::LiveFocus => "live-focus",
+            Tab::LiveGmCard => "live-gm-card",
+            Tab::LiveAtmosphere => "live-atmosphere",
+            Tab::LiveNpcCard(_) => "live-npc-card",
+            Tab::LiveVfx => "live-vfx",
+            Tab::LivePrepare => "live-prepare",
+            Tab::LiveSkill => "live-skill",
+            Tab::LiveInventory => "live-inventory",
+            Tab::LiveLibrary => "live-library",
+            Tab::Scene => "live-scene",
             Tab::TileProperties => "tile-properties",
         }
     }
@@ -160,6 +206,18 @@ impl Tab {
             Tab::Gff(_) => (780.0, 600.0),
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
             Tab::Options => crate::options::WINDOW_SIZE.into(),
+            Tab::LivePanel => (1000., 520.),
+            Tab::LiveSelection | Tab::LiveLegend => (450., 520.),
+            Tab::LiveLog => (760., 420.),
+            Tab::LiveChat | Tab::LiveChatArea(_) => (620., 460.),
+            Tab::LiveFocus => (960., 640.),
+            Tab::LiveAtmosphere | Tab::LiveGmCard | Tab::LiveNpcCard(_) => (640., 720.),
+            Tab::LiveVfx => (1000., 700.),
+            Tab::LivePrepare => (720., 630.),
+            Tab::LiveSkill => (680., 630.),
+            Tab::LiveInventory => (740., 650.),
+            Tab::LiveLibrary => (820., 580.),
+            Tab::Scene => (920., 720.),
             Tab::TileProperties => (560.0, 640.0),
             // (Each with OK and Cancel under it: 32 points of its height.)
             Tab::Blueprint(_)
@@ -248,6 +306,18 @@ impl Viewer<'_> {
                     | Tab::AreasProperties(_)
                     | Tab::ModuleProperties
                     | Tab::Options
+                    | Tab::LiveSelection
+                    | Tab::LivePanel
+                    | Tab::LiveLibrary
+                    | Tab::LivePrepare
+                    | Tab::LiveSkill
+                    | Tab::LiveInventory
+                    | Tab::LiveVfx
+                    | Tab::LiveAtmosphere
+                    | Tab::LiveGmCard
+                    | Tab::LiveNpcCard(_)
+                    | Tab::LiveLog
+                    | Tab::Scene
                     | Tab::TileProperties
             );
         // (With a tool in hand in the area, Escape over the area drops the
@@ -287,7 +357,10 @@ impl Viewer<'_> {
                 let source = model_view::Source::Instance { area: *area, path: path.clone() };
                 model_view::ui(self.app, ui, source);
             }
-            Tab::Area(r) => area_view::ui(self.app, ui, *r),
+            Tab::Area(r) => {
+                area_view::ui(self.app, ui, *r);
+                crate::live_vfx::ground(self.app, ui, *r);
+            }
             Tab::AreaProperties(area) => crate::area_props::ui(self.app, ui, *area, &[]),
             Tab::AreasProperties(areas) => {
                 let (first, rest) = areas.split_first().expect("at least one");
@@ -313,6 +386,40 @@ impl Viewer<'_> {
             Tab::References => crate::references::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
+            Tab::LivePanel => {
+                crate::live_areas::active(self.app, ui);
+                crate::live_panel::ui(self.app, ui);
+            }
+            Tab::LiveSelection => {
+                crate::live_areas::active(self.app, ui);
+                crate::live_selection::ui(self.app, ui);
+            }
+            Tab::LiveLegend => crate::live_legend::ui(self.app, ui),
+            Tab::LiveLog => crate::live_log::ui(self.app, ui),
+            Tab::LiveChat => crate::live_chat::ui(self.app, ui, None),
+            Tab::LiveChatArea(area) => crate::live_chat::ui(self.app, ui, Some(*area)),
+            Tab::LiveFocus => crate::live_focus::ui(self.app, ui),
+            Tab::LiveGmCard => crate::live_assistant::card(self.app, ui, None),
+            Tab::LiveAtmosphere => crate::live_atmosphere::ui(self.app, ui),
+            Tab::LiveNpcCard(id) => crate::live_assistant::card(self.app, ui, Some(id)),
+            Tab::LiveVfx => {
+                crate::live_areas::active(self.app, ui);
+                crate::live_vfx::ui(self.app, ui);
+            }
+            Tab::LivePrepare => crate::live_prepare::ui(self.app, ui),
+            Tab::LiveSkill => {
+                crate::live_areas::active(self.app, ui);
+                crate::live_skill::ui(self.app, ui);
+            }
+            Tab::LiveInventory => {
+                crate::live_areas::active(self.app, ui);
+                crate::live_inventory::ui(self.app, ui);
+            }
+            Tab::LiveLibrary => {
+                crate::live_areas::active(self.app, ui);
+                crate::live_library::ui(self.app, ui);
+            }
+            Tab::Scene => crate::live_scene::ui(self.app, ui),
             Tab::TileProperties => crate::tile_select::ui(self.app, ui),
         }
     }
@@ -380,6 +487,31 @@ impl TabViewer for Viewer<'_> {
             Tab::References => "References".into(),
             Tab::PlaceableGallery => "Appearance Gallery".into(),
             Tab::Options => "Options".into(),
+            Tab::LivePanel => "Live Panel".into(),
+            Tab::LiveSelection => "Selection".into(),
+            Tab::LiveLegend => "Legend".into(),
+            Tab::LiveLog => "Live Log".into(),
+            Tab::LiveChat => "Live Chat".into(),
+            Tab::LiveChatArea(area) => format!("Chat · {area}").into(),
+            Tab::LiveFocus => {
+                let unread = self.app.live_focus.unread();
+                if unread > 0 && !self.app.settings.no_live_focus {
+                    egui::RichText::new(format!("Focus ({unread})"))
+                        .color(egui::Color32::YELLOW)
+                        .into()
+                } else {
+                    "Focus".into()
+                }
+            }
+            Tab::LiveVfx => "Live VFX".into(),
+            Tab::LivePrepare => "Prepare Module for Live".into(),
+            Tab::LiveSkill => "Live Skill Check".into(),
+            Tab::LiveInventory => "Live Inventory".into(),
+            Tab::LiveLibrary => "NPC Library".into(),
+            Tab::Scene => "Scenes".into(),
+            Tab::LiveGmCard => "GM card".into(),
+            Tab::LiveAtmosphere => "Atmosphere".into(),
+            Tab::LiveNpcCard(_) => "NPC card".into(),
             Tab::TileProperties => "Tile Properties".into(),
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
@@ -470,6 +602,7 @@ impl TabViewer for Viewer<'_> {
             && response.clicked()
         {
             self.app.tree_reveal = Some((*area, false));
+            self.app.palette.area = Some(*area);
         }
         if response.middle_clicked() && tab.closeable() {
             self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
@@ -483,6 +616,9 @@ impl TabViewer for Viewer<'_> {
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
         use egui_dock::tab_viewer::OnCloseResponse;
         if self.app.may_close(tab) {
+            if *tab == Tab::LiveInventory {
+                self.app.live_inventory.reopen();
+            }
             self.app.closed(tab);
             OnCloseResponse::Close
         } else {

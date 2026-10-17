@@ -21,6 +21,8 @@ pub enum Group {
     General,
     /// In the area view, with the pointer over it.
     Area,
+    /// Control groups override camera digit keys only while the Live area has input.
+    LiveArea,
     /// In the script editor, with its text focused.
     Script,
     /// In the conversation editor, with the pointer over it.
@@ -36,6 +38,7 @@ impl Group {
         match self {
             Group::General => "General",
             Group::Area => "Area",
+            Group::LiveArea => "Live Area",
             Group::Script => "Script Editor",
             Group::Conversation => "Conversation Editor",
             Group::Nui => "NUI Creator",
@@ -121,6 +124,21 @@ pub enum Cmd {
     TogglePalettes,
     ToggleLog,
     HidePanels,
+    LiveInArea,
+    LiveMacro1,
+    LiveMacro2,
+    LiveMacro3,
+    LiveMacro4,
+    LiveStoreGroup1,
+    LiveStoreGroup2,
+    LiveStoreGroup3,
+    LiveStoreGroup4,
+    LiveStoreGroup5,
+    LiveRecallGroup1,
+    LiveRecallGroup2,
+    LiveRecallGroup3,
+    LiveRecallGroup4,
+    LiveRecallGroup5,
     NuiDelete,
     NuiDuplicate,
     NuiMoveUp,
@@ -134,7 +152,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 67] = [
+    pub const ALL: [Cmd; 82] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -196,6 +214,21 @@ impl Cmd {
         Cmd::TogglePalettes,
         Cmd::ToggleLog,
         Cmd::HidePanels,
+        Cmd::LiveInArea,
+        Cmd::LiveMacro1,
+        Cmd::LiveMacro2,
+        Cmd::LiveMacro3,
+        Cmd::LiveMacro4,
+        Cmd::LiveStoreGroup1,
+        Cmd::LiveStoreGroup2,
+        Cmd::LiveStoreGroup3,
+        Cmd::LiveStoreGroup4,
+        Cmd::LiveStoreGroup5,
+        Cmd::LiveRecallGroup1,
+        Cmd::LiveRecallGroup2,
+        Cmd::LiveRecallGroup3,
+        Cmd::LiveRecallGroup4,
+        Cmd::LiveRecallGroup5,
         Cmd::NuiDelete,
         Cmd::NuiDuplicate,
         Cmd::NuiMoveUp,
@@ -269,6 +302,31 @@ impl Cmd {
             Cmd::TogglePalettes => ("view-palettes", "Palettes Panel", General),
             Cmd::ToggleLog => ("view-log", "Log", General),
             Cmd::HidePanels => ("hide-panels", "Hide All Panels", General),
+            Cmd::LiveInArea => ("live-in-area", "Show Live in This Area", General),
+            Cmd::LiveMacro1 => ("live-macro-1", "Play Live Macro Slot 1", LiveArea),
+            Cmd::LiveMacro2 => ("live-macro-2", "Play Live Macro Slot 2", LiveArea),
+            Cmd::LiveMacro3 => ("live-macro-3", "Play Live Macro Slot 3", LiveArea),
+            Cmd::LiveMacro4 => ("live-macro-4", "Play Live Macro Slot 4", LiveArea),
+            Cmd::LiveStoreGroup1 => ("live-store-group-1", "Store Live Control Group 1", LiveArea),
+            Cmd::LiveStoreGroup2 => ("live-store-group-2", "Store Live Control Group 2", LiveArea),
+            Cmd::LiveStoreGroup3 => ("live-store-group-3", "Store Live Control Group 3", LiveArea),
+            Cmd::LiveStoreGroup4 => ("live-store-group-4", "Store Live Control Group 4", LiveArea),
+            Cmd::LiveStoreGroup5 => ("live-store-group-5", "Store Live Control Group 5", LiveArea),
+            Cmd::LiveRecallGroup1 => {
+                ("live-recall-group-1", "Recall Live Control Group 1", LiveArea)
+            }
+            Cmd::LiveRecallGroup2 => {
+                ("live-recall-group-2", "Recall Live Control Group 2", LiveArea)
+            }
+            Cmd::LiveRecallGroup3 => {
+                ("live-recall-group-3", "Recall Live Control Group 3", LiveArea)
+            }
+            Cmd::LiveRecallGroup4 => {
+                ("live-recall-group-4", "Recall Live Control Group 4", LiveArea)
+            }
+            Cmd::LiveRecallGroup5 => {
+                ("live-recall-group-5", "Recall Live Control Group 5", LiveArea)
+            }
             Cmd::NuiDelete => ("nui-delete", "Delete Element", Nui),
             Cmd::NuiDuplicate => ("nui-duplicate", "Duplicate Element", Nui),
             Cmd::NuiMoveUp => ("nui-move-up", "Move Element Up", Nui),
@@ -294,6 +352,21 @@ impl Cmd {
     pub fn defaults(self) -> Vec<KeyboardShortcut> {
         let k = KeyboardShortcut::new;
         match self {
+            Cmd::LiveMacro1 => vec![k(CTRL, Key::Num6)],
+            Cmd::LiveMacro2 => vec![k(CTRL, Key::Num7)],
+            Cmd::LiveMacro3 => vec![k(CTRL, Key::Num8)],
+            Cmd::LiveMacro4 => vec![k(CTRL, Key::Num9)],
+            Cmd::LiveStoreGroup1 => vec![k(CTRL, Key::Num1)],
+            Cmd::LiveStoreGroup2 => vec![k(CTRL, Key::Num2)],
+            Cmd::LiveStoreGroup3 => vec![k(CTRL, Key::Num3)],
+            Cmd::LiveStoreGroup4 => vec![k(CTRL, Key::Num4)],
+            Cmd::LiveStoreGroup5 => vec![k(CTRL, Key::Num5)],
+            Cmd::LiveRecallGroup1 => vec![k(NONE, Key::Num1)],
+            Cmd::LiveRecallGroup2 => vec![k(NONE, Key::Num2)],
+            Cmd::LiveRecallGroup3 => vec![k(NONE, Key::Num3)],
+            Cmd::LiveRecallGroup4 => vec![k(NONE, Key::Num4)],
+            Cmd::LiveRecallGroup5 => vec![k(NONE, Key::Num5)],
+
             Cmd::NewModule => vec![k(CTRL, Key::N)],
             Cmd::OpenModule => vec![k(CTRL, Key::O)],
             Cmd::Save => vec![k(CTRL, Key::S)],
@@ -364,6 +437,7 @@ impl Cmd {
             Cmd::TogglePalettes => vec![k(CTRL | Modifiers::ALT, Key::Num2)],
             Cmd::ToggleLog => vec![k(CTRL | Modifiers::ALT, Key::Num3)],
             Cmd::HidePanels => vec![k(CTRL | Modifiers::ALT, Key::Num0)],
+            Cmd::LiveInArea => vec![k(CTRL | SHIFT, Key::L)],
             Cmd::NuiDelete => vec![k(NONE, Key::Delete)],
             Cmd::NuiDuplicate => vec![k(CTRL, Key::D)],
             Cmd::NuiMoveUp => vec![k(Modifiers::ALT, Key::ArrowUp)],

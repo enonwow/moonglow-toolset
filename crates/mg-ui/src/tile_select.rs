@@ -410,6 +410,21 @@ fn named(r: &egui::Response, name: &str) {
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
     let Some(mut props) = app.tile_props.take() else { return };
+    if let Some(view) = app.area_views.get_mut(&props.area).filter(|v| v.live.on) {
+        ui.label("Live: painting the running server");
+        ui.label("Module Tile Properties are unavailable while this view is Live.");
+        if ui.button("Open Live Tile Properties").clicked() {
+            view.tile_mode = true;
+            if let Some(tile) =
+                view.model.as_ref().and_then(|m| props.tiles.first().and_then(|i| m.tiles.get(*i)))
+            {
+                let cell = (tile.column as u16, tile.row as u16);
+                crate::live_tiles::select(view, cell);
+            }
+        }
+        app.tile_props = Some(props);
+        return;
+    }
     // A variant chosen: once the area shows it, the window is of that
     // tile (the lights and loops its model has).
     if props.chosen
@@ -619,7 +634,7 @@ const VARIANT: f32 = 84.0;
 /// One variant in Tile Properties: its model's picture, turned as the
 /// tile would lie (the quarter turns written under it too), framed if it
 /// is the one there now. Whether it was clicked.
-fn variant_picture(
+pub(crate) fn variant_picture(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
     p: mg_tiles::Placement,
@@ -651,6 +666,9 @@ fn variant_picture(
             r
         })
         .inner;
+    r.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Use tile {model}"))
+    });
     r.on_hover_text(format!("Tile {}: {name}", p.tile)).clicked()
 }
 

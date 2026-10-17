@@ -33,7 +33,7 @@ mod scene;
 pub mod terrain;
 pub mod walk;
 
-pub use scene::{AreaScene, Usage, View, fog, overview};
+pub use scene::{AreaScene, LivePose, Usage, View, fog, overview};
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;

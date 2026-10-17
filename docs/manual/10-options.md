@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
+description: The Options dialog page by page, including the saved Live service and command policies, and where settings are kept.
 tags: [manual, options]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
 ---
@@ -9,7 +9,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
 # Options
 
 **Tools › Options…** has Aurora's pages, in a window that docks and
-tabs with the others. **OK** applies the changes; the module stays open.
+tabs with the others. **Apply** applies the changes and leaves Options open; **OK**
+applies them and closes it. The module stays open.
 **Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop switch (the Folders page) or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
@@ -114,6 +115,40 @@ the module is opened again from its file.
   the module adds, and the game uses the hak's), **Show invalid creature
   spell assignment warning** and **Show creature inventory warning**
   (see [Blueprints](05-blueprints.md)).
+
+## Live
+
+Live mode is **off by default**. **Enable live mode**, then **Apply** or **OK**,
+starts its client API and Redis connection. Applying changed connection settings
+restarts the service; disabling it stops both connections. Cancel discards only
+changes made since the last Apply. A stopped service keeps the last report as
+stale data in the [area view](04-areas.md).
+
+- **API for clients**: loopback address and port (default `127.0.0.1:5199`;
+  port `0` selects an available port). A non-loopback address is refused.
+- **Token**: a masked bearer credential. **Generate**, **Copy token** and
+  **Copy curl command** help configure clients. An empty token is generated
+  when enabling the service. It is saved in plain text in your settings;
+  copied commands contain it, so do not publish them.
+- **Game link (Redis)**: host and port (default `127.0.0.1:6379`) and channel
+  prefix (default `mglive`). The game publishes `mglive.state` and listens on
+  `mglive.cmd`. Both sides must use the same prefix.
+- **Allow module scripts (run_script)**: on by default.
+- **Allow NWScript chunks (run_chunk)**: off by default. Also requires
+  `MGLIVE_ALLOW_CHUNK=1` when starting the game server. It allows arbitrary
+  server code; changing either switch independently blocks chunks.
+- **Status**: API address, Redis connection, last state age and message counts.
+  **Redis unreachable — is WSL running?** means the Redis connection failed;
+  hover for details. Redis being connected does not itself mean the game is
+  reporting. After Redis restarts, restart the game server with the installed
+  NWNX_Redis build; Moonglow reconnects automatically.
+
+`MOONGLOW_LIVE_*` environment variables override these saved choices for the
+process that inherits them, as used by the demo launcher. Remove those overrides
+to control the service entirely here. The variables and private WSL setup are in
+[Build, verify and test](09-build-and-test.md).
+Agent connection descriptors are credentials in Moonglow's separate data folder;
+see `docs/agent-protocol.md` in the source repository for its layout.
 
 ## Script Editor
 

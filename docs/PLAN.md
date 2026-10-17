@@ -154,6 +154,7 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-render` | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles |
 | `mg-preview` | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
 | `mg-area` | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area; picking, arranging, reshaping and the walkmesh |
+| `mg-live` | live game reports and commands, the local HTTPS client API, Redis transport and service lifecycle; shared module preparation with the built-in compiler |
 | `mg-ui` | egui widgets and editors |
 | `apps/mg` | the command line: 44 commands (`mg --help`; the manual's `11-command-line.md`), each able to answer in JSON |
 | `apps/moonglow` | the GUI application |

@@ -12,6 +12,74 @@ use mg_render::{Gpu, GpuModel, Instance, PointLight, anim};
 
 use crate::{Preview, PreviewLight};
 
+fn death_animation<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let lower = name.to_ascii_lowercase();
+            let priority = match lower.as_str() {
+                "dead" => 0,
+                "deadfnt" => 1,
+                "deadbck" => 2,
+                _ if lower.starts_with("dead") || lower.starts_with("cdead") => 3,
+                "die" => 4,
+                "kdfntdie" => 5,
+                "kdbckdie" => 6,
+                _ if lower.starts_with("die") || lower.starts_with("cdie") => 7,
+                _ => return None,
+            };
+            Some((priority, name))
+        })
+        .min_by_key(|(priority, _)| *priority)
+        .map(|(_, name)| name)
+}
+
+fn movement_animation<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+    speed: f32,
+    combat: bool,
+) -> Option<&'a str> {
+    if speed < 0.05 {
+        return None;
+    }
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let lower = name.to_ascii_lowercase();
+            let rank = match lower.as_str() {
+                "cwalk1" if combat => 0,
+                n if combat && n.starts_with("cwalk") => 1,
+                "run" if speed >= 3. => 2,
+                "walk" => 3,
+                "run" => 4,
+                _ => return None,
+            };
+            Some((rank, name))
+        })
+        .min_by_key(|(rank, _)| *rank)
+        .map(|(_, name)| name)
+}
+
+#[test]
+fn movement_chooses_available_gaits_and_keeps_idle_when_still() {
+    let names = ["pause1", "walk", "run", "cwalk1"];
+    assert_eq!(movement_animation(names, 0., false), None);
+    assert_eq!(movement_animation(names, 2., false), Some("walk"));
+    assert_eq!(movement_animation(names, 4., false), Some("run"));
+    assert_eq!(movement_animation(names, 4., true), Some("cwalk1"));
+    assert_eq!(movement_animation(["walk"], 4., true), Some("walk"));
+    assert_eq!(movement_animation(["pause1"], 4., false), None);
+}
+
+#[test]
+fn death_pose_names_prefer_resting_to_falling_and_ignore_walkdead() {
+    assert_eq!(death_animation(["pause1", "walkdead"]), None);
+    assert_eq!(death_animation(["die", "deadbck", "deadfnt"]), Some("deadfnt"));
+    assert_eq!(death_animation(["deadfnt", "DEAD"]), Some("DEAD"));
+    assert_eq!(death_animation(["walkdead", "kdfntdie"]), Some("kdfntdie"));
+    assert_eq!(death_animation(["cdie1", "cdead1"]), Some("cdead1"));
+}
+
 #[derive(Debug)]
 struct Placed {
     gpu: Arc<GpuModel>,
@@ -22,8 +90,22 @@ struct Placed {
     colors: Option<[u8; 10]>,
     env_map: Option<String>,
     animated: bool,
+    animation: Option<String>,
     /// Its own animations and its supermodels' (animated parts).
     anims: Vec<(String, Arc<Model>)>,
+}
+
+/// A model with particle emitters, posed, and where it stands in its
+/// object's space ([`Composed::all_emitters`]).
+#[derive(Debug)]
+pub struct Emitting<'a> {
+    /// The base model, rather than an attached part (which may also stand
+    /// at the origin). Only base emitters should be warmed on arrival.
+    pub is_base: bool,
+    pub model: &'a Model,
+    pub playing: Option<&'a Animation>,
+    pub pose: Vec<Mat4>,
+    pub place: Mat4,
 }
 
 impl Placed {
@@ -106,6 +188,7 @@ fn place_unguarded(
         colors: part.colors,
         env_map: part.env_map.clone(),
         animated: part.animated,
+        animation: part.animation.clone(),
         anims,
     })
 }
@@ -200,6 +283,38 @@ impl Composed {
         self.base.anims.iter().map(|(n, _)| n.clone()).collect()
     }
 
+    pub fn movement_animation(&self, speed: f32, combat: bool) -> Option<&str> {
+        movement_animation(self.base.anims.iter().map(|(name, _)| name.as_str()), speed, combat)
+    }
+
+    /// Idle poses, attached animated parts and emitters that change over time.
+    pub fn animates(&self) -> bool {
+        std::iter::once(&self.base).chain(&self.parts).any(|part| {
+            part.gpu.model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_)))
+                || self.idle.as_deref().is_some_and(|idle| {
+                    part.anims
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case(idle))
+                        .and_then(|(name, owner)| owner.animation(name))
+                        .is_some_and(anim::changes_with_time)
+                })
+        })
+    }
+
+    /// Hold a model's death pose (including inherited EE deadfnt/deadbck),
+    /// then the end of a dying animation, with a grounded rotation as fallback.
+    pub fn dead_instances(&self, transform: Mat4) -> Vec<Instance> {
+        if let Some(name) = death_animation(self.base.anims.iter().map(|(name, _)| name.as_str())) {
+            let (_, owner) = self.base.anims.iter().find(|(n, _)| n == name).unwrap();
+            let time = owner.animation(name).map_or(0., |a| a.length.max(0.));
+            return self.instances(Some(name), time, transform);
+        }
+        let (min, _) = self.bounds_in(self.idle.as_deref(), 0.);
+        let lying = Mat4::from_translation(Vec3::new(0., 0., -min.y))
+            * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+        self.instances(self.idle.as_deref(), 0., transform * lying)
+    }
+
     /// The base model's particle emitters, to simulate: the model, the
     /// animation it stands in and its nodes' places at `t`. `None` for a
     /// model without emitters (most).
@@ -218,6 +333,75 @@ impl Composed {
             None => self.base.gpu.rest.clone(),
         };
         Some((model, playing, pose))
+    }
+
+    /// Every model of the preview with emitters: the base's (as
+    /// [`Composed::emitters`]) and each part's (an effect hung from a node:
+    /// a glow, sparks), with where it stands in the object's space. A part
+    /// plays its own animation by that name, else its first.
+    pub fn all_emitters(&self, animation: Option<&str>, t: f32) -> Vec<Emitting<'_>> {
+        let emits =
+            |m: &Model| m.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_)));
+        let mut out = Vec::new();
+        if let Some((model, playing, pose)) = self.emitters(animation, t) {
+            out.push(Emitting { is_base: true, model, playing, pose, place: Mat4::IDENTITY });
+        }
+        // Only an emitting part attached to a base node needs this pose.
+        // Ordinary creatures and root effects must not pose the whole skeleton
+        // again just to discover that there is nothing to attach.
+        let mut base_pose = None;
+        for p in &self.parts {
+            let model = &*p.gpu.model;
+            if !emits(model) {
+                continue;
+            }
+            let own = |name: &str| {
+                p.anims
+                    .iter()
+                    .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                    .and_then(|(n, o)| o.animation(n))
+            };
+            let playing = p
+                .animation
+                .as_deref()
+                .and_then(own)
+                .or_else(|| p.animation.as_ref().and_then(|_| own("impact")))
+                .or_else(|| animation.and_then(own))
+                .or_else(|| p.anims.first().and_then(|(n, o)| o.animation(n)));
+            let pose = match playing {
+                Some(a) => anim::pose(model, a, t),
+                None => p.gpu.rest.clone(),
+            };
+            let at = p
+                .attach
+                .and_then(|i| {
+                    base_pose
+                        .get_or_insert_with(|| self.emitters_pose(animation, t))
+                        .get(i)
+                        .copied()
+                })
+                .unwrap_or(Mat4::IDENTITY);
+            out.push(Emitting {
+                is_base: false,
+                model,
+                playing,
+                pose,
+                place: at * Mat4::from_scale(Vec3::splat(p.scale)),
+            });
+        }
+        out
+    }
+
+    /// The base's pose at `t` in `animation` (its rest pose without one).
+    fn emitters_pose(&self, animation: Option<&str>, t: f32) -> Vec<Mat4> {
+        let playing = animation.and_then(|name| {
+            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+            owner.1.animation(name)
+        });
+        match playing {
+            Some(a) => anim::pose(&self.base.gpu.model, a, t),
+            None => self.base.gpu.rest.clone(),
+        }
     }
 
     /// Instances at time `t` of `animation` (none: the rest pose), placed
@@ -258,9 +442,20 @@ impl Composed {
             // Animated parts play the animation on their own nodes: their
             // own (wings, tails), else the base's (robe and cloak bones).
             let pose = if p.animated {
-                let own = animation.and_then(|a| p.animation(a)).or_else(|| {
-                    ["creadyl", "cpause1", "pause1"].iter().find_map(|a| p.animation(a))
-                });
+                let own = p
+                    .animation
+                    .as_deref()
+                    .and_then(|a| p.animation(a))
+                    .or_else(|| p.animation.as_ref().and_then(|_| p.animation("impact")))
+                    .or_else(|| animation.and_then(|a| p.animation(a)))
+                    .or_else(|| {
+                        // A worn robe without its own death animation must follow
+                        // the dying skeleton, not keep playing its private idle.
+                        if animation.is_some_and(|a| death_animation([a]).is_some()) {
+                            return None;
+                        }
+                        ["creadyl", "cpause1", "pause1"].iter().find_map(|a| p.animation(a))
+                    });
                 // (A skeleton's animation, the base's or its supermodel's,
                 // moves the part as it moves the base: at the base's
                 // scale. The part's very own keep theirs.)

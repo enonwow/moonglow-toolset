@@ -102,6 +102,7 @@ pub struct ModelView {
     targets: Option<(Targets, egui::TextureId)>,
     last_frame: Option<f64>,
     particles: Option<Particles>,
+    vfx_particles: crate::live_vfx::PreviewParticles,
     dangly: Option<Dangly>,
     /// Chunk emitters' models, by name.
     chunk_models: HashMap<String, Option<Arc<GpuModel>>>,
@@ -118,6 +119,7 @@ pub struct ModelView {
 /// game), or an object placed in an area (its entry in the area's GIT).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Source {
+    LiveVfx,
     Resource(ResKey),
     Instance { area: ResRef, path: GffPath },
 }
@@ -126,6 +128,7 @@ impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Source::Resource(k) => write!(f, "{k}"),
+            Source::LiveVfx => write!(f, "Live VFX mannequin"),
             Source::Instance { area, .. } => write!(f, "an object placed in {area}"),
         }
     }
@@ -143,6 +146,7 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
     };
     let read = |k: &ResKey| data(k).and_then(|d| Gff::read(&d).ok());
     let (restype, object) = match source {
+        Source::LiveVfx => return crate::live_vfx::preview(app),
         Source::Resource(key) if key.restype == ResType::MDL => {
             return Ok(Preview::model(&key.resref.to_string()));
         }
@@ -342,12 +346,14 @@ impl ModelView {
     fn refresh(&mut self, app: &mut Moonglow, source: &Source) {
         let revision = app.ws.as_ref().map(Workspace::revision);
         let model = matches!(source, Source::Resource(k) if k.restype == ResType::MDL);
-        if model || revision == self.revision {
+        if model || (revision == self.revision && !matches!(source, Source::LiveVfx)) {
             return;
         }
         self.revision = revision;
-        // The editors' working copies, which the preview reads.
-        if let Some(ws) = app.ws.as_mut() {
+        // The editors' working copies, which resource previews read.
+        if !matches!(source, Source::LiveVfx)
+            && let Some(ws) = app.ws.as_mut()
+        {
             let _ = ws.flush();
         }
         let Ok(preview) = preview_of(app, source) else { return };
@@ -365,7 +371,11 @@ impl ModelView {
         self.preview = Some(preview);
         self.supermodels = RefCell::new(HashMap::new());
         (self.particles, self.dangly) = (None, None);
+        self.vfx_particles = Default::default();
         self.chunk_models.clear();
+        if matches!(source, Source::LiveVfx) {
+            self.frame();
+        }
     }
 
     fn open(app: &Moonglow, source: &Source) -> ModelView {
@@ -379,6 +389,7 @@ impl ModelView {
         let composed = composed.ok();
         // (An item of its own model: not armor or a cloak, shown worn.)
         let item = match source {
+            Source::LiveVfx => false,
             Source::Resource(k) => k.restype == ResType::UTI,
             Source::Instance { path, .. } => {
                 crate::blueprint::instance_type(path) == Some(ResType::UTI)
@@ -404,6 +415,7 @@ impl ModelView {
             targets: None,
             last_frame: None,
             particles: None,
+            vfx_particles: Default::default(),
             dangly: None,
             chunk_models: HashMap::new(),
             composed,
@@ -412,6 +424,11 @@ impl ModelView {
         };
         view.frame();
         view
+    }
+
+    /// Attached VFX geometry produced by the last rendered frame.
+    pub fn vfx_particle_vertices(&self) -> usize {
+        self.vfx_particles.vertices
     }
 
     /// What it shows of a blueprint (none for a model).
@@ -434,6 +451,7 @@ impl ModelView {
                 let w = self.stand.transform_point3(p);
                 (min, max) = (min.min(w), max.max(w));
             }
+            let (min, max) = self.vfx_particles.bounds(min, max);
             self.target = (min + max) * 0.5;
             let radius = ((max - min).length() * 0.5).max(0.1);
             self.distance = radius / 20f32.to_radians().sin() * 1.1;
@@ -523,8 +541,10 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // Wrapping in a narrow window, so none of it is cut off.
     let mut pop_out = false;
     let mut export = false;
+    let live_vfx = matches!(source, Source::LiveVfx);
+    let details = !embedded && !live_vfx;
     ui.horizontal_wrapped(|ui| {
-        if !embedded {
+        if details {
             ui.label(format!(
                 "{}: {} nodes, {} meshes",
                 model.model.name,
@@ -532,7 +552,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
                 model.meshes.len()
             ));
         }
-        if let Some(c) = view.composed.as_ref().filter(|c| c.part_count() > 0 && !embedded) {
+        if let Some(c) = view.composed.as_ref().filter(|c| c.part_count() > 0 && details) {
             ui.weak(format!("+ {} parts", c.part_count()))
                 .on_hover_text("Body parts, equipment, wings and tails from the blueprint");
             if !c.missing.is_empty() {
@@ -543,24 +563,31 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
                 .on_hover_text(c.missing.join("\n"));
             }
         }
-        if let Some(s) = model.model.supermodel.as_ref().filter(|_| !embedded) {
+        if let Some(s) = model.model.supermodel.as_ref().filter(|_| details) {
             ui.weak(format!("supermodel {s}"));
         }
-        if !embedded {
+        if details {
             ui.separator();
         }
         let current = view.animation.clone().unwrap_or_else(|| "(rest pose)".into());
-        egui::ComboBox::new(("anim", &key), "Animation").selected_text(current).show_ui(ui, |ui| {
-            if ui.selectable_label(view.animation.is_none(), "(rest pose)").clicked() {
-                view.animation = None;
-            }
-            for (name, _) in &anims {
-                if ui.selectable_label(view.animation.as_deref() == Some(name), name).clicked() {
-                    view.animation = Some(name.clone());
-                    view.time = 0.0;
+        egui::ComboBox::new(("anim", &key), if live_vfx { "" } else { "Animation" })
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(view.animation.is_none(), "(rest pose)").clicked() {
+                    view.animation = None;
                 }
-            }
-        });
+                for (name, _) in &anims {
+                    if ui.selectable_label(view.animation.as_deref() == Some(name), name).clicked()
+                    {
+                        view.animation = Some(name.clone());
+                        view.time = 0.0;
+                    }
+                }
+            })
+            .response
+            .on_hover_text(
+                "Preview animation; this does not send an animation command to the game.",
+            );
         if ui.button(if view.playing { "Pause" } else { "Play" }).clicked() {
             view.playing = !view.playing;
         }
@@ -620,7 +647,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     let particles = view.particles.get_or_insert_with(|| Particles::new(&model.model));
     let current_pose: &[Mat4] = pose.as_deref().map_or(&model.rest, Vec::as_slice);
     particles.update(&model.model, playing, view.time, dt, current_pose, Mat4::IDENTITY);
-    let batches = particles.batches(
+    let mut batches = particles.batches(
         &model.model,
         playing,
         view.time,
@@ -634,9 +661,28 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
     dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
     dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
+    let dangly_moving = dangly.moving();
     // Chunk emitters' models.
-    let chunks = particles.chunks(&model.model, playing, view.time, current_pose, Mat4::IDENTITY);
-    let live = particles.live();
+    let mut chunks =
+        particles.chunks(&model.model, playing, view.time, current_pose, Mat4::IDENTITY);
+    let mut live = particles.live();
+    if matches!(source, Source::LiveVfx)
+        && let Some(c) = &view.composed
+    {
+        let frame = view.vfx_particles.step(
+            c,
+            view.animation.as_deref(),
+            (view.time, dt),
+            view.stand,
+            camera.view(),
+        );
+        batches.extend(frame.batches);
+        chunks.extend(frame.chunks);
+        live |= frame.live;
+        if frame.reframe {
+            view.frame();
+        }
+    }
     let mut chunk_instances = Vec::new();
     for c in chunks {
         let gm = view
@@ -660,7 +706,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     }
     // Keep drawing while something moves: an animation, live particles or
     // dangly meshes.
-    if (pose.is_some() || live || dangly.moving()) && view.playing {
+    if (pose.is_some() || live || dangly_moving) && view.playing {
         ui.ctx().request_repaint();
     }
 
@@ -673,6 +719,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         Some(c) => c.instances(view.animation.as_deref(), view.time, view.stand),
         None => vec![Instance::new(model.clone(), Mat4::IDENTITY)],
     };
+    if matches!(source, Source::LiveVfx) {
+        crate::live_vfx::animate_meshes(&mut instances, view.time);
+    }
     if let Some(base) = instances.first_mut() {
         base.pose = pose;
         base.state = Some(Arc::new(state));

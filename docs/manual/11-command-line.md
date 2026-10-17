@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Command-line tools
-description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
+description: The mg command-line tool, machine-readable command discovery, and the independent moonglow-mcp adapter for agent clients.
 tags: [manual, command-line, mg]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
 ---
@@ -29,6 +29,12 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 (below). `mg COMMAND --help` describes each command.
 
 ## Archives and files
+
+`mg describe --json` lists every command as `moonglow-cli/1`: names, flat input
+schemas, how inputs map to arguments, and whether commands write or keep
+running. It works without a game installation. Tools should read this document
+instead of inferring commands from help text. The complete contract is in
+`docs/agent-protocol.md` in the source repository.
 
 | Command | Does |
 | --- | --- |
@@ -401,6 +407,79 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 
 It needs the game for `nwscript.nss` and the includes (`--root` or
 `NWN_ROOT`).
+
+## Agents and MCP
+
+`moonglow-mcp` ships beside `mg` and as a standalone archive. It discovers tools
+from running applications' `/v1/describe` and the chosen CLI's `mg describe`.
+It depends on no Moonglow crate or application version. A fork can implement
+the contract in `docs/agent-protocol.md`; no adapter tool list needs editing.
+Editor operations on unsaved documents are a future phase, not offered here.
+
+The default transport is stdio. Add the installed executable to PATH or use
+its full path. For an AppImage, a symlink named `moonglow-mcp` selects the
+adapter; Flatpak uses `--command=moonglow-mcp`. On macOS it is in the app's
+`Contents/MacOS` folder.
+
+| Option | Purpose |
+|---|---|
+| `--descriptor FILE` | Select an agent descriptor explicitly; repeat for multiple instances. Otherwise discover live sessions in the OS data folder. Environment: `MOONGLOW_AGENT_DESCRIPTOR`. |
+| `--sessions DIR` | Also discover live sessions in this folder (for example the Live demo's `gui-data/Moonglow/live/sessions`); repeatable. Environment: `MOONGLOW_MCP_SESSIONS` (a path list). |
+| `--mg PROGRAM` | Discover this CLI; otherwise use `MOONGLOW_MG`, the executable beside the adapter, or PATH. |
+| `--roots DIR` | Allow filesystem arguments inside this directory; repeatable. Default: current directory. `MOONGLOW_MCP_ROOTS` is an OS path list. |
+| `--allow-write` | Permit CLI commands described as writes; alternative: `MOONGLOW_MCP_WRITE=1`. |
+| `--http IP:PORT` | Use Streamable HTTP at `/mcp` instead of stdio. |
+| `--http-token TOKEN` | Required HTTP bearer token; alternative: `MOONGLOW_MCP_HTTP_TOKEN`. |
+| `--http-allow-remote` | Allow a non-loopback HTTP bind; the operator must provide TLS in front. |
+
+Without an MCP client (a shell, a script, any LLM that runs commands),
+`moonglow-mcp tools` lists the same tools and `moonglow-mcp call TOOL '{"field":1}'`
+calls one and prints its result as JSON (exit status 1 on an error).
+
+CLI tools use `timeout_ms` (default 120000, maximum 1800000). Long-running
+commands require `background:true`. The adapter's `moonglow_jobs` tool can
+list/status/stop/forget its own jobs, never unrelated PIDs. The roots guard
+covers described path arguments and resolves symlinks; it does not sandbox a
+trusted CLI's implementation or arbitrary script text. Project rules still
+apply to game/server commands. Live operations use Moonglow's own policy;
+disabled scripts/chunks are absent from discovery. Commands return a queued
+id: call `live_wait` for the result and read area state to verify movement.
+
+Choose one registration appropriate to the client; replace `<folder>` with
+your project directory. These examples are configuration, not commands to run
+a game server:
+
+```sh
+claude mcp add --scope user moonglow -- moonglow-mcp --roots "<folder>"
+```
+
+For Codex, add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.moonglow]
+command = "moonglow-mcp"
+args = ["--roots", "<folder>"]
+```
+
+For Claude Desktop or Cursor, use a stdio server entry under `mcpServers`:
+
+```json
+{"mcpServers":{"moonglow":{"command":"moonglow-mcp","args":["--roots","<folder>"]}}}
+```
+
+For VS Code's `.vscode/mcp.json`, the container is `servers`:
+
+```json
+{"servers":{"moonglow":{"type":"stdio","command":"moonglow-mcp","args":["--roots","<folder>"]}}}
+```
+
+An HTTP client connects to `http://127.0.0.1:7801/mcp` with its bearer header
+after starting `moonglow-mcp --http 127.0.0.1:7801 --http-token <token>`.
+The adapter negotiates MCP versions `2024-11-05`, `2025-03-26` and `2025-06-18`.
+Stdio and HTTP discover the same tools. Clients without MCP use authenticated
+HTTPS calls and `docs/live-api.openapi.json`, also served at
+`/v1/openapi.json`. The application token and TLS certificate pin come from its
+private descriptor. Never paste descriptors or real tokens into shared config.
 
 ## NWScript in other editors
 

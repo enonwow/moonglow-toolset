@@ -22,6 +22,7 @@ mod creature;
 pub mod files;
 mod item;
 mod object;
+pub mod vfx;
 
 pub use creature::{CreatureLook, creature, creature_look};
 pub use item::{ground_turn, item, item_on, item_placed};
@@ -59,6 +60,8 @@ pub struct Part {
     /// bones copy the skeleton's), wings and tails (with their own
     /// animations).
     pub animated: bool,
+    /// An attached effect's own animation, independent of the creature's gait.
+    pub animation: Option<String>,
 }
 
 impl Part {
@@ -71,6 +74,7 @@ impl Part {
             colors: None,
             env_map: None,
             animated: false,
+            animation: None,
         }
     }
 }

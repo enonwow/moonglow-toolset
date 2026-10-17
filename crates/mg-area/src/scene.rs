@@ -161,6 +161,13 @@ pub struct Usage {
     pub textures: usize,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LivePose {
+    pub dead: bool,
+    pub speed: f32,
+    pub combat: bool,
+}
+
 /// An area's models, loaded. Models are kept by name (tiles) and by
 /// preview (objects), so that updating the scene after an edit loads only
 /// what is new.
@@ -220,6 +227,28 @@ impl Models<'_> {
 }
 
 impl AreaScene {
+    /// Model cache census including live ghosts; GPU payload excludes driver overhead.
+    #[cfg(feature = "measure")]
+    pub fn measure_memory(&self) -> std::collections::BTreeMap<&'static str, u64> {
+        let mut models: Vec<_> = self.tile_cache.values().flatten().map(|t| &t.gpu).collect();
+        for shown in self.object_cache.values().flatten() {
+            models.extend(shown.composed.models());
+        }
+        models.sort_by_key(|m| Arc::as_ptr(m));
+        models.dedup_by_key(|m| Arc::as_ptr(m));
+        let buffers = models
+            .iter()
+            .flat_map(|m| &m.meshes)
+            .map(|m| m.vertices.size() + m.indices.size())
+            .sum();
+        std::collections::BTreeMap::from([
+            ("tile_cache_entries", self.tile_cache.len() as u64),
+            ("object_cache_entries", self.object_cache.len() as u64),
+            ("unique_gpu_models", models.len() as u64),
+            ("model_vertex_index_bytes", buffers),
+        ])
+    }
+
     /// Loads the models of `area`'s tiles and objects.
     pub fn new(gpu: &Gpu, game: &GameData, area: &AreaModel) -> AreaScene {
         let mut scene = AreaScene { colors: light_colors(game), ..Default::default() };
@@ -340,6 +369,32 @@ impl AreaScene {
         time: f32,
         opacity: f32,
     ) -> (Vec<Instance>, (Vec3, Vec3)) {
+        self.ghost_pose(gpu, game, object, time, opacity, false)
+    }
+
+    /// A live creature can hold its death pose, independent of the area's clock.
+    pub fn ghost_pose(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        object: &AreaObject,
+        time: f32,
+        opacity: f32,
+        dead: bool,
+    ) -> (Vec<Instance>, (Vec3, Vec3)) {
+        self.ghost_live(gpu, game, object, time, opacity, LivePose { dead, ..Default::default() })
+    }
+
+    /// The reported creature gait or death pose, with the existing idle fallback.
+    pub fn ghost_live(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        object: &AreaObject,
+        time: f32,
+        opacity: f32,
+        pose: LivePose,
+    ) -> (Vec<Instance>, (Vec3, Vec3)) {
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
         let load = |name: &str| models.load(name);
         let mut missing = Vec::new();
@@ -353,12 +408,48 @@ impl AreaScene {
             return (Vec::new(), crate::pick::marker_bounds(object.kind));
         };
         let c = &shown.composed;
-        let mut out = c.instances(c.idle.as_deref(), time, object.model_transform());
+        let mut out = if pose.dead {
+            c.dead_instances(object.model_transform())
+        } else {
+            let animation = c.movement_animation(pose.speed, pose.combat).or(c.idle.as_deref());
+            c.instances(animation, time, object.model_transform())
+        };
         for i in &mut out {
             i.opacity = opacity;
             i.unlit = object.kind.is_marker();
         }
         (out, shown.bounds)
+    }
+
+    pub fn ghost_animates(&self, object: &AreaObject) -> bool {
+        object
+            .preview
+            .as_ref()
+            .and_then(|p| self.object_cache.get(&format!("{p:?}")))
+            .and_then(|o| o.as_ref())
+            .is_some_and(|o| o.composed.animates())
+    }
+
+    /// Timed model changes; material animation is reported by the renderer itself.
+    pub fn animates(&self, area: &AreaModel, view: &View, hidden: &[usize]) -> bool {
+        area.tiles.iter().zip(&self.tiles).any(|(tile, loaded)| {
+            loaded.as_ref().is_some_and(|loaded| {
+                self.tile_layers(tile, loaded, view).iter().any(|a| anim::changes_with_time(a))
+                    || (view.animate
+                        && loaded
+                            .gpu
+                            .model
+                            .nodes
+                            .iter()
+                            .any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_))))
+                    || tile.source_lights.iter().any(|light| *light != 0)
+            })
+        }) || (view.animate
+            && area.objects.iter().zip(&self.objects).enumerate().any(|(i, (object, shown))| {
+                !hidden.contains(&i)
+                    && view.shows(object.kind)
+                    && shown.as_ref().is_some_and(|s| s.composed.animates())
+            }))
     }
 
     /// `tiles` (not the area's: what a brush would make of them) as
@@ -461,6 +552,19 @@ impl AreaScene {
         dt: f32,
         camera: Mat4,
     ) -> Vec<mg_render::particles::ParticleBatch> {
+        self.particles_without(area, view, sims, dt, camera, &[])
+    }
+
+    /// Skip original objects replaced by Live drawings, including their emitters.
+    pub fn particles_without(
+        &self,
+        area: &AreaModel,
+        view: &View,
+        sims: &mut HashMap<(usize, usize), mg_render::particles::Particles>,
+        dt: f32,
+        camera: Mat4,
+        hidden: &[usize],
+    ) -> Vec<mg_render::particles::ParticleBatch> {
         let mut out = Vec::new();
         let mut seen = Vec::new();
         // The objects with emitters, those nearest the view first: past
@@ -472,8 +576,9 @@ impl AreaScene {
             .iter()
             .zip(&self.objects)
             .enumerate()
-            .filter(|(_, (o, shown))| {
-                view.shows(o.kind)
+            .filter(|(i, (o, shown))| {
+                !hidden.contains(i)
+                    && view.shows(o.kind)
                     && shown
                         .as_ref()
                         .is_some_and(|s| s.composed.base().model.nodes.iter().any(emits))
@@ -651,6 +756,117 @@ impl AreaScene {
         out
     }
 
+    /// The particles of objects that are not the area's (the running
+    /// game's, shown live): their models' emitters and their parts' (an
+    /// effect hung from a node), kept in `sims` by `key` (a live object's
+    /// id), the models shown and the emitter, and moved on by `dt`. An
+    /// object new to `sims` is run ahead as the area's are, except its
+    /// parts': an effect shows from the moment it lands.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ghost_particles(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        objects: &[(&str, &AreaObject)],
+        view: &View,
+        sims: &mut HashMap<(String, usize, usize), mg_render::particles::Particles>,
+        dt: f32,
+        camera: Mat4,
+    ) -> Vec<mg_render::particles::ParticleBatch> {
+        self.ghost_particles_impl(gpu, game, objects, view, sims, dt, camera, true)
+    }
+
+    /// Newly occurring spell/impact models start now, without the steady-state
+    /// warm-up used for an already present placeable's ambient emitters.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cue_particles(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        objects: &[(&str, &AreaObject)],
+        view: &View,
+        sims: &mut HashMap<(String, usize, usize), mg_render::particles::Particles>,
+        dt: f32,
+        camera: Mat4,
+    ) -> Vec<mg_render::particles::ParticleBatch> {
+        self.ghost_particles_impl(gpu, game, objects, view, sims, dt, camera, false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ghost_particles_impl(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        objects: &[(&str, &AreaObject)],
+        view: &View,
+        sims: &mut HashMap<(String, usize, usize), mg_render::particles::Particles>,
+        dt: f32,
+        camera: Mat4,
+        warm: bool,
+    ) -> Vec<mg_render::particles::ParticleBatch> {
+        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let load = |name: &str| models.load(name);
+        let eye = camera.inverse().w_axis.truncate();
+        let mut nearest: Vec<_> = objects.iter().collect();
+        nearest.sort_by(|a, b| {
+            a.1.position.distance_squared(eye).total_cmp(&b.1.position.distance_squared(eye))
+        });
+        nearest.truncate(MAX_PARTICLE_OBJECTS);
+        let (mut out, mut seen, mut missing) = (Vec::new(), Vec::new(), Vec::new());
+        for (key, o) in nearest {
+            let Some(shown) = shown(gpu, &mut self.object_cache, o, &load, &mut missing) else {
+                continue;
+            };
+            let at = Arc::as_ptr(&shown) as usize;
+            if self.failed.borrow().contains(&at) {
+                continue;
+            }
+            let c = &shown.composed;
+            let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
+            let transform = o.model_transform();
+            let drawn = mg_render::guard::guarded(name, || {
+                let mut batches = Vec::new();
+                for (n, e) in c.all_emitters(c.idle.as_deref(), view.time).into_iter().enumerate() {
+                    let id = (key.to_string(), at, n);
+                    let new = !sims.contains_key(&id);
+                    let sim = sims
+                        .entry(id.clone())
+                        .or_insert_with(|| mg_render::particles::Particles::new(e.model));
+                    sim.ground = o.position.z;
+                    let place = transform * e.place;
+                    if warm && new && e.is_base {
+                        let mut ahead = 0.0;
+                        while ahead < PARTICLES_AHEAD {
+                            sim.update(
+                                e.model,
+                                e.playing,
+                                view.time,
+                                PARTICLES_AHEAD_STEP,
+                                &e.pose,
+                                place,
+                            );
+                            ahead += PARTICLES_AHEAD_STEP;
+                        }
+                    }
+                    sim.update(e.model, e.playing, view.time, dt, &e.pose, place);
+                    batches
+                        .extend(sim.batches(e.model, e.playing, view.time, &e.pose, place, camera));
+                    seen.push(id);
+                }
+                batches
+            });
+            match drawn {
+                Some(batches) => out.extend(batches),
+                None => _ = self.failed.borrow_mut().insert(at),
+            }
+        }
+        self.missing.extend(missing);
+        self.missing.sort();
+        self.missing.dedup();
+        sims.retain(|k, _| seen.contains(k));
+        out
+    }
+
     /// The animations playing on a tile, later ones over earlier: its
     /// default, day or night, and the animation loops switched on.
     fn tile_layers<'a>(
@@ -677,6 +893,18 @@ impl AreaScene {
     /// [`scene`](Self::scene) without the tiles of index `hidden` (a
     /// preview shows others there).
     pub fn scene_hiding(&self, area: &AreaModel, view: &View, hidden: &[usize]) -> Scene {
+        self.scene_without(area, view, hidden, &[])
+    }
+
+    /// The scene with specified tiles and objects omitted (live replacements).
+    /// Particles are computed separately and may still show for hidden objects.
+    pub fn scene_without(
+        &self,
+        area: &AreaModel,
+        view: &View,
+        hidden: &[usize],
+        hidden_objects: &[usize],
+    ) -> Scene {
         let mut instances = Vec::new();
         let mut lights = Vec::new();
         let mut shared = Shared::default();
@@ -702,8 +930,8 @@ impl AreaScene {
                 self.failed.borrow_mut().insert(key);
             }
         }
-        for (o, shown) in area.objects.iter().zip(&self.objects) {
-            if !view.shows(o.kind) {
+        for (i, (o, shown)) in area.objects.iter().zip(&self.objects).enumerate() {
+            if hidden_objects.contains(&i) || !view.shows(o.kind) {
                 continue;
             }
             // An encounter's spawn points: the game's marker at each,

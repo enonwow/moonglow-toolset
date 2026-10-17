@@ -20,6 +20,7 @@ mg-image = { path = "crates/mg-image" }
 mg-edit = { path = "crates/mg-edit" }
 mg-erf = { path = "crates/mg-erf" }
 mg-key = { path = "crates/mg-key" }
+mg-live = { path = "crates/mg-live" }
 mg-mdl = { path = "crates/mg-mdl" }
 mg-module = { path = "crates/mg-module" }
 mg-nui = { path = "crates/mg-nui" }
@@ -61,8 +62,10 @@ png = "0.18"
 pollster = "0.4"
 proptest = "1"
 rayon = "1"
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
 rfd = "0.17"
 regex-lite = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

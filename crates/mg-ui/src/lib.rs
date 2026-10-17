@@ -30,7 +30,56 @@ pub mod jobs;
 pub mod journal_view;
 pub mod keys;
 pub mod levelup_view;
+pub use mg_live::store as live;
+mod live_agents;
+mod live_aim;
+mod live_animation;
+mod live_areas;
+pub mod live_assistant;
+mod live_atmosphere;
+pub mod live_chat;
+mod live_clients;
+pub mod live_clipboard;
+pub mod live_colors;
+mod live_context;
+mod live_cues;
+mod live_delete;
+pub mod live_drafts;
+mod live_drag;
+pub mod live_effects;
+mod live_event_people;
+pub mod live_factions;
+pub mod live_focus;
+mod live_group;
+pub mod live_inventory;
+mod live_layout;
+mod live_legend;
+pub mod live_library;
+pub mod live_log;
+mod live_look;
+pub mod live_markers;
+mod live_menu;
+pub mod live_motion;
+mod live_notes;
+pub mod live_panel;
+mod live_patrol;
+mod live_player;
+mod live_portrait;
+pub mod live_prepare;
+mod live_props;
+pub mod live_repaint;
+pub mod live_scene;
+mod live_selection;
+pub mod live_skill;
+mod live_spawn;
+mod live_targets;
+mod live_teleport;
+mod live_tiles;
+pub mod live_vfx;
+pub mod live_view;
 mod manual;
+#[cfg(feature = "measure")]
+pub mod measure;
 pub mod model_view;
 pub mod module_props;
 mod nui_view;
@@ -152,6 +201,8 @@ pub enum Action {
     /// Reports the module's haks' conflicts.
     HakReport,
     OptionsDialog,
+    /// The Options window at its Live page.
+    LiveOptions,
     /// Uses these folders for the game and the user directory (reloading the
     /// game data; closes the module).
     ApplyOptions(Box<OptionsDraft>),
@@ -208,6 +259,10 @@ pub enum Action {
         export: bool,
     },
     OpenTab(Tab),
+    LiveVfx,
+    LiveSkill,
+    LiveInventory,
+    LiveLibrary,
     /// Closes a tab's window (Escape over a model's window).
     CloseTab(Tab),
     /// Closes tabs as their close buttons would: one with unsaved work of
@@ -542,6 +597,26 @@ pub struct Moonglow {
     pub prefab_deleted: Option<(String, String)>,
     /// Where variable sets are kept (`var_sets`).
     pub var_set_dir: Option<PathBuf>,
+    /// Reports and commands shared with the optional live HTTPS listener.
+    pub live: Option<std::sync::Arc<live::LiveStore>>,
+    pub live_service: Option<mg_live::LiveService>,
+    live_agents: live_agents::LiveAgents,
+    pub live_error: Option<String>,
+    pub live_panel: live_panel::LivePanel,
+    pub live_log: live_log::LiveLog,
+    pub live_chat: live_chat::LiveChat,
+    pub live_drafts: live_drafts::LiveDrafts,
+    pub live_assistant: live_assistant::LiveAssistant,
+    pub live_focus: live_focus::LiveFocus,
+    pub live_scene: live_scene::LiveScene,
+    pub live_vfx: live_vfx::LiveVfx,
+    pub live_prepare: live_prepare::LivePrepare,
+    pub live_skill: live_skill::LiveSkill,
+    pub live_inventory: live_inventory::LiveInventory,
+    pub live_clipboard: live_clipboard::Clipboard,
+    pub live_library: live_library::LiveLibrary,
+    live_needs_apply: bool,
+    live_commands: std::collections::HashSet<String>,
     /// When changed haks and folders were last looked for.
     reload_checked: Option<std::time::Instant>,
     /// The custom talk table's file and its time when loaded.
@@ -782,6 +857,25 @@ impl Moonglow {
             prefab_dir: None,
             prefab_deleted: None,
             var_set_dir: None,
+            live: None,
+            live_service: None,
+            live_agents: Default::default(),
+            live_error: None,
+            live_panel: Default::default(),
+            live_log: Default::default(),
+            live_chat: Default::default(),
+            live_drafts: Default::default(),
+            live_assistant: Default::default(),
+            live_focus: Default::default(),
+            live_scene: Default::default(),
+            live_vfx: Default::default(),
+            live_prepare: Default::default(),
+            live_skill: Default::default(),
+            live_inventory: Default::default(),
+            live_clipboard: Default::default(),
+            live_library: Default::default(),
+            live_needs_apply: false,
+            live_commands: Default::default(),
             reload_checked: None,
             tlk_stamp: None,
             paint: false,
@@ -901,6 +995,25 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        live_agents::update(self, ui.ctx());
+        live_assistant::update(self);
+        live_focus::update(self);
+        live_scene::update(self, ui.ctx());
+        live_prepare::update(self, ui.ctx());
+        live_skill::update(self, ui.ctx());
+        live_library::update(self, ui.ctx());
+        live_clipboard::update(self, ui.ctx());
+        live_view::results(self);
+        live_panel::update_follow(self, ui.input(|i| i.time));
+        live_layout::watch_areas(self);
+        if !self.live_commands.is_empty() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+        }
+        if let Some(store) = &self.live {
+            for line in store.take_logs() {
+                self.log.info(line);
+            }
+        }
         // (The game's text is read by the open module's table, if its haks
         // have one: `encoding.2da`.)
         text::set_game_codepage(self.game.as_deref().map(GameData::codepage));
@@ -1093,6 +1206,7 @@ impl Moonglow {
         self.reload_timer(ui);
         recovery::window(self, ui);
         manual::about_window(self, ui.ctx());
+        live_vfx::confirm_appearance(self, ui.ctx());
         // The area view's sounds go on between frames.
         let heard = self.heard.take();
         if area_audio::update(self, heard, ui.input(|i| i.time)) {
@@ -1176,6 +1290,10 @@ impl Moonglow {
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
+            ui.ctx().request_repaint();
+        }
+        if self.live_needs_apply {
+            self.apply_live(ui.ctx());
             ui.ctx().request_repaint();
         }
     }
@@ -1646,6 +1764,14 @@ impl Moonglow {
     /// numbered bookmarks are Ctrl and a digit there).
     fn tab_number_keys(&mut self, ctx: &egui::Context) {
         if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        if ctx.input(|i| {
+            live_group::control_held(i, &self.keymap) || live_scene::macro_held(i, &self.keymap)
+        }) && ctx
+            .input(|i| i.pointer.hover_pos())
+            .is_some_and(|pos| self.area_views.values().any(|v| v.live.on && v.rect.contains(pos)))
+        {
             return;
         }
         use egui::Key::{Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9};
@@ -2141,6 +2267,7 @@ impl Moonglow {
     /// The game data's layers changed: the browser and the read-only
     /// viewers show them anew.
     fn load_order_changed(&mut self) {
+        self.live_vfx.invalidate();
         self.nui_assets.invalidate();
         self.browser.stale = true;
         self.viewed.clear();
@@ -2269,6 +2396,7 @@ impl Moonglow {
 
     /// Closes the module (discarding unsaved changes; the caller asks first).
     pub fn close(&mut self) {
+        self.live_scene.stop();
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
@@ -2446,8 +2574,11 @@ impl Moonglow {
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),
-            Action::OptionsDialog => {
+            action @ (Action::OptionsDialog | Action::LiveOptions) => {
                 let mut draft = OptionsDraft::from_settings(&self.settings);
+                if matches!(action, Action::LiveOptions) {
+                    draft.page = options::OptionsPage::Live;
+                }
                 // (Looked for once: it reads Steam's library files.)
                 draft.detected = GameInstall::detect();
                 // The plugins' commands take keys like the rest.
@@ -2544,7 +2675,14 @@ impl Moonglow {
                 }
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
+            Action::LiveLibrary => self.run_now(Action::OpenTab(Tab::LiveLibrary)),
+            Action::LiveInventory => self.run_now(Action::OpenTab(Tab::LiveInventory)),
+            Action::LiveSkill => self.run_now(Action::OpenTab(Tab::LiveSkill)),
+            Action::LiveVfx => self.run_now(Action::OpenTab(Tab::LiveVfx)),
             Action::OpenTab(tab) => {
+                if live_layout::open(self, &tab) {
+                    return;
+                }
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());
@@ -2553,6 +2691,7 @@ impl Moonglow {
                 // clicked: the one marked before is not the one in front.
                 if let Tab::Area(area) = &tab {
                     self.tree_reveal = Some((*area, false));
+                    self.palette.area = Some(*area);
                 }
                 // A tab docked in an area's pane (Module Properties, docked
                 // when the module opened) moves to a window of its own
@@ -3857,6 +3996,7 @@ impl Moonglow {
     /// folder has the game's data read again, and then the module is opened
     /// again from its file (the caller has asked about unsaved work).
     fn apply_options(&mut self, draft: OptionsDraft) {
+        self.live_needs_apply = true;
         let reload = self.options_reload(&draft);
         let settings = draft.apply(&self.settings);
         let language = settings.edit_language != self.settings.edit_language;

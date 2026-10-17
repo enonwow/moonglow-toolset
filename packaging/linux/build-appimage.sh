@@ -17,12 +17,12 @@ VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 OUT=target/dist
 APPDIR=$OUT/AppDir
 
-cargo build --profile dist --locked -p moonglow -p mg
+cargo build --profile dist --locked -p moonglow -p mg -p moonglow-mcp
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
     "$APPDIR/usr/share/metainfo" "$APPDIR/usr/share/mime/packages" \
     "$APPDIR/usr/share/icons/hicolor/scalable/apps" "$APPDIR/usr/share/doc/moonglow"
-install -m 755 target/dist/moonglow target/dist/mg "$APPDIR/usr/bin/"
+install -m 755 target/dist/moonglow target/dist/mg target/dist/moonglow-mcp "$APPDIR/usr/bin/"
 install -m 644 packaging/linux/$ID.desktop "$APPDIR/usr/share/applications/"
 install -m 644 packaging/linux/$ID.metainfo.xml "$APPDIR/usr/share/metainfo/$ID.appdata.xml"
 install -m 644 packaging/linux/moonglow-mime.xml "$APPDIR/usr/share/mime/packages/$ID.xml"
@@ -34,6 +34,7 @@ for s in 16 24 32 48 64 128 256 512; do
 done
 install -m 644 LICENSE "$APPDIR/usr/share/doc/moonglow/"
 python3 packaging/third_party_licenses.py --output "$APPDIR/usr/share/doc/moonglow/THIRD-PARTY-LICENSES.txt"
+tar -czf "$OUT/moonglow-mcp-$VERSION-linux-$ARCH.tar.gz" -C "$APPDIR/usr/bin" moonglow-mcp -C ../share/doc/moonglow LICENSE THIRD-PARTY-LICENSES.txt
 cp -r docs/manual "$APPDIR/usr/share/doc/moonglow/manual" 2>/dev/null || true
 
 # The AppImage's top: the desktop entry, its icon and the start script.
@@ -47,6 +48,7 @@ cat > "$APPDIR/AppRun" <<'RUN'
 HERE=$(dirname "$(readlink -f "$0")")
 case "$(basename "${ARGV0:-$0}")" in
     mg) exec "$HERE/usr/bin/mg" "$@" ;;
+    moonglow-mcp) exec "$HERE/usr/bin/moonglow-mcp" "$@" ;;
 esac
 exec "$HERE/usr/bin/moonglow" "$@"
 RUN

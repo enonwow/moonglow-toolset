@@ -283,6 +283,7 @@ fn main() -> eframe::Result<()> {
             if let Some(path) = &line.module {
                 moonglow.open_module(path);
             }
+            moonglow.apply_live(&cc.egui_ctx);
             Ok(Box::new(App { moonglow, title: String::new() }))
         }),
     )
