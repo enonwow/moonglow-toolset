@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.32.2" date="2026-10-17">
+      <description>
+        <p>A cloak lying in an area is solid and shiny, as Aurora draws it,
+        and small items (a potion, a gem, a healer's kit) are selected by
+        a box around their model.</p>
+      </description>
+    </release>
     <release version="1.32.1" date="2026-10-16">
       <description>
         <p>Scripts are read and saved in the codepage of the language
