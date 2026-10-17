@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T11:38:42Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -847,7 +847,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `DefaultModel`, then the bag. Whether a custom base item of cloaks
   that names a model of its own should lie as that instead was not
   measured (the game's own names the bag, which it does not use). (S)
-  (from builders' reports after 1.19.1)
+  (from builders' reports after 1.19.1) It has the environment map it
+  has worn (its cloakmodel.2da row's; dropped armor the items' one):
+  without one a shiny color's palette alpha was drawn see-through, the
+  floor showing through (a builder's report after 1.32.1, solid and
+  shiny in Aurora; seen in `area_items` before and after), and a color
+  whose alpha is 0 (61) not drawn at all. Compared with Aurora from
+  above (`area_dropped_cloaks`, and Aurora's own view of the same probe
+  module, `captures/items/`: the game's cloak, colors 0, 56 to 59 and
+  61): the same shapes, colors and solid shine. Aurora's reflection is
+  a little bluer and brighter (both `chrome1`, cloakmodel.2da's
+  `default`); not compared with the client. (S)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
   same builder's picture: not looked into. The model is chosen by the
   torso's parts_chest.2da `ACBONUS` (measured with the game's own
@@ -936,8 +946,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   needs generated 2DA rows merged into the module's tables (`mg 2da-diff
   --base` merges from a terminal; nothing in the window does). An
   object whose model is too small to see
-  (under half a metre across, or empty) is now drawn and picked by a
-  marker's box, lights and the Invisible Object alike. (M)
+  (lying flat and under half a metre across, or empty) is now drawn and
+  picked by a marker's box, lights and the Invisible Object alike. (M)
+  (Small models with height, a potion, a gem or a healer's kit, were
+  taken for it too and had a marker's metre-wide box: a builder's
+  report after 1.32.1.)
   (from builders' reports after 1.16.2)
 - **A creature's box in an area** is around it as it stands (the start
   of its pause), not around its model at rest: a builder's dragon had a

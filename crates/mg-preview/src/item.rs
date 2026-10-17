@@ -47,9 +47,16 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
     if !armor && class != "cloak" {
         return item(game, uti);
     }
-    let one = |mut part: Part| {
+    let one = |mut part: Part, env: Option<String>| {
         // (A model with a PLT texture takes the item's colors.)
         part.colors = Some(item_colors(uti, [0; 10]));
+        // An environment map, as the item's own models have (a cloak's,
+        // its cloakmodel.2da row's, as it has worn): a palette's alpha is
+        // how much of it shows, a shiny color's about half. Without one
+        // the alpha was drawn see-through (a builder's report: a cloak on
+        // the ground showed the floor through it, solid and shiny in
+        // Aurora).
+        part.env_map = env.or_else(|| Some("chrome1".into()));
         Preview { base: part, parts: Vec::new(), idle: None, lights: Vec::new() }
     };
     let default = cell(&baseitems, row, "DefaultModel").map(str::to_ascii_lowercase);
@@ -74,19 +81,21 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
         let model =
             std::iter::once(by_weight.to_string()).chain(default.clone()).find(|m| lk.has_model(m));
         if let Some(model) = model {
-            return Ok(one(Part::new(model)));
+            return Ok(one(Part::new(model), None));
         }
     }
     if !armor {
         let model = std::iter::once(CLOAK.to_string()).chain(default).find(|m| lk.has_model(m));
         if let Some(model) = model {
-            return Ok(one(Part::new(model)));
+            let row = mg_rules::items::part_number(uti, "ModelPart1").unwrap_or(0).max(0) as usize;
+            let env = game.table("cloakmodel").ok().and_then(|t| env_map(cell(&t, row, "ENVMAP")));
+            return Ok(one(Part::new(model), env));
         }
     }
     if !lk.has_model(BAG) {
         return Err(PreviewError::NoModel(format!("{class} on the ground")));
     }
-    Ok(one(Part::new(BAG)))
+    Ok(one(Part::new(BAG), None))
 }
 
 /// How an item is turned where it lies in an area: baseitems.2da's

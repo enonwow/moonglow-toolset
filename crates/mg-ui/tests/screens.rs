@@ -1974,6 +1974,132 @@ fn area_ghost() {
 
 #[test]
 #[ignore]
+fn area_items() {
+    // Items lying in an area, selected: a cloak (the game's folded one, in
+    // the cloak's colors), a healer's kit, a gem and a potion, each with
+    // its box.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    let git = ResKey::new(area, ResType::GIT);
+    let first = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("List").map_or(0, <[_]>::len)
+    };
+    let mut edits = Vec::new();
+    {
+        let app = h.state();
+        let game = app.game.as_deref().unwrap();
+        let item =
+            |r: mg_core::ResRef| mg_module::gff_root(None, game, &ResKey::new(r, ResType::UTI));
+        let placing = mg_module::instances::Placing { game, item: &item };
+        let blueprint = |name: &str| item(mg_core::ResRef::from_str(name).unwrap()).unwrap();
+        let mut cloak = blueprint("nw_it_medkit001");
+        cloak.set("BaseItem", mg_gff::Value::Int(80));
+        cloak.set("ModelPart1", mg_gff::Value::Byte(1));
+        // (Shiny colors: their palettes' alpha, about half, is how much
+        // of the environment map shows, as the game draws them.)
+        for (field, color) in
+            [("Cloth1Color", 56), ("Cloth2Color", 57), ("Leather1Color", 58), ("Leather2Color", 59)]
+        {
+            cloak.set(field, mg_gff::Value::Byte(color));
+        }
+        let items = [
+            cloak,
+            blueprint("nw_it_medkit001"),
+            blueprint("nw_it_gem001"),
+            blueprint("nw_it_mpotion001"),
+        ];
+        for (i, uti) in items.iter().enumerate() {
+            let at = mg_module::instances::Placement {
+                position: [49.0 + i as f32 * 1.2, 37.4, 4.0],
+                rotation: 0.0,
+            };
+            let mut s =
+                mg_module::instances::instance(&placing, ResType::UTI, uti, at, &[]).unwrap();
+            // (On the cobbles there.)
+            s.set("ZPosition", mg_gff::Value::Float(4.0));
+            edits.push(mg_edit::Edit::insert_item(git, GffPath::root(), "List", first + i, s));
+        }
+    }
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Items", edits)));
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        // (By their places in the area's list of items.)
+        view.selection = (0..4).map(|i| (mg_area::ObjectKind::Item, first + i)).collect();
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 40f32.to_radians();
+            o.yaw = 125f32.to_radians();
+            o.distance = 6.0;
+            o.target = glam::Vec3::new(50.8, 37.4, 4.0);
+        }
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "area-items");
+}
+
+#[test]
+#[ignore]
+fn area_dropped_cloaks() {
+    // Aurora's probe of cloaks lying in an area (captures/items/, made for
+    // a builder's report after 1.32.1): the game's cloak, colors 0, the
+    // shiny 56 to 59, 61 (all environment map) and a potion, in a row
+    // across the middle of a grass area, from above as Aurora's
+    // `cloaks-top.png` shows them.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let module = mg_testkit::aurora_capture!("items/zz_cloaks.mod");
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&module);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("field").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    for (name, pitch, distance) in [("top", 89.0f32, 9.0), ("tilted", 55.0, 9.0)] {
+        {
+            let view = h.state_mut().area_views.get_mut(&area).unwrap();
+            if let Some(o) = &mut view.orbit {
+                o.pitch = pitch.to_radians();
+                o.yaw = -90f32.to_radians();
+                o.distance = distance;
+                o.target = glam::Vec3::new(20.5, 20.0, 0.0);
+            }
+        }
+        h.run_steps(5);
+        shoot(&mut h, &dir, &format!("area-dropped-cloaks-{name}"));
+    }
+}
+
+#[test]
+#[ignore]
 fn area_paint() {
     // The placeable brush: two placeables chosen, Paint on; its circle on
     // the ground and the dab a press would lay, see-through.

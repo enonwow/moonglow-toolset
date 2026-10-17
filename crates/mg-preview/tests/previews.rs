@@ -495,6 +495,12 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     assert_eq!(models(&cloak), ["gi_cloak01"]);
     let colors = cloak.base.colors.expect("the cloak's colors");
     assert_eq!((colors[4], colors[5], colors[6]), (92, 99, 58), "cloth 1, cloth 2, leather 1");
+    // With an environment map, as worn (cloakmodel.2da's `default`): a
+    // palette's alpha shows it, a shiny color's. Without one the alpha
+    // was drawn see-through (a builder saw the floor through a cloak
+    // Aurora draws solid and shiny). Armor dropped has the items' one.
+    assert_eq!(cloak.base.env_map.as_deref(), Some("chrome1"));
+    assert_eq!(placed("nw_aarcl004").base.env_map.as_deref(), Some("chrome1"));
     // As it is worn: a body's parts.
     let worn = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();
     assert!(models(&worn).len() > 5);

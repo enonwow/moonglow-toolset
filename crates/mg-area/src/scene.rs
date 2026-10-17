@@ -25,16 +25,22 @@ use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 /// of hundreds of torches still draws at once): those nearest the view.
 const MAX_PARTICLE_OBJECTS: usize = 256;
 
-/// A model no larger than this across (metres) has nothing to see or to
-/// click (the game's `dag_invisible`): its object is drawn and picked by a
-/// marker's box.
+/// A flat model no larger than this across (metres) has nothing to see or
+/// to click (the game's `dag_invisible`, a square of 0.2 m lying flat):
+/// its object is drawn and picked by a marker's box.
 const BARE: f32 = 0.5;
 
-/// Whether a model's box is that of nothing to see: [`BARE`] across at
-/// most, or no box at all (a model without a vertex).
+/// How thin a model is that lies flat, metres.
+const FLAT: f32 = 0.01;
+
+/// Whether a model's box is that of nothing to see: flat and [`BARE`]
+/// across at most, or no box at all (a model without a vertex). A small
+/// model with some height is something to see: a potion, a gem, a
+/// healer's kit is picked by its own box (it was by a marker's, a metre
+/// wide, a builder's report).
 fn bare((min, max): (Vec3, Vec3)) -> bool {
     let across = max - min;
-    !across.is_finite() || across.min_element() < 0.0 || across.length() < BARE
+    !across.is_finite() || across.min_element() < 0.0 || (across.length() < BARE && across.z < FLAT)
 }
 
 /// An emitter new to the view is run ahead this far, in steps this long,
@@ -1001,6 +1007,21 @@ pub fn overview(area: &AreaModel) -> mg_render::Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A small model lying flat is nothing to see (the game's
+    /// `dag_invisible`, a square of 0.2 m, a light's), and is picked by a
+    /// marker's box; a small one with height (a potion, 0.15 by 0.27 by
+    /// 0.15 m) is something, and by its own.
+    #[test]
+    fn only_a_small_flat_model_is_bare() {
+        let square = (Vec3::new(-0.1, -0.1, 0.0), Vec3::new(0.1, 0.1, 0.0));
+        let potion = (Vec3::new(-0.076, 0.007, -0.077), Vec3::new(0.077, 0.274, 0.076));
+        let floor = (Vec3::new(-2.0, -2.0, 0.0), Vec3::new(2.0, 2.0, 0.0));
+        assert!(bare(square));
+        assert!(!bare(potion));
+        assert!(!bare(floor), "flat, but large");
+        assert!(bare((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN))), "no vertex");
+    }
 
     #[test]
     fn with_the_lighting_off_a_dark_area_is_evenly_lit() {
