@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.33.0" date="2026-10-17">
+      <description>
+        <p>Fill paints a floor: a rectangle dragged out fills with rows of
+        placeables on a grid that turns with the brush, each piece by its
+        own size. Tile models some tools mark in their first bytes are
+        read: a fancy-mapped tileset's tiles are no longer missing.</p>
+      </description>
+    </release>
     <release version="1.32.2" date="2026-10-17">
       <description>
         <p>A cloak lying in an area is solid and shiny, as Aurora draws it,
