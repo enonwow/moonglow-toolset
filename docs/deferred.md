@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T11:38:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T21:13:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -895,7 +895,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   light of its own. (S) (found looking into the ghosts that didn't show
   in the test harness's pictures)
 - **Painting placeables** (the area view's Paint, from builders'
-  reports on 1.31.0) is in: Scatter and Row. Not done: an eraser
+  reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
+  on a grid Q and E turn, each piece by its own size, a builder's ask
+  after 1.32.2). Not done: a fill's rows of pieces of different depths
+  lined up by their middles rather than their near sides; an eraser
   (taking the chosen blueprints' placeables out of the circle); the
   brush's own Lock (painted placeables locked, so later clicks pass
   through them); counting placeables that aren't the chosen blueprints
@@ -1158,6 +1161,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Models and textures
 
+- **A compiled model is known by its first byte** being zero, not its
+  first four (troubletcat's report after 1.32.2: a fancy-mapped CTP
+  Babylon hak's 587 tile models begin `\0CTP` or `\0OMB`, drawn in the
+  game and Aurora, by the builder's word; Moonglow read them as text,
+  found them empty and drew the tiles as missing). All 1,408 of that hak
+  read now. nwnmdlcomp refuses them ("isn't a binary model file"); the
+  game's own reading was not tried in the client. (S)
 - **Export Files of a model** (a builder: exporting a bugged placeable
   to whoever mends it meant digging through the haks for its files).
   The model viewer, in an editor's page and in its own window, writes

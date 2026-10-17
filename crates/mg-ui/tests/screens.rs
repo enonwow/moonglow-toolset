@@ -2185,6 +2185,33 @@ fn area_paint() {
     h.event(egui::Event::PointerMoved(to + egui::vec2(40.0, -40.0)));
     h.run_steps(3);
     shoot(&mut h, &dir, "area-paint-row");
+    // A fill of barrels and woodpiles being dragged out, its grid turned
+    // 30° by E: its rectangle on the ground, the pieces see-through, each
+    // by its own size.
+    {
+        let app = h.state_mut();
+        app.palette.selected = Some(ResKey::parse("plc_barrel", ResType::UTP).unwrap());
+        app.palette.chosen = vec![ResKey::parse("plc_woodpile", ResType::UTP).unwrap()];
+        (app.settings.paint.row, app.settings.paint.fill) = (false, true);
+        app.settings.paint.gap_cm = 20;
+    }
+    let (from, to) =
+        (rect.center() + egui::vec2(-330.0, 60.0), rect.center() + egui::vec2(-170.0, 170.0));
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(2);
+    for _ in 0..2 {
+        h.key_press(egui::Key::E);
+        h.run_steps(1);
+    }
+    button(&mut h, from, true);
+    for k in 1..=10 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 10.0)));
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "area-paint-fill");
+    button(&mut h, to, false);
+    h.run_steps(3);
 }
 
 #[test]

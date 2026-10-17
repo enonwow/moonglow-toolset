@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T20:20:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T21:13:04Z }
 ---
 
 # Areas
@@ -390,8 +390,18 @@ the next time.
   snapping angle. It follows the ground (walkable or not, so a walkway
   can cross water), raised by **Height**. Of several placeables chosen,
   each piece is a random pick.
+- **Fill** covers a rectangle instead, in rows (a floor): drag from one
+  corner to the opposite one, whichever way. **Q** and **E** turn the
+  grid, and the rectangle's sides with it (by the snapping angle, if on;
+  Shift + Q by 90°), each piece facing along it. A row lays its pieces end
+  to end, each by its own length and **Gap**; the next row begins past the
+  deepest piece of the one before, and Gap. So pieces of different sizes
+  pack as they are. The first piece's corner is where you pressed (on the
+  snapping grid), and pieces go on until the rectangle is covered, so the
+  last row and piece may reach a little past it. It follows the ground as
+  Row does, raised by **Height**.
 
-Before a press, the dab a click would lay (with Row, the first piece)
+Before a press, the dab a click would lay (with Row or Fill, the first piece)
 shows see-through under the pointer, and a click lays exactly that. What
 a stroke lays shows see-through until you let go; then it goes into the area as one step,
 **Paint Placeables**, which one Undo takes away. Escape or a right click

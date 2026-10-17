@@ -723,6 +723,23 @@ mod tests {
         }
     }
 
+    /// A compiled model is one whose first byte is zero, as the game and
+    /// Aurora read it: a CTP Babylon hak's tiles begin `\0CTP` and `\0OMB`
+    /// (a builder's report: their tiles missing in Moonglow, drawn in
+    /// both). Text never begins with a zero byte.
+    #[test]
+    fn a_compiled_model_is_known_by_its_first_byte() {
+        let file = compiled_by_the_game();
+        let model = crate::Model::read(&file).unwrap();
+        for mark in [*b"CTP", *b"OMB"] {
+            let mut marked = file.clone();
+            marked[1..4].copy_from_slice(&mark);
+            assert!(crate::is_binary(&marked));
+            assert_eq!(crate::Model::read(&marked).unwrap(), model);
+        }
+        assert!(!crate::is_binary(b"# ascii\nnewmodel probe\n"));
+    }
+
     #[test]
     fn truncated_files_are_errors() {
         for file in [compiled_by_the_game(), with_index_list(&[0, 1, 2, 2, 1, 0])] {

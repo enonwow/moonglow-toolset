@@ -92,7 +92,7 @@ pub struct Model {
 }
 
 impl Model {
-    /// Reads either format: binary files start with four zero bytes.
+    /// Reads either format: binary files start with a zero byte.
     pub fn read(data: &[u8]) -> Result<Model, MdlError> {
         if is_binary(data) { binary::read(data) } else { ascii::read(data) }
     }
@@ -108,9 +108,14 @@ impl Model {
     }
 }
 
-/// Whether the data is a compiled (binary) model.
+/// Whether the data is a compiled (binary) model: its first byte is zero,
+/// which a model's text never is. Compilers write four zero bytes, but
+/// the game and Aurora go by the first: a fancy-mapped CTP Babylon hak
+/// (dafena's, on the Vault) has 587 tile models that begin `\0CTP` or
+/// `\0OMB`, drawn in both, which Moonglow read as text and found empty
+/// (a builder's report after 1.32.2: its tiles missing).
 pub fn is_binary(data: &[u8]) -> bool {
-    data.len() >= 12 && data[..4] == [0, 0, 0, 0]
+    data.len() >= 12 && data[0] == 0
 }
 
 /// A controller: key times and, per key, `columns` values.

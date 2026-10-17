@@ -44,6 +44,9 @@ pub struct PaintSettings {
     /// Lays a row (one piece end to end along a drag), rather than
     /// scattering in a circle.
     pub row: bool,
+    /// Fills the rectangle dragged with pieces in rows and columns (a
+    /// floor), rather than scattering or laying one row.
+    pub fill: bool,
     /// The circle's radius, in centimeters.
     pub radius_cm: u16,
     /// How many placeables a tile's ground (10 by 10 meters) holds once
@@ -64,15 +67,24 @@ pub struct PaintSettings {
     /// How far above the ground they stand (below, if less than zero), in
     /// centimeters.
     pub lift_cm: i16,
-    /// A row's room between pieces (overlap, if less than zero), in
-    /// centimeters.
+    /// The room between pieces of a row or a fill (overlap, if less than
+    /// zero), in centimeters.
     pub gap_cm: i16,
+}
+
+impl PaintSettings {
+    /// Whether a drag lays the pieces (Row, Fill), rather than a brush
+    /// dabbing them (Scatter).
+    pub fn by_drag(&self) -> bool {
+        self.row || self.fill
+    }
 }
 
 impl Default for PaintSettings {
     fn default() -> PaintSettings {
         PaintSettings {
             row: false,
+            fill: false,
             radius_cm: 500,
             density: 6,
             spacing_cm: 150,

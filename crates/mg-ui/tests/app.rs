@@ -6637,6 +6637,65 @@ fn area_viewer_lays_a_row_of_placeables() {
     assert!(placeables(&mut h).is_empty(), "one row, one command");
 }
 
+/// The placeable brush's Fill: a drag across both axes fills the
+/// rectangle with rows and columns of one placeable, as one step (a
+/// builder's ask: floors).
+#[test]
+fn area_viewer_fills_a_rectangle_with_placeables() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("paint-fill") else { return };
+    let placeables = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Placeable List").unwrap_or(&[]).to_vec()
+    };
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = ResKey::parse("plc_statue1", ResType::UTP);
+        app.paint = true;
+    }
+    h.run_steps(2);
+    // Fill, from the strip above the view.
+    h.get_by_label("Fill").click();
+    h.run_steps(2);
+    assert!(h.state().settings.paint.fill && !h.state().settings.paint.row);
+    h.get_by_label_contains("Filling with plc_statue1");
+    let from = screen(&h, area, Vec3::new(10.0, 10.0, 0.0));
+    let to = screen(&h, area, Vec3::new(18.0, 16.0, 0.0));
+    h.hover_at(from);
+    h.run_steps(1);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+    }
+    h.run_steps(1);
+    let shown = h.state().area_views[&area].paint.shown;
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let laid = placeables(&mut h);
+    assert_eq!(laid.len(), shown, "what showed is what is laid");
+    let distinct = |field: &str| {
+        let mut v: Vec<i64> =
+            laid.iter().map(|p| (p.float(field).unwrap() * 100.0).round() as i64).collect();
+        v.sort();
+        v.dedup();
+        v.len()
+    };
+    let (columns, rows) = (distinct("X"), distinct("Y"));
+    assert!(columns >= 2 && rows >= 2, "{columns} columns, {rows} rows");
+    assert_eq!(laid.len(), columns * rows, "a full grid");
+    for p in &laid {
+        let (x, y) = (p.float("X").unwrap(), p.float("Y").unwrap());
+        assert!((9.0..19.5).contains(&x) && (9.0..17.5).contains(&y), "in the rectangle: {x}, {y}");
+        assert_eq!(p.float("Bearing"), laid[0].float("Bearing"), "facing alike");
+    }
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(placeables(&mut h).is_empty(), "one fill, one command");
+}
+
 #[test]
 fn area_viewer_places_draws_boxes_and_turns() {
     use glam::Vec3;
