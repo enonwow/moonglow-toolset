@@ -1,5 +1,7 @@
 # Update log
 
+* **Windows credential path handling (2026-10-18)**: pass ACL paths as child-process environment data; a smart-quote directory regression covers fallback set/get/delete. [Cause and verification](live-desktop-link.md#windows-credential-path-handling).
+
 * **Loopback probe tolerance (2026-10-18)**: invalid callbacks no longer consume desktop login; per-connection deadlines and a 32-attempt limit bound probes. [Contract and tests](live-desktop-link.md#loopback-probe-tolerance).
 
 * **Named client credential migration (2026-10-18)**: settings retain client identities and permissions; bearer secrets migrate to per-client secure storage. [Contract and regression](live-desktop-link.md#settings-and-migration).

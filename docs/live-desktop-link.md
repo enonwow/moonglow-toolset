@@ -189,3 +189,13 @@ The garbage-then-real-callback regression failed with ConnectionRefused before
 the fix. All ten login/TLS tests now pass, including a wrong-state probe followed
 by success, an idle probe, the 32-attempt cap, the shared deadline and refusal
 of a second callback after successful acceptance.
+
+## Windows credential path handling
+
+The hidden PowerShell ACL helper receives the directory/file path exclusively
+through the child process environment variable `MG_ACL_PATH`; script text uses
+`$env:MG_ACL_PATH` with `Get-Item -LiteralPath`. Escaping ASCII apostrophes was
+insufficient because PowerShell also treats Unicode smart quotes as delimiters.
+The Windows-only regression creates a directory containing U+2019 and exercises
+fallback set/get/delete. It failed with `Permissions` before the fix and passes
+afterwards. Paths are never interpolated into executable script text.

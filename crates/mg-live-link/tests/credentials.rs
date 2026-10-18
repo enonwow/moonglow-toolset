@@ -34,6 +34,21 @@ impl Backend for Mock {
 }
 
 #[test]
+#[cfg(windows)]
+fn fallback_handles_smart_quote_in_directory_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("builder\u{2019}s data");
+    let store = TokenStore::new(
+        Mock { failure: Some(StoreError::Unavailable), ..Default::default() },
+        &data,
+    );
+    let token = SessionToken::new("fixture-session".into()).unwrap();
+    store.set("one", &token).unwrap();
+    assert_eq!(store.get("one").unwrap(), Some(token));
+    store.delete("one").unwrap();
+}
+
+#[test]
 fn credentials_are_separate_per_server_and_never_written_when_keyring_works() {
     let dir = tempfile::tempdir().unwrap();
     let store = TokenStore::new(Mock::default(), dir.path());

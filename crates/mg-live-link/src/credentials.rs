@@ -203,15 +203,15 @@ fn secure_windows_directory(path: &Path) -> Result<(), StoreError> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     // Protected DACL containing only the current user's SID (the Windows 0600 equivalent).
-    // LiteralPath and an escaped single-quoted path prevent wildcard or shell expansion.
+    // Pass the path as data: PowerShell also parses Unicode smart quotes as delimiters.
     let script = " $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $item=Get-Item -LiteralPath $p; $acl=if($item.PSIsContainer){New-Object System.Security.AccessControl.DirectorySecurity}else{New-Object System.Security.AccessControl.FileSecurity}; $acl.SetAccessRuleProtection($true,$false); $inherit=if((Get-Item -LiteralPath $p).PSIsContainer){[System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[System.Security.AccessControl.InheritanceFlags]::None}; $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl',$inherit,'None','Allow'); $acl.AddAccessRule($rule); $item.SetAccessControl($acl)";
     use base64::Engine;
-    let path = path.to_str().ok_or(StoreError::Permissions)?.replace('\'', "''");
-    let script = format!("$ErrorActionPreference='Stop'; $p='{path}'; {script}");
+    let script = format!("$ErrorActionPreference='Stop'; $p=$env:MG_ACL_PATH; {script}");
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     let output = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
+        .env("MG_ACL_PATH", path)
         .creation_flags(0x08000000)
         .output()
         .map_err(|_| StoreError::Permissions)?;
