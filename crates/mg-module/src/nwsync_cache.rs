@@ -93,6 +93,31 @@ fn atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     result.map_err(|e| e.to_string())
 }
 
+fn fetch_blob(
+    blobs: &Path,
+    hash: &[u8; 20],
+    size: &u32,
+    fetch: &mut impl FnMut(&str) -> Result<Box<dyn Read>, String>,
+) -> Result<(), String> {
+    let name = hex(hash);
+    let path = blobs.join(&name);
+    if path.exists() {
+        verified(&path, hash, *size)?;
+        return Ok(());
+    }
+    let url = format!("data/sha1/{}/{}/{name}", &name[..2], &name[2..4]);
+    let packed_limit =
+        (*size as usize).checked_add(1024 * 1024).ok_or("NWSync packed size overflow")?;
+    let packed = bounded(fetch(&url)?, packed_limit)?;
+    let bytes =
+        decompress_limited(&packed, MAGIC_NSYC, *size as usize).map_err(|e| e.to_string())?;
+    if bytes.len() != *size as usize || sha1(&bytes) != *hash {
+        return Err("NWSync blob SHA-1/size mismatch".into());
+    }
+    atomic(&path, &bytes)?;
+    Ok(())
+}
+
 impl NwSyncCache {
     /// Fetches exactly this manifest, never `latest`. The reader callback receives
     /// only generated repository-relative paths; network policy belongs to the caller.
@@ -133,29 +158,88 @@ impl NwSyncCache {
             }
         }
         for (hash, size) in entries.values() {
-            let name = hex(hash);
-            let path = blobs.join(&name);
-            if path.exists() {
-                verified(&path, hash, *size)?;
-                continue;
-            }
-            let url = format!("data/sha1/{}/{}/{name}", &name[..2], &name[2..4]);
-            let packed_limit = limits
-                .resource_bytes
-                .checked_add(1024 * 1024)
-                .ok_or("NWSync packed size overflow")?;
-            let packed = bounded(fetch(&url)?, packed_limit)?;
-            let bytes = decompress_limited(&packed, MAGIC_NSYC, *size as usize)
-                .map_err(|e| e.to_string())?;
-            if bytes.len() != *size as usize || sha1(&bytes) != *hash {
-                return Err("NWSync blob SHA-1/size mismatch".into());
-            }
-            atomic(&path, &bytes)?;
+            fetch_blob(&blobs, hash, size, fetch)?;
         }
         if !path.exists() {
             atomic(&path, &raw)?;
         }
         Ok(Self { root: root.into(), manifest: manifest.into(), entries })
+    }
+
+    /// Four bounded workers; only complete, verified blobs enter the shared cache.
+    /// The callback must enforce transport policy and cancellation on reads.
+    pub fn fetch_parallel(
+        root: &Path,
+        manifest: &str,
+        limits: Limits,
+        fetch: &(impl Fn(&str, usize) -> Result<Box<dyn Read>, String> + Sync),
+    ) -> Result<Self, String> {
+        digest_name(manifest)?;
+        directory(root)?;
+        let manifests = root.join("manifests");
+        let blobs = root.join("blobs");
+        directory(&manifests)?;
+        directory(&blobs)?;
+        let path = manifests.join(manifest);
+        let raw = if path.exists() {
+            bounded(File::open(&path).map_err(|e| e.to_string())?, limits.manifest_bytes)?
+        } else {
+            bounded(
+                fetch(&format!("manifests/{manifest}"), limits.manifest_bytes)?,
+                limits.manifest_bytes,
+            )?
+        };
+        if hex(&sha1(&raw)) != manifest {
+            return Err("NWSync manifest SHA-1 mismatch".into());
+        }
+        let rows = nwsync::read_manifest(&raw)?;
+        if rows.len() > limits.entries {
+            return Err("NWSync entry limit".into());
+        }
+        let mut entries = BTreeMap::new();
+        let mut unique = BTreeMap::new();
+        let mut total = 0u64;
+        for (key, hash, size) in rows {
+            total = total.checked_add(u64::from(size)).ok_or("NWSync size overflow")?;
+            if size as usize > limits.resource_bytes || total > limits.total_bytes {
+                return Err("NWSync resource/total limit".into());
+            }
+            if entries.insert(key, (hash, size)).is_some() {
+                return Err("duplicate resource".into());
+            }
+            if unique.insert(hash, size).is_some_and(|old| old != size) {
+                return Err("inconsistent size".into());
+            }
+        }
+        let tasks = unique.into_iter().collect::<Vec<_>>();
+        std::thread::scope(|scope| {
+            let workers = (0..4)
+                .map(|worker| {
+                    let tasks = &tasks;
+                    let blobs = &blobs;
+                    scope.spawn(move || -> Result<(), String> {
+                        for (hash, size) in tasks.iter().skip(worker).step_by(4) {
+                            fetch_blob(blobs, hash, size, &mut |path| {
+                                fetch(path, (*size as usize).saturating_add(1024 * 1024))
+                            })?;
+                        }
+                        Ok(())
+                    })
+                })
+                .collect::<Vec<_>>();
+            for worker in workers {
+                worker.join().map_err(|_| "NWSync worker failed")??;
+            }
+            Ok::<(), String>(())
+        })?;
+        if !path.exists() {
+            atomic(&path, &raw)?;
+        }
+        Ok(Self { root: root.into(), manifest: manifest.into(), entries })
+    }
+
+    pub fn decoded_bytes(&self) -> u64 {
+        self.entries.values().map(|(_, size)| u64::from(*size)).sum()
     }
 
     pub fn manifest(&self) -> &str {
@@ -166,9 +250,6 @@ impl NwSyncCache {
     /// manifest is used verbatim. A complete folder is renamed into place, then
     /// opened read-only with the separately verified hak layer attached.
     pub fn open_module(&self, destination: &Path, haks: NwSyncCache) -> Result<Module, String> {
-        if destination.exists() {
-            return Err("NWSync module destination already exists".into());
-        }
         let mut files = Vec::new();
         for key in self.keys() {
             let name = key.resref.to_lowercase().to_string();
@@ -189,6 +270,20 @@ impl NwSyncCache {
         }
         if !self.contains(&Module::info_key()) {
             return Err("NWSync module has no module.ifo".into());
+        }
+        if destination.exists() {
+            if !fs::symlink_metadata(destination).map_err(|e| e.to_string())?.is_dir()
+                || fs::read_dir(destination).map_err(|e| e.to_string())?.count() != files.len()
+            {
+                return Err("invalid cached module directory".into());
+            }
+            for (name, bytes) in &files {
+                verified(&destination.join(name), &sha1(bytes), bytes.len() as u32)?;
+            }
+            let mut module = Module::open(destination).map_err(|e| e.to_string())?;
+            module.info().map_err(|e| e.to_string())?;
+            module.nwsync = Some(haks);
+            return Ok(module);
         }
         let stage = destination
             .with_file_name(format!("nwsync-{}", hex(&sha1(&fastrand::u128(..).to_le_bytes()))));

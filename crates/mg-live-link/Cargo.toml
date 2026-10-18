@@ -9,6 +9,9 @@ publish.workspace = true
 
 [dependencies]
 mg-live.workspace = true
+mg-module.workspace = true
+mg-core.workspace = true
+mg-resman.workspace = true
 log = "0.4"
 tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
@@ -28,6 +31,8 @@ keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync
 tempfile = "3"
 
 [dev-dependencies]
+mg-gff.workspace = true
+mg-erf.workspace = true
 rcgen.workspace = true
 mg-gateway = { path = "../mg-gateway" }
 axum = { version = "0.8", features = ["ws"] }

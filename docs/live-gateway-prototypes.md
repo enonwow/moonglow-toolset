@@ -37,8 +37,9 @@ returns a module whose save API refuses writes. `Module::stack_onto` mounts the
 verified hak cache as `LayerClass::NwSync` instead of searching local hak folders.
 Only validated portable resource names become files; scripts in an incoming
 private module manifest are refused. The attached manifest represents one exact
-resource generation; choosing/replacing generations and renderer invalidation
-remain integration work.
+resource generation. Authenticated downloads and atomic selection are implemented
+by the [resource generation backend](live-resource-generations.md); renderer
+invalidation remains GUI integration work.
 
 Acceptance: `cargo +1.98.0 test -p mg-module --test nwsync_clean -j 2`, with
 `CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`. On 2026-10-18 both tests passed
@@ -167,7 +168,7 @@ remain **unverified**. No production module is enabled. This is not yet approval
 to turn translation on for players. The next integration acceptance needs a
 private connected-client fixture; the existing NPC fixture cannot establish
 those claims. The stub uses ASCII authored text; translation quality and non-ASCII codec round trips are not established here. Authenticated HTTPS/cache transport,
-whole-generation switching and renderer invalidation belong to later integration.
+whole-generation switching now belong to the [resource backend](live-resource-generations.md); renderer invalidation still needs GUI integration.
 
 ## Verification and retained evidence
 

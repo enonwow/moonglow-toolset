@@ -48,6 +48,8 @@ impl Default for Limits {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Nwsync {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<crate::resource_files::ResourceGeneration>,
     pub haks_url: String,
     pub haks_manifest: String,
     pub module_manifest: String,

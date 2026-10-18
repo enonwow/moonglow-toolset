@@ -39,3 +39,6 @@ pub mod gateway_frames;
 
 mod command_history;
 pub use command_history::{command_counter, command_issued_ms};
+
+/// Immutable resource generation descriptors for desktop downloads.
+pub mod resource_files;

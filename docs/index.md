@@ -27,6 +27,8 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Reference
 
+* [Live resource generations](live-resource-generations.md) - Immutable NWSync resource identity, HTTPS worker API, authenticated publisher and protocol extension.
+
 * [Live desktop authentication and gateway GUI](live-desktop-link.md) - PKCE, TLS trust, secure credentials, unified Live backend and UI verification.
 
 * [Live gateway protocol](live-gateway-protocol.md) - moonglow-gw/1 frames, passive mirrors and session delivery.

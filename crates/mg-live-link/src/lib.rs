@@ -16,3 +16,6 @@ pub use state::{LinkError, LinkSnapshot, LinkStatus};
 
 pub use login::{Error, Gateway, Login, SessionToken};
 pub use tls::{TrustPrompt, fingerprint};
+
+/// Blocking, cancellable NWSync download API for GUI job workers.
+pub mod resources;

@@ -227,3 +227,17 @@ binary encoding after measurement.
   sequences, reconnects, gaps, game restarts and gateway restarts.
 
 Implementation decisions and reproduction: [Live library](live-library.md#in-process-gateway-core).
+
+
+## Resource generation discovery
+
+`welcome.nwsync.generation` is an optional complete resource descriptor. Request
+`files` with `a:{}` returns that descriptor in `res.r`, bound to the current game
+boot. It is available only to authenticated DMs with `read`; AI sessions receive
+`forbidden`. Unconfigured or not-yet-published resources return `unavailable`.
+`GET /files/v1/generation` is the authenticated HTTP equivalent. The module-only
+manifest/blobs are available under `/files/v1/manifests/<sha1>` and
+`/files/v1/data/sha1/aa/bb/<sha1>` with the same authorization on every request.
+The complete field definitions, identity calculation, download limits and atomic
+activation rules are in [Live resource generations](live-resource-generations.md#descriptor-and-wire-extension).
+This additive optional field does not change protocol/mirror versions or the game wire.
