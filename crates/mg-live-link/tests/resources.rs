@@ -329,3 +329,22 @@ fn tlk_mismatch_and_cached_tampering_cannot_activate() {
     assert!(error.contains("SHA-1 mismatch"), "{error}");
     assert!(!f.cache.join("prepared.json").exists());
 }
+
+#[test]
+fn aggregate_wire_budget_rejects_many_padded_valid_blobs() {
+    let f = Fixture::new();
+    for (path, bytes) in f.server.rows.lock().unwrap().iter_mut() {
+        if path.starts_with("/assets/data/") {
+            let raw = mg_erf::compressedbuf::decompress(bytes, mg_erf::compressedbuf::MAGIC_NSYC)
+                .unwrap();
+            *bytes = mg_erf::compressedbuf::store(&raw, mg_erf::compressedbuf::MAGIC_NSYC);
+            bytes.resize(20_000, 0);
+        }
+    }
+    // Each body fits its file cap and decodes to its declared size. Their combined
+    // transfer must still stop, even when the manifest's decoded total is small.
+    let limits = Limits { total_bytes: 40_000, manifest_bytes: 1024, ..Limits::default() };
+    let error = f.client(limits).download(&f.spec, &Cancel::default(), &|_| {}).unwrap_err();
+    assert!(error.contains("wire byte limit"), "{error}");
+    assert!(!f.cache.join("prepared.json").exists());
+}

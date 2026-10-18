@@ -38,6 +38,7 @@ Proposed additions to the external protocol specification:
   Existing `haks_url`, `haks_manifest`, `module_manifest` fields remain unchanged.
   Old frames without `generation` still decode. Only DMs with `read` receive it.
 * Request `files` with `a:{}` returns the current descriptor in `res.r`.
+  Poll while connected (for example every five seconds) and immediately after boot.
   Return `forbidden` for AI/non-read sessions and `unavailable` while no complete
   publication matches the current game boot. Poll after boot or resource updates.
 * Authenticated `GET /files/v1/generation` returns the same descriptor; manifest
@@ -80,7 +81,9 @@ old boot. Re-run download against the selected descriptor to verify cached data.
 Module folders are named by generation hash; decoded blobs and manifests by SHA-1.
 There are at most four parallel transfers. Limits default to 16 MiB/manifest,
 15 MiB/decoded resource, 100,000 entries/manifest and 2 GiB decoded bytes across
-both manifests. Packed bodies are bounded by the declared decoded size plus 1 MiB;
+both manifests. Aggregate network bytes are also capped at that budget plus two
+manifest allowances; many small valid blobs padded with trailing bytes cannot
+exhaust unbounded bandwidth. Packed bodies are bounded by the declared decoded size plus 1 MiB;
 decompression stops at the declared size. Redirects and non-HTTPS URLs are refused.
 Gateway credentials never accompany hak downloads, including at the same origin.
 The gateway's saved certificate pin applies only to that origin; other repositories

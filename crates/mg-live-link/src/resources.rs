@@ -136,6 +136,10 @@ impl ResourceClient {
             .timeout(Duration::from_secs(30))
             .timeout_read(Duration::from_secs(5))
             .build();
+        let wire_limit = self
+            .limits
+            .total_bytes
+            .saturating_add((self.limits.manifest_bytes as u64).saturating_mul(2));
         let bytes = AtomicU64::new(0);
         let files = AtomicU64::new(0);
         // Callback state is owned by each reader; the shared callback is invoked from workers.
@@ -186,6 +190,9 @@ impl ResourceClient {
                 }
                 body.extend_from_slice(&buf[..n]);
                 let received = counters.0.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
+                if received > wire_limit {
+                    return Err("generation wire byte limit exceeded".into());
+                }
                 progress(Progress {
                     bytes: received,
                     files: counters.1.load(Ordering::Relaxed),
