@@ -14,6 +14,7 @@ sources:
   - ../crates/mg-live-link/src/websocket.rs
   - ../crates/mg-live-link/src/worker.rs
   - ../crates/mg-live-link/tests/link.rs
+  - ../crates/mg-live-link/tests/tls_config.rs
   - ../crates/mg-ui/src/live_backend.rs
   - ../crates/mg-ui/tests/gateway_backend.rs
   - ../crates/mg-ui/tests/support/gateway_ui.rs
@@ -512,3 +513,20 @@ The authored NPC keeps a stable tag/name across reports: changing an untagged
 NPC's identity correctly invalidates Focus, so it must not be used to simulate
 an ordinary command result. Marker rendering is asserted through its accessible
 label before capturing the image.
+
+### Reusing gateway TLS
+
+`Gateway::tls_config()` exposes the existing certificate policy to other
+workspace clients without opening a socket or sending credentials. Literal IPv4
+and IPv6 origins without a saved pin return `Error::UntrustedGateway`. Discover
+and explicitly approve the fingerprint through the existing trust flow first.
+DNS origins without a pin use public WebPKI roots; a saved pin takes precedence.
+The returned `Arc<rustls::ClientConfig>` contains no session credential. Callers
+remain responsible for HTTP limits, redirects, timeouts and credential handling.
+
+The `tls_config` integration regression checks missing IP trust, a matching pin,
+a mismatched pin and rejection of a self-signed certificate by public roots:
+
+```sh
+cargo +1.98.0 test -p mg-live-link --test tls_config -j 2
+```

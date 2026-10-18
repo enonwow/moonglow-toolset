@@ -1,5 +1,7 @@
 # Update log
 
+* **Shared gateway TLS configuration (2026-10-18)**: export the pinned/WebPKI client configuration for workspace consumers; IP origins require explicit trust before credentials can be sent. Real TLS handshake regression passes. [API and test](live-desktop-link.md#reusing-gateway-tls).
+
 * **Gateway read transport coverage (2026-10-18)**: loopback WebSocket tests cover note keys/revisions and event pagination with hidden tells. [Request contract](live-library.md#gateway-shared-requests).
 
 * **Bounded note revisions (2026-10-18)**: local and gateway edits share the same 4000-key capacity, including cleared-note revisions. [Contract](live-library.md#gateway-shared-requests).

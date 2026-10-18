@@ -17,6 +17,8 @@ pub enum Error {
     InvalidGateway,
     #[error("Certificate pin must be 64 hexadecimal characters")]
     InvalidPin,
+    #[error("An IP gateway requires an explicitly trusted certificate pin")]
+    UntrustedGateway,
     #[error("Trust the gateway certificate explicitly before signing in")]
     TrustRequired(TrustPrompt),
     #[error("Gateway certificate does not match the saved fingerprint")]
@@ -85,6 +87,22 @@ impl Gateway {
             return Err(Error::InvalidPin);
         }
         Ok(Self { origin, pin: pin.map(str::to_ascii_lowercase) })
+    }
+
+    /// Reuse the gateway's saved pin or public WebPKI roots for another TLS client.
+    /// This performs no I/O. For an IP origin, discover and explicitly approve its
+    /// certificate with `check_trust` before creating a credential-bearing client.
+    pub fn tls_config(&self) -> Result<Arc<rustls::ClientConfig>, Error> {
+        if self.pin.is_none()
+            && matches!(self.origin.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)))
+        {
+            return Err(Error::UntrustedGateway);
+        }
+        let verifier = self
+            .pin
+            .as_ref()
+            .map(|pin| Pinned { pin: Some(pin.clone()), observed: Arc::new(Mutex::new(None)) });
+        Ok(Arc::new(tls::config(verifier)))
     }
 
     /// Discover an untrusted IP gateway certificate, without sending any HTTP data.
