@@ -391,3 +391,9 @@ Read-capable DM and AI sessions share command and skill-roll events, including
 other principals' actions. Result delivery remains scoped to its owning session;
 chat/tell capabilities remain separate. `audit_m5` checks both audiences with
 two sessions and a terminal command result.
+
+Acknowledging `unknown` confirms delivery, not command completion. Its outbox
+entry remains until a late final result or the existing retention deadline,
+so the unresolved-command registry can deliver a newer result revision. Only
+ACKed `final` entries retire immediately. `audit_m3` checks this boundary; the
+store acceptance suite covers late final delivery after the UI ring wraps.

@@ -751,7 +751,7 @@ impl Gateway {
             }
         }
         session.outbox.retain(|id, o| {
-            let complete = o.acked == o.row.rev && o.row.state != ResultState::Pending;
+            let complete = o.acked == o.row.rev && o.row.state == ResultState::Final;
             if complete {
                 session.completed.insert(id.clone(), o.created_ms);
             }
@@ -1153,4 +1153,18 @@ mod audit_tests {
         }
     }
 
+    #[test]
+    fn audit_m3_unknown_ack_keeps_outbox_for_late_final() {
+        let g = setup();
+        g.commands("dm:one", &[command(1)], 0).unwrap();
+        g.store.sync(br#"{"v":1,"boot":"boot","seq":2,"ack":["one.1234abcd.1"]}"#, 1).unwrap();
+        let pushes = g.pushes("dm:one", 1).unwrap();
+        let row = pushes
+            .into_iter()
+            .find_map(|p| if let Push::Result(r) = p { Some(r) } else { None })
+            .unwrap();
+        assert_eq!(row.state, ResultState::Unknown);
+        g.ack("dm:one", &[(row.id.clone(), row.rev)], 0).unwrap();
+        assert!(g.store.lock().gateway.sessions["dm:one"].outbox.contains_key(&row.id));
+    }
 }

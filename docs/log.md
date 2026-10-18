@@ -1,5 +1,7 @@
 # Update log
 
+* **Unknown result acknowledgement (2026-10-18)**: retain ACKed unknown outbox entries so the unresolved-command registry can deliver a late final revision. [Boundary and regression](live-library.md#gateway-audit-invariants).
+
 * **Shared gateway command log (2026-10-18)**: Read sessions see command and skill-roll events from other principals; results stay owner-scoped. [Two-session regression](live-library.md#gateway-audit-invariants).
 
 * **Bounded gateway histories (2026-10-18)**: sliding request replay window, bounded completed IDs and fingerprinted mirror history with byte/time budgets. [Limits and regressions](live-library.md#gateway-audit-invariants).

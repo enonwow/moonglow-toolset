@@ -115,7 +115,8 @@ fn command_validation_idempotency_and_versioned_results() {
 fn outbox_retains_more_than_store_ring_and_limits_commands() {
     let (s, g) = setup();
     for n in 1..=256 {
-        let reply = g.commands("one", &[command(n)], 1000).unwrap();
+        let now = 1000 + ((n - 1) / 60) * 60_000;
+        let reply = g.commands("one", &[command(n)], now).unwrap();
         assert!(reply.rejected.is_empty(), "{reply:?}");
         report(&s, n + 1, json!([]), json!([{"id":format!("one.1234abcd.{n}"),"ok":true}]));
     }
