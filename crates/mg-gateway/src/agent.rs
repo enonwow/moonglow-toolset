@@ -89,7 +89,11 @@ pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response
         .with_store(move |store| {
             let _permit = permit;
             store.set_policy(policy.policy());
-            let scope = principal.scope(policy.delivery(&principal)).expect("validated principal");
+            let scope = match principal.scope(policy.delivery(&principal))
+                .and_then(|scope|scope.with_command_limit(policy.command_limit(&principal))) {
+                Ok(scope)=>scope,
+                Err(_)=>return RouteResponse {status:429,body:json!({"ok":false,"code":"rate_limited","error":"Client command limit exceeded","retryAfterSeconds":1}),etag:None},
+            };
             let mut routed = mg_live::api::route_with_context(
                 &method,
                 &path,

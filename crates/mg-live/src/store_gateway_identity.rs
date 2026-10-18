@@ -161,6 +161,33 @@ impl Identities {
     }
 }
 impl Gateway {
+    /// Trusted host quota. Kept separately from request data and checked at final acceptance.
+    pub fn set_command_limit(&self, principal: &str, limit: u32) -> Result<(), String> {
+        Scope::restricted(principal, vec![], DeliveryMode::Auto).with_command_limit(limit)?;
+        let mut s = self.store.lock();
+        let known: BTreeSet<_> = s
+            .gateway
+            .identities
+            .ais
+            .keys()
+            .chain(s.gateway.identities.owners.keys())
+            .chain(s.gateway.sessions.keys())
+            .cloned()
+            .collect();
+        if !known.contains(principal) {
+            return Err("Unknown principal".into());
+        }
+        s.gateway.command_limits.retain(|id, _| known.contains(id));
+        s.gateway.command_limits.insert(principal.into(), limit);
+        Ok(())
+    }
+    /// Resolve the AI whose command an approval would accept; host refreshes its quota first.
+    pub fn draft_principal(&self, draft_id: &str, now: u64) -> Option<Principal> {
+        let drafts = self.store.drafts();
+        let client = &drafts.iter().find(|d| d.command.id == draft_id)?.client;
+        let s = self.store.lock();
+        s.gateway.identities.ais.get(client).and_then(|a| s.gateway.identities.effective(a, now))
+    }
     /// Load bounded persisted AI digests before accepting clients. Global consent stays off.
     pub fn identity_file(&self, path: &Path) -> Result<(), String> {
         let mut s = self.store.lock();
@@ -466,7 +493,12 @@ pub(in crate::store) fn draft_scope(
     }
     let principal =
         ai.and_then(|ai| s.gateway.identities.effective(ai, crate::now_ms())).ok_or_else(denied)?;
-    principal.scope(DeliveryMode::Auto).map_err(|_| denied())
+    principal
+        .scope(DeliveryMode::Auto)
+        .and_then(|scope| {
+            scope.with_command_limit(s.gateway.command_limits.get(client).copied().unwrap_or(60))
+        })
+        .map_err(|_| denied())
 }
 
 #[cfg(test)]

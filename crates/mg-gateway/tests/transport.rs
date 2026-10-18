@@ -823,3 +823,48 @@ async fn note_reads_and_filtered_event_pages_cross_the_websocket() {
     task.abort();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[derive(Debug)]
+struct LowCommandLimit;
+impl mg_gateway::PolicyResolver for LowCommandLimit {
+    fn policy(&self) -> Policy {
+        Policy::default()
+    }
+    fn command_limit(&self, _: &Principal) -> u32 {
+        1
+    }
+}
+#[tokio::test]
+async fn websocket_uses_the_hosts_lower_authoritative_command_limit() {
+    let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+    feed(&core, report(1)).await;
+    let app = mg_gateway::router(
+        core.clone(),
+        Arc::new(Auth),
+        Arc::new(LowCommandLimit),
+        Config::default(),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/ws/v1", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (mut ws, w) = connect(&url, vec![], None, "test-credential").await;
+    let prefix = w["id_prefix"].as_str().unwrap();
+    for n in 1..=2 {
+        let r=call(&mut ws,n,"cmds",json!({"commands":[{"id":format!("{prefix}1234abcd.{n}"),"boot":"boot","op":"stop_patrol","area":"square","target":"a1"}]})).await;
+        if n == 1 {
+            assert_eq!(r["r"]["accepted"].as_array().unwrap().len(), 1, "{r}");
+        } else {
+            assert_eq!(r["r"]["rejected"][0]["code"], "rate_limited", "{r}");
+        }
+    }
+    core.with_gateway(|g| g.set_llm_enabled(true)).await.unwrap();
+    let created = call(&mut ws, 3, "ai.create", json!({"name":"Writer"})).await;
+    call(&mut ws, 4, "llm.allow", json!({"on":true})).await;
+    let (mut ai, w) = connect(&url, vec![], None, created["r"]["token"].as_str().unwrap()).await;
+    let id = format!("{}1234abcd.1", w["id_prefix"].as_str().unwrap());
+    let r=call(&mut ai,1,"cmds",json!({"commands":[{"id":id,"boot":"boot","op":"npc_say","area":"square","target":"a1","text":"draft"}]})).await;
+    assert_eq!(r["r"]["accepted"], json!([id]), "{r}");
+    let r = call(&mut ws, 5, "draft.decide", json!({"id":id,"text":"approved"})).await;
+    assert_eq!(r["err"]["code"], "rate_limited", "{r}");
+    task.abort();
+}

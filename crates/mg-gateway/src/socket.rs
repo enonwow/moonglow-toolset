@@ -165,6 +165,7 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
                             }
                             let request_id = req.id;
                             let publisher = app.config.publisher.clone();
+                            let policy = app.policy.clone();
                             let files_allowed = crate::files::allowed(&principal);
                             let response = app
                                 .core
@@ -195,6 +196,13 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
                                                 })
                                         };
                                         return Ok(Response { id: req.id, result });
+                                    }
+                                    if req.op == "draft.decide"
+                                        && let Some(ai) = req.a["id"].as_str().and_then(|draft| {
+                                            g.draft_principal(draft, crate::now())
+                                        })
+                                    {
+                                        g.set_command_limit(&ai.id, policy.command_limit(&ai))?;
                                     }
                                     Ok(g.handle(id, req, crate::now()))
                                 })

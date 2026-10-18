@@ -203,6 +203,7 @@ impl Session {
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
     identities: identity::Identities,
+    command_limits: BTreeMap<String, u32>,
     presence_rev: u64,
     watch_stamp: Option<WatchStamp>,
     #[cfg(test)]
@@ -246,6 +247,13 @@ pub(crate) struct Acceptance {
 }
 pub(super) fn validate_accept(s: &State, scope: &Scope) -> Result<(), CommandError> {
     validate_ai_scope(s, scope)?;
+    if s.gateway.command_limits.get(scope.name()).is_some_and(|limit| *limit != scope.command_limit)
+    {
+        return Err(CommandError::new(
+            ErrorCode::Forbidden,
+            "Host command quota changed before acceptance",
+        ));
+    }
     let Some(binding) = &scope.gateway_accept else {
         return Ok(());
     };
@@ -253,7 +261,10 @@ pub(super) fn validate_accept(s: &State, scope: &Scope) -> Result<(), CommandErr
         return Err(CommandError::new(ErrorCode::Expired, "Game boot changed before acceptance"));
     }
     if !s.gateway.sessions.get(scope.name()).is_some_and(|session| {
-        session.generation == binding.generation && session.config.groups == binding.groups
+        session.generation == binding.generation
+            && session.config.groups == binding.groups
+            && s.gateway.command_limits.get(scope.name()).copied().unwrap_or(60)
+                == scope.command_limit
     }) {
         return Err(CommandError::new(
             ErrorCode::Forbidden,
@@ -781,12 +792,16 @@ impl Gateway {
         commands: &[Value],
         now_ms: u64,
     ) -> Result<CommandsReply, String> {
-        let (config, generation) = {
+        let (config, generation, command_limit) = {
             let s = self.store.lock();
             let session = s.gateway.sessions.get(id).ok_or("Unknown session")?;
-            (session.config.clone(), session.generation)
+            (
+                session.config.clone(),
+                session.generation,
+                s.gateway.command_limits.get(id).copied().unwrap_or(60),
+            )
         };
-        let mut scope = config.scope();
+        let mut scope = config.scope().with_command_limit(command_limit)?;
         scope.gateway_accept = Some(Acceptance {
             command_id: String::new(),
             generation,
@@ -1638,5 +1653,26 @@ mod privacy_audit_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod quota_audit_tests {
+    use super::*;
+    #[test]
+    fn a_host_limit_change_invalidates_a_scope_before_final_acceptance() {
+        let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+        let c = SessionConfig {
+            id: "dm:owner".into(),
+            id_prefix: "owner.".into(),
+            groups: vec!["read".into()],
+            watch_limit: 16,
+        };
+        g.connect(c.clone(), None, &[], 0).unwrap();
+        let old = c.scope();
+        g.set_command_limit(&c.id, 1).unwrap();
+        assert_eq!(validate_accept(&g.store.lock(), &old).unwrap_err().code, ErrorCode::Forbidden);
+        assert!(validate_accept(&g.store.lock(), &old.with_command_limit(1).unwrap()).is_ok());
+        assert!(g.set_command_limit(&c.id, 0).is_err());
     }
 }

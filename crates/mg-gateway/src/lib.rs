@@ -142,20 +142,24 @@ async fn authenticate(
 }
 pub(crate) async fn authenticate_token(app: &App, bearer: &str) -> Option<Principal> {
     let auth = app.auth.clone();
+    let policy = app.policy.clone();
     let token = bearer.to_owned();
     app.core
         .with_gateway(move |g| {
-            if let Some(owner) = g.token_owner(&token) {
-                return g.authenticate_ai(&token, auth.principal(&owner), now());
-            }
-            if token.starts_with("mgai_") {
-                return None;
-            }
-            let principal = auth.authenticate(&token)?;
-            if !principal.id.starts_with("dm:") {
-                return None;
-            }
-            g.refresh_principal(principal.clone()).ok()?;
+            let principal = if let Some(owner) = g.token_owner(&token) {
+                g.authenticate_ai(&token, auth.principal(&owner), now())?
+            } else {
+                if token.starts_with("mgai_") {
+                    return None;
+                }
+                let principal = auth.authenticate(&token)?;
+                if !principal.id.starts_with("dm:") {
+                    return None;
+                }
+                g.refresh_principal(principal.clone()).ok()?;
+                principal
+            };
+            g.set_command_limit(&principal.id, policy.command_limit(&principal)).ok()?;
             Some(principal)
         })
         .await
