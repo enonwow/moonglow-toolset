@@ -152,6 +152,9 @@ unacknowledged result to admit work. Versioned ACKs cannot acknowledge a newer
 result. Final results are immutable; an unknown result can be resolved by a
 late authoritative reply. Expired pending retention emits unknown once and
 invalidates resume. The ordinary 64-result UI ring does not constrain outboxes.
+The bounded authoritative history can also answer `result(id)` after a result
+leaves that UI ring. The gateway capacity regression checks all three views:
+64 status rows, the retained older outcome, and 256 unacknowledged outbox rows.
 
 Commands use `operations::command_scoped`, including policy, ownership and
 player checks. Prefix/random/counter syntax, boot and TTL are checked first;

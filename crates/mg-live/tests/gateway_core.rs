@@ -128,7 +128,8 @@ fn outbox_retains_more_than_store_ring_and_limits_commands() {
         g.pushes("one", 300_000).unwrap().iter().filter(|p| matches!(p, Push::Result(_))).count(),
         256
     );
-    assert!(s.result("one.1234abcd.1").is_none());
+    assert_eq!(s.status(300_000)["results"].as_array().unwrap().len(), 64);
+    assert!(s.result("one.1234abcd.1").unwrap().ok);
     g.pushes("one", 601_000).unwrap();
     assert!(g.commands("one", &[command(257)], 601_001).unwrap().rejected.is_empty());
 }

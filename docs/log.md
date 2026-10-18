@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway outbox and retained outcomes (2026-10-18)**: assert the 64-result status ring separately from durable result lookup and the 256-entry session outbox. [Capacity regression](live-library.md#in-process-gateway-core).
+
 * **Timestamped mirror command IDs (2026-10-18)**: generated IDs use the shared timestamp marker and a monotonic process counter, remaining compatible with the bounded replay horizon. [Contract and regression](live-library.md#passive-mirror).
 
 * **Authenticated shared-log fixture (2026-10-18)**: register the AI reader with its owner and both consent levels; command events remain shared while result payloads stay private. [Regression contract](live-library.md#gateway-shared-requests).
