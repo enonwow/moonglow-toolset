@@ -3,7 +3,7 @@ type: Reference
 title: Live desktop connection and authentication
 description: Desktop authentication, gateway transport, shared books, AI management and verified resource downloads.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T14:30:21Z }
+generated: { by: codex, at: 2026-10-18T15:34:45Z }
 sources:
   - ../crates/mg-ui/src/live_resources.rs
   - ../crates/mg-ui/src/resource_plan.rs
@@ -39,7 +39,6 @@ sources:
   - ../crates/mg-ui/src/settings.rs
   - ../crates/mg-ui/src/options_live.rs
   - ../crates/mg-ui/tests/live_connection.rs
-  - ../crates/mg-ui/tests/screens.rs
 ---
 
 # Live desktop link
@@ -776,7 +775,9 @@ cargo +1.98.0 test -p mg-ui --test screens -j 2 live_gateway_resource_downloads 
 ```
 
 The TLS fixture follows the authored link-resource and gateway-publisher fixtures;
-it uses generated IFO/ARE/GIT and small synthetic text blobs. It needs no installed
+it uses generated IFO/ARE/GIT, authored green/blue tile models and small synthetic
+text blobs. The square-to-harbor captures exercise actual cached geometry without
+local game assets. It needs no installed
 module, hak, game server or external service. UI regressions cover progress/Cancel,
 verified-file resume, a small background update opening a new area, read-only
 modules, Clear refusal while connected, tampered data, and a cache budget refusal.
@@ -787,3 +788,9 @@ The accepted Options baseline is retained as
 `target/test-output/screens/live-p7-options-before.png`. New renders use the same
 folder: `live-p7-download.png`, `live-p7-canceled.png`, `live-p7-square.png`,
 `live-p7-harbor.png`, and `live-p7-options-after.png`.
+
+Progress uses manifest resource names instead of content hashes. Background status
+and its actions share one compact row; the modal window does not duplicate that
+row. Accessibility rectangle checks cover the compact layout, and a unit test
+covers name lookup. Resume checks that already verified blob hashes are never
+requested again, independently of the number of fixture resources.

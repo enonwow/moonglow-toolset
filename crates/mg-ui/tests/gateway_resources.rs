@@ -27,11 +27,21 @@ async fn resources_cancel_resume_switch_and_refuse_clear_while_connected() {
     assert!(h.state().ws.is_none(), "cancellation cannot activate an incomplete generation");
     let cached = support::blob_count(&data.path().join("client/live-resources"));
     assert!(cached > 0);
+    let cached_hashes = support::cached_hashes(&data.path().join("client/live-resources"));
     let requests = host.seen.lock().unwrap().len();
     host.delay.store(15, Ordering::Relaxed);
-    h.get_by_label("Resume download").click();
+    let resume = h.get_by_label("Resume download");
+    let notice = h.get_by_label_contains("verified files are kept");
+    assert!(
+        (resume.rect().center().y - notice.rect().center().y).abs() < 2.,
+        "status and action share one compact row"
+    );
+    resume.click();
     h.run_steps(2);
-    pump(&mut h, |app| app.ws.is_some()).await;
+    pump(&mut h, |app| {
+        app.ws.is_some() && app.live.as_ref().is_some_and(|store| store.area("square").is_some())
+    })
+    .await;
     assert!(
         h.state()
             .ws
@@ -54,8 +64,12 @@ async fn resources_cancel_resume_switch_and_refuse_clear_while_connected() {
             .as_ref(),
         vec![0u8; 4096]
     );
-    let fetched = host.seen.lock().unwrap().len() - requests;
-    assert!(fetched < 14, "resume reuses verified files");
+    assert!(
+        host.seen.lock().unwrap()[requests..]
+            .iter()
+            .all(|path| cached_hashes.iter().all(|hash| !path.ends_with(hash))),
+        "resume must not request verified blobs again"
+    );
     assert!(
         h.state_mut().ws.as_mut().unwrap().module.save().is_err(),
         "cache module stays read-only"
@@ -66,7 +80,7 @@ async fn resources_cancel_resume_switch_and_refuse_clear_while_connected() {
         blocked |= app.busy();
         app.ws.as_ref().is_some_and(|ws| {
             ws.module.contains(&mg_resman::ResKey::parse("harbor", mg_core::ResType::ARE).unwrap())
-        })
+        }) && app.live.as_ref().is_some_and(|store| store.area("harbor").is_some())
     })
     .await;
     assert!(

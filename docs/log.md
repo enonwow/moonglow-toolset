@@ -1,5 +1,7 @@
 # Update log
 
+* **Readable resource progress (2026-10-18)**: compact status controls, manifest resource names, and authored tile geometry for generation-switch captures. [Tests and reproduction](live-desktop-link.md#gateway-resource-downloads-p7-gui).
+
 * **Verified gateway resources in the desktop (2026-10-18)**: plan bounded downloads, resume verified files, activate read-only generations and manage the private cache; four in-process TLS UI regressions pass. [Workflow and reproduction](live-desktop-link.md#gateway-resource-downloads-p7-gui).
 
 * **Cancellable background jobs (2026-10-18)**: resource jobs can keep the UI available, and Cancel reaches network workers even before callback registration. Existing modal jobs retain their behavior. [Job API and regressions](../crates/mg-ui/src/jobs.rs).

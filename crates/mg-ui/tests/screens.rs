@@ -44,19 +44,23 @@ async fn live_gateway_resource_downloads() {
     host.delay.store(20, std::sync::atomic::Ordering::Relaxed);
     h.get_by_label("Resume download").click();
     h.run_steps(2);
-    resource_host::pump(&mut h, |app| app.ws.is_some()).await;
+    resource_host::pump(&mut h, |app| {
+        app.ws.is_some() && app.live.as_ref().is_some_and(|store| store.area("square").is_some())
+    })
+    .await;
     shoot(&mut h, &dir, "live-p7-square");
     host.change_area("harbor");
     resource_host::pump(&mut h, |app| {
         app.ws.as_ref().is_some_and(|ws| {
             ws.module.contains(&mg_resman::ResKey::parse("harbor", mg_core::ResType::ARE).unwrap())
-        })
+        }) && app.live.as_ref().is_some_and(|store| store.area("harbor").is_some())
     })
     .await;
     h.run_steps(3);
     shoot(&mut h, &dir, "live-p7-harbor");
     h.state_mut().actions.push(mg_ui::Action::LiveOptions);
     h.run_steps(3);
+    gateway_ui::label(&mut h, "Session saved on this device").await;
     shoot(&mut h, &dir, "live-p7-options-after");
 }
 

@@ -111,6 +111,21 @@ pub(crate) fn module(path: &Path, area: &str) {
     let mut are = mg_gff::Gff::new(*b"ARE ");
     are.root.set("Width", mg_gff::Value::Int(2));
     are.root.set("Height", mg_gff::Value::Int(2));
+    are.root.set("Tileset", mg_gff::Value::ResRef(b"fixture".to_vec()));
+    are.root.set(
+        "Tile_List",
+        mg_gff::Value::List(
+            (0..4)
+                .map(|_| {
+                    let mut tile = mg_gff::Struct::new(1);
+                    tile.set("Tile_ID", mg_gff::Value::Int(if area == "harbor" { 1 } else { 0 }));
+                    tile.set("Tile_Height", mg_gff::Value::Int(0));
+                    tile.set("Tile_Orientation", mg_gff::Value::Int(0));
+                    tile
+                })
+                .collect(),
+        ),
+    );
     module.set(ResKey::parse(area, ResType::ARE).unwrap(), are.to_bytes().unwrap());
     module.set(
         ResKey::parse(area, ResType::GIT).unwrap(),
@@ -122,7 +137,7 @@ impl Host {
     pub(crate) async fn new(root: &Path) -> Self {
         let repo = root.join("repo");
         // The same authored small blobs used by the link HTTPS tests, no game assets.
-        let entries: Vec<_> = (0..8)
+        let mut entries: Vec<_> = (0..8)
             .map(|i| {
                 (
                     ResKey::parse(&format!("file{i}"), ResType::TXT).unwrap(),
@@ -130,6 +145,17 @@ impl Host {
                 )
             })
             .collect();
+        entries.push((ResKey::parse("fixture", ResType::SET).unwrap(), Source::Bytes(
+            b"[GENERAL]\nName=Fixture\n[TILES]\nCount=2\n[TILE0]\nModel=tilegreen\n[TILE1]\nModel=tileblue\n".to_vec().into())));
+        for (name, color) in [("tilegreen", "0.25 0.65 0.35"), ("tileblue", "0.25 0.45 0.8")] {
+            let model = format!(
+                "newmodel {name}\nsetsupermodel {name} NULL\nclassification tile\nsetanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\nparent NULL\nendnode\nnode trimesh ground\nparent {name}\nposition 0 0 0\norientation 0 0 1 0\ndiffuse {color}\nambient {color}\nbitmap NULL\nrender 1\nverts 4\n-5 -5 0\n5 -5 0\n5 5 0\n-5 5 0\ntverts 4\n0 0 0\n1 0 0\n1 1 0\n0 1 0\nfaces 2\n0 1 2 1 0 1 2 0\n0 2 3 1 0 2 3 0\nendnode\nendmodelgeom {name}\ndonemodel {name}\n"
+            );
+            entries.push((
+                ResKey::parse(name, ResType::MDL).unwrap(),
+                Source::Bytes(model.into_bytes().into()),
+            ));
+        }
         let manifest = nwsync::write(&repo, &entries, &Default::default(), &mut |_, _| {}).unwrap();
         let hash = manifest.sha1;
         let manifest = std::fs::read(repo.join("manifests").join(&hash)).unwrap();
@@ -179,7 +205,7 @@ impl Host {
             .refresh(&module_path, "boot", &format!("{origin}/assets/"), &hash, &manifest)
             .unwrap();
         let store = Arc::new(LiveStore::default());
-        store.sync(br#"{"v":1,"boot":"boot","areas":[]}"#, mg_live::now_ms()).unwrap();
+        store.sync(br#"{"v":1,"boot":"boot","seq":1,"areas":[{"area":"square","full":true},{"area":"harbor","full":true}]}"#, mg_live::now_ms()).unwrap();
         let core = CoreHandle::new(store).await.unwrap();
         let router = mg_gateway::router(
             core.clone(),
@@ -253,6 +279,7 @@ impl Host {
         server.name = "Campaign server".into();
         server.url = self.origin.clone();
         server.cert_pin = Some(self.pin.clone());
+        app.settings.unlit_areas = true;
         app.settings.live.enabled = true;
         app
     }
@@ -348,4 +375,24 @@ pub(crate) fn blob_count(root: &Path) -> usize {
             }
         })
         .sum()
+}
+
+pub(crate) fn cached_hashes(root: &Path) -> Vec<String> {
+    if !root.exists() {
+        return vec![];
+    }
+    let mut hashes = vec![];
+    for e in std::fs::read_dir(root).unwrap() {
+        let p = e.unwrap().path();
+        if p.file_name().is_some_and(|n| n == "blobs") {
+            hashes.extend(
+                std::fs::read_dir(p)
+                    .unwrap()
+                    .map(|e| e.unwrap().file_name().to_string_lossy().into_owned()),
+            );
+        } else if p.is_dir() {
+            hashes.extend(cached_hashes(&p));
+        }
+    }
+    hashes
 }

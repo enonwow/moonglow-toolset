@@ -3,13 +3,23 @@ use mg_core::sha1::{hex, sha1};
 use mg_live::resource_files::ResourceGeneration;
 use mg_live_link::{Gateway, SessionToken, resources::Cancel};
 use mg_module::nwsync_cache::Limits;
-use std::{collections::BTreeMap, io::Read, path::Path, time::Duration};
+use std::{collections::BTreeMap, io::Read, path::Path, sync::Arc, time::Duration};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Plan {
     pub missing_bytes: u64,
     pub transfers: u64,
     pub disk_growth: u64,
+    names: Arc<BTreeMap<String, String>>,
+}
+
+impl Plan {
+    pub(crate) fn item(&self, path: &str) -> String {
+        self.names
+            .get(path.rsplit('/').next().unwrap_or(path))
+            .cloned()
+            .unwrap_or_else(|| "Resource data".into())
+    }
 }
 
 pub(crate) fn plan(
@@ -62,6 +72,10 @@ pub(crate) fn plan(
         [(&haks, &generation.haks_manifest, false), (&module, &generation.module_manifest, true)]
     {
         check(cancel)?;
+        Arc::make_mut(&mut plan.names).insert(
+            hash.clone(),
+            if authenticated { "Module manifest" } else { "HAK manifest" }.into(),
+        );
         let cached = root.join("cache/manifests").join(hash);
         let raw = if cached.exists() {
             regular_read(&cached, limits.manifest_bytes, cancel)?
@@ -93,7 +107,8 @@ pub(crate) fn plan(
         if entries.len() > limits.entries {
             return Err("Resource manifest entry limit".into());
         }
-        for (_, hash, size) in entries {
+        for (key, hash, size) in entries {
+            Arc::make_mut(&mut plan.names).entry(hex(&hash)).or_insert_with(|| key.to_string());
             decoded = decoded.checked_add(u64::from(size)).ok_or("Resource size overflow")?;
             if size as usize > limits.resource_bytes || decoded > limits.total_bytes {
                 return Err("Resource generation size limit".into());
@@ -160,6 +175,13 @@ fn bounded(mut reader: impl Read, max: usize, cancel: &Cancel) -> Result<Vec<u8>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn progress_names_come_from_manifest_resource_keys() {
+        let mut plan = Plan::default();
+        Arc::make_mut(&mut plan.names).insert("digest".into(), "square.are".into());
+        assert_eq!(plan.item("data/sha1/aa/bb/digest"), "square.are");
+        assert_eq!(plan.item("unknown"), "Resource data");
+    }
     #[test]
     fn bounded_manifest_reader_rejects_overflow_and_cancellation() {
         assert!(bounded(&b"12345"[..], 4, &Cancel::default()).is_err());

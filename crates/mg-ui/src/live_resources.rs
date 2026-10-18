@@ -109,27 +109,32 @@ pub(crate) fn options(ui: &mut egui::Ui, limit: &mut u32) {
 }
 
 pub(crate) fn status(app: &Moonglow, ui: &mut egui::Ui) {
-    let r = &app.live_resources;
-    if r.worker.is_some() {
-        ui.spinner();
-        if let Some(p) = &*r.progress.lock().unwrap_or_else(|e| e.into_inner()) {
-            ui.label(format!("Live resources: {} received, {} files", bytes(p.bytes), p.files))
-                .on_hover_text(&p.current);
-        } else {
-            ui.label("Checking Live resources…");
-        }
-        if ui.button("Download details").clicked() {
-            ui.ctx().data_mut(|d| d.insert_temp(action_id(), "details".to_string()));
-        }
-        if ui.button("Cancel download").clicked() {
-            r.cancel.cancel();
-        }
-    } else if !r.notice.is_empty() {
-        ui.label(&r.notice);
-        if r.desired.is_some() && ui.button("Resume download").clicked() {
-            ui.ctx().data_mut(|d| d.insert_temp(action_id(), "resume".to_string()));
-        }
+    if app.job.as_ref().is_some_and(|job| job.modal && job.title == TITLE) {
+        return;
     }
+    let r = &app.live_resources;
+    ui.horizontal(|ui| {
+        if r.worker.is_some() {
+            ui.spinner();
+            if let Some(p) = &*r.progress.lock().unwrap_or_else(|e| e.into_inner()) {
+                ui.label(format!("Live resources: {} received, {} files", bytes(p.bytes), p.files))
+                    .on_hover_text(&p.current);
+            } else {
+                ui.label("Checking Live resources…");
+            }
+            if ui.button("Download details").clicked() {
+                ui.ctx().data_mut(|d| d.insert_temp(action_id(), "details".to_string()));
+            }
+            if ui.button("Cancel download").clicked() {
+                r.cancel.cancel();
+            }
+        } else if !r.notice.is_empty() {
+            ui.label(&r.notice);
+            if r.desired.is_some() && ui.button("Resume download").clicked() {
+                ui.ctx().data_mut(|d| d.insert_temp(action_id(), "resume".to_string()));
+            }
+        }
+    });
 }
 
 pub(crate) fn update(app: &mut Moonglow, ctx: &egui::Context) {
@@ -427,10 +432,11 @@ fn start(app: &mut Moonglow, ctx: &egui::Context, r: &mut Resources, spec: Resou
                 wake.request_repaint();
                 let client =
                     mg_live_link::resources::ResourceClient::new(gateway, token, root, limits);
-                client.download(&spec, &cancel, &|p| {
+                client.download(&spec, &cancel, &|mut p| {
+                    p.current = plan.item(&p.current);
                     job.progress.step(p.files as usize, plan.transfers as usize);
                     job.progress.say(format!(
-                        "Received: {} (network)\nTo download: {} unpacked\nFiles: {} / {}\n{}",
+                        "Received: {} (network)\nTo download: {} unpacked\nFiles: {} / {}\nCurrent item: {}",
                         bytes(p.bytes),
                         bytes(plan.missing_bytes),
                         p.files,
