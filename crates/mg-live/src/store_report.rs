@@ -98,6 +98,12 @@ impl SyncRequest {
         let mut area_names = HashSet::new();
         for a in &request.areas {
             resref(&a.area)?;
+            if a.static_page.is_some() && (!a.paged || !a.full) {
+                return Err("Static pages require a paged full area report".into());
+            }
+            if a.cre_partial && !a.paged {
+                return Err("Partial creatures require paged reports".into());
+            }
             if !area_names.insert(a.area.to_ascii_lowercase()) {
                 return Err("Duplicate area".into());
             }

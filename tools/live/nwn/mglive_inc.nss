@@ -9,6 +9,10 @@ const int MGLIVE_FULL_EVERY = 5;
 const int MGLIVE_DELTA_FULL_EVERY = 30;
 const int MGLIVE_DELTA_THRESHOLD = 100000;
 const int MGLIVE_MAX_DONE = 256;
+// Per-area work budget and shared wire allowance. Each selected area gets an
+// equal share (at most 256 KiB); receipts have a separate 512 KiB allowance.
+const int MGLIVE_AREA_BYTES = 262144;
+const int MGLIVE_STATE_BYTES = 3145728;
 
 // First observed appearance in this module run, scoped to this object ID so a
 // library/copy with inherited locals starts its own baseline.
@@ -423,7 +427,21 @@ json MgLiveObject(object o, int bFull)
         {
             json look;
             if (GetIsPC(o)) look = MgLiveLook(o);
-            else look = MgLiveNpcLook(o);
+            else if (GetLocalString(o,"MGLIVE_LOOK_SIGNATURE")==MgLiveLookSignature(o) &&
+                GetLocalInt(GetModule(),"MGLIVE_SEQ")<GetLocalInt(o,"MGLIVE_LOOK_REFRESH"))
+                look = GetLocalJson(o,"MGLIVE_NPC_LOOK");
+            else
+            {
+                // A cold look must not hide this NPC or the rest of the area.
+                JsonObjectSetInplace(j,"look_pending",JsonBool(TRUE));
+                object m=GetModule();int tick=GetLocalInt(m,"MGLIVE_SEQ");
+                if(GetLocalInt(o,"MGLIVE_LOOK_QUEUED")!=tick && GetLocalInt(m,"MGLIVE_LOOK_JOBS")<4)
+                {
+                    SetLocalInt(o,"MGLIVE_LOOK_QUEUED",tick);
+                    SetLocalInt(m,"MGLIVE_LOOK_JOBS",GetLocalInt(m,"MGLIVE_LOOK_JOBS")+1);
+                    DelayCommand(0.0,ExecuteScript("mglive_look",o));
+                }
+            }
             if (JsonGetType(look) == JSON_TYPE_OBJECT)
             {
                 j = JsonObjectSet(j, "look", look);
@@ -491,73 +509,160 @@ string MgLiveArrayText(string members)
     return "[" + members + "]";
 }
 
+// A separate native creature query prevents static clutter from consuming the
+// creature collection budget. PCs (including DM avatars) are serialized first.
+int MgLivePriorityPlayer(object o) { return GetIsPC(o) || GetIsDM(o); }
+
+json MgLiveReportPlayers(object area)
+{
+    // Snapshot before serializing: MgLiveObject itself enumerates PCs for
+    // faction relations. Nested GetFirstPC iteration must not skip players.
+    json players=JsonArray();object pc=GetFirstPC();
+    while(GetIsObjectValid(pc))
+    {
+        if(GetArea(pc)==area) JsonArrayInsertInplace(players,JsonString(ObjectToString(pc)));
+        pc=GetNextPC();
+    }
+    return players;
+}
+
 json MgLiveArea(object area, int bFull)
 {
-    json cre = JsonArray();
-    json plc = JsonArray();
-    json doors = JsonArray();
-    json items = JsonArray();
-    json waypoints = JsonArray();
-    json sounds = JsonArray();
-    json encounters = JsonArray();
-    json stores = JsonArray();
-    json triggers = JsonArray();
-
-    object o = GetFirstObjectInArea(area);
-    while (GetIsObjectValid(o))
+    object m=GetModule();int seq=GetLocalInt(m,"MGLIVE_SEQ");
+    int count=GetLocalInt(m,"MGLIVE_REPORT_COUNT");if(count<1) count=1;
+    int budget=MGLIVE_STATE_BYTES/count;if(budget>MGLIVE_AREA_BYTES) budget=MGLIVE_AREA_BYTES;
+    int bytes=1024;int creaturePartial=FALSE;json cre=JsonArray();int pass;
+    json players=MgLiveReportPlayers(area);int pi=0;
+    // NWN areas are at most 320 metres wide. The generous sphere also covers
+    // elevated creatures; native filtering excludes static kinds before script work.
+    location origin=Location(area,Vector(0.0,0.0,0.0),0.0);
+    for(pass=0;pass<2;pass++)
     {
-        int t = MgLiveType(o);
-        if (t == OBJECT_TYPE_CREATURE)
-            JsonArrayInsertInplace(cre, MgLiveObject(o, bFull));
-        else if (bFull && t == OBJECT_TYPE_PLACEABLE)
-            JsonArrayInsertInplace(plc, MgLiveObject(o, TRUE));
-        else if (bFull && t == OBJECT_TYPE_DOOR)
-            JsonArrayInsertInplace(doors, MgLiveObject(o, TRUE));
-        else if (bFull && t == OBJECT_TYPE_ITEM)
-            JsonArrayInsertInplace(items, MgLiveObject(o, TRUE));
-        else if(bFull && t==OBJECT_TYPE_WAYPOINT) JsonArrayInsertInplace(waypoints,MgLiveObject(o,TRUE));
-        else if(bFull && t==MGLIVE_TYPE_SOUND) JsonArrayInsertInplace(sounds,MgLiveObject(o,TRUE));
-        else if(bFull && t==OBJECT_TYPE_ENCOUNTER) JsonArrayInsertInplace(encounters,MgLiveObject(o,TRUE));
-        else if(bFull && t==OBJECT_TYPE_STORE) JsonArrayInsertInplace(stores,MgLiveObject(o,TRUE));
-        else if(bFull && t==OBJECT_TYPE_TRIGGER) JsonArrayInsertInplace(triggers,MgLiveObject(o,TRUE));
-        o = GetNextObjectInArea(area);
-    }
-    if(bFull)
-    {
-        // Native area iteration omits sounds. Track only explicitly spawned live
-        // sounds, bounded at creation; prune destroyed objects on each full pass.
-        json registered=GetLocalJson(area,"MGLIVE_SOUNDS");json retained=JsonArray();int si;
-        for(si=0;si<JsonGetLength(registered);si++)
+        object c=OBJECT_INVALID;
+        if(pass==0 && JsonGetLength(players)>0) c=StringToObject(JsonGetString(JsonArrayGet(players,0)));
+        if(pass==1) c=GetFirstObjectInShape(SHAPE_SPHERE,100000.0,origin,FALSE,OBJECT_TYPE_CREATURE);
+        while(GetIsObjectValid(c))
         {
-            object sound=StringToObject(JsonGetString(JsonArrayGet(registered,si)));
+            if(MgLivePriorityPlayer(c)==(pass==0))
+            {
+                if(NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/3)
+                { creaturePartial=TRUE;break; }
+                json row=MgLiveObject(c,bFull);int size=GetStringLength(JsonDump(row))+1;
+                if(bytes+size>budget) { creaturePartial=TRUE;break; }
+                bytes+=size;JsonArrayInsertInplace(cre,row);
+            }
+            if(pass==0)
+            {
+                pi++;c=OBJECT_INVALID;
+                if(pi<JsonGetLength(players)) c=StringToObject(JsonGetString(JsonArrayGet(players,pi)));
+            }
+            else c=GetNextObjectInShape(SHAPE_SPHERE,100000.0,origin,FALSE,OBJECT_TYPE_CREATURE);
+        }
+    }
+    json result=JsonObject();
+    JsonObjectSetInplace(result,"area",JsonString(GetResRef(area)));
+    JsonObjectSetInplace(result,"paged",JsonBool(TRUE));
+    JsonObjectSetInplace(result,"cre_partial",JsonBool(creaturePartial));
+    json dimensions=JsonArray();
+    JsonArrayInsertInplace(dimensions,JsonInt(GetAreaSize(AREA_WIDTH,area)*10));
+    JsonArrayInsertInplace(dimensions,JsonInt(GetAreaSize(AREA_HEIGHT,area)*10));
+    JsonObjectSetInplace(result,"size",dimensions);
+    JsonObjectSetInplace(result,"full",JsonBool(bFull));
+    JsonObjectSetInplace(result,"cre",cre);
+    if(!bFull) return result;
+
+    json plc=JsonArray();json doors=JsonArray();json items=JsonArray();
+    json waypoints=JsonArray();json sounds=JsonArray();json encounters=JsonArray();
+    json stores=JsonArray();json triggers=JsonArray();
+    int index=GetLocalInt(area,"MGLIVE_PAGE_INDEX");
+    int soundAt=GetLocalInt(area,"MGLIVE_PAGE_SOUND");
+    int soundPhase=GetLocalInt(area,"MGLIVE_PAGE_SOUND_PHASE");
+    object cursor=GetLocalObject(area,"MGLIVE_PAGE_CURSOR");
+    // A destroyed cursor invalidates the scan: restart with a new generation,
+    // never silently skip an unknown section of the area.
+    if(index==0 || (!soundPhase && (!GetIsObjectValid(cursor) || GetArea(cursor)!=area)))
+    {
+        index=0;soundAt=0;soundPhase=FALSE;
+        SetLocalInt(area,"MGLIVE_PAGE_GENERATION",seq);
+        cursor=OBJECT_INVALID;
+    }
+    int generation=GetLocalInt(area,"MGLIVE_PAGE_GENERATION");
+    object o=GetFirstObjectInArea(area);
+    if(index>0 && !soundPhase)
+        while(GetIsObjectValid(o) && o!=cursor && NWNX_Util_GetInstructionsExecuted()<NWNX_Util_GetInstructionLimit()/2)
+            o=GetNextObjectInArea(area);
+    if(index>0 && !soundPhase && o!=cursor) o=cursor;
+    if(soundPhase) o=OBJECT_INVALID;
+    int more=FALSE;
+    while(GetIsObjectValid(o))
+    {
+        if(NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/2)
+        { more=TRUE;break; }
+        int t=MgLiveType(o);
+        if(t!=OBJECT_TYPE_CREATURE && (t==OBJECT_TYPE_PLACEABLE || t==OBJECT_TYPE_DOOR ||
+            t==OBJECT_TYPE_ITEM || t==OBJECT_TYPE_WAYPOINT || t==OBJECT_TYPE_ENCOUNTER ||
+            t==OBJECT_TYPE_STORE || t==OBJECT_TYPE_TRIGGER))
+        {
+            json row=MgLiveObject(o,TRUE);int size=GetStringLength(JsonDump(row))+1;
+            if(bytes+size>budget) { more=TRUE;break; }
+            bytes+=size;
+            if(t==OBJECT_TYPE_PLACEABLE) JsonArrayInsertInplace(plc,row);
+            else if(t==OBJECT_TYPE_DOOR) JsonArrayInsertInplace(doors,row);
+            else if(t==OBJECT_TYPE_ITEM) JsonArrayInsertInplace(items,row);
+            else if(t==OBJECT_TYPE_WAYPOINT) JsonArrayInsertInplace(waypoints,row);
+            else if(t==OBJECT_TYPE_ENCOUNTER) JsonArrayInsertInplace(encounters,row);
+            else if(t==OBJECT_TYPE_STORE) JsonArrayInsertInplace(stores,row);
+            else if(t==OBJECT_TYPE_TRIGGER) JsonArrayInsertInplace(triggers,row);
+        }
+        o=GetNextObjectInArea(area);
+    }
+    SetLocalObject(area,"MGLIVE_PAGE_CURSOR",o);
+    if(!more)
+    {
+        soundPhase=TRUE;
+        // Sounds are maintained by the bounded spawn registry, outside the
+        // native area iterator. Invalid entries cost no report bytes.
+        json registered=GetLocalJson(area,"MGLIVE_SOUNDS");
+        while(soundAt<JsonGetLength(registered))
+        {
+            object sound=StringToObject(JsonGetString(JsonArrayGet(registered,soundAt)));
             if(GetIsObjectValid(sound) && GetArea(sound)==area)
             {
-                JsonArrayInsertInplace(retained,JsonString(ObjectToString(sound)));
-                JsonArrayInsertInplace(sounds,MgLiveObject(sound,TRUE));
+                if(NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/2)
+                { more=TRUE;break; }
+                json row=MgLiveObject(sound,TRUE);int size=GetStringLength(JsonDump(row))+1;
+                if(bytes+size>budget) { more=TRUE;break; }
+                bytes+=size;JsonArrayInsertInplace(sounds,row);
             }
+            soundAt++;
         }
-        SetLocalJson(area,"MGLIVE_SOUNDS",retained);
+        if(!more)
+        {
+            // Prune only at the end of the sound scan: changing indices between
+            // pages could skip a live sound. Admission bounds the registry to 256.
+            json retained=JsonArray();int si;
+            for(si=0;si<JsonGetLength(registered);si++)
+            {
+                object sound=StringToObject(JsonGetString(JsonArrayGet(registered,si)));
+                if(GetIsObjectValid(sound) && GetArea(sound)==area)
+                    JsonArrayInsertInplace(retained,JsonString(ObjectToString(sound)));
+            }
+            SetLocalJson(area,"MGLIVE_SOUNDS",retained);
+        }
     }
-    json result = JsonObject();
-    JsonObjectSetInplace(result, "area", JsonString(GetResRef(area)));
-    json size = JsonArray();
-    JsonArrayInsertInplace(size, JsonInt(GetAreaSize(AREA_WIDTH, area)*10));
-    JsonArrayInsertInplace(size, JsonInt(GetAreaSize(AREA_HEIGHT, area)*10));
-    JsonObjectSetInplace(result, "size", size);
-    JsonObjectSetInplace(result, "full", JsonBool(bFull));
-    JsonObjectSetInplace(result, "cre", cre);
-    if (bFull)
-    {
-        JsonObjectSetInplace(result, "plc", plc);
-        JsonObjectSetInplace(result, "doors", doors);
-        JsonObjectSetInplace(result, "items", items);
-        JsonObjectSetInplace(result,"waypoints",waypoints);
-        JsonObjectSetInplace(result,"sounds",sounds);
-        JsonObjectSetInplace(result,"encounters",encounters);
-        JsonObjectSetInplace(result,"stores",stores);
-        JsonObjectSetInplace(result,"triggers",triggers);
-
-    }
+    json page=JsonObject();
+    JsonObjectSetInplace(page,"generation",JsonInt(generation));
+    JsonObjectSetInplace(page,"index",JsonInt(index));
+    JsonObjectSetInplace(page,"complete",JsonBool(!more));
+    JsonObjectSetInplace(result,"static_page",page);
+    JsonObjectSetInplace(result,"plc",plc);JsonObjectSetInplace(result,"doors",doors);
+    JsonObjectSetInplace(result,"items",items);JsonObjectSetInplace(result,"waypoints",waypoints);
+    JsonObjectSetInplace(result,"sounds",sounds);JsonObjectSetInplace(result,"encounters",encounters);
+    JsonObjectSetInplace(result,"stores",stores);JsonObjectSetInplace(result,"triggers",triggers);
+    SetLocalInt(area,"MGLIVE_PAGE_INDEX",more ? index+1 : 0);
+    SetLocalInt(area,"MGLIVE_PAGE_SOUND",soundAt);
+    SetLocalInt(area,"MGLIVE_PAGE_SOUND_PHASE",soundPhase);
+    if(more) SetLocalInt(m,"MGLIVE_PAGE_PENDING",TRUE);
     return result;
 }
 
@@ -575,36 +680,6 @@ int MgLiveAreaWanted(object a)
         pc = GetNextPC();
     }
     return FALSE;
-}
-
-// Build cold/changed/expired NPC looks in separate VM invocations, at most
-// four per continuation. No sequence is consumed and no partial report is
-// published while warming. Re-scan live objects so destruction/area changes
-// cannot strand a pending counter or a saved engine iterator.
-int MgLiveLooksReady()
-{
-    int tick = GetLocalInt(GetModule(), "MGLIVE_SEQ") + 1;
-    int queued = 0;
-    object a = GetFirstArea();
-    while (GetIsObjectValid(a))
-    {
-        if (MgLiveAreaWanted(a))
-        {
-            object o = GetFirstObjectInArea(a);
-            while (GetIsObjectValid(o))
-            {
-                if (GetObjectType(o) == OBJECT_TYPE_CREATURE && !GetIsPC(o) && !GetIsDM(o) &&
-                    (GetLocalString(o, "MGLIVE_LOOK_SIGNATURE") != MgLiveLookSignature(o) || tick >= GetLocalInt(o, "MGLIVE_LOOK_REFRESH")))
-                {
-                    DelayCommand(0.0, ExecuteScript("mglive_look", o));
-                    if (++queued >= 4) return FALSE;
-                }
-                o = GetNextObjectInArea(a);
-            }
-        }
-        a = GetNextArea();
-    }
-    return queued == 0;
 }
 
 json MgLiveAreas(int bFull)
@@ -629,6 +704,10 @@ json MgLiveDeltaAreas(json areas, int full, int seq)
     for (ai = 0; ai < JsonGetLength(areas); ai++)
     {
         json area = JsonArrayGet(areas, ai);
+        // Paged reports carry a complete creature set and independently mergeable
+        // static pages. Hashing them as a whole snapshot would invent removals.
+        if(JsonDump(JsonObjectGet(area,"paged"))=="true")
+        { output+=JsonDump(area)+",";continue; }
         string name = JsonGetString(JsonObjectGet(area, "area"));
         string key = "MGLIVE_HASH_" + name;
         json before = GetLocalJson(m, key);
@@ -652,6 +731,7 @@ json MgLiveDeltaAreas(json areas, int full, int seq)
             else if(k==8) kind="triggers";
 
             json rows = JsonObjectGet(area, kind);
+            if(JsonGetType(rows)!=JSON_TYPE_ARRAY) rows=JsonArray();
             string changed = "";
             int i;
             for (i = 0; i < JsonGetLength(rows); i++)

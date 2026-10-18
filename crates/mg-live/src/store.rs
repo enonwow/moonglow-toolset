@@ -28,8 +28,11 @@ pub mod gateway;
 mod measurement;
 #[path = "store_mirror.rs"]
 pub mod mirror;
+#[path = "store_pages.rs"]
+mod pages;
 #[path = "store_report.rs"]
 mod report;
+use pages::StaticScan;
 #[path = "store_translation.rs"]
 mod translation_config;
 #[path = "store_watch.rs"]
@@ -109,6 +112,8 @@ pub struct LiveObject {
     /// Module faction index from NWNX_Creature_GetFaction.
     pub faction: Option<u32>,
     pub look: Option<Value>,
+    /// The engine will deliver this NPC appearance in a later report.
+    pub look_pending: bool,
     #[serde(rename = "lookHash")]
     pub look_hash: Option<i32>,
     pub open: Option<bool>,
@@ -146,6 +151,9 @@ impl LiveObject {
 #[serde(default)]
 struct AreaReport {
     area: String,
+    paged: bool,
+    cre_partial: bool,
+    static_page: Option<pages::StaticPage>,
     size: Option<[u32; 2]>,
     full: bool,
     cre: Vec<LiveObject>,
@@ -1711,6 +1719,17 @@ impl Command {
 /// The last report of one area.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AreaLive {
+    #[serde(default)]
+    pub creatures_partial: bool,
+    /// Distinct static IDs actually observed in the current scan generation.
+    #[serde(default)]
+    pub static_observed: usize,
+    /// Static pages have not yet formed a complete generation.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Lower bound, not a count obtained by scanning the omitted remainder.
+    #[serde(default)]
+    pub omitted_at_least: u32,
     /// Native area width/height in metres; absent from older reports.
     pub size: Option<[u32; 2]>,
     pub seq: u64,
@@ -1731,6 +1750,19 @@ pub struct AreaLive {
 }
 
 impl AreaLive {
+    /// Coverage of the accumulated pages, independent of GUI filters.
+    pub fn coverage_text(&self) -> String {
+        if self.truncated {
+            let n = self.static_observed.saturating_add(self.creatures.len());
+            format!(
+                "partial ({n} of at least {})",
+                n.saturating_add(self.omitted_at_least as usize)
+            )
+        } else {
+            format!("{} reported objects", self.all().count())
+        }
+    }
+
     /// Every reported object with its kind.
     pub fn all(&self) -> impl Iterator<Item = (ObjectKind, &LiveObject)> {
         fn tag(
@@ -1894,6 +1926,7 @@ struct State {
     delta: bool,
     received_ms: u64,
     areas: HashMap<String, AreaLive>,
+    static_scans: HashMap<String, StaticScan>,
     factions: Option<Vec<ServerFaction>>,
     watch: watch::Watches,
     queue: VecDeque<Queued>,
@@ -2071,6 +2104,7 @@ impl LiveStore {
         s.server = Some(config.clone());
         s.boot.clear();
         s.areas.clear();
+        s.static_scans.clear();
         s.factions = None;
         s.received_ms = 0;
         s.seq = 0;
@@ -2282,6 +2316,7 @@ impl LiveStore {
                 push_result(&mut s, command, answer);
             }
             s.areas.clear();
+            s.static_scans.clear();
             s.factions = None;
             s.watch.restart();
             s.boot = request.boot.clone();
@@ -2325,11 +2360,21 @@ impl LiveStore {
         // pass before any acknowledgements, events or area updates are applied.
         let mut prepared = Vec::with_capacity(request.areas.len());
         for a in &request.areas {
-            let merged = if !gap && fresh && request.base_seq.is_some() && !a.full {
-                s.areas
-                    .get(&a.area.to_ascii_lowercase())
-                    .map(|old| DeltaPlan::new(old, a))
-                    .transpose()?
+            let merged = if !gap && fresh && (a.paged || (request.base_seq.is_some() && !a.full)) {
+                if a.paged {
+                    Some(DeltaPlan::paged(
+                        s.areas.get(&a.area.to_ascii_lowercase()).unwrap_or(&AreaLive::default()),
+                        a,
+                        s.static_scans
+                            .get(&a.area.to_ascii_lowercase())
+                            .unwrap_or(&StaticScan::default()),
+                    )?)
+                } else {
+                    s.areas
+                        .get(&a.area.to_ascii_lowercase())
+                        .map(|old| DeltaPlan::new(old, a))
+                        .transpose()?
+                }
             } else {
                 None
             };
@@ -2360,24 +2405,35 @@ impl LiveStore {
                     s.resync = None;
                 }
                 s.has_baseline = true;
-                let State { areas, events, gateway, .. } = &mut *s;
+                let State { areas, static_scans, events, gateway, .. } = &mut *s;
                 for (mut a, merged) in request.areas.into_iter().zip(prepared) {
+                    if a.paged && !fresh {
+                        continue;
+                    }
                     *gateway.area_revs.entry(a.area.to_ascii_lowercase()).or_default() += 1;
                     let live = areas.entry(a.area.to_ascii_lowercase()).or_default();
                     let seen = live.received_ms != 0;
-                    if let Some(merged) = merged {
-                        events.derive_iter(
-                            &a.area,
-                            seen.then_some(&live.creatures[..]),
-                            merged.creatures(live, &a),
-                            now_ms,
-                        );
+                    if let Some(mut merged) = merged {
+                        if !a.cre_partial && !live.creatures_partial {
+                            events.derive_iter(
+                                &a.area,
+                                seen.then_some(&live.creatures[..]),
+                                merged.creatures(live, &a),
+                                now_ms,
+                            );
+                        }
+                        if let Some(scan) = merged.scan.take() {
+                            live.static_observed = scan.seen.len();
+                            live.truncated = !scan.complete;
+                            static_scans.insert(a.area.to_ascii_lowercase(), scan);
+                        }
                         merged.apply(live, &mut a);
                     } else {
                         let mut creatures = a.cre;
                         if !a.full {
                             for o in &mut creatures {
                                 if o.look.is_none()
+                                    && !o.look_pending
                                     && let Some(old) =
                                         live.creatures.iter().find(|old| old.id == o.id)
                                 {
@@ -2386,12 +2442,14 @@ impl LiveStore {
                                 }
                             }
                         }
-                        events.derive(
-                            &a.area,
-                            seen.then_some(&live.creatures[..]),
-                            &creatures,
-                            now_ms,
-                        );
+                        if !a.cre_partial && !live.creatures_partial {
+                            events.derive(
+                                &a.area,
+                                seen.then_some(&live.creatures[..]),
+                                &creatures,
+                                now_ms,
+                            );
+                        }
                         live.creatures = creatures;
                         if a.full {
                             live.full_ms = now_ms;
@@ -2405,6 +2463,17 @@ impl LiveStore {
                             live.stores = a.stores;
                             live.triggers = a.triggers;
                         }
+                    }
+                    live.creatures_partial = a.cre_partial;
+                    if !a.paged {
+                        live.truncated = false;
+                        live.static_observed = 0;
+                        static_scans.remove(&a.area.to_ascii_lowercase());
+                    }
+                    live.omitted_at_least = u32::from(live.truncated);
+                    if a.static_page.as_ref().is_some_and(|page| page.complete) && !live.truncated {
+                        live.has_full = true;
+                        live.full_ms = now_ms;
                     }
                     live.size = a.size.or(live.size);
                     live.received_ms = now_ms;
@@ -3139,6 +3208,11 @@ impl LiveStore {
             "areas": s.areas.iter().map(|(name, a)| json!({
                 "area": name,
                 "ageMs": now_ms.saturating_sub(a.received_ms),
+            "truncated": a.truncated,
+            "omitted_at_least": a.omitted_at_least,
+            "creatures_partial": a.creatures_partial,
+            "coverage": a.coverage_text(),
+            "static_observed": a.static_observed,
                 "creatures": a.creatures.len(),
                 "placeables": a.placeables.len(),
                 "doors": a.doors.len(),
@@ -3185,6 +3259,11 @@ impl LiveStore {
         Some(json!({
             "area": area,
             "ageMs": now_ms.saturating_sub(a.received_ms),
+            "truncated": a.truncated,
+            "omitted_at_least": a.omitted_at_least,
+            "creatures_partial": a.creatures_partial,
+            "coverage": a.coverage_text(),
+            "static_observed": a.static_observed,
             "factions": s.factions,
             "fullAgeMs": (a.has_full || a.full_ms != 0).then(|| now_ms.saturating_sub(a.full_ms)),
             "creatures": a.creatures,
@@ -4133,6 +4212,140 @@ mod tests {
         );
         store.set_policy(Policy::default());
         assert!(store.enqueue(bad_target, 1).unwrap_err().contains("not in the latest reports"));
+    }
+
+    #[test]
+    fn static_pages_converge_without_replacing_creatures_or_prior_pages() {
+        let store = LiveStore::default();
+        for seq in 1..=3 {
+            let mut r = report("dense", seq, true);
+            r["areas"][0]["paged"] = json!(true);
+            r["areas"][0]["static_page"] = json!({"generation":1,"index":seq-1,"complete":seq==3});
+            r["areas"][0]["plc"] = json!([{"id":format!("{:x}",seq+256),"x":1,"y":1}]);
+            post(&store, r, seq * 1000);
+            let a = store.area("market").unwrap();
+            assert_eq!(a.creatures.len(), 1);
+            assert_eq!(a.placeables.len(), seq as usize);
+            assert_eq!(a.truncated, seq != 3);
+            let mirrored: AreaLive =
+                serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
+            assert_eq!(a, mirrored, "mirror preserves coverage, not host scan bookkeeping");
+        }
+    }
+
+    fn page_report(seq: u64, generation: u64, index: u32, complete: bool, ids: &[&str]) -> Value {
+        let mut r = report("dense", seq, true);
+        r["areas"][0]["paged"] = json!(true);
+        r["areas"][0]["static_page"] =
+            json!({"generation":generation,"index":index,"complete":complete});
+        r["areas"][0]["plc"] = json!(ids.iter().map(|id| json!({"id":id})).collect::<Vec<_>>());
+        r
+    }
+
+    #[test]
+    fn static_pages_prune_only_after_an_unbroken_generation_and_ignore_stale_replay() {
+        let store = LiveStore::default();
+        post(&store, page_report(1, 1, 0, true, &["a", "b"]), 1000);
+        post(&store, page_report(2, 2, 0, false, &["b"]), 2000);
+        assert_eq!(store.area("market").unwrap().placeables.len(), 2);
+        let gap = page_report(4, 2, 2, true, &["c"]);
+        post(&store, gap.clone(), 4000);
+        let a = store.area("market").unwrap();
+        assert_eq!(a.placeables.len(), 3);
+        assert_eq!(a.coverage_text(), "partial (3 of at least 4)");
+        post(&store, page_report(5, 5, 0, false, &["b"]), 5000);
+        post(&store, page_report(6, 5, 1, true, &["c"]), 6000);
+        let a = store.area("market").unwrap();
+        assert_eq!(a.placeables.len(), 2);
+        assert_eq!(a.coverage_text(), "3 reported objects");
+        // Even an exact same-sequence full-envelope replay cannot restart a scan.
+        post(&store, page_report(6, 5, 0, false, &["a"]), 6001);
+        assert_eq!(store.area("market").unwrap(), a);
+        let mut reboot = page_report(1, 1, 1, true, &["c"]);
+        reboot["boot"] = json!("new");
+        post(&store, reboot, 7000);
+        assert!(store.area("market").unwrap().truncated);
+    }
+
+    #[test]
+    fn static_pages_preserve_creatures_on_vm_failure_and_do_not_reuse_pending_looks() {
+        let store = LiveStore::default();
+        let mut r = page_report(1, 1, 0, true, &["a"]);
+        r["areas"][0]["cre"][0]["look"] = json!({"Equip_ItemList":{"type":"list","value":[]}});
+        r["areas"][0]["cre"][0]["lookHash"] = json!(7);
+        post(&store, r, 1000);
+        let before = store.lock().events.last();
+        post(
+            &store,
+            json!({"v":1,"boot":"dense","seq":2,"areas":[{
+                "area":"market","paged":true,"cre_partial":true,"full":true
+            }]}),
+            2000,
+        );
+        assert_eq!(store.area("market").unwrap().creatures.len(), 1);
+        assert_eq!(store.lock().events.last(), before);
+        let mut r = page_report(3, 3, 0, true, &["a"]);
+        r["areas"][0]["cre"][0]["look_pending"] = json!(true);
+        post(&store, r, 3000);
+        let a = store.area("market").unwrap();
+        assert!(a.creatures[0].look_pending && a.creatures[0].look.is_none());
+        assert_eq!(store.lock().events.last(), before);
+        let mut r = page_report(4, 4, 0, false, &["a"]);
+        r["areas"][0]["cre"] = json!([]);
+        post(&store, r, 4000);
+        assert!(store.area("market").unwrap().creatures.is_empty());
+        assert!(
+            store.lock().events.last() > before,
+            "static paging does not suppress real creature departures"
+        );
+    }
+
+    #[test]
+    fn static_pages_quick_frames_preserve_player_look_and_static_age() {
+        let store = LiveStore::default();
+        let mut r = page_report(1, 1, 0, true, &["a"]);
+        r["areas"][0]["cre"][0]["pc"] = json!(true);
+        r["areas"][0]["cre"][0]["look"] = json!({"Equip_ItemList":{"type":"list","value":[]}});
+        r["areas"][0]["cre"][0]["lookHash"] = json!(7);
+        post(&store, r, 1000);
+        let mut quick = report("dense", 2, false);
+        quick["base_seq"] = json!(1);
+        quick["areas"][0]["paged"] = json!(true);
+        quick["areas"][0]["cre"][0]["pc"] = json!(true);
+        quick["areas"][0]["plc"] = json!([]);
+        post(&store, quick, 2000);
+        let a = store.area("market").unwrap();
+        assert_eq!(a.full_ms, 1000);
+        assert_eq!(a.creatures[0].look_hash, Some(7));
+        assert!(a.creatures[0].look.is_some());
+        assert_eq!(a.placeables.len(), 1);
+        assert!(!a.truncated);
+    }
+
+    #[test]
+    fn static_pages_enforce_retained_limits_before_acknowledging_commands() {
+        let store = LiveStore::default();
+        let ids: Vec<_> = (0..MAX_OBJECTS).map(|i| format!("{:x}", i + 65536)).collect();
+        let refs: Vec<_> = ids.iter().map(String::as_str).collect();
+        post(&store, page_report(1, 1, 0, false, &refs), 1000);
+        let command: Command = serde_json::from_value(
+            json!({"id":"pending","area":"market","op":"destroy","target":"7f01"}),
+        )
+        .unwrap();
+        store.enqueue(command, 1000).unwrap();
+        let mut too_many = page_report(2, 1, 1, true, &["fffff"]);
+        too_many["ack"] = json!(["pending"]);
+        assert!(
+            store
+                .sync(too_many.to_string().as_bytes(), 2000)
+                .unwrap_err()
+                .contains("Too many retained")
+        );
+        assert_eq!(store.status(2000)["queued"].as_array().unwrap().len(), 1);
+        assert_eq!(store.area("market").unwrap().placeables.len(), MAX_OBJECTS);
+        // Overflow cannot mutate the scan or consume receipts either.
+        let bad = page_report(2, 1, u32::MAX, true, &[]);
+        assert!(store.sync(bad.to_string().as_bytes(), 2000).unwrap_err().contains("overflow"));
     }
 
     #[test]

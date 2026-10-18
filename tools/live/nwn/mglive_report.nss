@@ -1,4 +1,4 @@
-// One report, built in bounded per-area VM entries. The wire envelope is unchanged.
+// Bounded per-area snapshots; partial coverage is explicit in every area row.
 #include "mglive_inc"
 #include "nwnx_redis"
 #include "mglive_evt"
@@ -35,6 +35,7 @@ void MgLiveReportPublish()
     if (delta && !full) body = JsonObjectSet(body, "base_seq", JsonInt(seq - 1));
     body = JsonObjectSet(body, "event_stream", JsonBool(TRUE));
     body = JsonObjectSet(body, "dropped", JsonInt(GetLocalInt(m, "MGLIVE_DROPPED")));
+    body = JsonObjectSet(body,"report_recovered",JsonInt(GetLocalInt(m,"MGLIVE_REPORT_RECOVERED")));
     // Attach the large collection last, so small envelope fields never copy it.
     body = JsonObjectSet(body, "areas", areas);
     string data = JsonDump(body);
@@ -47,9 +48,31 @@ void MgLiveReportPublish()
     DeleteLocalInt(m,"MGLIVE_REPORT_BUSY");
 }
 
+// A VM abort cannot run cleanup. The tick watchdog advances past the failed
+// area using an explicitly incomplete snapshot, so command receipts still flow.
+void MgLiveReportSkip()
+{
+    object m=GetModule();int i=GetLocalInt(m,"MGLIVE_REPORT_AT");
+    string key="MGLIVE_REPORT_"+IntToString(i);
+    json area=JsonObjectSet(JsonObject(),"area",JsonString(GetResRef(GetLocalObject(m,key))));
+    JsonObjectSetInplace(area,"full",JsonBool(TRUE));
+    JsonObjectSetInplace(area,"paged",JsonBool(TRUE));
+    JsonObjectSetInplace(area,"cre_partial",JsonBool(TRUE));
+    // No page means preserve previously received statics and restart this scan.
+    SetLocalInt(GetLocalObject(m,key),"MGLIVE_PAGE_INDEX",0);
+    SetLocalInt(m,"MGLIVE_PAGE_PENDING",TRUE);
+    SetLocalJson(m,key,area);SetLocalInt(m,"MGLIVE_REPORT_AT",i+1);
+    DeleteLocalInt(m,"MGLIVE_REPORT_WARM");
+    SetLocalInt(m,"MGLIVE_REPORT_RECOVERED",GetLocalInt(m,"MGLIVE_REPORT_RECOVERED")+1);
+    // Reset the hash baseline, including when the failure was in delta encoding.
+    DeleteLocalInt(m,"MGLIVE_SEEN_"+GetResRef(GetLocalObject(m,key)));
+    DelayCommand(0.0,ExecuteScript("mglive_rpt",m));
+}
+
 void MgLiveReportStep()
 {
     object m=GetModule();if(!GetLocalInt(m,"MGLIVE_REPORT_BUSY")) return;
+    SetLocalInt(m,"MGLIVE_REPORT_PROGRESS",GetLocalInt(m,"MGLIVE_REPORT_PROGRESS")+1);
     int start=GetMicrosecondCounter();int i=GetLocalInt(m,"MGLIVE_REPORT_AT");
     int phase=GetLocalInt(m,"MGLIVE_REPORT_PHASE");int count=GetLocalInt(m,"MGLIVE_REPORT_COUNT");
     int seq=GetLocalInt(m,"MGLIVE_SEQ");int full=GetLocalInt(m,"MGLIVE_REPORT_FULL");
@@ -59,16 +82,16 @@ void MgLiveReportStep()
         string key="MGLIVE_REPORT_"+IntToString(i);json area;
         if(phase==0)
         {
-            area=MgLiveArea(GetLocalObject(m,key),full || delta);
+            area=MgLiveArea(GetLocalObject(m,key),full);
             if(full && !delta) SetLocalInt(m,"MGLIVE_REPORT_BYTES",GetLocalInt(m,"MGLIVE_REPORT_BYTES")+GetStringLength(JsonDump(area)));
         }
         else area=GetLocalJson(m,key);
-        if(delta) area=JsonArrayGet(MgLiveDeltaAreas(JsonArrayInsert(JsonArray(),area),full,seq),0);
+        if(phase==1) area=JsonArrayGet(MgLiveDeltaAreas(JsonArrayInsert(JsonArray(),area),full,seq),0);
         SetLocalJson(m,key,area);SetLocalInt(m,"MGLIVE_REPORT_AT",i+1);
         SetLocalInt(m,"MGLIVE_REPORT_US",GetLocalInt(m,"MGLIVE_REPORT_US")+GetMicrosecondCounter()-start);
         DelayCommand(0.0,ExecuteScript("mglive_rpt",m));return;
     }
-    if(phase==0 && !delta && full && GetLocalInt(m,"MGLIVE_REPORT_BYTES")>=MGLIVE_DELTA_THRESHOLD)
+    if(phase==0 && (delta || (full && GetLocalInt(m,"MGLIVE_REPORT_BYTES")>=MGLIVE_DELTA_THRESHOLD)))
     {
         SetLocalInt(m,"MGLIVE_DELTA",TRUE);SetLocalInt(m,"MGLIVE_REPORT_PHASE",1);SetLocalInt(m,"MGLIVE_REPORT_AT",0);
         DelayCommand(0.0,ExecuteScript("mglive_rpt",m));return;
@@ -79,17 +102,48 @@ void MgLiveReportStep()
 void MgLiveReportBegin()
 {
     object m=GetModule();if(!GetLocalInt(m,"MGLIVE_STARTED")) return;
-    if(GetLocalInt(m,"MGLIVE_REPORT_BUSY")) { DelayCommand(0.1,ExecuteScript("mglive_tick",m));return; }
+    if(GetLocalInt(m,"MGLIVE_REPORT_BUSY"))
+    {
+        int progress=GetLocalInt(m,"MGLIVE_REPORT_PROGRESS");
+        int stalled=0;
+        if(progress==GetLocalInt(m,"MGLIVE_REPORT_LAST_PROGRESS"))
+            stalled=GetLocalInt(m,"MGLIVE_REPORT_STALLED")+1;
+        SetLocalInt(m,"MGLIVE_REPORT_LAST_PROGRESS",progress);
+        SetLocalInt(m,"MGLIVE_REPORT_STALLED",stalled);
+        if(stalled>=3)
+        {
+            DeleteLocalInt(m,"MGLIVE_REPORT_STALLED");
+            WriteTimestampedLogEntry("MGLIVE: recovering an interrupted area report");
+            if(GetLocalInt(m,"MGLIVE_REPORT_AT")<GetLocalInt(m,"MGLIVE_REPORT_COUNT")) MgLiveReportSkip();
+            else
+            {
+                // If envelope publication itself was interrupted, send only
+                // receipts now and rebuild every area on the next full report.
+                SetLocalInt(m,"MGLIVE_REPORT_COUNT",0);
+                SetLocalInt(m,"MGLIVE_RESYNC",TRUE);
+                SetLocalInt(m,"MGLIVE_REPORT_RECOVERED",GetLocalInt(m,"MGLIVE_REPORT_RECOVERED")+1);
+                MgLiveReportPublish();
+            }
+        }
+        DelayCommand(MGLIVE_PERIOD,ExecuteScript("mglive_tick",m));return;
+    }
     int start=GetMicrosecondCounter();
-    if(!MgLiveLooksReady()) { DelayCommand(0.1,ExecuteScript("mglive_tick",m));return; }
     DelayCommand(MGLIVE_PERIOD,ExecuteScript("mglive_tick",m));
     int seq=GetLocalInt(m,"MGLIVE_SEQ")+1;SetLocalInt(m,"MGLIVE_SEQ",seq);
-    int delta=GetLocalInt(m,"MGLIVE_DELTA");int full=seq==1 || GetLocalInt(m,"MGLIVE_RESYNC");
+    int delta=GetLocalInt(m,"MGLIVE_DELTA");int full=seq==1 || GetLocalInt(m,"MGLIVE_RESYNC") || GetLocalInt(m,"MGLIVE_PAGE_PENDING");
     if(delta) full=full || seq-GetLocalInt(m,"MGLIVE_LAST_FULL")>=MGLIVE_DELTA_FULL_EVERY;
     else full=full || seq%MGLIVE_FULL_EVERY==0;
+    // A resync starts new scan generations; a normal continuation retains cursors.
+    if(GetLocalInt(m,"MGLIVE_RESYNC"))
+    {
+        object reset=GetFirstArea();
+        while(GetIsObjectValid(reset)) { SetLocalInt(reset,"MGLIVE_PAGE_INDEX",0);reset=GetNextArea(); }
+    }
+    DeleteLocalInt(m,"MGLIVE_PAGE_PENDING");DeleteLocalInt(m,"MGLIVE_LOOK_JOBS");
     DeleteLocalInt(m,"MGLIVE_RESYNC");if(full) SetLocalInt(m,"MGLIVE_LAST_FULL",seq);
     SetLocalInt(m,"MGLIVE_REPORT_FULL",full);SetLocalInt(m,"MGLIVE_REPORT_BUSY",TRUE);
     SetLocalInt(m,"MGLIVE_REPORT_AT",0);SetLocalInt(m,"MGLIVE_REPORT_PHASE",0);
+    DeleteLocalInt(m,"MGLIVE_REPORT_STALLED");DeleteLocalInt(m,"MGLIVE_REPORT_WARM");
     SetLocalInt(m,"MGLIVE_REPORT_US",GetMicrosecondCounter()-start);SetLocalInt(m,"MGLIVE_REPORT_BYTES",0);
     json watched=JsonArray();
     // Players take priority if they enter new areas after watch admission.

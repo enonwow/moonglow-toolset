@@ -4,7 +4,7 @@ title: 'Live game operations: wire contract and engine proof'
 description: Live authorization, owner-scoped watches, uncertain delivery outcomes, bounded result receipts, script compatibility, compact identities, revocable polls, replay protection, runtime retention and persistence proofs.
 tags: [live, operations, nwnx, protocol, dm]
 generated: { by: codex/astra1, at: 2026-10-18T00:00:00Z }
-sources: [live-mode-next.md, live-mode-roadmap.md, live-events-wire.md]
+sources: [live-mode-next.md, live-mode-roadmap.md, live-events-wire.md, ../tools/live/nwn/mglive_report.nss, ../tools/live/nwn/mglive_inc.nss, ../tools/live/test_dense_report.py, ../tools/live/test_dense_report_unit.py, ../crates/mg-live/src/store_pages.rs]
 ---
 
 # Live game operations
@@ -3612,3 +3612,127 @@ approves a current proposal, checks the native ID timestamp and result link, and
 verifies replay of the old legacy ID is refused. Run it with
 `cargo +1.98.0 test -p mg-live --lib approval_after_history_rotation -j 2`,
 `NWN_ROOT=/nonexistent`, and `CARGO_INCREMENTAL=0`.
+
+
+## Dense-area reporting stays live
+
+The earlier native budget run stopped publishing raw state after sequence 30 and
+1024 observed placeables. This was upstream of the Rust store: its 5 MiB parse
+limit cannot stop Redis publications. The unbounded report builder could exhaust
+its VM while collecting an area or hashing its delta; an abort left
+`MGLIVE_REPORT_BUSY` set forever. The original run has no VM log identifying the
+exact failing instruction. The scratch-only fault injections below test the
+recovery path without claiming that missing evidence.
+
+The rejected fixed-visit sample is replaced by creature-first collection and
+**static paging**. Unreported objects never consume an object-count quota:
+
+- Snapshot the native PC/DM list first, before nested faction queries enumerate
+  PCs again. A separate native, area-local creature query filters out static
+  kinds and collects NPCs afterwards. Creature collection stops at one third of the actual
+  NWScript instruction limit; static serialization stops at one half. The
+  remaining instructions are reserved for storing and publishing the bounded row.
+- Each area receives a share of 3 MiB, at most 256 KiB including framing reserve.
+  Results retain their separate 512 KiB budget; Rust still accepts at most 5 MiB.
+  Exhausting the creature budget sets `cre_partial`; the store then retains
+  previously seen creatures and suppresses inferred departures. Static density
+  cannot consume this budget before the creatures run.
+- A cold NPC is emitted immediately with `look_pending: true`, without `look`.
+  Up to four appearance jobs per report run in separate VM entries. Other NPCs
+  continue. Pending appearance rows never inherit an old look in the store.
+- Full reports carry one static page per area. Locals store a native object
+  cursor, sound-registry cursor, generation and page index. A destroyed cursor
+  restarts the generation. An unfinished page requests another full report on
+  the next tick; once every area finishes, normal full-report cadence resumes.
+  Quick reports do not scan or send static kinds.
+- Collection and envelope/delta handling remain separate VM entries. Paged
+  reports carry complete creature rows (or explicit `cre_partial`) and static
+  pages directly: the legacy whole-area hash algorithm must not interpret the
+  unvisited static remainder as removed. Legacy full/delta reports remain supported.
+
+The optional area extension is:
+
+```json
+{"area":"room","full":true,"paged":true,"cre_partial":false,
+ "static_page":{"generation":42,"index":0,"complete":false},
+ "cre":[],"plc":[]}
+```
+
+Generation is the sequence that began the scan, scoped to the server boot and
+area. Static rows upsert by ID. The store tracks the received indices and seen
+IDs independently of UI history. Only a complete, contiguous generation removes
+previously seen statics absent from that generation. A missing/out-of-order page
+cannot prove deletion or completeness; page zero starts recovery. A sequence gap
+still follows the normal resync path. Boot changes discard the old scan. Stale
+full-envelope replays do not restart it. Admission bounds retained rows to 4096
+per kind and accumulated statics to 8 MiB **before** applying command receipts.
+This is eventual convergence while the population is stable, not an atomic
+snapshot of simultaneous changes over several ticks.
+
+`AreaLive`, the area API and the Live object-list panel expose accumulated
+coverage. While paging is incomplete the text is `partial (n of at least m)`;
+`n` counts current creatures plus distinct statics observed in this scan; `m` is
+the lower bound `n + 1` while the stable scan has an unvisited remainder. Old rows
+retained from an earlier scan remain visible but do not inflate this count. This
+is not an exact census of a population changing during the scan. The marker clears after a complete generation.
+A separate creature-incomplete notice covers creature budget exhaustion.
+Filtering the panel does not change the coverage count. Finished-state mirror
+schema **2** adds the coverage fields and `look_pending`; host and viewers must
+be upgraded together. Scan cursors and seen-ID bookkeeping stay in the host,
+not in finished-state frames. The game envelope remains `v: 1`.
+
+After three ticks with no report progress, the watchdog skips an interrupted
+area, preserves its previous store contents, resets its static scan and resumes
+other areas and receipts. `report_recovered` counts recoveries. An interrupted
+publisher sends a receipts-only heartbeat and requests a new full generation.
+Neither the VM instruction limit nor command-result timeout is increased.
+
+Reproduction (Rust 1.98.0, `NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0`):
+
+```sh
+cargo +1.98.0 test -p mg-live --lib static_pages -j 2
+python -B tools/live/test_dense_report_unit.py
+```
+
+Native acceptance **needs WSL run** through the existing private helper:
+
+```sh
+MGLIVE_PWSH="<PowerShell executable in WSL notation>" \
+NWNX_ROOT="$HOME/nwnx-redis-reconnect" \
+python3 tools/live/test-events.py --phase dense_report
+```
+
+The proof first creates 300 authored placeables, then two PC/DM surrogates and an
+NPC. It checks cold `look_pending` rows, their continued presence and priority
+order in every report. It grows the
+same population to 1152 placeables and requires a complete contiguous scan in
+at most **K = 16 full reports**, with no ordinary watchdog recovery. It checks
+quick reports, a second healthy area, report bytes, then injects real VM aborts
+into area collection and publication. Receipts must survive and the scan must
+converge again. Deleting only the test population must yield a complete empty
+filler set. PC/DM surrogates exercise production native collection and ordering;
+they do not claim acceptance with connected game clients. Fixture instrumentation
+is limited to the scratch module. Phase artifacts remain in the helper's existing
+`target/test-output/live-events/` directory. No game data belongs in Git.
+
+Results for this revision: the regression first failed against the fixed-visit
+implementation; five store regression tests and five runner tests now pass. All 59 scripts
+in an isolated, instrumented compiler check compile (zero errors), using the
+installed game declarations and the existing NWNX includes; no server was run.
+The coordinator separately confirmed native chat and chat-budget acceptance on
+`ca85141`. This new paging implementation has **not** received native acceptance;
+K, runtime instruction headroom and convergence measurements await the command
+above. The final workspace test gate ran 473 passing tests, one failure and four ignored,
+stopping in mg-live (246 passed). The failure is
+`api::tests::real_tls_status_command_and_stop`: Windows Schannel returned
+`SEC_E_NO_CREDENTIALS`. Later test binaries were not executed by that gate.
+All-target workspace Clippy with `-D warnings` and `fmt --check` passed. The two
+mirror-schema tests and the real gateway reconnect/result-ack test also passed
+when run explicitly. That gateway regression first timed out with the old fixed
+HTTP query `mirror=1`; the companion client fix now takes the query version from
+`mg_live::MIRROR_VERSION`, just like hello.
+
+Repeat the complete test gate outside the Schannel restriction. No WSL server or
+connected-client acceptance is claimed here. The OKF executable was unavailable;
+the existing reference frontmatter, source paths, index entries and new log links
+were checked directly.

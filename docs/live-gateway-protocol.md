@@ -43,7 +43,7 @@ the management panel and translations are host concerns.
   MUST be logged and skipped. Unknown `op` from a client → `err unsupported`.
 
 Implementation note (P2a): HTTP status is final after upgrade. The public
-transport accepts optional `?proto=1&mirror=1` on the upgrade URL and returns
+transport accepts optional `?proto=1&mirror=2` on the upgrade URL and returns
 426 with `min_client` for a mismatch there. It always validates the actual
 hello too; a mismatch after upgrade sends `bye upgrade`. Omitting the query
 is supported. This is the transport resolution of the draft's 426 sequencing
@@ -72,14 +72,14 @@ S→C {"t":"bye","code":"<code>","msg":"<text>"} before the gateway closes
 ## 4. Handshake
 
 ```json
-{"t":"hello","proto":1,"mirror":1,"client":"moonglow/1.33.0",
+{"t":"hello","proto":1,"mirror":2,"client":"moonglow/1.33.0",
  "resume":{"gw_epoch":"e81f…","boot":"b-17…","event_n":4120,
            "areas":{"harbor":57,"market":12}},
  "watch":["harbor","market"]}
 ```
 
 ```json
-{"t":"welcome","proto":1,"mirror":1,"gw_epoch":"e81f…","now_ms":1792230000000,
+{"t":"welcome","proto":1,"mirror":2,"gw_epoch":"e81f…","now_ms":1792230000000,
  "server":{"id":"main","name":"Main server"},
  "user":{"id":"dm:123456789","kind":"dm","name":"Operator","avatar":"https://cdn.discordapp.com/…"},
  "groups":["read","read_chat","read_tells","variables","npc","speech","spawn","spawn_scripted","players","focus","approve_drafts","allow_llm","manage_ai"],
@@ -216,6 +216,11 @@ application-level deflate for large frames, protocol N/N−1 compatibility,
 binary encoding after measurement.
 
 ## 10. Versioning and tests
+
+Current finished-state schema is **mirror 2**: area paging coverage and NPC
+`look_pending` are part of mirrored state. Host and client versions must match;
+the WebSocket `proto` remains 1. See [dense-area reporting](live-ops-wire.md#dense-area-reporting-stays-live)
+for the game-side paging contract and native acceptance command.
 
 - `proto` changes with any incompatible frame change; `mirror` (the constant
   `MIRROR_VERSION` in mg-live) changes with any change to `AreaLive`,

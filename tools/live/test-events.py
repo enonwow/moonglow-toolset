@@ -240,6 +240,9 @@ def fixture():
     if os.environ.get("MGLIVE_STRESS_PREPARE") == "1":
         from stress_native import prepare
         prepare(OUT, module)
+    if os.environ.get("MGLIVE_DENSE_PROOF") == "1":
+        from test_dense_report import prepare
+        prepare(module)
     if os.environ.get("MGLIVE_XL_PROOF") == "1":
         from test_chat_translation import prepare
         prepare(module)
@@ -358,6 +361,10 @@ class Proof:
 
     def chat_translation(self):
         from test_chat_translation import run
+        return run(self)
+
+    def dense_report(self):
+        from test_dense_report import run
         return run(self)
 
     def chat_translation_budget(self):
@@ -2369,7 +2376,10 @@ def main():
     parser._option_string_actions["--phase"].choices.append("command_boot")
     parser._option_string_actions["--phase"].choices.append("translation_config")
     parser._option_string_actions["--phase"].choices.extend(["chat_translation", "chat_translation_stress", "chat_translation_budget"])
+    parser._option_string_actions["--phase"].choices.append("dense_report")
     args = parser.parse_args()
+    if args.phase == "dense_report":
+        os.environ["MGLIVE_DENSE_PROOF"] = "1"
     if args.phase in ("stress", "chat_translation_stress"):
         os.environ["MGLIVE_STRESS_PREPARE"]="1"
     if args.phase.startswith("chat_translation"):

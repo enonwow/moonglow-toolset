@@ -852,3 +852,5 @@
 * **Budget fixture reporting isolation (2026-10-18)**: keep the full chat stress population out of state snapshots, confirm a fresh report before loading, and verify created counts. [Native diagnosis, regressions and rerun](live-translations.md#isolate-budget-measurements-from-state-serialization).
 
 * **Whisper budget coverage (2026-10-18)**: control the near-listener geometry and assert exact delivery recipients under load. [Diagnosis and native rerun](live-translations.md#stable-whisper-geometry-and-delivery-coverage).
+
+* **Page dense Live reports (2026-10-18)**: collect creatures first, converge static pages with explicit coverage, defer cold looks and recover interrupted reports without losing receipts. [Contract and native fault-injection proof](live-ops-wire.md#dense-area-reporting-stays-live).

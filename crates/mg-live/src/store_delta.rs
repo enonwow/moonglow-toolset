@@ -8,10 +8,27 @@ enum Row {
 
 pub(super) struct DeltaPlan {
     rows: [Vec<Row>; 9],
+    pub(super) scan: Option<super::StaticScan>,
 }
 
 impl DeltaPlan {
     pub(super) fn new(old: &AreaLive, update: &AreaReport) -> Result<Self, String> {
+        Self::build(old, update, None)
+    }
+
+    pub(super) fn paged(
+        old: &AreaLive,
+        update: &AreaReport,
+        previous: &super::StaticScan,
+    ) -> Result<Self, String> {
+        Self::build(old, update, Some(super::StaticScan::advance(previous, update)?))
+    }
+
+    fn build(
+        old: &AreaLive,
+        update: &AreaReport,
+        scan: Option<super::StaticScan>,
+    ) -> Result<Self, String> {
         let changed: HashSet<&str> = update
             .cre
             .iter()
@@ -56,7 +73,14 @@ impl DeltaPlan {
                 if let Some(j) = pending.remove(old.id.as_str()) {
                     rows.push(Row::New(j, Some(i)));
                 } else if !removed.contains(old.id.as_str()) && !changed.contains(old.id.as_str()) {
-                    rows.push(Row::Old(i));
+                    let keep = match &scan {
+                        None => true,
+                        Some(_) if kind == 0 => update.cre_partial,
+                        Some(scan) => !scan.complete || scan.seen.contains(&old.id),
+                    };
+                    if keep {
+                        rows.push(Row::Old(i));
+                    }
                 }
             }
             for (i, new) in after[kind].iter().enumerate() {
@@ -69,7 +93,23 @@ impl DeltaPlan {
         if rows.iter().any(|v| v.len() > MAX_OBJECTS) {
             return Err("Too many retained delta objects".into());
         }
-        Ok(Self { rows })
+        // Static page accumulation must remain bounded even across many reports.
+        if scan.is_some() {
+            let mut bytes = 0usize;
+            for kind in 1..9 {
+                for row in &rows[kind] {
+                    let object = match *row {
+                        Row::Old(i) => &before[kind][i],
+                        Row::New(i, _) => &after[kind][i],
+                    };
+                    bytes += serde_json::to_vec(object).map_err(|e| e.to_string())?.len();
+                    if bytes > 8 * 1024 * 1024 {
+                        return Err("Too many retained static page bytes".into());
+                    }
+                }
+            }
+        }
+        Ok(Self { rows, scan })
     }
 
     pub(super) fn creatures<'a>(
@@ -84,6 +124,7 @@ impl DeltaPlan {
     }
 
     pub(super) fn apply(self, old: &mut AreaLive, update: &mut AreaReport) {
+        let reuse_player_look = update.paged && !update.full;
         let before = [
             &mut old.creatures,
             &mut old.placeables,
@@ -116,11 +157,13 @@ impl DeltaPlan {
                     Row::New(i, previous) => {
                         let mut new = new_rows[i].take().expect("each row is moved once");
                         if new.look.is_none()
+                            && !new.look_pending
                             && let Some(old) = previous.and_then(|j| old_rows[j].as_mut())
-                            && new.look_hash.is_some()
-                            && new.look_hash == old.look_hash
+                            && ((new.look_hash.is_some() && new.look_hash == old.look_hash)
+                                || (reuse_player_look && new.pc))
                         {
                             new.look = old.look.take();
+                            new.look_hash = old.look_hash;
                         }
                         new
                     }
@@ -277,11 +320,15 @@ mod tests {
             rows
         };
         AreaLive {
+            creatures_partial: old.creatures_partial,
+            static_observed: old.static_observed,
             size: old.size,
             seq: old.seq,
             received_ms: old.received_ms,
             full_ms: old.full_ms,
             has_full: old.has_full,
+            truncated: old.truncated,
+            omitted_at_least: old.omitted_at_least,
             creatures: merge(&old.creatures, &update.cre),
             placeables: merge(&old.placeables, &update.plc),
             doors: merge(&old.doors, &update.doors),

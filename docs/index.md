@@ -57,6 +57,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 * [plugins](plugins/index.md) - For plugin authors: the starting page, the API's changes, the example plugins (`examples/`) and the editor type file (`types/moonglow.luau`). (1 Changelog, 1 Guide)
 * [research](research/index.md) - Research behind the code: briefs on NWN:EE's formats, rendering, tilesets and models, what Aurora computes and how that was measured, prior art, and builders' pain points. (16 Research Note, 1 Reference)
 
+* [Dense-area reporting](live-ops-wire.md#dense-area-reporting-stays-live) - Creature priority, bounded static paging, coverage, deferred looks and report recovery; native convergence proof.
 * [VFX transforms and colour proof](live-ops-wire.md#vfx-transforms-and-colour-fourth-acceptance-b10) - Native transform readback and the negative attached-VFX colour experiment.
 
 * [Session factions](live-ops-wire.md#session-factions-fourth-acceptance-b15) - Offline reserves, session-only labels and native directional reputation controls.

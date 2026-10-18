@@ -404,7 +404,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         app.live_panel.order_area = Some(area);
         app.live_panel.order = objects.iter().map(|(_, o)| o.id.clone()).collect();
     }
-    ui.label(format!("{} of {} reported objects", objects.len(), live.all().count()));
+    ui.label(format!("{} shown; {}", objects.len(), live.coverage_text()));
+    if live.creatures_partial {
+        ui.weak("Creature report incomplete; retaining previously seen creatures.");
+    }
     ui.separator();
     if objects.is_empty() {
         if live.all().next().is_some() {
