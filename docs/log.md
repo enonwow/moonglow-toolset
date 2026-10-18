@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway UI presence ordering (2026-10-18)**: wait for applied Focus presence before authored DM/AI render fixtures; the in-process UI regression passes with the automatic host snapshots. [Cause and barrier](live-desktop-link.md#gui-fixture-synchronization).
+
 * **Dev gateway shared state (2026-10-18)**: persist hashed AI identities, open assistant book context and default global LLM consent off. [Configuration and verification](live-library.md#gateway-shared-requests).
 
 * **Gateway note edit snapshots (2026-10-18)**: return note keys/revisions atomically and fail closed on invalidation overflow. [Contract and regression](live-library.md#gateway-shared-requests).

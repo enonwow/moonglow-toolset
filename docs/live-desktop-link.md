@@ -17,6 +17,7 @@ sources:
   - ../crates/mg-ui/src/live_backend.rs
   - ../crates/mg-ui/tests/gateway_backend.rs
   - ../crates/mg-ui/tests/support/gateway_ui.rs
+  - ../crates/mg-ui/tests/screens.rs
   - live-gateway-protocol.md
   - ../crates/mg-ui/src/options.rs
   - ../crates/mg-ui/src/settings.rs
@@ -411,10 +412,10 @@ write operation or local campaign-directory API is exposed.
 
 ### Protocol contracts and pending host operations
 
-The current development host implements `watch.set`, `focus.set`, `cmds`, read
-`call` and `events.since`. It explicitly returns `unsupported` for `book.put`,
+At the P2b transport boundary the development host implemented `watch.set`,
+`focus.set`, `cmds`, read `call` and `events.since`, and returned `unsupported` for `book.put`,
 `draft.decide`, `ai.*` and `llm.allow`; an integration regression verifies that
-these refusals remain errors and never become local success. The facade's wire
+refusals remain errors and never become local success. The facade's wire
 requests and snapshot handling are ready, but these server operations cannot be
 accepted end to end until their handlers exist.
 
@@ -473,7 +474,8 @@ and DM/AI roles in Focus and on map markers. They fetch no external avatars and
 never represent locks. Gateway tools open a wider default right pane so Focus
 keeps its two columns and composer visible; the local split is unchanged.
 The global AI switch starts off and remains disabled
-while the dev host lacks its handler.
+until the shared operations have a complete GUI integration, even if a newer
+host has already added handlers.
 
 The integration test uses `mg-gateway` in-process behind an ephemeral loopback
 TLS proxy, sharing the authored `mg-live-link` fixture. A temporary authored
@@ -498,3 +500,15 @@ that same directory. Source fixtures/tests are reproduction inputs; PNGs are
 local visual evidence. Shared Cargo outputs remain in use by concurrent work;
 only owned disposable logs and temporary fixtures are removed after recording
 final verification results.
+
+### GUI fixture synchronization
+
+The presence fixture waits for the host's own `Test` DM chip after `focus.set`,
+then publishes the authored DM/AI actors and waits for their mirror delivery.
+Watching only the outgoing request raced the automatic presence snapshot added
+in `7ddbb10`; the snapshot could replace the visual fixture before rendering.
+This barrier tests actual host-to-mirror delivery without fixed settling sleeps.
+The authored NPC keeps a stable tag/name across reports: changing an untagged
+NPC's identity correctly invalidates Focus, so it must not be used to simulate
+an ordinary command result. Marker rendering is asserted through its accessible
+label before capturing the image.

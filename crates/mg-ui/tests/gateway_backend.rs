@@ -32,15 +32,7 @@ async fn gateway_gui_mirror_command_presence_reconnect_and_unknown() {
         })
     })
     .await;
-    presence(&host).await;
-    pump(&mut h, |_| true).await;
-    for _ in 0..50 {
-        h.run_steps(2);
-        if h.query_by_label("Guide · DM").is_some() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    presence(&host, &mut h).await;
     h.get_by_label("Guide · DM");
     h.get_by_label("Scribe · AI");
     assert!(h.get_by_label("NPC card").accesskit_node().is_disabled());
