@@ -1,8 +1,10 @@
 # Update log
 
+* **Live watch ownership (2026-10-18)**: local-only raw controls, per-owner desired sets and a shared player/watch budget. [Contract](live-ops-wire.md#watch-ownership-and-admission-2026-10-18).
+
 * **Desktop gateway login (2026-10-18)**: one-shot loopback PKCE, HTTPS trust and redacted session tokens with local TLS regressions. [Contract](live-desktop-link.md).
 
-* **Live watch ownership (2026-10-18)**: local-only raw controls, per-owner desired sets and a shared player/watch budget. [Contract](live-ops-wire.md#watch-ownership-and-admission-2026-10-18).
+* **moonglow-gw/1 frames (2026-10-18)**: typed envelopes, bounded decoding and golden fixtures for every push topic. [Protocol](live-gateway-protocol.md), [tests](live-library.md#gateway-frames).
 
 * **Live gateway session core (2026-10-18)**: revisioned views, scoped command delivery, retained result outboxes and resumable event cursors. [Contract and decisions](live-library.md#in-process-gateway-core).
 

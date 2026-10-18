@@ -159,3 +159,16 @@ invalidations, session updates and notices with `publish_session`; these drain
 after core state pushes. Identity ownership of AIs and book persistence belong
 to the host, so the core does not infer those permissions.
 Run `cargo +1.98.0 test -p mg-live --test gateway_core -j 2`.
+
+## Gateway frames
+
+The public [normative protocol](live-gateway-protocol.md) is implemented by
+`gateway_frames`: typed hello/welcome, request/response, every push topic, ACK
+and bye. Decoders check byte limits, UTF-8, JSON structure and response outcome;
+unknown server types/topics are logged and skipped, unknown fields ignored.
+The transport supplies close/HTTP behavior; this library returns errors.
+`Connection` checks hello/version negotiation, request ID reuse and 64 in-flight
+requests. The frame limit exception applies only to `req` with `op=book.put`.
+Run `cargo +1.98.0 test -p mg-live --test gateway_frames -j 2` for all 18 golden
+frame examples, every truncated prefix, malformed/deep/oversized input and
+connection accounting.

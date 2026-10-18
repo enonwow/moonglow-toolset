@@ -227,6 +227,166 @@ impl Gateway {
         store.lock().gateway.sessions.clear();
         Ok(Self { store, epoch })
     }
+    /// Dispatch public core requests. Host-owned book/AI operations return unsupported.
+    pub fn handle(
+        &self,
+        session: &str,
+        request: crate::gateway_frames::Request,
+        now_ms: u64,
+    ) -> crate::gateway_frames::Response {
+        use crate::gateway_frames::{FrameError, Response};
+        let result = (|| -> Result<Value, FrameError> {
+            let invalid = |e: String| FrameError::new("invalid", e);
+            let config = self
+                .store
+                .lock()
+                .gateway
+                .sessions
+                .get(session)
+                .ok_or_else(|| FrameError::new("forbidden", "Unknown session"))?
+                .config
+                .clone();
+            let a = request.a;
+            match request.op.as_str() {
+                "cmds" => {
+                    let commands = a["commands"]
+                        .as_array()
+                        .ok_or_else(|| invalid("Expected commands array".into()))?;
+                    if commands.len() > 256 {
+                        return Err(invalid("Too many commands".into()));
+                    }
+                    Ok(serde_json::to_value(
+                        self.commands(session, commands, now_ms).map_err(invalid)?,
+                    )
+                    .unwrap())
+                }
+                "watch.set" => {
+                    if !config.has("read") {
+                        return Err(FrameError::new("forbidden", "Read permission required"));
+                    }
+                    let areas: Vec<String> = serde_json::from_value(a["areas"].clone())
+                        .map_err(|e| invalid(e.to_string()))?;
+                    Ok(serde_json::to_value(
+                        self.watch_set(session, &areas, now_ms).map_err(invalid)?,
+                    )
+                    .unwrap())
+                }
+                "focus.set" => {
+                    let objects = a["objects"]
+                        .as_array()
+                        .ok_or_else(|| invalid("Expected objects array".into()))?;
+                    let objects = objects
+                        .iter()
+                        .map(|o| {
+                            Ok((
+                                o["area"]
+                                    .as_str()
+                                    .ok_or_else(|| invalid("Missing focus area".into()))?
+                                    .to_string(),
+                                o["id"]
+                                    .as_str()
+                                    .ok_or_else(|| invalid("Missing focus ID".into()))?
+                                    .to_string(),
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, FrameError>>()?;
+                    self.focus_set(session, objects).map_err(invalid)?;
+                    Ok(json!({}))
+                }
+                "events.since" => {
+                    let n =
+                        a["n"].as_u64().ok_or_else(|| invalid("Invalid event cursor".into()))?;
+                    let limit = a["limit"].as_u64().unwrap_or(100).clamp(1, 500) as usize;
+                    let kinds: Vec<String> =
+                        serde_json::from_value(a.get("kinds").cloned().unwrap_or(json!([])))
+                            .map_err(|e| invalid(e.to_string()))?;
+                    let s = self.store.lock();
+                    let mut rows: Vec<_> = s
+                        .events
+                        .log_rows(n)
+                        .into_iter()
+                        .filter(|e| {
+                            visible_event(e, &config, &s.owners)
+                                && (kinds.is_empty() || kinds.contains(&e.kind))
+                        })
+                        .collect();
+                    let through = if rows.len() > limit {
+                        rows.truncate(limit);
+                        rows.last().unwrap().n
+                    } else {
+                        s.events.last()
+                    };
+                    Ok(serde_json::to_value(Events {
+                        rows,
+                        through,
+                        lost: lost_since(&s.events, n),
+                    })
+                    .unwrap())
+                }
+                "call" => {
+                    let op = a["op"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .strip_prefix("live_")
+                        .unwrap_or(a["op"].as_str().unwrap_or_default());
+                    if !matches!(
+                        op,
+                        "find"
+                            | "status"
+                            | "npc_card"
+                            | "gm_card"
+                            | "npc_memory"
+                            | "area_notes"
+                            | "events"
+                            | "area_state"
+                    ) {
+                        return Err(FrameError::new(
+                            "unsupported",
+                            "Call is not a read-only gateway operation",
+                        ));
+                    }
+                    let input = a.get("input").cloned().unwrap_or(json!({}));
+                    if input.get("wait_ms").is_some_and(|v| v.as_u64() != Some(0)) {
+                        return Err(invalid("Waiting calls are not supported".into()));
+                    }
+                    // Route events through the gateway filter, including tell permission.
+                    if op == "events" {
+                        let s = self.store.lock();
+                        let since = input["since"].as_u64().unwrap_or(0);
+                        let q = crate::events::Query {
+                            since,
+                            area: input["area"].as_str().map(str::to_owned),
+                            kinds: serde_json::from_value(
+                                input.get("kinds").cloned().unwrap_or(json!([])),
+                            )
+                            .map_err(|e| invalid(e.to_string()))?,
+                            object: input["object"].as_str().map(str::to_owned),
+                            text: input["text"].as_str().map(str::to_owned),
+                            limit: input["limit"].as_u64().unwrap_or(100).min(500) as usize,
+                        };
+                        return Ok(
+                            json!({"events":s.events.query_filtered(&q,|e|visible_event(e,&config,&s.owners)),"last":s.events.last(),"boot":s.boot}),
+                        );
+                    }
+                    crate::operations::call_scoped(
+                        &format!("live_{op}"),
+                        input,
+                        &self.store,
+                        &std::sync::atomic::AtomicBool::new(false),
+                        &config.scope(),
+                    )
+                    .map_err(|e| {
+                        FrameError::new(
+                            serde_json::to_value(e.code).unwrap().as_str().unwrap(),
+                            e.error,
+                        )
+                    })
+                }
+                _ => Err(FrameError::new("unsupported", "Unknown or host-owned operation")),
+            }
+        })();
+        Response { id: request.id, result }
+    }
     pub fn epoch(&self) -> &str {
         &self.epoch
     }

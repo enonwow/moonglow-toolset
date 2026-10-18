@@ -1,0 +1,274 @@
+[
+  {
+    "t": "hello",
+    "proto": 1,
+    "mirror": 1,
+    "client": "moonglow/1.33.0",
+    "resume": {
+      "gw_epoch": "epoch",
+      "boot": "boot",
+      "event_n": 12,
+      "areas": {
+        "square": 7
+      }
+    },
+    "watch": [
+      "square"
+    ]
+  },
+  {
+    "t": "welcome",
+    "proto": 1,
+    "mirror": 1,
+    "gw_epoch": "epoch",
+    "now_ms": 1000,
+    "server": {
+      "id": "main",
+      "name": "Main server"
+    },
+    "user": {
+      "id": "dm:1",
+      "kind": "dm",
+      "name": "Operator",
+      "avatar": null
+    },
+    "groups": [
+      "read"
+    ],
+    "policy": {
+      "scripts": false,
+      "chunks": false,
+      "players": false
+    },
+    "id_prefix": "one.",
+    "limits": {
+      "frame": 65536,
+      "book_frame": 262144,
+      "in_flight": 64,
+      "watch": 16
+    },
+    "features": [],
+    "nwsync": {
+      "haks_url": "https://example.org/haks",
+      "haks_manifest": "abc",
+      "module_manifest": "def"
+    },
+    "resumed": true
+  },
+  {
+    "t": "req",
+    "id": 1,
+    "op": "cmds",
+    "a": {
+      "commands": [
+        {
+          "id": "one.1234abcd.1",
+          "op": "stop_patrol",
+          "area": "square",
+          "target": "a1",
+          "boot": "boot",
+          "ttl_ms": 30000
+        }
+      ]
+    }
+  },
+  {
+    "t": "res",
+    "id": 1,
+    "ok": true,
+    "r": {
+      "accepted": [
+        "one.1234abcd.1"
+      ],
+      "rejected": []
+    }
+  },
+  {
+    "t": "res",
+    "id": 2,
+    "ok": false,
+    "err": {
+      "code": "unsupported",
+      "msg": "Unknown operation"
+    }
+  },
+  {
+    "t": "ack",
+    "results": [
+      [
+        "one.1234abcd.1",
+        2
+      ]
+    ],
+    "event_n": 12
+  },
+  {
+    "t": "bye",
+    "code": "shutdown",
+    "msg": "Stopping"
+  },
+  {
+    "t": "push",
+    "topic": "meta",
+    "body": {
+      "boot": "boot",
+      "rev": 1,
+      "factions": null,
+      "watched": {
+        "desired": [
+          "square"
+        ],
+        "reported": [
+          "square"
+        ]
+      },
+      "policy": {
+        "scripts": false,
+        "chunks": false,
+        "players": false
+      },
+      "game": {
+        "connected": true,
+        "age_ms": 4
+      },
+      "redis": {
+        "connected": true
+      }
+    }
+  },
+  {
+    "t": "push",
+    "topic": "area",
+    "body": {
+      "boot": "boot",
+      "area": "square",
+      "rev": 7,
+      "age_ms": 4,
+      "live": {
+        "size": [
+          16,
+          16
+        ],
+        "seq": 7,
+        "full_ms": 100,
+        "has_full": true,
+        "creatures": [],
+        "placeables": [],
+        "doors": [],
+        "items": [],
+        "waypoints": [],
+        "sounds": [],
+        "encounters": [],
+        "stores": [],
+        "triggers": []
+      }
+    }
+  },
+  {
+    "t": "push",
+    "topic": "area_gone",
+    "body": {
+      "boot": "boot",
+      "area": "square"
+    }
+  },
+  {
+    "t": "push",
+    "topic": "boot",
+    "body": {
+      "boot": "new",
+      "prev": "boot"
+    }
+  },
+  {
+    "t": "push",
+    "topic": "events",
+    "body": {
+      "rows": [
+        {
+          "n": 12,
+          "at_ms": 1000,
+          "kind": "chat",
+          "area": "square",
+          "id": "a1",
+          "name": "Guard",
+          "target": null,
+          "data": {
+            "text": "Hello",
+            "channel": 1
+          }
+        }
+      ],
+      "through": 15,
+      "lost": 0
+    }
+  },
+  {
+    "t": "push",
+    "topic": "result",
+    "body": {
+      "id": "one.1234abcd.1",
+      "rev": 1,
+      "state": "pending",
+      "result": null
+    }
+  },
+  {
+    "t": "push",
+    "topic": "drafts",
+    "body": {
+      "rev": 1,
+      "items": []
+    }
+  },
+  {
+    "t": "push",
+    "topic": "presence",
+    "body": {
+      "rev": 1,
+      "actors": [],
+      "focus": {
+        "a1": [
+          "dm:1"
+        ]
+      }
+    }
+  },
+  {
+    "t": "push",
+    "topic": "book",
+    "body": {
+      "kind": "npc",
+      "key": "guard",
+      "rev": 1
+    }
+  },
+  {
+    "t": "push",
+    "topic": "session",
+    "body": {
+      "groups": [
+        "read"
+      ],
+      "policy": {
+        "scripts": false,
+        "chunks": false,
+        "players": false
+      },
+      "limits": {
+        "frame": 65536,
+        "book_frame": 262144,
+        "in_flight": 64,
+        "watch": 16
+      }
+    }
+  },
+  {
+    "t": "push",
+    "topic": "notice",
+    "body": {
+      "level": "warn",
+      "text": "Game offline"
+    }
+  }
+]
