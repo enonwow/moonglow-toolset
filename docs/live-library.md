@@ -353,3 +353,19 @@ API tests (one manual TLS smoke remains ignored). `okf` is unavailable in both
 the Windows and WSL environments used for this run; frontmatter, indexed
 descriptions and all local source/link targets in the touched documents were
 checked directly.
+
+## Gateway audit invariants
+
+Command authorization captures the session generation, principal groups, command
+ID and game boot. `gateway::validate_accept` runs again under the final store
+acceptance lock, before quota, identity or journal side effects. Session removal,
+replacement, changed groups or a new boot invalidate an in-flight acceptance.
+The binding survives independently of result delivery state. A failed retry
+never removes the original pending result; cleanup checks the generation and
+unique reservation created by that call.
+
+The `audit_h1` store tests stop a command at the command-IO lock, then remove or
+replace its session or restart the game; no stale command is accepted and no
+missing-session error panics. A separate consent-revoked resend retains the
+original outbox. Reproduce with `cargo +1.98.0 test -p mg-live --lib audit_h1 -j 2`
+using the environment described above.

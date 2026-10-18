@@ -144,6 +144,7 @@ impl SessionConfig {
 }
 #[derive(Debug)]
 struct Outbox {
+    reservation: u64,
     row: MirroredResult,
     created_ms: u64,
     acked: u64,
@@ -153,6 +154,7 @@ struct Outbox {
 }
 #[derive(Debug)]
 struct Session {
+    generation: u64,
     config: SessionConfig,
     watch: BTreeSet<String>,
     focus: Vec<(String, String)>,
@@ -169,9 +171,44 @@ struct Session {
 }
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
+    generation: u64,
+    reservation: u64,
     pub area_revs: BTreeMap<String, u64>,
     meta: Option<Meta>,
     sessions: BTreeMap<String, Session>,
+}
+/// Captured independently of outbox retention, checked under the store accept lock.
+#[derive(Debug, Clone)]
+pub(crate) struct Acceptance {
+    command_id: String,
+    generation: u64,
+    boot: String,
+    groups: Vec<String>,
+}
+pub(super) fn validate_accept(s: &State, scope: &Scope) -> Result<(), CommandError> {
+    let Some(binding) = &scope.gateway_accept else {
+        return Ok(());
+    };
+    if binding.boot != s.boot || binding.boot.is_empty() {
+        return Err(CommandError::new(ErrorCode::Expired, "Game boot changed before acceptance"));
+    }
+    if !s.gateway.sessions.get(scope.name()).is_some_and(|session| {
+        session.generation == binding.generation && session.config.groups == binding.groups
+    }) {
+        return Err(CommandError::new(
+            ErrorCode::Forbidden,
+            "Gateway session changed before acceptance",
+        ));
+    }
+    if !s.accepted.contains_key(&binding.command_id)
+        && !s.gateway.sessions[scope.name()].outbox.contains_key(&binding.command_id)
+    {
+        return Err(CommandError::new(
+            ErrorCode::Expired,
+            "Command reservation expired before acceptance",
+        ));
+    }
+    Ok(())
 }
 pub(super) fn command_binding<'a>(g: &'a GatewayState, id: &str) -> Option<(&'a str, u64)> {
     g.sessions.values().find_map(|s| s.outbox.get(id)).map(|o| (o.boot.as_str(), o.ttl_ms))
@@ -423,6 +460,8 @@ impl Gateway {
                     s.gateway.area_revs.get(area).is_some_and(|current| rev <= current)
                 })
         });
+        s.gateway.generation += 1;
+        let generation = s.gateway.generation;
         let old = s.gateway.sessions.remove(&config.id);
         let resumed = retained
             && old.as_ref().is_some_and(|old| {
@@ -435,6 +474,7 @@ impl Gateway {
                         .all(|o| now_ms.saturating_sub(o.created_ms) < RESULT_RETENTION_MS)
             });
         let mut session = old.unwrap_or_else(|| Session {
+            generation,
             config: config.clone(),
             watch: BTreeSet::new(),
             focus: vec![],
@@ -449,6 +489,7 @@ impl Gateway {
             resume_valid: true,
             auxiliary: VecDeque::new(),
         });
+        session.generation = generation;
         session.config = config;
         session.watch = watches;
         session.meta = None;
@@ -530,9 +571,18 @@ impl Gateway {
         commands: &[Value],
         now_ms: u64,
     ) -> Result<CommandsReply, String> {
-        let config =
-            self.store.lock().gateway.sessions.get(id).ok_or("Unknown session")?.config.clone();
-        let scope = config.scope();
+        let (config, generation) = {
+            let s = self.store.lock();
+            let session = s.gateway.sessions.get(id).ok_or("Unknown session")?;
+            (session.config.clone(), session.generation)
+        };
+        let mut scope = config.scope();
+        scope.gateway_accept = Some(Acceptance {
+            command_id: String::new(),
+            generation,
+            boot: String::new(),
+            groups: config.groups.clone(),
+        });
         let mut reply = CommandsReply::default();
         for envelope in commands {
             let command_id = envelope["id"].as_str().unwrap_or_default().to_string();
@@ -576,7 +626,16 @@ impl Gateway {
         if op == "run_script" && !config.has("scripts") {
             return Err(reject("forbidden", "Script permission required"));
         }
+        let mut scope = scope.clone();
+        let binding = scope.gateway_accept.as_mut().expect("gateway scope");
+        binding.boot = boot.clone();
+        binding.command_id = command_id.clone();
         let mut s = self.store.lock();
+        if !s.gateway.sessions.get(id).is_some_and(|session| {
+            session.generation == scope.gateway_accept.as_ref().unwrap().generation
+        }) {
+            return Err(reject("forbidden", "Gateway session changed before reservation"));
+        }
         if boot != s.boot || boot.is_empty() {
             return Err(reject("expired", "Game boot changed"));
         }
@@ -588,6 +647,8 @@ impl Gateway {
                 return Err(reject("conflict", "ID belongs to another command"));
             }
         }
+        s.gateway.reservation += 1;
+        let reservation = s.gateway.reservation;
         let session =
             s.gateway.sessions.get_mut(id).ok_or_else(|| reject("invalid", "Unknown session"))?;
         let inserted =
@@ -599,6 +660,7 @@ impl Gateway {
             session.outbox.insert(
                 command_id.clone(),
                 Outbox {
+                    reservation,
                     row: MirroredResult {
                         id: command_id.clone(),
                         rev: 1,
@@ -614,7 +676,7 @@ impl Gateway {
             );
         }
         drop(s);
-        match crate::operations::command_scoped(envelope, &self.store, now_ms, scope) {
+        match crate::operations::command_scoped(envelope, &self.store, now_ms, &scope) {
             Ok(_) => {
                 let mut s = self.store.lock();
                 if let Some((_, r)) = s.results.iter().find(|(_, r)| r.id == command_id).cloned() {
@@ -623,7 +685,18 @@ impl Gateway {
                 Ok(())
             }
             Err(error) => {
-                self.store.lock().gateway.sessions.get_mut(id).unwrap().outbox.remove(&command_id);
+                if inserted {
+                    let mut s = self.store.lock();
+                    if let Some(session) = s.gateway.sessions.get_mut(id)
+                        && session.generation == scope.gateway_accept.as_ref().unwrap().generation
+                        && session
+                            .outbox
+                            .get(&command_id)
+                            .is_some_and(|out| out.reservation == reservation)
+                    {
+                        session.outbox.remove(&command_id);
+                    }
+                }
                 Err((
                     serde_json::to_value(error.code).unwrap().as_str().unwrap().into(),
                     error.error,
@@ -870,4 +943,71 @@ fn visible_event(e: &Event, config: &SessionConfig, owners: &HashMap<String, Str
         return e.data["request"].as_str().is_some_and(|id| owners.get(id) == Some(&config.id));
     }
     true
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    fn config() -> SessionConfig {
+        SessionConfig {
+            id: "dm:one".into(),
+            id_prefix: "one.".into(),
+            groups: vec!["read".into(), "npc".into()],
+            watch_limit: 16,
+        }
+    }
+    fn setup() -> Arc<Gateway> {
+        let s = Arc::new(LiveStore::default());
+        s.sync(br#"{"v":1,"boot":"boot","seq":1,"areas":[{"area":"a","full":true,"cre":[{"id":"1"}]}]}"#, 0).unwrap();
+        let g = Arc::new(Gateway::new(s).unwrap());
+        g.connect(config(), None, &[], 0).unwrap();
+        g
+    }
+    fn command(n: u64) -> Value {
+        json!({"id":format!("one.1234abcd.{n}"),"boot":"boot","area":"a","op":"stop_patrol","target":"1"})
+    }
+    #[test]
+    fn audit_h1_final_accept_rechecks_removed_replaced_and_boot_changed_sessions() {
+        for scenario in 0..3 {
+            let g = setup();
+            let writer = g.store.command_io.lock().unwrap();
+            let worker = {
+                let g = g.clone();
+                std::thread::spawn(move || g.commands("dm:one", &[command(1)], 0))
+            };
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !g.store.lock().gateway.sessions["dm:one"].outbox.contains_key("one.1234abcd.1") {
+                assert!(std::time::Instant::now() < deadline, "command did not reach reservation");
+                std::thread::yield_now();
+            }
+            match scenario {
+                0 => {
+                    g.remove_session("dm:one", 0).unwrap();
+                }
+                1 => {
+                    let mut c = config();
+                    c.groups = vec!["read".into()];
+                    g.connect(c, None, &[], 0).unwrap();
+                }
+                _ => {
+                    g.remove_session("dm:one", 0).unwrap();
+                    g.store.sync(br#"{"v":1,"boot":"new","seq":1,"areas":[{"area":"a","full":true,"cre":[{"id":"1"}]}]}"#, 1).unwrap();
+                }
+            }
+            drop(writer);
+            let reply = worker.join().expect("removed session must not panic").unwrap();
+            assert!(reply.accepted.is_empty(), "stale session accepted scenario {scenario}");
+            assert_eq!(reply.rejected.len(), 1);
+            assert!(!g.store.lock().accepted.contains_key("one.1234abcd.1"));
+        }
+    }
+    #[test]
+    fn audit_h1_failed_resend_preserves_original_pending_result() {
+        let g = setup();
+        assert_eq!(g.commands("dm:one", &[command(1)], 0).unwrap().accepted.len(), 1);
+        g.store.set_agent_consent(false);
+        let bad = command(1);
+        assert_eq!(g.commands("dm:one", &[bad], 1).unwrap().rejected.len(), 1);
+        assert!(g.store.lock().gateway.sessions["dm:one"].outbox.contains_key("one.1234abcd.1"));
+    }
 }
