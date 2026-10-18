@@ -3131,3 +3131,12 @@ that the entire existing bundle passed `okf lint`. Shared Cargo/test artifacts a
 retained for the concurrent worker; only identified task-owned temporary outputs
 are cleaned. The local task ledger records cleanup and session-history retention
 separately from this public document.
+
+## Sent command uncertainty (2026-10-18)
+
+The store marks only commands included in a transport hand-off as sent, under
+the queue lock. A never-sent timeout is `expired`; a sent timeout, restart or
+endpoint change is `unknown` because the game may have executed the command.
+A late game result resolves an unknown result. Pending skill checks are also
+unknown if their final response is lost. `command_handoff` covers unsent/sent
+timeouts, restart and a late failure.

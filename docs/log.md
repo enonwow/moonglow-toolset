@@ -1,5 +1,7 @@
 # Update log
 
+* **Live sent-command outcomes (2026-10-18)**: hand-off tracking preserves uncertainty on timeout and restart. [Contract](live-ops-wire.md#sent-command-uncertainty-2026-10-18).
+
 * **Live watch ownership (2026-10-18)**: local-only raw controls, per-owner desired sets and a shared player/watch budget. [Contract](live-ops-wire.md#watch-ownership-and-admission-2026-10-18).
 
 * **Desktop gateway login (2026-10-18)**: one-shot loopback PKCE, HTTPS trust and redacted session tokens with local TLS regressions. [Contract](live-desktop-link.md).

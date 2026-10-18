@@ -1737,6 +1737,7 @@ impl AreaLive {
 #[derive(Debug, Clone)]
 struct Queued {
     command: Command,
+    sent: bool,
     players: bool,
     queued_ms: u64,
     ttl_ms: u64,
@@ -1864,11 +1865,10 @@ impl LiveStore {
         for (_, result) in &mut s.results {
             result.receipt = None;
         }
-        let mut commands: Vec<_> = s.queue.drain(..).map(|q| q.command).collect();
-        commands.extend(s.skill_waiting.drain().map(|(_, (command, _))| command));
-        for command in commands {
-            let result =
-                failure(&command.id, ErrorCode::Expired, "expired: server endpoint changed");
+        let mut commands: Vec<_> = s.queue.drain(..).map(|q| (q.command, q.sent)).collect();
+        commands.extend(s.skill_waiting.drain().map(|(_, (command, _))| (command, true)));
+        for (command, sent) in commands {
+            let result = undelivered(&command.id, sent, "server endpoint changed");
             push_result(&mut s, command, result);
         }
         s.server = Some(config.clone());
@@ -1969,7 +1969,7 @@ impl LiveStore {
         if let Some(mirror) = &s.mirror {
             return json!({"commands": mirror.queue});
         }
-        game_commands(&s)
+        game_commands(&mut s)
     }
 
     /// Takes the game's post (JSON) and returns the reply: the commands it
@@ -1993,18 +1993,14 @@ impl LiveStore {
             let old: Vec<Queued> = s.queue.drain(..).collect();
             for q in old {
                 let id = q.command.id.clone();
-                push_result(
-                    &mut s,
-                    q.command,
-                    failure(&id, ErrorCode::Expired, "expired: the server restarted"),
-                );
+                push_result(&mut s, q.command, undelivered(&id, q.sent, "the server restarted"));
             }
             let waiting: Vec<_> = s.skill_waiting.drain().map(|(_, pair)| pair.0).collect();
             for command in waiting {
                 let answer = failure(
                     &command.id,
-                    ErrorCode::Expired,
-                    "expired: the server restarted while waiting for rolls",
+                    ErrorCode::Unknown,
+                    "unknown: the server restarted while waiting for rolls",
                 );
                 push_result(&mut s, command, answer);
             }
@@ -2134,7 +2130,7 @@ impl LiveStore {
         }
         assistant::capture(&mut s);
         watch::prepare(&mut s.watch, now_ms);
-        Ok(Synced { reply: game_commands(&s), outcome, boot_changed })
+        Ok(Synced { reply: game_commands(&mut s), outcome, boot_changed })
     }
 
     /// Queues a command. A command whose id is already queued or answered
@@ -2612,7 +2608,7 @@ impl LiveStore {
         if drafted {
             return Ok(id);
         }
-        s.queue.push_back(Queued { command, players, queued_ms: now_ms, ttl_ms });
+        s.queue.push_back(Queued { command, sent: false, players, queued_ms: now_ms, ttl_ms });
         if let Some(kick) = &s.kick {
             let _ = kick.send(());
         }
@@ -2840,7 +2836,7 @@ fn expire(s: &mut State, now_ms: u64) {
             push_result(
                 s,
                 command,
-                failure(&id, ErrorCode::Expired, "expired: no final skill result received"),
+                failure(&id, ErrorCode::Unknown, "unknown: no final skill result received"),
             );
         }
     }
@@ -2848,12 +2844,19 @@ fn expire(s: &mut State, now_ms: u64) {
     while i < s.queue.len() {
         if now_ms.saturating_sub(s.queue[i].queued_ms) >= s.queue[i].ttl_ms {
             let q = s.queue.remove(i).expect("in range");
-            let result =
-                failure(&q.command.id, ErrorCode::Expired, "expired: not acknowledged in time");
+            let result = undelivered(&q.command.id, q.sent, "not acknowledged in time");
             push_result(s, q.command, result);
         } else {
             i += 1;
         }
+    }
+}
+
+fn undelivered(id: &str, sent: bool, reason: &str) -> CommandResult {
+    if sent {
+        failure(id, ErrorCode::Unknown, &format!("unknown: {reason}; command may have executed"))
+    } else {
+        failure(id, ErrorCode::Expired, &format!("expired: {reason}; command was never sent"))
     }
 }
 
@@ -2877,7 +2880,7 @@ fn attributed_command(s: &State, command: &Command) -> Value {
     value
 }
 
-fn game_commands(s: &State) -> Value {
+fn game_commands(s: &mut State) -> Value {
     let mut commands: Vec<Value> = s
         .queue
         .iter()
@@ -2898,6 +2901,10 @@ fn game_commands(s: &State) -> Value {
             Some(value)
         })
         .collect();
+    // Only commands actually included in this bounded hand-off may have run.
+    for q in s.queue.iter_mut().take(commands.len()) {
+        q.sent = true;
+    }
     if let Some(id) = &s.resync {
         commands.insert(0, json!({"id":id,"op":"resync"}));
     }
