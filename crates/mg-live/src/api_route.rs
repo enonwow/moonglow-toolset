@@ -13,7 +13,8 @@ pub struct RouteResponse {
     pub body: Value,
     pub etag: Option<String>,
 }
-/// Optional transport services. The quota hook runs only after schema ETag and scope checks.
+/// Optional transport services. The hook can impose additional host limits after
+/// schema ETag/scope checks; game-command budgets are always enforced by the store.
 pub struct RouteContext<'a> {
     pub now_ms: u64,
     pub stop: &'a AtomicBool,
@@ -129,6 +130,13 @@ pub fn route_with_context(
                 json!({"ok":false,"code":"rate_limited","error":"Client command limit exceeded","retryAfterSeconds":seconds}),
             );
         }
+        if method == "POST"
+            && crate::access::group(op) != Some(ClientGroup::Read)
+            && !crate::operations::executes_in_game(op)
+            && let Err(error) = live.charge_scoped(scope, now_ms)
+        {
+            return refusal(error);
+        }
         if path == "/live/v1/status" {
             let mut value = live.status_scoped(now_ms, scope);
             value["agents"] = context.agents.clone();
@@ -148,7 +156,7 @@ pub fn route_with_context(
         let result = if legacy {
             crate::operations::command_scoped(input, live, now_ms, scope)
         } else {
-            crate::operations::call_scoped(op, input, live, stop, scope)
+            crate::operations::call_scoped_at(op, input, live, stop, scope, now_ms)
         };
         match result {
             Ok(mut v) => {
@@ -157,16 +165,27 @@ pub fn route_with_context(
                 }
                 (200, if legacy { v } else { json!({"ok":true,"result":v}) })
             }
-            Err(e) => (
-                if e.code == crate::store::ErrorCode::Forbidden { 403 } else { 400 },
-                json!({"ok":false,"error":e.error,"code":e.code}),
-            ),
+            Err(e) => refusal(e),
         }
     })();
     response.status = status;
     response.body = body;
     response
 }
+fn refusal(error: crate::store::CommandError) -> (u16, Value) {
+    use crate::store::ErrorCode;
+    let status = match error.code {
+        ErrorCode::Forbidden => 403,
+        ErrorCode::RateLimited => 429,
+        _ => 400,
+    };
+    let mut body = json!({"ok":false,"error":error.error,"code":error.code});
+    if let Some(seconds) = error.retry_after_seconds {
+        body["retryAfterSeconds"] = json!(seconds);
+    }
+    (status, body)
+}
+
 pub(super) fn operation<'a>(path: &'a str, input: Option<&'a Value>) -> &'a str {
     match path {
         "/v1/ping" => "ping",

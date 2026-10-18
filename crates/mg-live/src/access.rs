@@ -88,6 +88,8 @@ pub struct Scope {
     pub(crate) delivery: DeliveryMode,
     groups: Option<Vec<ClientGroup>>,
     pub(crate) agent_epoch: Option<u64>,
+    pub(crate) gateway_accept: Option<crate::store::gateway::Acceptance>,
+    pub(crate) command_limit: u32,
 }
 impl Scope {
     pub(crate) fn default() -> Self {
@@ -96,6 +98,8 @@ impl Scope {
             groups: None,
             delivery: DeliveryMode::Auto,
             agent_epoch: None,
+            gateway_accept: None,
+            command_limit: 60,
         }
     }
 }
@@ -111,8 +115,25 @@ impl Scope {
         groups: Vec<ClientGroup>,
         delivery: DeliveryMode,
     ) -> Self {
-        Self { name: name.into(), groups: Some(groups), delivery, agent_epoch: None }
+        Self {
+            name: name.into(),
+            groups: Some(groups),
+            delivery,
+            agent_epoch: None,
+            gateway_accept: None,
+            command_limit: 60,
+        }
     }
+    /// Host-configured game-command attempts per owner per minute. The store's
+    /// global budget still applies; recreating a scope never resets either budget.
+    pub fn with_command_limit(mut self, per_minute: u32) -> Result<Self, String> {
+        if !(1..=60_000).contains(&per_minute) {
+            return Err("Client command limit must be 1..60000 per minute".into());
+        }
+        self.command_limit = per_minute;
+        Ok(self)
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -230,17 +251,11 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-#[derive(Debug, Default)]
-struct Window {
-    start: Option<u64>,
-    used: u32,
-}
 #[derive(Debug)]
 pub(crate) struct Access {
     pub agents: crate::agents::Agents,
     clients: Vec<ClientToken>,
     scopes: Vec<Scope>,
-    windows: Mutex<Vec<Window>>,
     pub audit: Arc<Audit>,
 }
 impl Access {
@@ -276,7 +291,7 @@ impl Access {
             name: "default".into(),
             token: default,
             groups: vec![],
-            per_minute: 0,
+            per_minute: 60,
             delivery: DeliveryMode::Auto,
         }];
         all.extend_from_slice(clients);
@@ -286,13 +301,13 @@ impl Access {
                 groups: Some(c.groups.clone()),
                 delivery: c.delivery,
                 agent_epoch: None,
+            gateway_accept: None,
+                command_limit: c.per_minute,
             }))
             .collect();
-        let windows = Mutex::new((0..all.len()).map(|_| Window::default()).collect());
         Ok(Self {
             clients: all,
             scopes,
-            windows,
             audit: Arc::new(Audit::default()),
             agents: Default::default(),
         })
@@ -311,22 +326,6 @@ impl Access {
     }
     pub(crate) fn scope(&self, who: usize) -> &Scope {
         &self.scopes[who]
-    }
-    pub(crate) fn command(&self, who: usize, now: u64) -> Result<(), u64> {
-        if who == 0 {
-            return Ok(());
-        }
-        let mut windows = self.windows.lock().unwrap_or_else(|e| e.into_inner());
-        let w = &mut windows[who];
-        if w.start.is_none_or(|start| now.saturating_sub(start) >= 60_000) {
-            w.start = Some(now);
-            w.used = 0;
-        }
-        if w.used >= self.clients[who].per_minute {
-            return Err((60_000 - now.saturating_sub(w.start.unwrap())).div_ceil(1000));
-        }
-        w.used += 1;
-        Ok(())
     }
 }
 
@@ -499,32 +498,11 @@ mod tests {
         assert!(serde_json::from_str::<crate::LiveConfig>("{}").unwrap().clients.is_empty());
     }
     #[test]
-    fn quotas_are_per_client_atomic_and_default_is_unlimited() {
-        let mut c = client();
-        c.per_minute = 2;
-        let mut d = c.clone();
-        d.name = "DM".into();
-        d.token.push('2');
-        let a = Access::new(ROOT.into(), &[c, d]).unwrap();
-        for _ in 0..100 {
-            assert!(a.command(0, 0).is_ok());
-        }
-        assert!(a.command(1, 1000).is_ok());
-        assert!(a.command(1, 1000).is_ok());
-        assert_eq!(a.command(1, 1001), Err(60));
-        assert_eq!(a.command(1, 60001), Err(1));
-        assert!(a.command(2, 1001).is_ok());
-        assert!(a.command(1, 61000).is_ok());
-        let mut c = client();
-        c.per_minute = 5;
-        let a = Arc::new(Access::new(ROOT.into(), &[c]).unwrap());
-        let children: Vec<_> = (0..20)
-            .map(|_| {
-                let a = a.clone();
-                std::thread::spawn(move || a.command(1, 0).is_ok())
-            })
-            .collect();
-        assert_eq!(children.into_iter().map(|c| usize::from(c.join().unwrap())).sum::<usize>(), 5);
+    fn configured_command_limits_are_carried_by_scopes() {
+        let c = ClientToken { per_minute: 2, ..client() };
+        let access = Access::new(ROOT.into(), &[c]).unwrap();
+        assert_eq!(access.scope(0).command_limit, 60);
+        assert_eq!(access.scope(1).command_limit, 2);
     }
     #[test]
     fn every_operation_has_a_primary_group_and_script_intersection() {
@@ -541,6 +519,8 @@ mod tests {
                 groups: Some(vec![g]),
                 delivery: DeliveryMode::Auto,
                 agent_epoch: None,
+            gateway_accept: None,
+                command_limit: 60,
             };
             for op in ops {
                 let name = op["name"].as_str().unwrap();

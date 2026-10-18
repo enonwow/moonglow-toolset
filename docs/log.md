@@ -1,5 +1,7 @@
 # Update log
 
+* **Shared game-command budgets (2026-10-18)**: owner/global store limits cover direct, HTTP and gateway enqueue, including read-only game queries; preserve HTTP 429 and reserve IDs only within budget. [Contract and regressions](live-ops-wire.md#shared-command-budgets-m2-m2).
+
 * **Desktop gateway facade (2026-10-18)**: asynchronous book/draft/LLM operations, passive snapshots and 25 GUI migration sites; host response-shape gaps remain explicit. [Facade and inventory](live-desktop-link.md#gui-facade-and-migration-inventory).
 
 * **Desktop gateway transport (2026-10-18)**: pinned/WebPKI WebSocket, bounded requests, passive mirror, resume cursors and versioned result ACKs; in-process TLS host regressions. [Transport and reproduction](live-desktop-link.md#desktop-websocket-transport-p2b-part-1).

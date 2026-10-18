@@ -12,6 +12,9 @@ use glam::Vec3;
 use mg_core::ObjectKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+#[cfg(test)]
+#[path = "store_accept_tests.rs"]
+mod accept_tests;
 #[path = "atmosphere.rs"]
 mod atmosphere;
 #[path = "store_delta.rs"]
@@ -195,6 +198,7 @@ pub enum ErrorCode {
     Invalid,
     Disabled,
     Forbidden,
+    RateLimited,
     /// Execution was acknowledged, but its outcome is not known.
     Unknown,
     Ambiguous,
@@ -207,10 +211,11 @@ pub enum ErrorCode {
 pub struct CommandError {
     pub code: ErrorCode,
     pub error: String,
+    pub retry_after_seconds: Option<u64>,
 }
 impl CommandError {
     pub fn new(code: ErrorCode, error: impl Into<String>) -> Self {
-        Self { code, error: error.into() }
+        Self { code, error: error.into(), retry_after_seconds: None }
     }
 }
 impl From<String> for CommandError {
@@ -1743,6 +1748,65 @@ struct Queued {
     ttl_ms: u64,
 }
 
+const COMMAND_WINDOW_MS: u64 = 60_000;
+const GLOBAL_COMMANDS_PER_WINDOW: u32 = 600;
+
+#[derive(Debug, Default)]
+struct CommandWindow {
+    start: Option<u64>,
+    used: u32,
+}
+impl CommandWindow {
+    fn advance(&mut self, now_ms: u64) {
+        if self.start.is_none_or(|start| now_ms.saturating_sub(start) >= COMMAND_WINDOW_MS) {
+            self.start = Some(now_ms);
+            self.used = 0;
+        }
+    }
+    fn retry(&self, limit: u32, now_ms: u64) -> Option<u64> {
+        (self.used >= limit).then(|| {
+            COMMAND_WINDOW_MS
+                .saturating_sub(now_ms.saturating_sub(self.start.unwrap_or(now_ms)))
+                .div_ceil(1000)
+                .max(1)
+        })
+    }
+}
+#[derive(Debug, Default)]
+struct CommandQuota {
+    global: CommandWindow,
+    owners: HashMap<String, CommandWindow>,
+}
+impl CommandQuota {
+    fn charge(&mut self, scope: &crate::access::Scope, now_ms: u64) -> Result<(), CommandError> {
+        if scope.unrestricted() && scope.name() == "local" {
+            return Ok(());
+        }
+        self.global.advance(now_ms);
+        self.owners.retain(|_, w| {
+            w.start.is_some_and(|start| now_ms.saturating_sub(start) < COMMAND_WINDOW_MS)
+        });
+        let refused = |seconds, message: &str| CommandError {
+            code: ErrorCode::RateLimited,
+            error: message.into(),
+            retry_after_seconds: Some(seconds),
+        };
+        if let Some(seconds) = self.global.retry(GLOBAL_COMMANDS_PER_WINDOW, now_ms) {
+            return Err(refused(seconds, "Live global command limit exceeded"));
+        }
+        // Only a successful global-budget check can introduce an owner. Expiring
+        // windows bounds this map to at most two global windows of identities.
+        let owner = self.owners.entry(scope.name.clone()).or_default();
+        owner.advance(now_ms);
+        if let Some(seconds) = owner.retry(scope.command_limit, now_ms) {
+            return Err(refused(seconds, "Client command limit exceeded"));
+        }
+        owner.used += 1;
+        self.global.used += 1;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default)]
 struct State {
     mirror: Option<mirror::Mirror>,
@@ -1780,6 +1844,7 @@ struct State {
     events: crate::events::EventLog,
     agent_consent: Option<bool>,
     agent_epoch: u64,
+    command_quota: CommandQuota,
 }
 
 /// What the game last reported and what waits for it. Shared by the HTTPS
@@ -2179,6 +2244,18 @@ impl LiveStore {
         Ok(scope)
     }
 
+    /// Shared budget for non-game mutating operations routed by HTTP. Game
+    /// commands charge exactly once inside enqueue, before reserving an ID.
+    pub(crate) fn charge_scoped(
+        &self,
+        scope: &crate::access::Scope,
+        now_ms: u64,
+    ) -> Result<(), CommandError> {
+        let mut s = self.lock();
+        event_store::poll_allowed(&s, scope, scope.agent_epoch.unwrap_or(s.agent_epoch))?;
+        s.command_quota.charge(scope, now_ms)
+    }
+
     pub fn enqueue_scoped(
         &self,
         command: Command,
@@ -2211,6 +2288,9 @@ impl LiveStore {
             scope,
             scope.agent_epoch.expect("authorized before command IO"),
         )?;
+        if reservation.is_none() {
+            s.command_quota.charge(scope, now_ms)?;
+        }
         if reservation
             .as_ref()
             .is_some_and(|(boot, endpoint)| boot != &s.boot || endpoint != &s.server)

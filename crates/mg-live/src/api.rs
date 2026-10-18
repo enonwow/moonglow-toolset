@@ -406,7 +406,7 @@ fn answer(
         &RouteContext {
             now_ms,
             stop,
-            charge: &|| access.command(who, now_ms),
+            charge: &|| Ok(()),
             agents: json!(access.agents.recent(now_ms)),
         },
     );

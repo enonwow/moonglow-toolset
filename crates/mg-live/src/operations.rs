@@ -984,10 +984,21 @@ pub fn call(
 }
 pub fn call_scoped(
     name: &str,
+    input: Value,
+    live: &LiveStore,
+    stop: &AtomicBool,
+    scope: &crate::access::Scope,
+) -> Result<Value, crate::store::CommandError> {
+    call_scoped_at(name, input, live, stop, scope, now_ms())
+}
+
+pub(crate) fn call_scoped_at(
+    name: &str,
     mut input: Value,
     live: &LiveStore,
     stop: &AtomicBool,
     scope: &crate::access::Scope,
+    accepted_ms: u64,
 ) -> Result<Value, crate::store::CommandError> {
     let op =
         table(live.policy()).iter().find(|op| op.descriptor["name"] == name).ok_or_else(|| {
@@ -1033,7 +1044,7 @@ pub fn call_scoped(
         Handler::Command(kind) | Handler::Query(kind) => {
             input["op"] = json!(kind);
             let command = serde_json::from_value(input).map_err(|e| e.to_string())?;
-            live.enqueue_scoped(command, now_ms(), scope).map(|id| json!({"queued":id}))
+            live.enqueue_scoped(command, accepted_ms, scope).map(|id| json!({"queued":id}))
         }
         Handler::Wait => {
             let epoch = live.poll_epoch(scope)?;

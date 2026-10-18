@@ -3339,3 +3339,30 @@ command and now refuse with `forbidden`, without an accepted command or queue
 entry. A captured scope also remains revoked after re-enabling, while a fresh
 scope and local operations still work. Run `cargo +1.98.0 test -p mg-live --lib -j 2`
 with `CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`.
+
+## Shared command budgets (M2 M2)
+
+Every non-local game-command attempt, including game reads and idempotent retries,
+spends the store's shared fixed 60-second budget before durable ID reservation.
+The default is 60 per authenticated owner and 600 across all owners. Recreating a
+scope, reconnecting or changing the endpoint does not reset these counters.
+Expired owner windows are removed; new identities cannot evade the global limit.
+Local UI commands retain their separate right. Named HTTP client configuration is
+carried by the scope; embedders can set an authorized limit with
+`Scope::with_command_limit` (1..60000), still subject to the global budget.
+
+HTTP and gateway game calls both reach the same scoped enqueue implementation.
+HTTP keeps `429`, `code: rate_limited`, `retryAfterSeconds` and `Retry-After`.
+State reads and long polls do not spend command quota. Non-game HTTP mutations
+use the same store budget; the optional router hook remains available for extra
+host restrictions. The legacy default HTTP credential is now metered too.
+Gateway owners must be stable authenticated principal IDs, not disposable session
+IDs. Its existing command path needs no extra quota hook; high-volume fixtures
+must advance time instead of assuming unlimited commands in one minute.
+
+Store regressions first demonstrated acceptance beyond both limits. Tests now
+cover read-only direct enqueue, scope recreation, independent owners, global
+identity rotation, atomic concurrent acceptance, window reset and local access.
+A durable-journal test proves a refusal burns no ID and post-IO revalidation does
+not double-charge. Existing HTTP tests cover both command routes and retry headers.
+Run `cargo +1.98.0 test -p mg-live --lib -j 2` with the environment described above.
