@@ -369,3 +369,8 @@ replace its session or restart the game; no stale command is accepted and no
 missing-session error panics. A separate consent-revoked resend retains the
 original outbox. Reproduce with `cargo +1.98.0 test -p mg-live --lib audit_h1 -j 2`
 using the environment described above.
+
+`spawn_scripted` is a separate capability: together with `spawn` it enables
+`spawn_json`, but never `run_script`. The same Scope check protects command,
+call and HTTP route dispatch; there is no gateway-only operation-name exception.
+The `audit_m1` regression verifies all three paths and successful JSON spawning.

@@ -1,5 +1,7 @@
 # Update log
 
+* **Scripted spawn capability (2026-10-18)**: separate JSON-spawn permission from arbitrary script execution on command, call and HTTP paths. [Contract and regression](live-library.md#gateway-audit-invariants).
+
 * **Gateway final-acceptance integration (2026-10-18)**: check the captured gateway session and boot under the store lock before acceptance; blocked removal/replacement/restart regression passes. [Boundary](live-ops-wire.md#gateway-acceptance-under-the-store-lock-m2-h1-integration).
 
 * **Gateway acceptance race (2026-10-18)**: bind session generation and game boot at final acceptance; failed retries preserve the original outbox. [Contract and regression](live-library.md#gateway-audit-invariants).

@@ -19,6 +19,8 @@ pub enum ClientGroup {
     /// Speech and conversation summaries only; never creature control.
     Speech,
     Spawn,
+    /// Allows scripted spawn_json objects, never arbitrary run_script.
+    SpawnScripted,
     Scripts,
     Chunks,
     Players,
@@ -155,7 +157,8 @@ impl Scope {
                 ))
             || (group(op).is_some_and(|g| self.has(g))
                 && (op.strip_prefix("live_").unwrap_or(op) != "spawn_json"
-                    || self.has(ClientGroup::Scripts)))
+                    || self.has(ClientGroup::Scripts)
+                    || self.has(ClientGroup::SpawnScripted)))
     }
 }
 pub(crate) fn group(op: &str) -> Option<ClientGroup> {
@@ -301,7 +304,7 @@ impl Access {
                 groups: Some(c.groups.clone()),
                 delivery: c.delivery,
                 agent_epoch: None,
-            gateway_accept: None,
+                gateway_accept: None,
                 command_limit: c.per_minute,
             }))
             .collect();
@@ -519,7 +522,7 @@ mod tests {
                 groups: Some(vec![g]),
                 delivery: DeliveryMode::Auto,
                 agent_epoch: None,
-            gateway_accept: None,
+                gateway_accept: None,
                 command_limit: 60,
             };
             for op in ops {

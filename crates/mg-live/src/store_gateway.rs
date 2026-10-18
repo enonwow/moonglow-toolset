@@ -128,7 +128,8 @@ impl SessionConfig {
                 "npc" => Some(ClientGroup::Npc),
                 "speech" => Some(ClientGroup::Speech),
                 "spawn" => Some(ClientGroup::Spawn),
-                "spawn_scripted" | "scripts" => Some(ClientGroup::Scripts),
+                "spawn_scripted" => Some(ClientGroup::SpawnScripted),
+                "scripts" => Some(ClientGroup::Scripts),
                 "chunks" => Some(ClientGroup::Chunks),
                 "players" => Some(ClientGroup::Players),
                 _ => None,
@@ -623,9 +624,6 @@ impl Gateway {
         if matches!(op, "watch_areas" | "resync") {
             return Err(reject("forbidden", "Control commands are gateway-owned"));
         }
-        if op == "run_script" && !config.has("scripts") {
-            return Err(reject("forbidden", "Script permission required"));
-        }
         let mut scope = scope.clone();
         let binding = scope.gateway_accept.as_mut().expect("gateway scope");
         binding.boot = boot.clone();
@@ -1009,5 +1007,80 @@ mod audit_tests {
         let bad = command(1);
         assert_eq!(g.commands("dm:one", &[bad], 1).unwrap().rejected.len(), 1);
         assert!(g.store.lock().gateway.sessions["dm:one"].outbox.contains_key("one.1234abcd.1"));
+    }
+    #[test]
+    fn audit_m1_scripted_spawn_does_not_grant_script_execution_on_any_route() {
+        for path in 0..3 {
+            let g = setup();
+            g.store.set_policy(Policy { scripts: true, ..Policy::default() });
+            let mut c = config();
+            c.groups = vec!["spawn".into(), "spawn_scripted".into()];
+            let scope = c.scope();
+            let mut input = json!({"id":"script-denied","area":"a","op":"run_script","target":"1","script":"example"});
+            if path != 0 {
+                input.as_object_mut().unwrap().remove("op");
+            }
+            match path {
+                0 => assert_eq!(
+                    crate::operations::command_scoped(input, &g.store, 0, &scope).unwrap_err().code,
+                    ErrorCode::Forbidden
+                ),
+                1 => assert_eq!(
+                    crate::operations::call_scoped(
+                        "live_run_script",
+                        input,
+                        &g.store,
+                        &std::sync::atomic::AtomicBool::new(false),
+                        &scope
+                    )
+                    .unwrap_err()
+                    .code,
+                    ErrorCode::Forbidden
+                ),
+                _ => assert_eq!(
+                    crate::api::route(
+                        "POST",
+                        "/v1/call/live_run_script",
+                        &[],
+                        &serde_json::to_vec(&input).unwrap(),
+                        &scope,
+                        &g.store
+                    )
+                    .status,
+                    403
+                ),
+            }
+            let mut input = json!({"id":"spawn-allowed","area":"a","op":"spawn_json","json":{"__data_type":"UTC "},"x":0,"y":0,"z":0,"f":0});
+            if path != 0 {
+                input.as_object_mut().unwrap().remove("op");
+            }
+            match path {
+                0 => {
+                    crate::operations::command_scoped(input, &g.store, 0, &scope).unwrap();
+                }
+                1 => {
+                    crate::operations::call_scoped(
+                        "live_spawn_json",
+                        input,
+                        &g.store,
+                        &std::sync::atomic::AtomicBool::new(false),
+                        &scope,
+                    )
+                    .unwrap();
+                }
+                _ => assert_eq!(
+                    crate::api::route(
+                        "POST",
+                        "/v1/call/live_spawn_json",
+                        &[],
+                        &serde_json::to_vec(&input).unwrap(),
+                        &scope,
+                        &g.store
+                    )
+                    .status,
+                    200
+                ),
+            }
+        }
     }
 }
