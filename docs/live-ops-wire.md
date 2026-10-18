@@ -18,6 +18,22 @@ and menus remain with the coordinating workers. Client rendering is claimed only
 
 ## Transport and validation
 
+### Watch ownership and admission (2026-10-18)
+
+Raw `watch_areas` is local-only, including when HTTP uses the unrestricted
+root credential. External scopes cannot enqueue it directly. Trusted adapters
+replace a named owner's set through `set_watched_areas_owned`; local views use
+the `local` owner. Removing one set preserves every other owner's requests.
+Admission rejects a union of watches and reported player areas above 64,
+without modifying the previous sets. The game independently prioritizes player
+areas and defers excess observation areas at report time, logging the limit,
+so movement after admission cannot make the entire report unparsable.
+
+Regressions: `watch_ownership` integration tests cover direct and operation
+dispatch denial, overlapping owners, atomic rejection and player overlap;
+the access unit test covers unrestricted remote credentials. Run with
+`cargo +1.98.0 test -p mg-live --test watch_ownership -j 2`.
+
 Publish UTF-8 JSON to `<prefix>.cmd`, escaping all non-ASCII string characters
 as JSON `\uXXXX` sequences at the Redis publisher (including surrogate pairs
 where applicable). Literal UTF-8 is not accepted losslessly by native JsonParse;

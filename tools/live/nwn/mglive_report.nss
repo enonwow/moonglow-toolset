@@ -87,13 +87,33 @@ void MgLiveReportBegin()
     SetLocalInt(m,"MGLIVE_REPORT_AT",0);SetLocalInt(m,"MGLIVE_REPORT_PHASE",0);
     SetLocalInt(m,"MGLIVE_REPORT_US",GetMicrosecondCounter()-start);SetLocalInt(m,"MGLIVE_REPORT_BYTES",0);
     json watched=JsonArray();
-    int count=0;object area=GetFirstArea();
+    // Players take priority if they enter new areas after watch admission.
+    // Mark each area once so multiple PCs do not consume multiple slots.
+    int count=0;int deferred=0;object pc=GetFirstPC();object area;
+    while(GetIsObjectValid(pc))
+    {
+        area=GetArea(pc);
+        if(GetIsObjectValid(area) && GetLocalInt(area,"MGLIVE_REPORT_SELECTED")!=seq)
+        {
+            if(count<64) { SetLocalObject(m,"MGLIVE_REPORT_"+IntToString(count),area);count++; }
+            else deferred++;
+            SetLocalInt(area,"MGLIVE_REPORT_SELECTED",seq);
+        }
+        pc=GetNextPC();
+    }
+    area=GetFirstArea();
     while(GetIsObjectValid(area))
     {
         if(GetLocalInt(area,"MGLIVE_WATCHED")) watched=JsonArrayInsert(watched,JsonString(GetResRef(area)));
-        if(MgLiveAreaWanted(area)) { SetLocalObject(m,"MGLIVE_REPORT_"+IntToString(count),area);count++; }
+        if(MgLiveAreaWanted(area) && GetLocalInt(area,"MGLIVE_REPORT_SELECTED")!=seq)
+        {
+            if(count<64) { SetLocalObject(m,"MGLIVE_REPORT_"+IntToString(count),area);count++; }
+            else deferred++;
+        }
         area=GetNextArea();
     }
+    if(deferred && (seq==1 || seq%60==0))
+        WriteTimestampedLogEntry("MGLIVE: watch limit exceeded; deferred areas="+IntToString(deferred));
     SetLocalJson(m,"MGLIVE_WATCHED_AREAS",watched);
     SetLocalInt(m,"MGLIVE_REPORT_COUNT",count);DelayCommand(0.0,ExecuteScript("mglive_rpt",m));
 }

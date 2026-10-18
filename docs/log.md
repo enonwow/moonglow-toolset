@@ -1,5 +1,7 @@
 # Update log
 
+* **Live watch ownership (2026-10-18)**: local-only raw controls, per-owner desired sets and a shared player/watch budget. [Contract](live-ops-wire.md#watch-ownership-and-admission-2026-10-18).
+
 * **Live gateway session core (2026-10-18)**: revisioned views, scoped command delivery, retained result outboxes and resumable event cursors. [Contract and decisions](live-library.md#in-process-gateway-core).
 
 * **Passive Live mirror (2026-10-18)**: finished-state imports, preserved event cursors and no-resend command lifecycle. [Contract](live-library.md#passive-mirror).

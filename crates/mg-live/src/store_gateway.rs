@@ -334,7 +334,11 @@ impl Gateway {
                     .chain(s.focus.iter().map(|(area, _)| area.to_ascii_lowercase()))
             })
             .collect();
-        self.store.set_watched_areas(&union.into_iter().take(MAX_AREAS).collect::<Vec<_>>(), now_ms)
+        self.store.set_watched_areas_owned(
+            "gateway",
+            &union.into_iter().take(MAX_AREAS).collect::<Vec<_>>(),
+            now_ms,
+        )
     }
     pub fn watch_set(&self, id: &str, areas: &[String], now_ms: u64) -> Result<WatchReply, String> {
         let mut s = self.store.lock();

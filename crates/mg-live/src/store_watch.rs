@@ -1,10 +1,11 @@
 //! Idempotent UI subscriptions, independent of game objects and command freshness.
 //! Retain only our removals: explicit agent watches and server extras are not ours.
 use super::{LiveStore, SyncRequest, Value, json, resref};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
 pub(super) struct Watches {
+    owners: BTreeMap<String, BTreeSet<String>>,
     pub(super) desired: Option<BTreeSet<String>>,
     managed: BTreeSet<String>,
     pub reported: Option<Vec<String>>,
@@ -45,14 +46,49 @@ impl LiveStore {
     /// Union of the areas currently used by local views. Empty releases our watches.
     /// May be called before the first report. No area row or player consent is needed.
     pub fn set_watched_areas(&self, areas: &[String], now_ms: u64) -> Result<(), String> {
+        self.set_watched_areas_owned("local", areas, now_ms)
+    }
+
+    /// Replace one owner's desired set without releasing another owner's watches.
+    /// Admission includes player areas; excess requests leave all sets unchanged.
+    pub fn set_watched_areas_owned(
+        &self,
+        owner: &str,
+        areas: &[String],
+        now_ms: u64,
+    ) -> Result<(), String> {
         if self.is_mirror() {
             return Err("Use gateway watch.set for a mirror".into());
         }
         if !areas.is_empty() {
             validate(areas)?;
         }
-        let desired: BTreeSet<_> = areas.iter().map(|s| s.to_ascii_lowercase()).collect();
+        let requested: BTreeSet<_> = areas.iter().map(|s| s.to_ascii_lowercase()).collect();
         let mut s = self.lock();
+        let desired: BTreeSet<_> = s
+            .watch
+            .owners
+            .iter()
+            .filter(|(name, _)| name.as_str() != owner)
+            .flat_map(|(_, set)| set.iter().cloned())
+            .chain(requested.iter().cloned())
+            .collect();
+        let players: BTreeSet<_> = s
+            .areas
+            .iter()
+            .filter(|(_, area)| area.creatures.iter().any(|o| o.pc))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if desired.union(&players).count() > super::MAX_AREAS {
+            return Err(
+                "Watch limit exceeded: watched and player areas must fit in 64 areas".into()
+            );
+        }
+        if requested.is_empty() {
+            s.watch.owners.remove(owner);
+        } else {
+            s.watch.owners.insert(owner.into(), requested);
+        }
         if s.watch.desired.as_ref() != Some(&desired) {
             s.watch.managed.extend(desired.iter().cloned());
             s.watch.desired = Some(desired);

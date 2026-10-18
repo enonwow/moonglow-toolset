@@ -113,6 +113,9 @@ impl Scope {
         self.groups.as_ref().is_none_or(|g| g.contains(&group))
     }
     pub fn allows(&self, op: &str) -> bool {
+        if op.strip_prefix("live_").unwrap_or(op) == "watch_areas" {
+            return self.unrestricted() && self.name == "local";
+        }
         self.unrestricted()
             || (self.has(ClientGroup::Speech)
                 && matches!(
@@ -391,6 +394,14 @@ impl Audit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_local_scope_can_issue_raw_watch_commands() {
+        let mut scope = Scope::default();
+        assert!(!scope.allows("watch_areas"));
+        assert!(!scope.allows("live_watch_areas"));
+        scope.name = "local".into();
+        assert!(scope.allows("watch_areas"));
+    }
     const ROOT: &str = "root-0123456789abcdef0123456789abcdef";
     fn client() -> ClientToken {
         ClientToken {
