@@ -160,7 +160,11 @@
         "sounds": [],
         "encounters": [],
         "stores": [],
-        "triggers": []
+        "triggers": [],
+        "creatures_partial": false,
+        "static_observed": 0,
+        "truncated": false,
+        "omitted_at_least": 0
       }
     }
   },
