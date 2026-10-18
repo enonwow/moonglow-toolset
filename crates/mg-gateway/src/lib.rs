@@ -79,6 +79,9 @@ pub struct Config {
     pub queue_frames: usize,
     pub queue_bytes: usize,
     pub watch_limit: usize,
+    pub connections: usize,
+    pub features: Vec<String>,
+    pub nwsync: Option<mg_live::gateway_frames::Nwsync>,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -87,6 +90,9 @@ impl Default for Config {
             queue_frames: 256,
             queue_bytes: 32 * 1024 * 1024,
             watch_limit: 16,
+            connections: 128,
+            features: vec![],
+            nwsync: None,
         }
     }
 }
@@ -97,6 +103,7 @@ pub(crate) struct App {
     policy: Arc<dyn PolicyResolver>,
     config: Config,
     agents: Arc<agent::AgentState>,
+    connections: Arc<tokio::sync::Semaphore>,
 }
 pub fn router(
     core: CoreHandle,
@@ -112,6 +119,7 @@ pub fn router(
             core,
             auth,
             policy,
+            connections: Arc::new(tokio::sync::Semaphore::new(config.connections)),
             config,
             agents: Arc::new(agent::AgentState::default()),
         })
@@ -121,13 +129,15 @@ struct Versions {
     proto: Option<u32>,
     mirror: Option<u32>,
 }
-async fn authenticate(app: &App, headers: &HeaderMap) -> Result<(String, Principal), Response> {
+async fn authenticate(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<(String, Principal), Box<Response>> {
     if headers.contains_key("origin") {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(json!({"ok":false,"error":"Origin is not allowed"})),
-        )
-            .into_response());
+        return Err(Box::new(
+            (StatusCode::FORBIDDEN, Json(json!({"ok":false,"error":"Origin is not allowed"})))
+                .into_response(),
+        ));
     }
     let mut values = headers.get_all("authorization").iter();
     let bearer =
@@ -135,7 +145,7 @@ async fn authenticate(app: &App, headers: &HeaderMap) -> Result<(String, Princip
     let Some(bearer) =
         bearer.filter(|b| !b.is_empty() && b.len() <= 4096 && values.next().is_none())
     else {
-        return Err(unauthorized());
+        return Err(Box::new(unauthorized()));
     };
     let bearer = bearer.to_owned();
     let auth = app.auth.clone();
@@ -144,7 +154,7 @@ async fn authenticate(app: &App, headers: &HeaderMap) -> Result<(String, Princip
         tokio::task::spawn_blocking(move || auth.authenticate(&token)).await.ok().flatten();
     match principal {
         Some(p) if p.validate().is_ok() => Ok((bearer, p)),
-        _ => Err(unauthorized()),
+        _ => Err(Box::new(unauthorized())),
     }
 }
 fn unauthorized() -> Response {
@@ -158,8 +168,15 @@ async fn upgrade(
 ) -> Response {
     let (token, principal) = match authenticate(&app, &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
+    if !principal.id.starts_with("dm:") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"ok":false,"code":"forbidden","error":"DM principal required"})),
+        )
+            .into_response();
+    }
     if versions.proto.is_some_and(|v| v != PROTOCOL_VERSION)
         || versions.mirror.is_some_and(|v| v != MIRROR_VERSION)
     {
@@ -182,10 +199,23 @@ async fn upgrade(
         )
             .into_response();
     }
+    if app.core.is_shutdown() {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    let Ok(permit) = app.connections.clone().try_acquire_owned() else {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"ok":false,"code":"rate_limited","error":"Connection limit exceeded"})),
+        )
+            .into_response();
+    };
     ws.protocols(["moonglow-gw.1"])
         .max_message_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
         .max_frame_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
-        .on_upgrade(move |ws| socket::run(ws, app, token, principal))
+        .on_upgrade(move |ws| async move {
+            let _permit = permit;
+            socket::run(ws, app, token, principal).await;
+        })
         .into_response()
 }
 

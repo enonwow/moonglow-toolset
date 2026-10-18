@@ -4,7 +4,7 @@ title: Live gateway protocol
 description: Normative moonglow-gw/1 JSON envelopes, finished-state mirror and session delivery contract.
 tags: [live, gateway, protocol]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/src/store_gateway.rs]
+sources: [../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-gateway/src/lib.rs]
 ---
 
 # moonglow-gw/1: the Moonglow ↔ gateway protocol (draft 1)
@@ -41,6 +41,13 @@ the management panel and translations are host concerns.
 - Keep-alive: WebSocket ping every 15 s from the gateway; idle 45 s closes.
 - Unknown fields MUST be ignored. Unknown `t` or `topic` from the gateway
   MUST be logged and skipped. Unknown `op` from a client → `err unsupported`.
+
+Implementation note (P2a): HTTP status is final after upgrade. The public
+transport accepts optional `?proto=1&mirror=1` on the upgrade URL and returns
+426 with `min_client` for a mismatch there. It always validates the actual
+hello too; a mismatch after upgrade sends `bye upgrade`. Omitting the query
+is supported. This is the transport resolution of the draft's 426 sequencing
+ambiguity, not a change to hello or welcome JSON.
 
 ## 3. Envelope
 

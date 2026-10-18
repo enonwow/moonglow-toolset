@@ -109,6 +109,6 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 * [Prepare a module for Live](live-build.md) - Shared embedded Rust builder, CLI/GUI, byte-preserving dialogue instrumentation, deployment settings and private proofs.
 
-* [Live library for headless consumers](live-library.md) - Dependency boundary and public API contracts for embedding the Live store.
+* [Live library for headless consumers](live-library.md) - Dependency boundary, passive mirrors, gateway transport and shared scoped HTTP routing.
 
 * [Live gateway feasibility prototypes](live-gateway-prototypes.md) - Verified clean-client NWSync cache and opt-in native chat translation with fallback, channel proofs and latency measurements.

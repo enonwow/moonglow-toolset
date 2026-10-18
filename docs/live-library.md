@@ -1,10 +1,10 @@
 ---
 type: Implementation
 title: Live library for headless consumers
-description: Dependency boundary and public API contracts for embedding the Live store.
+description: Dependency boundary, passive mirrors, gateway transport and shared scoped HTTP routing.
 tags: [live, library, gateway]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/lib.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs]
+sources: [../crates/mg-live/src/lib.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
 ---
 
 # Live library for headless consumers
@@ -206,10 +206,10 @@ Final gates are `cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib
 -D warnings`, and `cargo +1.98.0 fmt --check`. Source and golden fixtures are
 the retained reproduction artifacts; temporary gate output is local only.
 
-The host must initialize the authoritative store's durable command identity
-storage through the existing service before production use. The in-process
-core's tests use memory-only stores; they do not prove persistence across a
-new process, network authentication, WebSocket behavior or GUI acceptance.
+The P1 in-process core tests use memory-only stores and do not prove persistence
+across a new process or GUI acceptance. A host initializes durable storage
+through the existing Live service or P2a's `CoreHandle::start_bridge` before
+production use. The network tests below extend the P1 evidence to HTTP and WS.
 
 P1 adds 27 passing unit/store regressions across schema, mirror, gateway,
 frames and differential suites (including 192 fixed-seed report scenarios).
@@ -219,7 +219,9 @@ These checks establish the library contract, not owner or native-game acceptance
 
 `mg-gateway` embeds the P1 session core behind `CoreHandle`. All store work,
 policy resolution and authentication execute on blocking workers. `/ws/v1`
-requires bearer authentication and `moonglow-gw.1`; Origin requests are refused.
+requires a DM bearer principal and `moonglow-gw.1`; Origin requests are refused.
+AI principals use `/agent/v1` and cannot upgrade a WebSocket, so they cannot
+bypass the HTTP delivery/draft policy through the DM command channel.
 Principal identifiers must be `dm:<id>` or `ai:<id>`; `default` and `local`
 are reserved, including after the colon. Display names never become scopes.
 `Authenticator`, `PolicyResolver` and `Extensions` separate host integration
@@ -257,6 +259,9 @@ remain adapter responsibilities; callers of the bare route must already have
 validated the principal and provide rate limiting when exposing writes.
 The existing TLS loopback API and `/agent/v1/*` both use this implementation.
 The gateway requires an `ai:` principal and rejects Origin before body reads.
+Gateway event responses additionally require `read_tells` for chat channels
+4, 20 and `tell`, while retaining the unfiltered page cursor. This boundary
+filter preserves the legacy loopback wire and its existing scope model.
 `PolicyResolver` chooses delivery mode (AI defaults to drafts) and command
 budget (60/minute by default). No client-supplied name can change attribution.
 
@@ -303,3 +308,48 @@ The binary writes status to stdout and does not log requests or credentials.
 
 Configuration regressions run with
 `cargo +1.98.0 test -p mg-gateway-dev -j 2`. These tests do not connect to Redis.
+
+## Gateway transport verification and limits
+
+The socket tests bind `127.0.0.1:0`, use a tungstenite client, and feed game JSON
+through `sync()` on a blocking worker. They cover upgrade authentication,
+Origin and version refusal, restricted identities, command attribution, final
+result ACK across resume, overload, oversize input, replacement and shutdown.
+The public P1 report fixture is replayed through actual JSON WebSocket pushes,
+including gaps and game boots; area, find, locate and event outputs match the
+passive mirror after clock-local receive times are normalized. A new gateway
+epoch refuses resume and clears the mirror's unsent queue as unknown. Agent
+routing is checked both through the Axum service and an actual TCP request.
+
+The outgoing writer also enforces 250 ms between sends of an area, so a stalled
+socket cannot release a burst of old areas. The pending queue replaces the
+area while waiting for that budget. Default connection capacity is 128;
+connections close overloaded after 100,000 requests to bound duplicate-ID
+tracking. The core retains at most 1,024 principal sessions at once. A blocking
+maintenance job removes sessions after ten minutes without transport activity,
+releasing their watches and outboxes. A fake-clock regression checks both
+sides of that deadline, watch capacity recovery and refused resume.
+The agent permit belongs to its blocking job, so aborting HTTP cannot bypass
+the sixteen-poll limit. `CoreHandle::publish` accepts host-authorized auxiliary
+pushes; `Config.features` and `Config.nwsync` populate the welcome advertisement.
+
+Reproduction uses Rust 1.98.0 and the dependency versions in Cargo.lock
+(Axum 0.8.9, Tokio 1.53.1 and tungstenite 0.29.0 at this implementation).
+Run the targeted gateway and dev tests, then the three workspace gates listed
+above. No test here launches Redis, a game server, Discord, a reverse proxy,
+or an actual desktop link. A real-time test verifies two pings and that a silent client
+is closed at the 45-second deadline. After tungstenite performs the upgrade,
+that test reads raw frames: normal tungstenite reads automatically answer
+pings, which can race the server close and invalidate a silent-client test.
+Real cross-process journal recovery
+is not proven here; the development host reuses the existing Live journal
+and inbox implementation. Host-specific authentication,
+role freshness, per-IP limits and authorization of auxiliary pushes remain
+host integration responsibilities. Test success is not user acceptance or
+approval to expose this development binary publicly.
+
+P2a adds 23 gateway/dev tests, alongside 18 existing loopback
+API tests (one manual TLS smoke remains ignored). `okf` is unavailable in both
+the Windows and WSL environments used for this run; frontmatter, indexed
+descriptions and all local source/link targets in the touched documents were
+checked directly.

@@ -14,7 +14,7 @@ use tower::ServiceExt;
 struct Auth;
 impl Authenticator for Auth {
     fn authenticate(&self, t: &str) -> Option<Principal> {
-        (t == "test-agent").then(|| principal())
+        (t == "test-agent").then(principal)
     }
 }
 fn principal() -> Principal {
@@ -183,4 +183,61 @@ async fn event_poll_releases_runtime_and_wakes_on_report() {
     let r = tokio::time::timeout(std::time::Duration::from_secs(2), poll).await.unwrap().unwrap();
     assert_eq!(r.0, 200, "{}", r.1);
     assert!(!r.1["result"]["events"].as_array().unwrap().is_empty(), "{}", r.1);
+}
+
+#[tokio::test]
+async fn agent_chat_requires_a_separate_tell_capability_and_keeps_the_cursor() {
+    #[derive(Debug)]
+    struct ChatAuth {
+        tells: bool,
+    }
+    impl Authenticator for ChatAuth {
+        fn authenticate(&self, t: &str) -> Option<Principal> {
+            if t != "test-agent" {
+                return None;
+            }
+            let mut p = principal();
+            p.groups.push("read_chat".into());
+            if self.tells {
+                p.groups.push("read_tells".into());
+            }
+            Some(p)
+        }
+    }
+    let (_, core) = app().await;
+    let through = core
+        .with_store(|s| {
+            s.sync(
+                &serde_json::to_vec(&json!({"v":1,"boot":"b","seq":2,"areas":[],"events":[
+                    {"seq":1,"kind":"chat","channel":1,"text":"public"},
+                    {"seq":2,"kind":"chat","channel":4,"text":"private"},
+                    {"seq":3,"kind":"chat","channel":20,"text":"private"},
+                    {"seq":4,"kind":"chat","channel":"tell","text":"private"}
+                ]}))
+                .unwrap(),
+                1100,
+            )
+            .unwrap();
+            s.event_cursor()
+        })
+        .await
+        .unwrap();
+    for tells in [false, true] {
+        let app = mg_gateway::router(
+            core.clone(),
+            Arc::new(ChatAuth { tells }),
+            Arc::new(PolicyProvider),
+            Config::default(),
+        );
+        for path in ["/agent/v1/call/live_events", "/agent/v1/call//v1/call/live_events"] {
+            let (status, body, _) = exchange(&app, "POST", path, r#"{"since":0}"#, None).await;
+            assert_eq!(status, 200);
+            let events = body["result"]["events"].as_array().unwrap();
+            assert_eq!(events.len(), if tells { 4 } else { 1 });
+            assert_eq!(body["result"]["last"], through);
+            if !tells {
+                assert_eq!(events[0]["data"]["text"], "public");
+            }
+        }
+    }
 }

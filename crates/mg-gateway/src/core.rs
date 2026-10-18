@@ -18,6 +18,7 @@ use std::{
 struct Session {
     prefix: String,
     generation: u64,
+    touched: std::time::Instant,
 }
 #[derive(Debug)]
 struct Core {
@@ -31,7 +32,7 @@ struct Core {
 pub struct CoreHandle(Arc<Core>);
 impl CoreHandle {
     pub async fn new(store: Arc<LiveStore>) -> Result<Self, String> {
-        tokio::task::spawn_blocking(move || {
+        let core = tokio::task::spawn_blocking(move || -> Result<Self, String> {
             Ok(Self(Arc::new(Core {
                 gateway: Gateway::new(store)?,
                 sessions: Mutex::new(HashMap::new()),
@@ -40,7 +41,22 @@ impl CoreHandle {
             })))
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+        let weak = Arc::downgrade(&core.0);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                let Some(core) = weak.upgrade() else {
+                    break;
+                };
+                if core.stopped.load(Ordering::Acquire) {
+                    break;
+                }
+                let _ =
+                    tokio::task::spawn_blocking(move || core.reap(std::time::Instant::now())).await;
+            }
+        });
+        Ok(core)
     }
     pub async fn with_store<R: Send + 'static>(
         &self,
@@ -74,6 +90,17 @@ impl CoreHandle {
         .await
         .map_err(|e| e.to_string())?
     }
+    /// Publish an auxiliary push after the host has authorized its audience.
+    pub async fn publish(
+        &self,
+        principal: String,
+        push: mg_live::gateway::Push,
+    ) -> Result<(), String> {
+        let core = self.0.clone();
+        tokio::task::spawn_blocking(move || core.gateway.publish_session(&principal, push))
+            .await
+            .map_err(|e| e.to_string())?
+    }
     pub fn request_shutdown(&self) {
         self.0.stopped.store(true, Ordering::Release);
     }
@@ -98,6 +125,7 @@ impl CoreHandle {
         let core = self.0.clone();
         tokio::task::spawn_blocking(move || {
             principal.validate()?;
+            core.reap(std::time::Instant::now())?;
             let mut sessions = core.sessions.lock().unwrap_or_else(|e| e.into_inner());
             if !sessions.contains_key(&principal.id) && sessions.len() >= 1024 {
                 return Err("Session capacity reached".into());
@@ -105,8 +133,10 @@ impl CoreHandle {
             let session = sessions.entry(principal.id.clone()).or_insert(Session {
                 prefix: format!("{}.", &mg_live::service::generate_token()?[..12]),
                 generation: 0,
+                touched: std::time::Instant::now(),
             });
             session.generation += 1;
+            session.touched = std::time::Instant::now();
             let resumed = core.gateway.connect(
                 SessionConfig {
                     id: principal.id.clone(),
@@ -134,8 +164,8 @@ impl CoreHandle {
                 policy: core.gateway.store().policy(),
                 id_prefix: session.prefix.clone(),
                 limits: Limits { watch: config.watch_limit, ..Limits::default() },
-                features: vec![],
-                nwsync: None,
+                features: config.features,
+                nwsync: config.nwsync,
                 resumed,
             };
             Ok((session.generation, welcome))
@@ -151,14 +181,33 @@ impl CoreHandle {
     ) -> Result<R, String> {
         let core = self.0.clone();
         tokio::task::spawn_blocking(move || {
-            let sessions = core.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let mut sessions = core.sessions.lock().unwrap_or_else(|e| e.into_inner());
             if sessions.get(&id).is_none_or(|s| s.generation != generation) {
                 return Err("replaced".into());
             }
+            sessions.get_mut(&id).expect("checked session").touched = std::time::Instant::now();
             f(&core.gateway, &id)
         })
         .await
         .map_err(|e| e.to_string())?
+    }
+}
+impl Core {
+    fn reap(&self, now: std::time::Instant) -> Result<(), String> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let expired: Vec<_> = sessions
+            .iter()
+            .filter(|(_, s)| {
+                now.saturating_duration_since(s.touched)
+                    >= std::time::Duration::from_millis(mg_live::gateway::RESULT_RETENTION_MS)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in expired {
+            self.gateway.remove_session(&id, crate::now())?;
+            sessions.remove(&id);
+        }
+        Ok(())
     }
 }
 impl Drop for Core {
@@ -168,5 +217,66 @@ impl Drop for Core {
             let _ =
                 std::thread::Builder::new().name("gateway-stop".into()).spawn(move || drop(bridge));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn abandoned_sessions_release_watch_capacity_and_cannot_resume() {
+        let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+        let principal =
+            Principal { id: "dm:test".into(), name: "Test".into(), groups: vec!["read".into()] };
+        let hello = Hello {
+            proto: 1,
+            mirror: MIRROR_VERSION,
+            client: "test".into(),
+            resume: None,
+            watch: vec!["square".into()],
+        };
+        let (_, welcome) =
+            core.connect(principal.clone(), hello.clone(), Config::default()).await.unwrap();
+        let inner = core.0.clone();
+        tokio::task::spawn_blocking(move || {
+            let touched = inner.sessions.lock().unwrap()["dm:test"].touched;
+            inner
+                .reap(
+                    touched
+                        + std::time::Duration::from_millis(
+                            mg_live::gateway::RESULT_RETENTION_MS - 1,
+                        ),
+                )
+                .unwrap();
+            assert!(inner.sessions.lock().unwrap().contains_key("dm:test"));
+            let areas: Vec<_> = (0..64).map(|i| format!("zone{i}")).collect();
+            assert!(
+                inner
+                    .gateway
+                    .store()
+                    .set_watched_areas_owned("probe", &areas, crate::now())
+                    .is_err()
+            );
+            inner
+                .reap(
+                    touched
+                        + std::time::Duration::from_millis(mg_live::gateway::RESULT_RETENTION_MS),
+                )
+                .unwrap();
+            assert!(inner.sessions.lock().unwrap().is_empty());
+            assert!(inner.gateway.pushes("dm:test", crate::now()).is_err());
+            let areas: Vec<_> = (0..64).map(|i| format!("zone{i}")).collect();
+            inner.gateway.store().set_watched_areas_owned("probe", &areas, crate::now()).unwrap();
+            inner.gateway.store().set_watched_areas_owned("probe", &[], crate::now()).unwrap();
+        })
+        .await
+        .unwrap();
+        let mut hello = hello;
+        hello.resume =
+            Some(mg_live::gateway::Resume { gw_epoch: welcome.gw_epoch, ..Default::default() });
+        let (_, next) = core.connect(principal, hello, Config::default()).await.unwrap();
+        assert!(!next.resumed);
+        assert_ne!(welcome.id_prefix, next.id_prefix);
+        core.shutdown().await.unwrap();
     }
 }

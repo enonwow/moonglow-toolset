@@ -59,11 +59,20 @@ impl Queue {
         self.notify.notify_one();
         Ok(())
     }
-    async fn next(&self) -> String {
+    fn latest(&self, mut entry: Entry) -> Entry {
+        if let Some(key) = &entry.area {
+            let mut queue = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(index) = queue.iter().position(|e| e.area.as_ref() == Some(key)) {
+                entry = queue.remove(index).expect("known entry");
+            }
+        }
+        entry
+    }
+    async fn next(&self) -> Entry {
         loop {
             let notified = self.notify.notified();
             if let Some(e) = self.entries.lock().unwrap_or_else(|e| e.into_inner()).pop_front() {
-                return e.text;
+                return e;
             }
             notified.await;
         }
@@ -124,15 +133,25 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
                 return;
             }
         };
-    let queue = Arc::new(Queue::new(&app));
-    if let Err(code) = queue.put(ServerFrame::Welcome(welcome)) {
-        close(&mut socket, code).await;
+    let text = match serde_json::to_string(&ServerFrame::Welcome(welcome)) {
+        Ok(text) if text.len() <= frames::SERVER_FRAME_LIMIT => text,
+        _ => {
+            close(&mut socket, "too_large").await;
+            return;
+        }
+    };
+    if !matches!(
+        timeout(Duration::from_secs(5), socket.send(Message::Text(text.into()))).await,
+        Ok(Ok(()))
+    ) {
         return;
     }
+    let queue = Arc::new(Queue::new(&app));
     let (mut sink, mut stream) = socket.split();
     let (pings, mut ping_rx) = tokio::sync::mpsc::channel(2);
     let last_seen = Arc::new(Mutex::new(Instant::now()));
     let reader = async {
+        let mut requests = 0u32;
         while let Some(message) = stream.next().await {
             *last_seen.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
             match message {
@@ -143,6 +162,10 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
                     let id = principal.id.clone();
                     match frame {
                         ClientFrame::Req(req) => {
+                            requests += 1;
+                            if requests > 100_000 {
+                                return Err("overloaded".into());
+                            }
                             let request_id = req.id;
                             let response = app
                                 .core
@@ -206,45 +229,60 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
         }
     };
     let writer = async {
+        let mut sent = std::collections::HashMap::<(String, String), Instant>::new();
         loop {
-            let message = tokio::select! { text = queue.next() => Message::Text(text.into()), Some(message) = ping_rx.recv() => message };
+            let (message, key) = tokio::select! {
+                entry = queue.next() => {
+                    if let Some(last)=entry.area.as_ref().and_then(|key|sent.get(key)) {
+                        tokio::time::sleep_until(*last+Duration::from_millis(250)).await;
+                    }
+                    let entry=queue.latest(entry);
+                    (Message::Text(entry.text.into()),entry.area)
+                },
+                Some(message) = ping_rx.recv() => (message,None)
+            };
             timeout(Duration::from_secs(5), sink.send(message))
                 .await
                 .map_err(|_| "overloaded".to_owned())?
                 .map_err(|_| "closed".to_owned())?;
+            if let Some(key) = key {
+                sent.retain(|_, at| at.elapsed() < Duration::from_secs(1));
+                sent.insert(key, Instant::now());
+            }
         }
         #[allow(unreachable_code)]
         Ok::<(), String>(())
     };
     let result = tokio::select! { r = reader => r, r = pump => r, r = writer => r };
     if let Err(code) = result {
-        let bye =
-            serde_json::to_string(&ServerFrame::Bye(Bye { code: code.clone(), msg: code.clone() }))
-                .unwrap_or_default();
-        let _ = timeout(Duration::from_secs(1), sink.send(Message::Text(bye.into()))).await;
-        let _ = timeout(
-            Duration::from_secs(1),
-            sink.send(Message::Close(Some(CloseFrame {
-                code: if code == "too_large" { 1009 } else { 1008 },
-                reason: code.into(),
-            }))),
-        )
-        .await;
+        close(&mut sink, &code).await;
     }
     let _ =
         app.core.session(principal.id, generation, |g, id| g.disconnect(id, crate::now())).await;
 }
-async fn close(socket: &mut WebSocket, code: &str) {
-    let text =
-        serde_json::to_string(&ServerFrame::Bye(Bye { code: code.into(), msg: code.into() }))
-            .unwrap_or_default();
-    let _ = timeout(Duration::from_secs(1), socket.send(Message::Text(text.into()))).await;
+async fn close<S: futures_util::Sink<Message> + Unpin>(socket: &mut S, code: &str) {
+    let normal = matches!(
+        code,
+        "revoked" | "role_changed" | "overloaded" | "shutdown" | "upgrade" | "replaced"
+    );
+    if normal {
+        let text =
+            serde_json::to_string(&ServerFrame::Bye(Bye { code: code.into(), msg: code.into() }))
+                .unwrap_or_default();
+        let _ = timeout(Duration::from_secs(1), socket.send(Message::Text(text.into()))).await;
+    }
+    let (status, reason) = match code {
+        "too_large" => (1009, "message too big"),
+        "idle" => (1001, "idle"),
+        "overloaded" => (1013, "overloaded"),
+        "shutdown" => (1001, "shutdown"),
+        "replaced" => (1000, "replaced"),
+        "revoked" | "role_changed" => (1008, "authorization changed"),
+        _ => (1002, "invalid protocol"),
+    };
     let _ = timeout(
         Duration::from_secs(1),
-        socket.send(Message::Close(Some(CloseFrame {
-            code: if code == "too_large" { 1009 } else { 1008 },
-            reason: code.to_owned().into(),
-        }))),
+        socket.send(Message::Close(Some(CloseFrame { code: status, reason: reason.into() }))),
     )
     .await;
 }
@@ -273,7 +311,7 @@ mod tests {
             })))
             .unwrap();
         }
-        let value: serde_json::Value = serde_json::from_str(&q.next().await).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&q.next().await.text).unwrap();
         assert_eq!(value["body"]["rev"], 3);
     }
     #[test]

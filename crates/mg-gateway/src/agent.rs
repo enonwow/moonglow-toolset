@@ -16,11 +16,14 @@ use std::{
 #[derive(Debug)]
 pub(crate) struct AgentState {
     windows: Mutex<HashMap<String, (u64, u32)>>,
-    slots: tokio::sync::Semaphore,
+    slots: std::sync::Arc<tokio::sync::Semaphore>,
 }
 impl Default for AgentState {
     fn default() -> Self {
-        Self { windows: Mutex::new(HashMap::new()), slots: tokio::sync::Semaphore::new(16) }
+        Self {
+            windows: Mutex::new(HashMap::new()),
+            slots: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
+        }
     }
 }
 impl AgentState {
@@ -41,7 +44,7 @@ impl AgentState {
 pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response {
     let (_, principal) = match crate::authenticate(&app, request.headers()).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if !principal.id.starts_with("ai:") {
         return (
@@ -50,7 +53,7 @@ pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response
         )
             .into_response();
     }
-    let Ok(permit) = app.agents.slots.try_acquire() else {
+    let Ok(permit) = app.agents.slots.clone().try_acquire_owned() else {
         return response(RouteResponse {
             status: 429,
             body: json!({"ok":false,"code":"rate_limited","error":"Client command limit exceeded","retryAfterSeconds":1}),
@@ -84,9 +87,10 @@ pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response
     let routed = app
         .core
         .with_store(move |store| {
+            let _permit = permit;
             store.set_policy(policy.policy());
             let scope = principal.scope(policy.delivery(&principal)).expect("validated principal");
-            mg_live::api::route_with_context(
+            let mut routed = mg_live::api::route_with_context(
                 &method,
                 &path,
                 &headers,
@@ -101,10 +105,25 @@ pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response
                     },
                     agents: json!([]),
                 },
-            )
+            );
+            // Gateway identities add a tell capability absent from legacy loopback scopes.
+            // Preserve the global page cursor even when every returned row is private.
+            if !principal.groups.iter().any(|g| g == "read_tells")
+                && let Some(events) = routed
+                    .body
+                    .get_mut("result")
+                    .and_then(|v| v.get_mut("events"))
+                    .and_then(serde_json::Value::as_array_mut)
+            {
+                events.retain(|e| {
+                    !(e["kind"] == "chat"
+                        && (e["data"]["channel"] == "tell"
+                            || matches!(e["data"]["channel"].as_u64(), Some(4 | 20))))
+                });
+            }
+            routed
         })
         .await;
-    drop(permit);
     match routed {
         Ok(r) => response(r),
         Err(_) => {
@@ -125,4 +144,62 @@ fn response(r: RouteResponse) -> Response {
         response.headers_mut().insert("retry-after", retry);
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    #[derive(Debug)]
+    struct Auth;
+    impl crate::Authenticator for Auth {
+        fn authenticate(&self, _: &str) -> Option<crate::Principal> {
+            Some(crate::Principal {
+                id: "ai:test".into(),
+                name: "Test".into(),
+                groups: vec!["read".into()],
+            })
+        }
+    }
+    #[tokio::test]
+    async fn cancelled_http_requests_do_not_release_running_poll_slots() {
+        let core =
+            crate::CoreHandle::new(Arc::new(mg_live::store::LiveStore::default())).await.unwrap();
+        let app = App {
+            core,
+            auth: Arc::new(Auth),
+            policy: Arc::new(mg_live::store::Policy::default()),
+            config: crate::Config::default(),
+            agents: Arc::new(AgentState::default()),
+            connections: Arc::new(tokio::sync::Semaphore::new(1)),
+        };
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/agent/v1/call/live_events")
+                .header("authorization", "Bearer test-agent")
+                .body(axum::body::Body::from(r#"{"wait_ms":500}"#))
+                .unwrap()
+        };
+        let mut polls = vec![];
+        for _ in 0..16 {
+            polls.push(tokio::spawn(handle(State(app.clone()), request())));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while app.agents.slots.available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // Give each acquired permit time to reach its blocking worker.
+        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        for p in polls {
+            p.abort();
+        }
+        tokio::task::yield_now().await;
+        assert_eq!(handle(State(app.clone()), request()).await.status(), 429);
+        tokio::time::sleep(std::time::Duration::from_millis(550)).await;
+        assert_eq!(app.agents.slots.available_permits(), 16);
+    }
 }

@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway socket verification (2026-10-18)**: 23 gateway/dev regressions cover scoped commands, mirror/resume, ACK, overload, idle, agent privacy and abandoned-session cleanup. [Contracts, protocol decisions and reproduction](live-library.md#gateway-transport-verification-and-limits).
+
 * **Live prototype verification (2026-10-18)**: completed prototype sources passed the shared 1720-test workspace gate, Clippy and formatting; a later gate is blocked by concurrent desktop-link work. Retained two native acceptance proofs and removed owned intermediate files. [Verification and retained evidence](live-gateway-prototypes.md#verification-and-retained-evidence).
 
 * **Desktop verification notes (2026-10-18)**: refreshed canonical source references and final scoped verification record. [Results and limits](live-desktop-link.md#m2-desktop-verification).
