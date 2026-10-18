@@ -765,3 +765,5 @@
 
 * **Panel report cache**: one source/boot/area/revision-keyed report, independent of map reconciliation; report access0.998 ->0.0287ms, Panel2.764 ->1.250ms, process CPU57.26 ->53.93% in matched five-minute replay. Invalidation and installed-resource app tests pass. [Proof](live-gui-performance.md#follow-up-3-panel-report-cache).
 - 2026-10-16: [deferred](deferred.md): NESS support in Live postponed by the owner; what works today and what a NESS layer would add.
+
+- 2026-10-18: Managed AI poll authorization now checks the current registry as well as the global consent epoch; unknown/revoked identities cannot keep reading. [Contract](live-ops-wire.md#managed-ai-reads-share-revocation-checks-p4).

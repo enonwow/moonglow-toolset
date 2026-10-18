@@ -3454,3 +3454,13 @@ red/green logs were replaced by compact exact assertion/count evidence and
 removed (124840 logical bytes); shared build outputs were left in use by their
 owners. No free-space change is attributed to this cleanup while other builds
 and cleanup tasks are active.
+
+
+## Managed AI reads share revocation checks (P4)
+
+Every scoped poll checks the managed AI registry, including initial authorization
+and each wake. Unknown, revoked, expired or reduced-permission `ai:` identities
+are refused before returning data. This supplements the process-wide consent
+epoch; local UI scopes keep their own authorization. The regression
+`ai_registry_is_checked_before_poll` first returned an epoch for an unknown AI,
+then returned `Forbidden` after adding the registry check to `poll_allowed`.

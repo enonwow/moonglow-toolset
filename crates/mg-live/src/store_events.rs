@@ -213,6 +213,7 @@ pub(super) fn poll_allowed(
     scope: &Scope,
     epoch: u64,
 ) -> Result<(), super::CommandError> {
+    super::gateway::validate_ai_scope(s, scope)?;
     if !(scope.unrestricted() && scope.name() == "local")
         && (s.agent_consent == Some(false)
             || epoch != s.agent_epoch
@@ -477,5 +478,20 @@ mod tests {
         s.sync(br#"{"v":1,"boot":"new","seq":1,"areas":[]}"#, 1200).unwrap();
         assert!(worker.join().unwrap().reset);
         assert!(start.elapsed() < Duration::from_secs(1));
+    }
+}
+
+#[cfg(test)]
+mod acceptance_tests {
+    use super::*;
+    #[test]
+    fn ai_registry_is_checked_before_poll() {
+        let store = LiveStore::default();
+        let scope = Scope::restricted(
+            "ai:unknown",
+            vec![crate::access::ClientGroup::Read],
+            crate::access::DeliveryMode::Auto,
+        );
+        assert_eq!(store.poll_epoch(&scope).unwrap_err().code, crate::store::ErrorCode::Forbidden);
     }
 }
