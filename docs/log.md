@@ -1,5 +1,7 @@
 # Update log
 
+* **Timestamped mirror command IDs (2026-10-18)**: generated IDs use the shared timestamp marker and a monotonic process counter, remaining compatible with the bounded replay horizon. [Contract and regression](live-library.md#passive-mirror).
+
 * **Authenticated shared-log fixture (2026-10-18)**: register the AI reader with its owner and both consent levels; command events remain shared while result payloads stay private. [Regression contract](live-library.md#gateway-shared-requests).
 
 * **Gateway GUI visual verification (2026-10-18)**: rendered and inspected Options, Focus, map presence, reconnect and unknown states; 738 UI tests pass, desktop transport/TLS regressions pass, scoped Clippy and formatting are clean. Full workspace snapshot limitations remain explicit. [Evidence and reproduction](live-desktop-link.md#gui-verification-2026-10-18).

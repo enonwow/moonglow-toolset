@@ -203,8 +203,13 @@ pub(super) fn enqueue(
             getrandom::fill(&mut bytes).map_err(|e| format!("Command id randomness: {e}"))?;
             PROCESS.get_or_init(|| format!("{:08x}", u32::from_ne_bytes(bytes))).clone()
         };
-        command.id =
-            format!("{}{process}.{}", mirror.prefix, COUNTER.fetch_add(1, Ordering::Relaxed) + 1);
+        let base = crate::command_counter(now_ms, 0).ok_or("Command timestamp is out of range")?;
+        let previous = COUNTER
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+                last.checked_add(1).map(|next| next.max(base))
+            })
+            .map_err(|_| "Command counter exhausted")?;
+        command.id = format!("{}{process}.{}", mirror.prefix, base.max(previous + 1));
     }
     mirror.prune(Instant::now());
     let fingerprint = command_fingerprint(&command);

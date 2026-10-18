@@ -95,3 +95,26 @@ fn gateway_results_do_not_derive_events_and_final_is_immutable() {
     s.mirror_reject(&id, ErrorCode::Forbidden, "denied").unwrap();
     assert_eq!(s.result(&id).unwrap().code, Some(ErrorCode::Forbidden));
 }
+
+#[test]
+fn generated_mirror_ids_use_timestamped_monotonic_counters() {
+    let store = mirror();
+    store.set_id_prefix("timed.").unwrap();
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    let command = || {
+        serde_json::from_value(
+            serde_json::json!({"op":"stop_patrol","area":"square","target":"a1"}),
+        )
+        .unwrap()
+    };
+    let one = store.enqueue(command(), now).unwrap();
+    let two = store.enqueue(command(), now).unwrap();
+    assert_ne!(one, two);
+    assert!(mg_live::command_issued_ms(&one).unwrap() >= now);
+    assert!(
+        one.rsplit('.').next().unwrap().parse::<u64>().unwrap()
+            < two.rsplit('.').next().unwrap().parse::<u64>().unwrap()
+    );
+}

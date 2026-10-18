@@ -114,7 +114,12 @@ notify once per batch. Reset preserves the waiter signal, kick and policy.
 No derived events, drafts, ID journal or sent-command timeout runs in this mode.
 
 Set the welcome prefix with `set_id_prefix`. Generated IDs append eight random
-hex digits shared by the process and a process-wide counter. Queue envelopes
+hex digits shared by the process and a process-wide counter. The counter uses
+`command_counter(now_ms, 0)` with a monotonic increment when needed, preserving
+the timestamp marker recognized by the authoritative replay horizon. It never
+wraps; an unrepresentable timestamp or exhausted counter refuses enqueue. The
+`generated_mirror_ids_use_timestamped_monotonic_counters` regression checks both
+timestamp decoding and increasing IDs. Queue envelopes
 carry boot, TTL and a local sent flag; only unsent commands expire. A reset
 ends queued/pending commands as unknown and never requeues them. Every applied
 mirror change increments `revision()`, including metadata, results and events.
