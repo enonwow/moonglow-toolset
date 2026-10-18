@@ -1139,7 +1139,6 @@ mod tests {
         use crate::{LiveConfig, LiveService};
         let c = named(vec![ClientGroup::Read, ClientGroup::Npc], 1);
         let live = Arc::new(LiveStore::default());
-        live.sync(SYNC.as_bytes(), now()).unwrap();
         let dir = std::env::temp_dir().join(format!(
             "mg-live-token-proof-{}-{}",
             std::process::id(),
@@ -1163,6 +1162,8 @@ mod tests {
         )
         .unwrap();
         service.publish_descriptor(&dir).unwrap();
+        // A newly bound endpoint needs its own report before accepting commands.
+        live.sync(SYNC.as_bytes(), now()).unwrap();
         let descriptor = dir.join(format!("live/sessions/{}.json", std::process::id()));
         assert!(!descriptor.exists(), "off by default means no discovery record");
         service.set_allow_agents(true).unwrap();
