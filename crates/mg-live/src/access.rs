@@ -532,7 +532,8 @@ mod tests {
                 assert!(group(name).is_some(), "{name}");
                 assert_eq!(
                     scope.allows(name),
-                    group(name) == Some(g) && name != "live_spawn_json",
+                    group(name) == Some(g)
+                        && !matches!(name, "live_spawn_json" | "live_watch_areas"),
                     "{g:?} {name}"
                 );
             }

@@ -1675,23 +1675,39 @@ fn watch_refusal_retries_without_flood_and_module_reload_discards_old_removals()
 }
 
 #[test]
-fn watch_areas_api_catalogue_matches_legacy_and_read_scope() {
+fn watch_areas_remote_scope_is_forbidden_and_local_catalogue_still_validates() {
     assert_eq!(crate::access::group("live_watch_areas"), Some(crate::access::ClientGroup::Read));
     let live = LiveStore::default();
     live.sync(br#"{"v":1,"boot":"a","seq":1,"watched_areas":[],"areas":[]}"#, 1).unwrap();
     let input = json!({"id":"watch-api","areas":["fresh"],"on":true});
-    let response = crate::operations::call(
+    let error = crate::operations::call(
         "live_watch_areas",
         input.clone(),
         &live,
         &std::sync::atomic::AtomicBool::new(false),
     )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    let mut local = crate::access::Scope::default();
+    local.name = "local".into();
+    let response = crate::operations::call_scoped(
+        "live_watch_areas",
+        input.clone(),
+        &live,
+        &std::sync::atomic::AtomicBool::new(false),
+        &local,
+    )
     .unwrap();
-    assert_eq!(response["queued"], "watch-api");
     let mut legacy = input;
     legacy["op"] = json!("watch_areas");
-    assert_eq!(crate::operations::command(legacy.clone(), &live, 2).unwrap(), response);
-    legacy["by"] = json!("default");
+    assert_eq!(
+        crate::operations::command(legacy.clone(), &live, 2).unwrap_err().code,
+        ErrorCode::Forbidden
+    );
+    assert_eq!(
+        crate::operations::command_scoped(legacy.clone(), &live, 2, &local).unwrap(),
+        response
+    );
     assert_eq!(live.commands(2)["commands"][0], legacy);
     for input in [
         json!({"areas":[],"on":true}),
@@ -1700,11 +1716,12 @@ fn watch_areas_api_catalogue_matches_legacy_and_read_scope() {
         json!({"areas":["a"],"on":true,"unknown":1}),
     ] {
         assert_eq!(
-            crate::operations::call(
+            crate::operations::call_scoped(
                 "live_watch_areas",
                 input,
                 &live,
-                &std::sync::atomic::AtomicBool::new(false)
+                &std::sync::atomic::AtomicBool::new(false),
+                &local
             )
             .unwrap_err()
             .code,
