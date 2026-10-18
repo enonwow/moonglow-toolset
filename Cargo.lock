@@ -2956,6 +2956,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "toml",
+ "ureq",
  "url",
  "wgpu",
 ]

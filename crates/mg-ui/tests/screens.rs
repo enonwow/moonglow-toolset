@@ -11,6 +11,55 @@ mod gateway_ops;
 #[path = "support/gateway_ui.rs"]
 mod gateway_ui;
 
+#[path = "support/resource_host.rs"]
+mod resource_host;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
+async fn live_gateway_resource_downloads() {
+    mg_testkit::gpu::hold();
+    let data = resource_host::Scratch::new();
+    let host = resource_host::Host::new(data.path()).await;
+    host.delay.store(500, std::sync::atomic::Ordering::Relaxed);
+    let mut app = host.app();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280., 950.))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(resource_host::draw(data.path().join("client")), app);
+    resource_host::pump(&mut h, |_| {
+        resource_host::blob_count(&data.path().join("client/live-resources")) > 0
+    })
+    .await;
+    let dir = mg_testkit::output_dir("screens");
+    shoot(&mut h, &dir, "live-p7-download");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    resource_host::pump(&mut h, |app| !app.busy()).await;
+    shoot(&mut h, &dir, "live-p7-canceled");
+    host.delay.store(20, std::sync::atomic::Ordering::Relaxed);
+    h.get_by_label("Resume download").click();
+    h.run_steps(2);
+    resource_host::pump(&mut h, |app| app.ws.is_some()).await;
+    shoot(&mut h, &dir, "live-p7-square");
+    host.change_area("harbor");
+    resource_host::pump(&mut h, |app| {
+        app.ws.as_ref().is_some_and(|ws| {
+            ws.module.contains(&mg_resman::ResKey::parse("harbor", mg_core::ResType::ARE).unwrap())
+        })
+    })
+    .await;
+    h.run_steps(3);
+    shoot(&mut h, &dir, "live-p7-harbor");
+    h.state_mut().actions.push(mg_ui::Action::LiveOptions);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "live-p7-options-after");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn live_gateway_shared_books_and_ai() {

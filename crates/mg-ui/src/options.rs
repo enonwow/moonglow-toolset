@@ -14,7 +14,7 @@ use crate::{Action, Moonglow, Settings};
 
 #[path = "options_live.rs"]
 mod live_connection;
-pub(crate) use live_connection::start_gateway;
+pub(crate) use live_connection::{resource_access, resource_data_dir, start_gateway};
 
 /// The Options window's pages.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -39,6 +39,7 @@ pub struct OptionsDraft {
     pub live: mg_live::LiveConfig,
     pub live_credential_error: Option<String>,
     pub live_servers: crate::settings::LiveServers,
+    pub live_cache_mib: u32,
     pub live_nwnx: String,
     pub live_focus: bool,
     pub live_faction_colors: crate::live_colors::Overrides,
@@ -141,6 +142,7 @@ impl OptionsDraft {
             live,
             live_credential_error,
             live_servers: s.live_servers.clone(),
+            live_cache_mib: s.live_cache_mib,
             live_nwnx: s.live_nwnx.clone(),
             live_focus: !s.no_live_focus,
             live_faction_colors: s.live_faction_colors.clone(),
@@ -215,6 +217,7 @@ impl OptionsDraft {
         Settings {
             live: self.live.clone(),
             live_servers: self.live_servers.clone(),
+            live_cache_mib: self.live_cache_mib,
             live_nwnx: self.live_nwnx.clone(),
             no_live_focus: !self.live_focus,
             live_faction_colors: self.live_faction_colors.clone(),

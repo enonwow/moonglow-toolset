@@ -71,6 +71,7 @@ mod live_portrait;
 pub mod live_prepare;
 mod live_props;
 pub mod live_repaint;
+mod live_resources;
 pub mod live_scene;
 mod live_selection;
 pub mod live_skill;
@@ -96,6 +97,7 @@ pub mod plugins;
 pub mod prefabs;
 pub mod recovery;
 pub mod references;
+mod resource_plan;
 pub mod script_nav;
 pub mod script_tools;
 mod script_view;
@@ -604,6 +606,7 @@ pub struct Moonglow {
     pub live: Option<std::sync::Arc<live::LiveStore>>,
     pub live_service: Option<mg_live::LiveService>,
     live_gateway: Option<live_backend::GatewayRuntime>,
+    live_resources: live_resources::Resources,
     live_agents: live_agents::LiveAgents,
     pub live_error: Option<String>,
     pub live_panel: live_panel::LivePanel,
@@ -866,6 +869,7 @@ impl Moonglow {
             live: None,
             live_service: None,
             live_gateway: None,
+            live_resources: Default::default(),
             live_agents: Default::default(),
             live_error: None,
             live_panel: Default::default(),
@@ -1005,6 +1009,7 @@ impl Moonglow {
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         live_backend::update(self, ui.ctx());
+        live_resources::update(self, ui.ctx());
         live_ai::window(self, ui.ctx());
         live_agents::update(self, ui.ctx());
         live_assistant::update(self);
@@ -2126,6 +2131,7 @@ impl Moonglow {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
+        live_resources::status(self, ui);
         let module = match (self.module_path(), &self.ws) {
             (Some(p), _) => p.display().to_string(),
             (None, Some(_)) => "New module, not saved yet".to_string(),
@@ -2427,7 +2433,11 @@ impl Moonglow {
                 .resman
                 .layers()
                 .iter()
-                .filter(|l| l.priority == priority::MODULE || l.label.starts_with("hak:"))
+                .filter(|l| {
+                    l.priority == priority::MODULE
+                        || l.label.starts_with("hak:")
+                        || l.label == "Live NWSync"
+                })
                 .map(|l| l.label.clone())
                 .collect();
             for l in module_layers {

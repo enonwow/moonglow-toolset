@@ -1,10 +1,18 @@
 ---
 type: Reference
 title: Live desktop connection and authentication
-description: Desktop authentication, gateway transport, shared books, owned draft review and AI credential management.
+description: Desktop authentication, gateway transport, shared books, AI management and verified resource downloads.
 tags: [live, gateway, authentication]
 generated: { by: codex, at: 2026-10-18T14:30:21Z }
 sources:
+  - ../crates/mg-ui/src/live_resources.rs
+  - ../crates/mg-ui/src/resource_plan.rs
+  - ../crates/mg-ui/src/jobs.rs
+  - ../crates/mg-ui/src/area_view.rs
+  - ../crates/mg-ui/src/model_view.rs
+  - ../crates/mg-ui/tests/gateway_resources.rs
+  - ../crates/mg-ui/tests/support/resource_host.rs
+  - live-resource-generations.md
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-live-link/src/login.rs
   - ../crates/mg-live-link/src/credentials.rs
@@ -716,3 +724,66 @@ The retained evidence is the before/after PNG set and a compact local verificati
 record. Superseded diagnostic logs and the one-off gate runner were removed
 after their failure causes were recorded. Shared build outputs remain available
 to the other workspace tasks. No application or agent history was removed.
+
+
+## Gateway resource downloads (P7 GUI)
+
+The desktop polls the authenticated `files` operation every five seconds and also
+uses `welcome.nwsync.generation`. A matching game boot is required. Downloads run
+on a job worker, through `ResourceClient`; verified blobs survive cancellation and
+can be reused by Resume download or a later connection. Transient transport and
+HTTP 408/429/502/503/504 failures retry after 2, 4 and 8 seconds; integrity failures
+and explicit Cancel require a deliberate retry. Closing the application cancels
+its resource worker. No game user directory is
+written. The private cache is `live-resources/<server-id-sha1>` below Moonglow's data
+directory. It must have one writer, as required by the resource client API.
+
+The UI's read-only manifest planner verifies manifest SHA-1 and cached blob hashes
+before counting missing resources. It uses the login TLS policy, never redirects,
+and sends the bearer only to the gateway's module endpoint. Hak requests carry no
+bearer, even when hosted at the gateway origin. Bodies and decoded sizes are bounded.
+The planner currently reads manifests separately from the download client; this is
+small additional traffic and can later move behind a shared ResourcePlan API.
+
+First downloads and changes of at least 16 MiB of missing decoded resources use
+`start_job_anywhere` and a modal progress window. Smaller changes keep the interface
+available and show a status-bar indicator with Details and Cancel. The progress bar
+counts network file transfers. Received network bytes and total missing unpacked
+bytes have separate labels: NSYM supplies decoded sizes, so an exact compressed
+byte total is unavailable. No estimated compressed percentage is presented as exact.
+
+A complete generation replaces the read-only module on the UI thread, after the
+worker releases its game-data snapshot. `Module::stack_onto` mounts the hak cache as
+`Live NWSync`; area/model/thumbnail and game resource caches are invalidated. The
+first area opens with Live enabled. A changed boot or server clears old geometry,
+and stale jobs cannot activate. Edited workspaces wait for Save or Close before
+replacement. Activation requires a connected link.
+
+Options > Live exposes a cache budget (MiB, default 2048) and Clear cache. Planning
+accounts for existing cache files across servers, missing decoded blobs, manifests,
+and the materialized module copy; it refuses growth beyond the budget without
+removing existing data. This is a logical file-byte budget, not filesystem allocation.
+Clear refuses active Live connections and running jobs, validates the private tree
+without following links, and runs off the UI thread. The installed game and local
+module/hak folders are never changed.
+
+Reproduction uses Rust 1.98.0, `NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0`:
+
+```text
+cargo +1.98.0 test -p mg-ui --test gateway_resources -j 2
+cargo +1.98.0 test -p mg-ui --lib -j 2
+cargo +1.98.0 test -p mg-ui --test screens -j 2 live_gateway_resource_downloads -- --ignored --test-threads=1
+```
+
+The TLS fixture follows the authored link-resource and gateway-publisher fixtures;
+it uses generated IFO/ARE/GIT and small synthetic text blobs. It needs no installed
+module, hak, game server or external service. UI regressions cover progress/Cancel,
+verified-file resume, a small background update opening a new area, read-only
+modules, Clear refusal while connected, tampered data, and a cache budget refusal.
+The unit regressions cover size classification, settings compatibility, bounded
+manifest reads, cancel delivery and confinement of cache cleanup.
+
+The accepted Options baseline is retained as
+`target/test-output/screens/live-p7-options-before.png`. New renders use the same
+folder: `live-p7-download.png`, `live-p7-canceled.png`, `live-p7-square.png`,
+`live-p7-harbor.png`, and `live-p7-options-after.png`.

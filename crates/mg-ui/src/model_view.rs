@@ -340,6 +340,14 @@ fn compose(app: &Moonglow, source: &Source, preview: &Preview) -> Result<Compose
 }
 
 impl ModelView {
+    pub(crate) fn release_target(&mut self, viewport: Option<&Viewport3d>) {
+        if let Some((_, id)) = self.targets.take()
+            && let Some(viewport) = viewport
+        {
+            viewport.render_state.renderer.write().free_texture(&id);
+        }
+    }
+
     /// Builds it again if the blueprint now looks different (its editor
     /// changed it), keeping the camera, and the animation where the new
     /// model has it.

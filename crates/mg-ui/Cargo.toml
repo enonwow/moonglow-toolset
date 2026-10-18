@@ -13,6 +13,8 @@ measure = ["mg-render/measure", "mg-area/measure", "mg-live/measure"]
 measure-alloc = ["measure"]
 
 [dependencies]
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+url = "2.5"
 log = "0.4"
 egui.workspace = true
 egui-wgpu.workspace = true
@@ -64,7 +66,6 @@ mg-erf.workspace = true
 mg-testkit.workspace = true
 rustls.workspace = true
 rcgen.workspace = true
-url = "2.5"
 tempfile = "3"
 
 [lints]

@@ -205,7 +205,7 @@ impl OptionsDraft {
                         });
                     });
                     ui.end_row();
-                    ui.label("HAK / module cache"); ui.weak("0 B · downloads not available yet"); ui.end_row();
+                    ui.label("HAK / module cache"); crate::live_resources::options(ui, &mut self.live_cache_mib); ui.end_row();
                     ui.label("My AI");
                     if ui.add_enabled(runtime.is_some_and(|(id, state)| id == server.id && state == "connected"), egui::Button::new("Manage AI"))
                         .on_disabled_hover_text("Connect to this server to manage your AIs.").clicked() {
@@ -367,4 +367,34 @@ fn start(
         let _ = tx.send(event);
         ctx.request_repaint();
     });
+}
+
+/// Resolve download credentials on the job worker, sharing the login store.
+pub(crate) fn resource_access(
+    ctx: &egui::Context,
+    resolved: crate::settings::ResolvedGateway,
+) -> Result<(Gateway, SessionToken), String> {
+    let environment = ctx
+        .data(|d| d.get_temp::<Environment>(environment_id()))
+        .or_else(|| {
+            crate::recovery::data_dir()
+                .map(|data_dir| Environment { backend: Arc::new(OsKeyring), data_dir })
+        })
+        .ok_or("Credential storage unavailable")?;
+    let token = match resolved.token {
+        Some(token) => token,
+        None => TokenStore::new(SharedBackend(environment.backend), &environment.data_dir)
+            .get(&resolved.server.id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Sign in to download resources")?,
+    };
+    let gateway = Gateway::new(&resolved.server.url, resolved.server.cert_pin.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok((gateway, token))
+}
+
+pub(crate) fn resource_data_dir(ctx: &egui::Context) -> Option<PathBuf> {
+    ctx.data(|d| d.get_temp::<Environment>(environment_id()))
+        .map(|e| e.data_dir)
+        .or_else(crate::recovery::data_dir)
 }

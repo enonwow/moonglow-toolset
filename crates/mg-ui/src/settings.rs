@@ -105,6 +105,8 @@ pub struct Settings {
     #[serde(serialize_with = "save_legacy_live")]
     pub live: mg_live::LiveConfig,
     pub live_servers: LiveServers,
+    /// Live resource cache budget in MiB; zero uses the 2048 MiB default.
+    pub live_cache_mib: u32,
     /// NWNX folder used only by the module preparer, never a server lifecycle setting.
     pub live_nwnx: String,
     /// Focus watch lists and alerts are enabled unless explicitly disabled.

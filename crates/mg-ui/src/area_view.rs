@@ -516,8 +516,16 @@ impl AreaView {
         Some(values)
     }
 
-    /// Reads the area's tiles and objects again from the game data (after
-    /// Reload Resources), keeping the camera.
+    /// Release the egui registration before discarding a generation's view.
+    pub(crate) fn release_target(&mut self, viewport: Option<&crate::model_view::Viewport3d>) {
+        if let Some((_, id)) = self.targets.take()
+            && let Some(viewport) = viewport
+        {
+            viewport.render_state.renderer.write().free_texture(&id);
+        }
+    }
+
+    /// Reads the area's tiles and objects again, keeping the camera.
     pub(crate) fn reload(&mut self) {
         self.revision = None;
         self.tileset = None;
