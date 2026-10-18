@@ -3178,8 +3178,8 @@ after exhaustion.
 The authoritative accepted-ID table stores a 32-byte SHA-256 fingerprint,
 computed from recursively key-sorted command JSON. Client ownership stays
 in the owner table; lifecycle state stays in the bounded queue/result/draft
-collections. Large spawn payloads no longer remain in all 65,536 accepted
-entries. The active draft approval keeps its original command locally only
+collections. Large spawn payloads no longer remain in accepted entries.
+The original fixed entry ceiling is superseded by the P4 horizon below. The active draft approval keeps its original command locally only
 for rollback on enqueue failure. A unit regression covers reordered JSON,
 payload sensitivity and the fixed-size retained value. Existing idempotency
 and assistant regressions verify retries and edited-draft behavior.
@@ -3464,3 +3464,62 @@ are refused before returning data. This supplements the process-wide consent
 epoch; local UI scopes keep their own authorization. The regression
 `ai_registry_is_checked_before_poll` first returned an epoch for an unknown AI,
 then returned `Forbidden` after adding the registry check to `poll_allowed`.
+
+
+## Bounded idempotency horizon (P4)
+
+The authoritative store remembers canonical SHA-256 command fingerprints, owner,
+boot and outcomes for at most 24 hours, with a conservative 16 MiB identity budget.
+There is no lifetime 65,536-ID admission ceiling. The byte budget can shorten the
+window: eviction advances a durable rejection floor past the evicted timestamp,
+reclaiming to 75% of the budget. A forgotten ID returns `expired`; it cannot become
+a new operation. Replays within the window require the original owner and exact
+canonical command. They return the same ID without adding to the queue.
+
+Bounded exact replay refusal requires an issuance time in the ID. Use
+`prefix.<8 hexadecimal nonce digits>.<decimal counter>`, where the unsigned u64
+counter is `(1 << 63) | (unix_ms << 10) | ordinal`, with ordinal 0..1023. The public
+`mg_live::command_counter` and `command_issued_ms` helpers define this encoding.
+The existing gateway wire shape is unchanged. Local generated IDs and the mirror
+use the timed counter. A timestamp over five minutes ahead is invalid; the
+persisted monotonic clock prevents clock rollback from reopening expired IDs.
+Never reuse a nonce/counter pair for a different logical operation.
+
+Legacy untimed IDs have a migration window. Once any history is evicted, unseen
+legacy IDs are refused permanently for that journal; retained legacy identities
+still replay safely. Old ID-only journals are imported as reservations with
+unknown fingerprints and are never executed again. New clients must mint timed
+IDs to continue after this migration window.
+
+Each endpoint namespace has one bounded `current.jsonl` write-ahead log (32 MiB
+maximum), plus at most one 16 MiB `pending.jsonl` checkpoint during replacement.
+The journal retains boot-keyed rows within the same global window; returning to
+a previous boot cannot reopen its recent IDs. Reservations and floor are synced
+to disk before final acceptance. Outcomes flush outside the store mutex, and
+checkpoint replacement is atomic. Partial/corrupt logs and concurrent writers
+fail closed. Validated legacy journal files are removed only after their
+replacement is durable. Restart restores known outcomes; a reservation without a
+durable result becomes `unknown`, never a retry. A correlated late result can
+resolve that restored identity without retaining the original command payload.
+
+The store cache and journal each have bounded identity accounting; the active
+queue, UI history and unresolved-command payload registry retain their separate
+bounds. This is an accounting bound, not a claim that process RSS is 16 MiB.
+
+Regressions use a fake clock and authored commands only. The original store test
+failed at command 65,537 and accepted an expired replay. Tests now cover 200,000
+sequential store admissions, 200,000 synced journal reservations with rotation,
+replay inside/outside the horizon, byte eviction, rollback, boot separation,
+restart outcomes/ownership, legacy migration and truncated journal refusal.
+Run with Rust 1.98.0, `NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0`:
+
+```text
+cargo +1.98.0 test -p mg-live --lib history_tests -j 2
+cargo +1.98.0 test -p mg-live --lib command_ids::tests -j 2 -- --nocapture
+```
+
+The measured durable run completed 200,000 reservations in 83.937 seconds,
+retaining 19,568 rows / 16,378,416 accounted bytes. Peak journal size was
+33,554,358 bytes (below 32 MiB). The temporary test directory was removed by the
+test. Store admission, horizon replay, journal recovery and migration tests
+passed. Final workspace verification is recorded separately below.

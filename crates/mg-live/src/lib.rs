@@ -36,3 +36,6 @@ pub use store::gateway;
 
 /// JSON envelopes and bounded decoding for moonglow-gw/1.
 pub mod gateway_frames;
+
+mod command_history;
+pub use command_history::{command_counter, command_issued_ms};

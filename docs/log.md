@@ -769,3 +769,5 @@
 - 2026-10-16: [deferred](deferred.md): NESS support in Live postponed by the owner; what works today and what a NESS layer would add.
 
 - 2026-10-18: Managed AI poll authorization now checks the current registry as well as the global consent epoch; unknown/revoked identities cannot keep reading. [Contract](live-ops-wire.md#managed-ai-reads-share-revocation-checks-p4).
+
+- 2026-10-18: Replace the lifetime accepted-ID ceiling with a boot-bound time/byte horizon and durable rejection floor; 200,000 store admissions and durable reservations, replay/rotation/restart proofs. [Contract and measurements](live-ops-wire.md#bounded-idempotency-horizon-p4).

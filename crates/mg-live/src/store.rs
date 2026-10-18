@@ -1889,6 +1889,8 @@ struct State {
     next: u64,
     /// Retain operation identities independently of the short result history.
     accepted: HashMap<String, [u8; 32]>,
+    history: crate::command_history::History,
+    history_dirty: HashSet<(String, String)>,
     owners: HashMap<String, String>,
     audit: Option<Arc<crate::access::Audit>>,
     prefix: String,
@@ -1961,21 +1963,54 @@ impl LiveStore {
         }
         let boot = s.boot.clone();
         let endpoint = s.server.clone();
-        let ids: Vec<_> = s.accepted.keys().cloned().collect();
+        let now_ms = s.received_ms.max(s.history.boundary.clock);
+        let rows: Vec<_> = s
+            .history
+            .entries
+            .iter()
+            .map(|((b, id), e)| (b.clone(), id.clone(), e.clone()))
+            .collect();
+        let boundary = s.history.boundary.clone();
         drop(s);
         let mut journal = crate::command_ids::Journal::new(root)?;
-        journal.select_boot(&boot)?;
-        for id in &ids {
-            if !journal.contains(id) {
-                journal.reserve(id)?;
-            }
+        journal.select_boot_at(&boot, now_ms)?;
+        if !rows.is_empty() {
+            journal.outcomes(rows, &boundary)?;
         }
         let mut s = self.lock();
         if s.boot != boot || s.server != endpoint {
             return Err("Server changed while opening command identity storage; retry".into());
         }
+        s.history = journal.history.clone();
+        restore_identities(&mut s);
         s.command_ids = Some(journal);
         Ok(())
+    }
+
+    fn flush_identity_outcomes(&self) -> Result<(), String> {
+        let Ok(_io) = self.command_io.try_lock() else {
+            return Ok(());
+        };
+        let mut s = self.lock();
+        if s.history_dirty.is_empty() {
+            return Ok(());
+        }
+        let Some(mut journal) = s.command_ids.take() else {
+            s.history_dirty.clear();
+            return Ok(());
+        };
+        let keys = std::mem::take(&mut s.history_dirty);
+        let rows = keys
+            .into_iter()
+            .filter_map(|(b, id)| s.history.get(&b, &id).cloned().map(|e| (b, id, e)))
+            .collect();
+        let boundary = s.history.boundary.clone();
+        drop(s);
+        let result = journal.outcomes(rows, &boundary);
+        let mut s = self.lock();
+        s.history.merge_boundary(&journal.history.boundary);
+        s.command_ids = Some(journal);
+        result
     }
 
     /// None means an older server has not published its loaded faction list.
@@ -2007,6 +2042,8 @@ impl LiveStore {
         }
         s.unresolved = Unresolved::default();
         s.accepted.clear();
+        s.history = crate::command_history::History::default();
+        s.history_dirty.clear();
         let retained: HashSet<_> = s.results.iter().map(|(c, _)| c.id.clone()).collect();
         s.owners.retain(|id, _| retained.contains(id));
         s.events.reset_endpoint();
@@ -2155,6 +2192,7 @@ impl LiveStore {
             s.factions = None;
             s.watch.restart();
             s.boot = request.boot.clone();
+            restore_identities(&mut s);
             s.events.changed.notify_all();
             s.seq = 0;
             s.has_baseline = false;
@@ -2163,7 +2201,7 @@ impl LiveStore {
         }
         // A delta must extend the exact state baseline; still accept its acks/events.
         if let Some(journal) = &mut s.command_ids
-            && let Err(error) = journal.select_boot(&request.boot)
+            && let Err(error) = journal.select_boot_at(&request.boot, now_ms)
         {
             s.received_ms = 0;
             return Err(error);
@@ -2277,7 +2315,10 @@ impl LiveStore {
         }
         assistant::capture(&mut s);
         watch::prepare(&mut s.watch, now_ms);
-        Ok(Synced { reply: game_commands(&mut s), outcome, boot_changed })
+        let synced = Synced { reply: game_commands(&mut s), outcome, boot_changed };
+        drop(s);
+        self.flush_identity_outcomes()?;
+        Ok(synced)
     }
 
     /// Queues a command. A command whose id is already queued or answered
@@ -2397,6 +2438,11 @@ impl LiveStore {
             return Err("No game has reported yet".into());
         }
         command.area.make_ascii_lowercase();
+        refresh_identities(&mut s, now_ms);
+        let identity_boot = crate::command_history::boot_key(&s.boot);
+        if !command.id.is_empty() {
+            s.history.check(&identity_boot, &command.id, now_ms)?;
+        }
         if let Some(previous) = s.accepted.get(&command.id) {
             if !scope.unrestricted() && s.owners.get(&command.id) != Some(&scope.name) {
                 return Err(CommandError::new(
@@ -2410,12 +2456,41 @@ impl LiveStore {
                 Err("Command id already belongs to a different operation".into())
             };
         }
-        if reservation.is_none()
-            && s.command_ids.as_ref().is_some_and(|j| j.contains_boot(&s.boot, &command.id))
-        {
-            return Err(
-                "Command id was already reserved in this server boot; it will not run again".into(),
-            );
+        if reservation.is_none() {
+            let previous = s.history.get(&identity_boot, &command.id).cloned().or_else(|| {
+                s.command_ids.as_ref().and_then(|j| j.entry(&s.boot, &command.id)).cloned()
+            });
+            if let Some(previous) = previous {
+                if previous.fingerprint.is_none() {
+                    return Err(crate::command_history::expired());
+                }
+                if !scope.unrestricted() && previous.owner != scope.name {
+                    return Err(CommandError::new(
+                        ErrorCode::Forbidden,
+                        "Command id belongs to another client",
+                    ));
+                }
+                if previous.fingerprint != Some(command_fingerprint(&command)) {
+                    return Err(CommandError::new(
+                        ErrorCode::Invalid,
+                        "Command id already belongs to a different operation",
+                    ));
+                }
+                let mut previous = previous;
+                previous.outcome.get_or_insert_with(|| {
+                    failure(
+                        &command.id,
+                        ErrorCode::Unknown,
+                        "unknown: durable reservation has no result; command will not be retried",
+                    )
+                });
+                s.accepted.insert(command.id.clone(), command_fingerprint(&command));
+                s.owners.insert(command.id.clone(), previous.owner.clone());
+                s.history.insert(identity_boot, command.id.clone(), previous);
+                refresh_identities(&mut s, now_ms);
+                s.history.check(&crate::command_history::boot_key(&s.boot), &command.id, now_ms)?;
+                return Ok(command.id);
+            }
         }
         let teleport = matches!(command.op, Op::Teleport { .. } | Op::PcTeleport { .. });
         // Teleport's area is the destination. Keep the original optional value
@@ -2767,9 +2842,22 @@ impl LiveStore {
                 getrandom::fill(&mut bytes).map_err(|e| format!("Command id randomness: {e}"))?;
                 s.prefix = format!("{:016x}", u64::from_ne_bytes(bytes));
             }
+            let mut attempts = 0;
             loop {
+                attempts += 1;
+                if attempts > 1024 {
+                    return Err(CommandError::new(
+                        ErrorCode::RateLimited,
+                        "Command ID clock bucket is full; retry with a fresh timestamp",
+                    ));
+                }
                 s.next += 1;
-                command.id = format!("{}-c{}", s.prefix, s.next);
+                let counter = crate::command_counter(
+                    now_ms.max(s.history.boundary.clock),
+                    (s.next % 1024) as u16,
+                )
+                .ok_or("Command clock exceeds ID range")?;
+                command.id = format!("local.{}.{}", &s.prefix[..8], counter);
                 if !s.accepted.contains_key(&command.id)
                     && !s
                         .command_ids
@@ -2780,19 +2868,29 @@ impl LiveStore {
                 }
             }
         }
-        // Never silently forget an id and allow a retry to execute twice.
-        if s.accepted.len() >= 65_536 {
-            return Err("Live session operation limit reached; restart the listener".into());
-        }
+        s.history.check(&identity_boot, &command.id, now_ms)?;
         let id = command.id.clone();
         if reservation.is_none()
             && let Some(mut journal) = s.command_ids.take()
         {
             let binding = (s.boot.clone(), s.server.clone());
+            let boundary = s.history.boundary.clone();
+            let entry = crate::command_history::Entry::new(
+                &id,
+                now_ms,
+                command_fingerprint(&command),
+                scope.name.clone(),
+            );
             drop(s);
             let started = std::time::Instant::now();
-            let result = journal.select_boot(&binding.0).and_then(|()| journal.reserve(&id));
-            self.lock().command_ids = Some(journal);
+            let result = journal
+                .select_boot_at(&binding.0, now_ms)
+                .map_err(CommandError::from)
+                .and_then(|()| journal.reserve_entry(&id, entry, now_ms, &boundary));
+            let mut s = self.lock();
+            s.history.merge_boundary(&journal.history.boundary);
+            s.command_ids = Some(journal);
+            drop(s);
             result?;
             // Durable reservation is not authorization: reports and policy may
             // have changed while the disk was busy. Revalidate before enqueue.
@@ -2803,6 +2901,18 @@ impl LiveStore {
                 Some(binding),
             );
         }
+        s.history.insert(
+            identity_boot,
+            id.clone(),
+            crate::command_history::Entry::new(
+                &id,
+                now_ms,
+                command_fingerprint(&command),
+                scope.name.clone(),
+            ),
+        );
+        refresh_identities(&mut s, now_ms);
+        s.history.check(&crate::command_history::boot_key(&s.boot), &id, now_ms)?;
         let audit = match &command.op {
             Op::RunScript { script, .. } => {
                 Some(format!("Live: run_script {id} on {}: {script}", command.area))
@@ -2849,6 +2959,11 @@ impl LiveStore {
             .find(|(_, r)| r.id == id)
             .map(|(_, r)| r.clone())
             .or_else(|| s.unresolved.get(&s.boot, id).map(|entry| entry.result.clone()))
+            .or_else(|| {
+                s.history
+                    .get(&crate::command_history::boot_key(&s.boot), id)
+                    .and_then(|e| e.outcome.clone())
+            })
             .or_else(|| assistant::pending(&s, id))
             .map(|mut result| {
                 result.by = s.owners.get(id).filter(|by| by.as_str() != "local").cloned();
@@ -2993,6 +3108,40 @@ impl LiveStore {
     }
 }
 
+fn restore_identities(s: &mut State) {
+    s.accepted.clear();
+    let boot = crate::command_history::boot_key(&s.boot);
+    let visible: HashSet<_> = s.results.iter().map(|(_, r)| r.id.clone()).collect();
+    s.owners.retain(|id, _| visible.contains(id));
+    for ((b, id), entry) in &s.history.entries {
+        if *b == boot
+            && let Some(hash) = entry.fingerprint
+        {
+            s.accepted.insert(id.clone(), hash);
+            s.owners.insert(id.clone(), entry.owner.clone());
+        }
+    }
+}
+
+fn refresh_identities(s: &mut State, now_ms: u64) {
+    s.history.advance(now_ms);
+    let boot = crate::command_history::boot_key(&s.boot);
+    for (removed_boot, id) in std::mem::take(&mut s.history.removed) {
+        if s.history.get(&removed_boot, &id).is_none() {
+            s.history_dirty.remove(&(removed_boot.clone(), id.clone()));
+        }
+        if removed_boot == boot && s.history.get(&boot, &id).is_none() {
+            s.accepted.remove(&id);
+            if !s.results.iter().any(|(_, r)| r.id == id)
+                && !s.queue.iter().any(|q| q.command.id == id)
+                && !s.unresolved.entries.contains_key(&id)
+            {
+                s.owners.remove(&id);
+            }
+        }
+    }
+}
+
 fn command_fingerprint(command: &Command) -> [u8; 32] {
     fn canonical(value: Value) -> Value {
         match value {
@@ -3029,9 +3178,11 @@ fn policy_error(policy: Policy, op: &Op) -> Option<&'static str> {
             Some("Player operations are off in Options > Live")
         }
         Op::RunScript { .. } | Op::SpawnJson { .. } if !policy.scripts => {
-            Some("Module scripts are off in Options › Live")
+            Some("Module scripts are off in Options Ă˘â‚¬Ĺź Live")
         }
-        Op::RunChunk { .. } if !policy.chunks => Some("NWScript chunks are off in Options › Live"),
+        Op::RunChunk { .. } if !policy.chunks => {
+            Some("NWScript chunks are off in Options Ă˘â‚¬Ĺź Live")
+        }
         _ => None,
     }
 }
@@ -3077,6 +3228,23 @@ fn receive_results(
                 s.skill_waiting.remove(&r.id);
             }
             push_result(s, command, r);
+        } else {
+            // After restart only the identity/outcome is retained, never the command payload.
+            let boot = crate::command_history::boot_key(&s.boot);
+            if let Some(entry) = s.history.get(&boot, &r.id)
+                && entry.fingerprint.is_some()
+                && entry
+                    .outcome
+                    .as_ref()
+                    .is_none_or(|r| r.pending || r.code == Some(ErrorCode::Unknown))
+            {
+                let mut r = r;
+                r.by = (entry.owner != "local").then(|| entry.owner.clone());
+                s.history.outcome(&boot, &r.id, r.clone());
+                s.history_dirty.insert((boot, r.id.clone()));
+                gateway::record_result(&mut s.gateway, &r);
+                s.events.command("", &serde_json::to_value(&r).expect("result serializes"), now_ms);
+            }
         }
     }
     for id in ack {
@@ -3186,6 +3354,11 @@ fn game_commands(s: &mut State) -> Value {
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
     result.by = s.owners.get(&command.id).filter(|by| by.as_str() != "local").cloned();
     s.unresolved.record(&s.boot, &command, &result);
+    let boot = crate::command_history::boot_key(&s.boot);
+    s.history.outcome(&boot, &command.id, result.clone());
+    if s.history.get(&boot, &command.id).is_some() {
+        s.history_dirty.insert((boot, command.id.clone()));
+    }
     let draft_answer = assistant::completed(s, &command, &result);
     if let Some(audit) = &s.audit {
         let cmd = serde_json::to_value(&command).unwrap_or_default();
@@ -3205,6 +3378,21 @@ fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
     s.results.push_back((command, result));
     while s.results.len() > MAX_RESULTS {
         s.results.pop_front();
+    }
+    // Bound owner metadata even when an unresolved/UI entry outlives its identity row.
+    if s.owners.len() > s.accepted.len() + MAX_UNRESOLVED + MAX_RESULTS + MAX_QUEUE + 16 {
+        let keep: HashSet<_> = s
+            .results
+            .iter()
+            .map(|(_, r)| r.id.clone())
+            .chain(s.queue.iter().map(|q| q.command.id.clone()))
+            .collect();
+        s.owners.retain(|id, _| {
+            s.accepted.contains_key(id)
+                || keep.contains(id)
+                || s.unresolved.entries.contains_key(id)
+                || s.skill_waiting.contains_key(id)
+        });
     }
     if let Some((command, result)) = draft_answer {
         push_result(s, command, result);
@@ -3287,6 +3475,10 @@ pub fn reconcile(git: &[GitObject], live: &AreaLive) -> Reconciled {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "store_history_tests.rs"]
+mod history_tests;
 
 #[cfg(test)]
 #[path = "store_ops_tests.rs"]
@@ -3773,7 +3965,7 @@ mod tests {
         assert!(matches!(chunk.op, Op::RunChunk { wrap: true, target: None, .. }));
         assert_eq!(
             store.enqueue(chunk.clone(), 1).unwrap_err().error,
-            "NWScript chunks are off in Options › Live"
+            "NWScript chunks are off in Options Ă˘â‚¬Ĺź Live"
         );
         store.set_policy(Policy { scripts: true, chunks: true, players: false });
         chunk.id = "chunk".into();
@@ -3788,7 +3980,7 @@ mod tests {
         };
         assert_eq!(
             store.enqueue(bad_target.clone(), 1).unwrap_err().error,
-            "Module scripts are off in Options › Live"
+            "Module scripts are off in Options Ă˘â‚¬Ĺź Live"
         );
         store.set_policy(Policy::default());
         assert!(store.enqueue(bad_target, 1).unwrap_err().contains("not in the latest reports"));
