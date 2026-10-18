@@ -1,9 +1,11 @@
 #include "mglive_evt"
 #include "nwnx_chat"
 #include "nwnx_redis"
+#include "mglive_xl"
 
 void main()
 {
+    if(GetLocalInt(GetModule(),"MGLIVE_XL_DELIVERING")) return;
     object speaker = NWNX_Chat_GetSender();
     object recipient = NWNX_Chat_GetTarget();
     int channel = NWNX_Chat_GetChannel();
@@ -56,4 +58,5 @@ void main()
         JsonObjectSetInplace(packet, "events", JsonArrayInsert(JsonArray(),e));
         NWNX_Redis_PUBLISH(GetLocalString(m,"MGLIVE_PREFIX")+".event",JsonDump(packet));
     }
+    if(MgXlCapture(channel,NWNX_Chat_GetMessage(),speaker,recipient)) NWNX_Chat_SkipMessage();
 }

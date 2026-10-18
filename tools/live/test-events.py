@@ -50,6 +50,21 @@ def win(path):
 
 def compile_fixture():
     """Use the compiler library through guarded tests, never an app binary/build."""
+    existing_test = os.environ.get("MGLIVE_FIXTURE_TEST")
+    if existing_test:
+        # The same guarded fixture without requiring a PowerShell 7 installation
+        # or competing with another agent's Cargo build. No server in this test.
+        binary = Path(existing_test).resolve()
+        assert binary.parent == (REPO / "target/debug/deps").resolve()
+        assert re.fullmatch(r"private_fixture-[a-f0-9]+\.exe", binary.name) and binary.is_file()
+        env = dict(os.environ, MGLIVE_PREPARE_EVENTS="1", MGLIVE_RESOURCE_ROOT=GAME,
+                   NWN_ROOT="Z:/moonglow-no-native-game", CARGO_INCREMENTAL="0")
+        env["WSLENV"] = env.get("WSLENV", "") + ":MGLIVE_PREPARE_EVENTS:MGLIVE_RESOURCE_ROOT:MGLIVE_STRESS_PREPARE:NWN_ROOT:CARGO_INCREMENTAL"
+        subprocess.run([str(binary), "--exact", "prepare_private_events_fixture", "--nocapture"], env=env, check=True)
+        result = json.loads((OUT / "compile.json").read_text())
+        result["route"] = "existing guarded private_fixture test; one compiler worker"
+        dump(OUT / "compile.json", result)
+        return result
     existing = os.environ.get("MGLIVE_FIXTURE_MG")
     if existing:
         # Explicit fallback while another agent owns Cargo's build lock. Use an
@@ -225,6 +240,9 @@ def fixture():
     if os.environ.get("MGLIVE_STRESS_PREPARE") == "1":
         from stress_native import prepare
         prepare(OUT, module)
+    if os.environ.get("MGLIVE_XL_PROOF") == "1":
+        from test_chat_translation import prepare
+        prepare(module)
     result = compile_fixture()
     assert result["failed"] == 0, result
     for script in ["mglive_load", "mglive_tick", "mglive_chat", "mglive_ps"]:
@@ -333,6 +351,14 @@ class Proof:
     def command_interrupt(self):
         from test_command_delivery import interrupted
         return interrupted(self)
+
+    def chat_translation(self):
+        from test_chat_translation import run
+        return run(self)
+
+    def chat_translation_stress(self):
+        from test_chat_translation import run
+        return run(self, stress=True)
 
     def command_boot(self):
         from test_command_delivery import boot_bound
@@ -2333,9 +2359,12 @@ def main():
     parser._option_string_actions["--phase"].choices.append("command_version")
     parser._option_string_actions["--phase"].choices.append("command_interrupt")
     parser._option_string_actions["--phase"].choices.append("command_boot")
+    parser._option_string_actions["--phase"].choices.extend(["chat_translation", "chat_translation_stress"])
     args = parser.parse_args()
-    if args.phase=="stress":
+    if args.phase in ("stress", "chat_translation_stress"):
         os.environ["MGLIVE_STRESS_PREPARE"]="1"
+    if args.phase.startswith("chat_translation"):
+        os.environ["MGLIVE_XL_PROOF"]="1"
     if args.phase=="capture_dialog":
         assert os.environ.get("MGLIVE_FIXTURE_MG"), "Capture proof uses the existing compiler, never an app build"
         os.environ["MGLIVE_CAPTURE_PROOF"]="1"
@@ -2395,6 +2424,9 @@ def main():
             previous = json.loads((OUT / "runs" / reused / "measure.json").read_text())
             report["compiler_sha256"] = previous["compiler_sha256"]
             report["compiler_reused_from"] = reused
+    if args.phase.startswith("chat_translation"):
+        report["helpers"]["tools/live/test_chat_translation.py"] = sha(REPO / "tools/live/test_chat_translation.py")
+        report["fixture_xl_sha256"] = sha(OUT / "module/mglive_xl.nss")
     try:
         from stream_transport import redis_args
         redis = subprocess.Popen(redis_args(SCRATCH, RPORT),
@@ -2413,14 +2445,14 @@ def main():
                "NWNX_DAMAGE_SKIP": "n", "NWNX_EVENTS_SKIP": "n", "NWNX_CREATURE_SKIP": "n", "NWNX_AREA_SKIP": "n", "NWNX_OBJECT_SKIP": "n", "NWNX_DIALOG_SKIP": "n",
                "NWNX_CORE_LOG_LEVEL": "6",
                "NWNX_REDIS_HOST": "127.0.0.1", "NWNX_REDIS_PORT": str(RPORT),
-               "NWNX_REDIS_PUBSUB_SCRIPT": "mglive_ps", "NWNX_REDIS_PUBSUB_CHANNELS": PREFIX + ".cmd",
+               "NWNX_REDIS_PUBSUB_SCRIPT": "mglive_ps", "NWNX_REDIS_PUBSUB_CHANNELS": PREFIX + ".cmd," + PREFIX + ".xl",
                "MGLIVE_PREFIX": PREFIX, "MGLIVE_BOOT": boot, "MGLIVE_AREAS": "events", "MGLIVE_ALLOW_CHUNK": "1"}
         env["MGLIVE_ALLOW_PLAYER_OPS"] = "1" if report["player_ops_enabled"] else "0"
         if args.phase == "watch_areas":
             env["MGLIVE_AREAS"] = ""
         if args.phase == "measure":
             env["MGLIVE_AREAS"] = os.environ.get("MGLIVE_DEMO_AREA", "demo_area")
-        if args.phase == "stress":
+        if args.phase in ("stress", "chat_translation_stress"):
             env["MGLIVE_AREAS"] = "events,events2,events3,events4,events5"
         native_started=time.time()
         server = subprocess.Popen([str(SERVER), "-userdirectory", str(SCRATCH), "-module", "events",

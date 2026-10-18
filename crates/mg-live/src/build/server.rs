@@ -57,7 +57,7 @@ MGLIVE_ALLOW_CHUNK=0
 MGLIVE_ALLOW_PLAYER_OPS=0
 # Legacy game string charset; cp1250 (Polish), cp1251 or cp1252.
 MGLIVE_TEXT_CODEPAGE=cp1250
-# Derived when starting: NWNX_REDIS_PUBSUB_CHANNELS=$MGLIVE_PREFIX.cmd.
+# Derived when starting: NWNX_REDIS_PUBSUB_CHANNELS=$MGLIVE_PREFIX.cmd,$MGLIVE_PREFIX.xl.
 # Derived when starting: MGLIVE_BOOT is a fresh random server identity.
 # Derived when starting: NWNX_CORE_LOAD_PATH and LD_PRELOAD use NWNX_ROOT/Binaries.
 # Required HAKs: {}
@@ -109,7 +109,7 @@ export MGLIVE_BOOT=$(python3 -c 'import secrets; print(secrets.token_hex(16))')
 admin=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
 cd -- "$(dirname -- "$NWN_SERVER")"
 export NWNX_CORE_LOAD_PATH="$plugins" LD_PRELOAD="$plugins/NWNX_Core.so"
-export NWNX_REDIS_PUBSUB_CHANNELS="$MGLIVE_PREFIX.cmd"
+export NWNX_REDIS_PUBSUB_CHANNELS="$MGLIVE_PREFIX.cmd,$MGLIVE_PREFIX.xl"
 exec "$NWN_SERVER" -userdirectory "$scratch" -module live -port "$MGLIVE_PORT" -publicserver 0 -reloadwhenempty 0 -servervault 1 -adminpassword "$admin"
 "#,
         quote(&config),
