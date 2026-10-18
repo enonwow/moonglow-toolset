@@ -94,6 +94,15 @@ pub struct Written {
 /// Resources and where their bytes are, in priority order.
 pub type Contents = Vec<(ResKey, Source)>;
 
+/// Private Live module manifest: only module resources, preserving `Mod_HakList`.
+/// Source, debug, area comments and compiled scripts are never distributed.
+pub fn private_module_contents(m: &Module) -> Contents {
+    m.keys()
+        .filter(|k| !SKIPPED.contains(&k.restype) && k.restype != ResType::NCS)
+        .filter_map(|k| m.shared(k).map(|bytes| (*k, Source::Bytes(bytes.clone()))))
+        .collect()
+}
+
 /// The resources a module's manifest holds, in priority order (the first
 /// of a name wins), and the haks found nowhere.
 pub fn module_contents(

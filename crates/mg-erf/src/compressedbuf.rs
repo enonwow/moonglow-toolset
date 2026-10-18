@@ -32,10 +32,21 @@ pub enum CompressedBufError {
     Zstd(String),
     #[error("decompressed {actual} bytes, header says {expected}")]
     SizeMismatch { expected: usize, actual: usize },
+    #[error("declared decompressed size {size} exceeds limit {limit}")]
+    SizeLimit { size: usize, limit: usize },
 }
 
 /// Decompresses a buffer, checking its magic.
 pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufError> {
+    decompress_limited(data, magic, usize::MAX)
+}
+
+/// Decompresses at most `limit` bytes, rejecting an oversized header before allocation.
+pub fn decompress_limited(
+    data: &[u8],
+    magic: [u8; 4],
+    limit: usize,
+) -> Result<Vec<u8>, CompressedBufError> {
     let mut r = Reader::new(data);
     let found: [u8; 4] = r.array()?;
     if found != magic {
@@ -50,6 +61,9 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
     }
     let algorithm = r.u32()?;
     let size = r.u32_usize()?;
+    if size > limit {
+        return Err(CompressedBufError::SizeLimit { size, limit });
+    }
     if size == 0 {
         return Ok(Vec::new());
     }
@@ -64,10 +78,12 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
                 return Err(CompressedBufError::Dictionary);
             }
             let frame = r.bytes(r.remaining())?;
-            let mut dec = ruzstd::decoding::StreamingDecoder::new(frame)
+            let dec = ruzstd::decoding::StreamingDecoder::new(frame)
                 .map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
             let mut out = Vec::with_capacity(size);
-            dec.read_to_end(&mut out).map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
+            dec.take(size as u64 + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
             out
         }
         other => return Err(CompressedBufError::UnsupportedAlgorithm(other)),

@@ -26,6 +26,7 @@ pub mod models;
 pub mod nasher;
 pub mod new;
 pub mod nwsync;
+pub mod nwsync_cache;
 pub mod palette;
 pub mod palette_add;
 pub mod query;
@@ -110,6 +111,8 @@ pub struct Module {
     pub project: Option<Box<nasher::Project>>,
     /// A module folder's files as last read or written, when it is one.
     pub folder: Option<Box<folder::FolderFiles>>,
+    /// Verified remote content replaces local hak lookup for this read-only generation.
+    nwsync: Option<nwsync_cache::NwSyncCache>,
 }
 
 impl Default for Module {
@@ -129,6 +132,7 @@ impl Module {
             dirty: false,
             project: None,
             folder: None,
+            nwsync: None,
         }
     }
 
@@ -377,9 +381,20 @@ impl Module {
         install: &mg_resman::GameInstall,
     ) -> (Vec<String>, Option<mg_resman::ResError>) {
         let haks = self.haks().unwrap_or_default();
-        let (missing, wrong) = match resman.add_haks(install, &haks) {
-            Ok(missing) => (missing, None),
-            Err(e) => (Vec::new(), Some(e)),
+        let (missing, wrong) = match &self.nwsync {
+            Some(cache) => {
+                resman.add(
+                    mg_resman::priority::NWSYNC,
+                    "Live NWSync",
+                    mg_resman::LayerClass::NwSync,
+                    cache.clone(),
+                );
+                (Vec::new(), None)
+            }
+            None => match resman.add_haks(install, &haks) {
+                Ok(missing) => (missing, None),
+                Err(e) => (Vec::new(), Some(e)),
+            },
         };
         resman.add(
             mg_resman::priority::MODULE,
@@ -413,6 +428,12 @@ impl Module {
     /// module's location. Saving into a project the module isn't in makes
     /// one there (or adds the module to a project without one).
     pub fn save_as(&mut self, location: &ModuleLocation) -> Result<(), ModuleError> {
+        if self.nwsync.is_some() {
+            return Err(ModuleError::Source {
+                name: "Live NWSync".into(),
+                message: "remote module generation is read-only".into(),
+            });
+        }
         let mut folder = None;
         match location {
             ModuleLocation::Archive(path) => self.write_archive(path)?,
