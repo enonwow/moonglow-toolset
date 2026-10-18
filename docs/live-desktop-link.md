@@ -3,7 +3,7 @@ type: Reference
 title: Live desktop authentication and connection settings
 description: Desktop PKCE login, gateway TLS trust and per-server credentials.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T09:57:30Z }
+generated: { by: codex, at: 2026-10-18T11:23:16Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-live-link/src/login.rs
@@ -121,7 +121,7 @@ and leaves incomplete clients invalid. A loader-injected unit regression covers
 successful restoration and denial without accessing the system credential store.
 
 The existing client UI round-trip test now serializes only public configuration;
-the mock-backed migration test owns secret persistence coverage. 
+the mock-backed migration test owns secret persistence coverage.
 `LiveServers::resolve` takes `MOONGLOW_GATEWAY_URL` and
 `MOONGLOW_GATEWAY_TOKEN` over saved settings, without persisting either.
 A URL override uses a distinct environment identity and cannot inherit a saved
