@@ -1401,6 +1401,25 @@ mod audit_tests {
         other.id = "ai:two".into();
         other.id_prefix = "two.".into();
         other.groups = vec!["read".into()];
+        g.install_ai(
+            AiIdentity {
+                id: other.id.clone(),
+                owner: "dm:one".into(),
+                name: "Reader".into(),
+                groups: other.groups.clone(),
+                expires_ms: u64::MAX,
+                llm_allowed: true,
+            },
+            &"t".repeat(32),
+        )
+        .unwrap();
+        g.refresh_principal(Principal {
+            id: "dm:one".into(),
+            name: "One".into(),
+            groups: config().groups,
+        })
+        .unwrap();
+        g.set_llm_enabled(true);
         g.connect(other, None, &[], 0).unwrap();
         assert_eq!(g.commands("dm:one", &[command(1)], 0).unwrap().accepted.len(), 1);
         g.store

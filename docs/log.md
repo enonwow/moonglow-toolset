@@ -1,5 +1,7 @@
 # Update log
 
+* **Authenticated shared-log fixture (2026-10-18)**: register the AI reader with its owner and both consent levels; command events remain shared while result payloads stay private. [Regression contract](live-library.md#gateway-shared-requests).
+
 * **Gateway GUI visual verification (2026-10-18)**: rendered and inspected Options, Focus, map presence, reconnect and unknown states; 738 UI tests pass, desktop transport/TLS regressions pass, scoped Clippy and formatting are clean. Full workspace snapshot limitations remain explicit. [Evidence and reproduction](live-desktop-link.md#gui-verification-2026-10-18).
 
 * **Gateway refusal regression (2026-10-18)**: the desktop facade test follows the implemented host operations and distinguishes permission denial, invalid book writes and unknown operations. Six transport/facade tests pass. [Current contract](live-desktop-link.md#protocol-contracts-and-pending-host-operations).

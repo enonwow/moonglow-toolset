@@ -501,3 +501,8 @@ static credential cannot be imported again after being revoked. Revoked entries
 are omitted from `ai.list`; restoring a removed token requires a new identity,
 not toggling consent. The retained metadata also lets the owner reject an obsolete
 pending draft. Note revision tombstones share the 4000-key note capacity.
+
+The shared command-log regression registers its AI reader with an owner and both
+consent levels. It verifies that authenticated readers see another principal's
+command events while result payloads remain private; an unregistered AI is not a
+valid reader fixture under managed identity enforcement.
