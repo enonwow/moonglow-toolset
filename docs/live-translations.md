@@ -362,3 +362,61 @@ all six baseline channels capture, the 4096-placeable comparison stays within
 and tell/party/DM remain bounded. Every sample must use less than half the actual
 VM limit. Retain the helper's measurement report; do not infer instruction counts
 from these Python unit tests.
+
+
+## Isolate budget measurements from state serialization
+
+The next native run, with the compiled probe from `29f1686`, passed all six baselines: capture
+used 1152--2773 instructions against the unchanged 1,048,576 instruction limit.
+The later timeout was in population setup, before the loaded measurements. Eight
+identical 128-placeable chunks returned successful results (`proof-22` through
+`proof-29`); state frames contained 1024 unique placeables. Reports stopped after
+sequence 30, and the ninth population command had no observed result. These
+facts rule out a blanket `run_chunk` denial or an oversized chunk as the cause
+of those successful batches. They do not prove whether the ninth command ran.
+
+Results are attached only after `MgLiveReportStep` serializes each selected area.
+`MgLiveArea` enumerates the full population for full/delta snapshots. An aborted
+report can leave `MGLIVE_REPORT_BUSY` set and withhold subsequent reports,
+including command results. The artifact pattern is consistent with that path;
+no server VM log was available to confirm TMI. This is a separate dense-state
+reporting limitation, not a measured chat instruction-budget failure.
+
+The budget fixture now routes state reporting through the small authored
+`events2` area before **both** baseline and loaded measurements. It clears the
+stress area's explicit/temporary watch and requires a fresh report containing
+only `events2` before creating the population. All 4096 placeables and 288 extra
+creatures still occupy the speaker's `events` area, so capture sees the same
+actual stress population. Creation success counters are read back and checked;
+missing objects cannot silently weaken the acceptance test. The output records
+actual counts and both area names. No production reporter, chat code, VM limit,
+permissions or result timeout is changed. This proof does not certify dense-area
+state serialization.
+
+Reproduce the local runner checks with:
+
+```sh
+python -B tools/live/test_translation_budget_unit.py
+```
+
+Seven tests cover compiled measurements, stale/missing samples, instruction
+limits, a reporter blocked by population, fresh area selection and incomplete
+placeable/creature populations. The three initial isolation/population
+regressions failed against the preceding runner and passed after the fix.
+
+Native acceptance **needs WSL run** with the exact command in the preceding
+section. Expected: baseline, all 32 placeable batches, all nine creature batches,
+and every loaded/crowded sample complete; measured counts are 4096 and 288.
+Use this phase's `chat_translation_budget.json` and corresponding state/log
+artifacts. `xl-observations.json` is produced by the translator phases, not this
+budget phase, and can belong to an earlier run. No new loaded measurements or
+latency percentiles have been established in the sandbox.
+
+For this follow-up, the workspace gates above ran with Rust 1.98.0 and the same
+nonexistent `NWN_ROOT`, disabled incremental compilation and two-job limit.
+The test command completed 466 passing tests, one failure and four ignored
+before stopping in mg-live (239 passed there). The failure remains
+`api::tests::real_tls_status_command_and_stop`, with sandbox Schannel
+`SEC_E_NO_CREDENTIALS`; later test binaries were not run. All-target Clippy with
+warnings denied and the workspace format check passed. Repeat the test gate
+outside the sandbox; these checks do not establish native budget acceptance.

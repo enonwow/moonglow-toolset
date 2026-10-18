@@ -848,3 +848,5 @@
 * **Compiled budget probe (2026-10-18)**: measure NWNX counters in a compiled fixture, reject missing/stale samples, and pin the WSL shell helper to LF. [Cause, regression and native rerun](live-translations.md#compiled-instruction-budget-measurement).
 
 * **Describe command actions (2026-10-18)**: draft and completion event producers supply operation and target metadata to the shared action log. [Contract and regression](live-events-wire.md#action-metadata-for-draft-and-completion-events).
+
+* **Budget fixture reporting isolation (2026-10-18)**: keep the full chat stress population out of state snapshots, confirm a fresh report before loading, and verify created counts. [Native diagnosis, regressions and rerun](live-translations.md#isolate-budget-measurements-from-state-serialization).
