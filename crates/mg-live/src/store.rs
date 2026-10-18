@@ -1770,6 +1770,26 @@ pub struct LiveStore {
     state: Mutex<State>,
 }
 
+/// How this frame affected the state baseline. Side-channel events and command
+/// receipts can still be processed for a gap or stale frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncOutcome {
+    Full,
+    Delta,
+    Gap,
+    Stale,
+}
+
+/// The existing game reply together with the decision made under the store lock.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Synced {
+    pub reply: Value,
+    pub outcome: SyncOutcome,
+    /// The accepted request boot differed from the store boot, including the
+    /// first report received by a new store.
+    pub boot_changed: bool,
+}
+
 impl LiveStore {
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
@@ -1896,9 +1916,16 @@ impl LiveStore {
     /// Takes the game's post (JSON) and returns the reply: the commands it
     /// has not yet acknowledged.
     pub fn sync(&self, body: &[u8], now_ms: u64) -> Result<Value, String> {
+        self.sync_tapped(body, now_ms).map(|synced| synced.reply)
+    }
+
+    /// Applies the game's report and exposes the exact state-acceptance decision.
+    /// Parsing, receipts, events, queue processing and reply semantics match [`Self::sync`].
+    pub fn sync_tapped(&self, body: &[u8], now_ms: u64) -> Result<Synced, String> {
         let request = SyncRequest::parse(body)?;
         let mut s = self.lock();
-        if s.boot != request.boot {
+        let boot_changed = s.boot != request.boot;
+        if boot_changed {
             assistant::cancel(&mut s, "expired: the server restarted before DM approval");
             // A restarted server: what we knew and queued no longer applies.
             let old: Vec<Queued> = s.queue.drain(..).collect();
@@ -1951,6 +1978,7 @@ impl LiveStore {
                     .areas
                     .iter()
                     .any(|a| !a.full && !s.areas.contains_key(&a.area.to_ascii_lowercase())));
+        let mut outcome = if gap { SyncOutcome::Gap } else { SyncOutcome::Stale };
         let control_ack = s.resync.as_ref().is_some_and(|id| request.ack.contains(id));
         if gap && (s.resync.is_none() || control_ack) {
             let token = crate::service::generate_token()?;
@@ -2024,6 +2052,8 @@ impl LiveStore {
             s.received_ms = now_ms;
             s.delta = request.base_seq.is_some();
             if !gap && (fresh || request.base_seq.is_none()) {
+                outcome =
+                    if request.base_seq.is_none() { SyncOutcome::Full } else { SyncOutcome::Delta };
                 if request.base_seq.is_none() {
                     s.resync = None;
                 }
@@ -2081,7 +2111,7 @@ impl LiveStore {
         }
         assistant::capture(&mut s);
         watch::prepare(&mut s.watch, now_ms);
-        Ok(game_commands(&s))
+        Ok(Synced { reply: game_commands(&s), outcome, boot_changed })
     }
 
     /// Queues a command. A command whose id is already queued or answered

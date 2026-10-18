@@ -1,5 +1,7 @@
 # Update log
 
+* **Tapped Live synchronization (2026-10-18)**: expose Full/Delta/Gap/Stale and boot changes from the existing sync decision, preserving the original reply wrapper. [Contract and regressions](live-library.md#observing-synchronization-decisions).
+
 * **Central Live enqueue authorization (2026-10-18)**: direct store calls enforce operation groups even when global script policy is enabled. [Contract and regression](live-ops-wire.md#central-enqueue-authorization-2026-10-18).
 
 * **Live event deserialization (2026-10-18)**: events retain the existing wire shape and now deserialize for external consumers, with exact JSON round trips. [Library contract](live-library.md#event-transport).

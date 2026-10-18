@@ -63,3 +63,30 @@ existing field names and types. `event_roundtrip` checks exact round trips with
 optional object identities, a global event, Unicode, maximum sequence values
 and nested arbitrary payloads. Run
 `cargo +1.98.0 test -p mg-live --test event_roundtrip -j 2`.
+
+## Observing synchronization decisions
+
+`LiveStore::sync_tapped(body, now_ms)` returns `Result<Synced, String>`.
+`Synced` contains the original `reply`, `outcome: SyncOutcome` and `boot_changed`.
+`sync` delegates to it and returns only `reply`; existing sync tests stay unchanged.
+The outcome is assigned in the existing gap and state-application branches under
+the same lock, not inferred later from the resulting sequence number:
+
+| Outcome | Existing decision |
+|---|---|
+| `Full` | A frame without `base_seq` applies state, including an equal-sequence full frame and the initial sequence zero. |
+| `Delta` | A fresh delta extends the exact baseline and applies state. |
+| `Gap` | A fresh delta cannot extend the baseline (including pending resync or an unknown partial area). |
+| `Stale` | State is not applied: an older frame or an equal-sequence delta. |
+
+`boot_changed` compares the request boot to the store boot before resetting it,
+including the first report. A new-boot delta can therefore return both `Gap` and
+`boot_changed = true`. Errors retain the existing error path and have no `Synced`
+value. Events and command receipts retain their existing processing even when
+state is not applied. Forwarding only accepted state and stripping side channels
+is the responsibility of the consuming transport, outside this library change.
+
+Run `cargo +1.98.0 test -p mg-live --test sync_tapped -j 2`. The tests check every
+outcome, equal/older sequences, initial zero, restart, resync recovery, unknown
+partial areas, reply equality and unchanged validation errors. Run the existing
+store regressions with `cargo +1.98.0 test -p mg-live --lib -j 2`.
