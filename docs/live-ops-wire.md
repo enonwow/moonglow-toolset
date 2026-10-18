@@ -3529,3 +3529,34 @@ When a boot returns, a colliding ID removes a UI row with a different command or
 outcome. The regression reuses one ID across two boots with different results,
 then returns to the first boot: before the fix it returned the second answer;
 afterward it returns the first answer without queueing another command.
+
+
+## P4 final verification
+
+The implementation checkpoints are `b68a766` (bounded history), `654e7d3`
+(gateway MCP), `256a34e` (managed AI poll authorization) and `8c8ae10`
+(boot-bound result precedence). Verification used Rust 1.98.0 with
+`NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0` and at most two compiler jobs.
+
+| Command | Observed result |
+| --- | --- |
+| `cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2` | Compilation stopped because a concurrent GUI test split removed `gateway_shared.rs` after Cargo discovered it. This run did not execute tests. |
+| `cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings` | Passed. |
+| `cargo +1.98.0 fmt --check` | Passed. |
+| `cargo +1.98.0 test -p mg-live -p moonglow-mcp --lib --bins --tests -j 2` | Passed: 289 tests, zero failures, four ignored manual tests. |
+
+The scoped run includes 17 MCP tests, including the real gateway router over an
+authored TLS fixture, plus both 200,000-command horizon regressions. The four
+ignored tests require external TLS/Redis, WSL service lifecycle or engine snapshot
+fixtures (`real_tls_status`, `real_redis`, `keep_wsl_service_lifecycle`, and
+`library_engine_snapshot_ingestion`). They were not verified by this run. No game
+script changed in this stage. The GUI owner is responsible for repeating the
+full workspace test after that concurrent work stabilizes; a scoped pass is not
+a full workspace pass.
+
+Reproduction uses the commands above and the committed authored fixtures; no
+private game data is required. After preserving source, documentation and compact
+verification evidence, 19 task-owned editing helpers and superseded logs were
+removed (121,977 logical bytes). Shared build outputs remain in use by other
+work, so they were preserved. Concurrent disk activity prevents attributing the
+change in free space to this cleanup.

@@ -1,5 +1,7 @@
 # Update log
 
+* **P4 horizon and MCP final verification (2026-10-18)**: 289 scoped tests pass, including 17 MCP tests and two 200,000-command regressions; full workspace Clippy and formatting pass. The workspace test was interrupted by a concurrent GUI fixture split. [Commands, limits and cleanup](live-ops-wire.md#p4-final-verification).
+
 * **Gateway AI management in the desktop (2026-10-18)**: create, copy a token once, update and revoke through Live > AI agents; missing per-AI consent/avatar hooks remain explicit. [Flow and verification](live-desktop-link.md#gateway-ai-management).
 
 * **Gateway draft review in the desktop (2026-10-18)**: approve, edit and reject owner-filtered AI drafts through asynchronous requests; admin and owner UI regressions pass. [Flow and proof](live-desktop-link.md#gateway-draft-review).
