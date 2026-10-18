@@ -20,6 +20,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Fast, nonblocking hand-off from Redis pub/sub. Implementations must bound their
+/// queue and invoke the reply at most once; the game owns the fallback deadline.
+pub trait TranslationHook: std::fmt::Debug + Send + Sync {
+    fn request(&self, request: Value, reply: TranslationReply);
+}
+pub type TranslationReply = Box<dyn FnOnce(Value) + Send>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -233,6 +240,29 @@ impl Bridge {
         let (kick, receive) = mpsc::channel();
         store.set_kick(kick.clone());
         let mut threads = Vec::new();
+        let (xl_send, xl_receive) = mpsc::sync_channel::<Value>(128);
+        {
+            let (addresses, stop) = (addresses.clone(), stop.clone());
+            let channel = format!("{}.xl", config.prefix).into_bytes();
+            threads.push(thread::spawn(move || {
+                let mut connection = None;
+                while !stop.load(Ordering::Acquire) {
+                    let Ok(reply) = xl_receive.recv_timeout(Duration::from_millis(50)) else {
+                        continue;
+                    };
+                    if connection.is_none() {
+                        connection = connect(&addresses, &stop).ok();
+                    }
+                    if let Some(c) = &mut connection {
+                        let body = game_json(&reply);
+                        if request(c, &[b"PUBLISH", &channel, body.as_bytes()]).is_err() {
+                            connection = None;
+                        }
+                    }
+                    // Never retry a stale translation. Game-side fallback remains authoritative.
+                }
+            }));
+        }
         let inbox = Arc::new(Mutex::new(None));
         {
             let (config, addresses, inbox, status, store, stop, wake) = (
@@ -262,6 +292,7 @@ impl Bridge {
             // The server log (`tools/live/wsl/log-tail.sh`), into the live events.
             let log_channel = format!("{}.log", config.prefix).into_bytes();
             let event_channel = format!("{}.event", config.prefix).into_bytes();
+            let xl_channel = format!("{}.xl.req", config.prefix).into_bytes();
             threads.push(thread::spawn(move || {
                 let mut retry = 1;
                 while !stop.load(Ordering::Acquire) {
@@ -288,6 +319,12 @@ impl Bridge {
                                 if parts.get(1)
                                     == Some(&Reply::Bulk(Some(event_channel.clone()))) => {}
                             _ => return Err("Redis refused the event subscription".into()),
+                        }
+                        match request(&mut connection, &[b"SUBSCRIBE", &xl_channel])? {
+                            Reply::Array(Some(parts))
+                                if parts.get(1) == Some(&Reply::Bulk(Some(xl_channel.clone()))) => {
+                            }
+                            _ => return Err("Redis refused translation subscription".into()),
                         }
                         retry = 1;
                         connection_state(&state, true, Ok(()));
@@ -378,6 +415,27 @@ impl Bridge {
                                             lock(&state).last_error = format!("Invalid event: {e}");
                                             wake();
                                         }
+                                    }
+                                }
+                                [
+                                    Reply::Bulk(Some(kind)),
+                                    Reply::Bulk(Some(name)),
+                                    Reply::Bulk(Some(body)),
+                                ] if kind == b"message" && name == &xl_channel => {
+                                    if body.len() <= 16_384
+                                        && let Ok(mut value) = serde_json::from_slice::<Value>(body)
+                                    {
+                                        if value.get("req").and_then(Value::as_str).is_none() {
+                                            continue;
+                                        }
+                                        crate::wire_text::translation(&mut value);
+                                        let send = xl_send.clone();
+                                        store.translate(
+                                            value,
+                                            Box::new(move |reply| {
+                                                let _ = send.try_send(reply);
+                                            }),
+                                        );
                                     }
                                 }
                                 _ => return Err("Redis unexpected pub/sub reply".into()),
@@ -678,6 +736,41 @@ mod tests {
     }
     fn report(seq: u64) -> Value {
         json!({"v":1,"script_version":2,"prefix":"test","boot":"test","seq":seq,"areas":[{"area":"a","cre":[{"id":"ab"}]}]})
+    }
+
+    #[test]
+    fn immediate_translation_lane_does_not_wait_for_state_reports() {
+        #[derive(Debug)]
+        struct Hook;
+        impl TranslationHook for Hook {
+            fn request(&self, value: Value, reply: TranslationReply) {
+                assert_eq!(value["text"], "hello world");
+                reply(json!({"req":value["req"], "slot":value["slot"], "to":{"pl":"witaj"}}));
+            }
+        }
+        let fake = Fake::start();
+        let store = Arc::new(LiveStore::default());
+        store.set_translation_hook(Some(Arc::new(Hook)));
+        let bridge = Bridge::start(
+            RedisConfig {
+                host: "127.0.0.1".into(),
+                port: fake.address.port(),
+                prefix: "test".into(),
+            },
+            store,
+            Arc::new(|| {}),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        wait(|| lock(&fake.subscribers).iter().any(|(c, _)| c == b"test.xl.req"));
+        fake.publish(
+            b"test.xl.req",
+            json!({"req":"boot:one","slot":1,"text":"damaged","text_bytes":"hello+world"}),
+        );
+        let (channel, reply) = fake.published.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(channel, "test.xl");
+        assert_eq!(reply["to"]["pl"], "witaj");
+        assert!(bridge.status()["lastStateMs"].is_null());
     }
 
     #[test]

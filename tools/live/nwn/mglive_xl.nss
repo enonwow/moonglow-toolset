@@ -1,7 +1,8 @@
-// Opt-in feasibility prototype. All pending state and the fallback live in game.
+// Opt-in translation. All pending state and the fallback live in game.
 #include "nwnx_chat"
 #include "nwnx_redis"
 #include "mglive_text"
+#include "mglive_xllang"
 
 int MgXlPlayer(object o) { return GetIsPC(o) || GetIsDM(o) || GetIsDMPossessed(o); }
 int MgXlDM(object o) { return GetIsDM(o) || GetIsDMPossessed(o); }
@@ -122,6 +123,7 @@ void MgXlReply(string raw)
 {
     if(GetStringLength(raw)>16384) return;
     json reply=JsonParse(raw);
+    if(JsonGetString(JsonObjectGet(reply,"kind"))=="language") { MgXlLanguageReply(reply); return; }
     int slot=JsonGetInt(JsonObjectGet(reply,"slot"));
     if(slot<0 || slot>=128) return;
     string req=JsonGetString(JsonObjectGet(reply,"req"));
@@ -189,6 +191,9 @@ int MgXlCapture(int channel,string text,object speaker,object target)
         MgXlSend(channel,text,speaker,StringToObject(JsonGetString(JsonArrayGet(immediate,i))));
     json request=MgLiveTextField(pending,"text",text);
     JsonObjectDelInplace(request,"listeners");
+    string player=GetPCPublicCDKey(speaker);
+    if(player=="") player="object"+ObjectToString(speaker);
+    JsonObjectSetInplace(request,"player",JsonString(player));
     JsonObjectSetInplace(request,"from",JsonString(source));
     JsonObjectSetInplace(request,"to",languages);
     JsonObjectSetInplace(request,"text_codepage",JsonString(MgLiveTextCodepage()));

@@ -7,6 +7,12 @@ void main()
 {
     if(GetLocalInt(GetModule(),"MGLIVE_XL_DELIVERING")) return;
     object speaker = NWNX_Chat_GetSender();
+    if(GetLocalInt(GetModule(),"MGLIVE_XL") && GetIsPC(speaker) && NWNX_Chat_GetMessage()=="/language")
+    {
+        MgXlLanguageOpen(speaker);
+        NWNX_Chat_SkipMessage();
+        return;
+    }
     object recipient = NWNX_Chat_GetTarget();
     int channel = NWNX_Chat_GetChannel();
     json e = MgLiveEvent("chat", speaker, recipient);

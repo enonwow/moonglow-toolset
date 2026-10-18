@@ -1,5 +1,6 @@
 #include "mglive_inc"
 #include "mglive_nui"
+#include "mglive_xllang"
 
 void main()
 {
@@ -9,6 +10,7 @@ void main()
         NWNX_Util_GetEnvironmentVariable("NWNX_REDIS_HOST") == "") return;
     MgLiveConfigure();
     MgLiveNuiInstall();
+    MgXlLanguageInstall();
     SetLocalInt(m, "MGLIVE_STARTED", TRUE);
     SetLocalJson(m, "MGLIVE_ACK", JsonArray());
     SetLocalJson(m, "MGLIVE_RESULTS", JsonArray());

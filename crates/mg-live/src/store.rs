@@ -1911,6 +1911,7 @@ pub struct LiveStore {
     state: Mutex<State>,
     command_io: Mutex<()>,
     knowledge_io: Mutex<()>,
+    translation: Mutex<Option<Arc<dyn crate::bridge::TranslationHook>>>,
 }
 
 /// How this frame affected the state baseline. Side-channel events and command
@@ -2117,6 +2118,20 @@ impl LiveStore {
             }
         }
         revoked
+    }
+
+    /// Attach a host-owned translation pipeline. None preserves immediate original fallback.
+    pub fn set_translation_hook(&self, hook: Option<Arc<dyn crate::bridge::TranslationHook>>) {
+        *self.translation.lock().unwrap_or_else(|e| e.into_inner()) = hook;
+    }
+
+    pub(crate) fn translate(&self, request: Value, reply: crate::bridge::TranslationReply) {
+        let hook = self.translation.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook.request(request, reply);
+        } else {
+            reply(json!({"req":request["req"], "slot":request["slot"], "miss":true}));
+        }
     }
 
     pub fn set_kick(&self, kick: Sender<()>) {

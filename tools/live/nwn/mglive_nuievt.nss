@@ -1,9 +1,19 @@
 #include "mglive_nui"
+#include "mglive_xllang"
 
 void main()
 {
     object pc = NuiGetEventPlayer();
     int token = NuiGetEventWindow();
+    if(NuiGetWindowId(pc,token)=="mgliveLanguage")
+    {
+        if(token==GetLocalInt(pc,"MGLIVE_LANG_TOKEN") && NuiGetEventType()=="click" && MgXlKnownLanguage(NuiGetEventElement()))
+        {
+            MgXlLanguageRequest(pc,NuiGetEventElement());
+            NuiDestroy(pc,token);
+        }
+        return;
+    }
     if (NuiGetWindowId(pc, token) == MGLIVE_SKILL_WINDOW)
     {
         if(token!=GetLocalInt(pc,"MGLIVE_SKILL_TOKEN")) return;

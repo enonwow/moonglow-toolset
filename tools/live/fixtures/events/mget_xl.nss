@@ -61,6 +61,8 @@ void main()
         JsonObjectSetInplace(diagnostic,"translated_marks",JsonString(MgXlMarkup("xl_c1 hello *waves* translated-pl")));
         JsonObjectSetInplace(diagnostic,"cr_refused",JsonBool(!MgXlSafe("hello","hello"+GetSubString(NWNX_Util_GetAsciiTableString(),13,1)+"injection")));
         JsonObjectSetInplace(diagnostic,"colour_refused",JsonBool(!MgXlSafe("<caaa>hello</c>","<cbbb>hello</c>")));
+        JsonObjectSetInplace(diagnostic,"language_window",MgXlLanguageWindow());
+        JsonObjectSetInplace(diagnostic,"language_supported",JsonBool(MgXlKnownLanguage("pl") && !MgXlKnownLanguage("zh")));
         SetLocalJson(m,"MGET_XL_DIAGNOSTIC",diagnostic);return;
     }
     if(mode==2)

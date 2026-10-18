@@ -11,6 +11,8 @@ sources: [live-ops-wire.md, live-game-performance.md]
 
 These prototypes test the resource and chat contracts independently of the gateway
 HTTP/UI integration. They do not enable translation on existing modules.
+The current bridge/pipeline implementation and its separate acceptance are in
+[Live chat translation pipeline](live-translations.md).
 
 ## Module-only publishing
 

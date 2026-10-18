@@ -3,6 +3,8 @@ mod agent;
 mod core;
 pub mod files;
 mod socket;
+pub mod translation;
+pub use translation::{TranslationConfig, TranslationPipeline, Translator};
 
 use axum::{
     Json, Router,
@@ -49,6 +51,10 @@ impl PolicyResolver for Policy {
 /// Host routes (authentication, files, panel) are composed outside the core routes.
 pub trait Extensions {
     fn router(&self, core: CoreHandle) -> Router;
+    /// Optional private engine; hosts attach a TranslationPipeline to the core store.
+    fn translator(&self) -> Option<Arc<dyn Translator>> {
+        None
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Config {

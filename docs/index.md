@@ -114,3 +114,5 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 * [Live library for headless consumers](live-library.md) - Dependency boundary, passive mirrors, gateway transport and shared scoped HTTP routing.
 
 * [Live gateway feasibility prototypes](live-gateway-prototypes.md) - Verified clean-client NWSync cache and opt-in native chat translation with fallback, channel proofs and latency measurements.
+
+* [Live chat translation pipeline](live-translations.md) - Immediate bridge hook, bounded translation scheduling, host engine interface, NUI preferences and native acceptance.

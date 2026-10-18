@@ -220,3 +220,9 @@ mod tests {
         assert_eq!(malformed["line"], "valid Unicode ą");
     }
 }
+
+/// Decode the immediate chat lane using the same boundary as event text.
+pub(crate) fn translation(message: &mut Value) {
+    let cp = codepage(message);
+    fields(message, &["text"], cp);
+}

@@ -5,6 +5,8 @@ adapters enumerate PC/DM surrogates; this does not prove connected client UI.
 """
 import heapq
 import json
+import os
+import subprocess
 from pathlib import Path
 import select
 import threading
@@ -33,6 +35,25 @@ class Translator:
         self.sub, self.pub = redis(), redis()
         self.sub.send("SUBSCRIBE", "mglive-events.xl.req", "mglive-events.xl.proof")
         self.sub.read(); self.sub.read()
+        self.bridge = None
+        binary = os.environ.get("MGLIVE_XL_BRIDGE")
+        if binary:
+            executable = Path(binary).resolve()
+            expected = Path(__file__).resolve().parents[2] / "target/debug/examples/translation_engine.exe"
+            assert executable == expected.resolve() and executable.is_file()
+            self.bridge = subprocess.Popen([str(executable)], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            try:
+                assert select.select([self.bridge.stdout], [], [], 15)[0], "bridge readiness timeout"
+                assert self.bridge.stdout.readline().strip() == b"translation bridge ready"
+            except BaseException:
+                if self.bridge.poll() is None:
+                    self.bridge.stdin.write(b"stop\n"); self.bridge.stdin.flush()
+                    try:
+                        self.bridge.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self.bridge.terminate(); self.bridge.wait(timeout=5)
+                self.sub.close(); self.pub.close()
+                raise
         self.requests, self.deliveries, self.errors = [], [], []
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -58,6 +79,8 @@ class Translator:
                     self.deliveries.append(row)
                     continue
                 self.requests.append(row)
+                if self.bridge:
+                    continue
                 text = row["text"]
                 if text.startswith("xl_drop"):
                     continue
@@ -80,6 +103,9 @@ class Translator:
     def close(self):
         self.stop.set(); self.thread.join(timeout=3)
         self.sub.close(); self.pub.close()
+        if self.bridge:
+            self.bridge.stdin.write(b"stop\n"); self.bridge.stdin.flush()
+            assert self.bridge.wait(timeout=10) == 0
         assert not self.thread.is_alive() and not self.errors, self.errors
 
 
@@ -92,6 +118,10 @@ def run(p, stress=False):
         assert p.native('JsonString(GetEventScript(GetObjectByTag("XL_NEAR"),5007))') == "mget_xlhear"
         diagnostic = p.native('GetLocalJson(GetModule(),"MGET_XL_DIAGNOSTIC")')
         assert diagnostic["safe"] and diagnostic["cr_refused"] and diagnostic["colour_refused"], diagnostic
+        assert diagnostic["language_supported"]
+        window = json.dumps(diagnostic["language_window"])
+        assert all(label in window for label in ["English", "Polski", "Deutsch", "Francais", "Espanol", "Italiano"])
+        assert p.native('JsonString(GetEventScript(GetModule(),EVENT_SCRIPT_MODULE_ON_CLIENT_ENTER))') == "mglive_xlent"
         assert p.native('JsonInt(GetLocalInt(GetModule(),"MGLIVE_XL"))') == 0
         p.chunk('SetLocalInt(GetModule(),"MGLIVE_XL",TRUE);SetLocalInt(GetModule(),"MGET_XL_MODE",0);')
         near = {"XL_SAME", "XL_NEAR", "XL_MID", "XL_DM", "XL_NPC"}
@@ -136,7 +166,7 @@ def run(p, stress=False):
             p.command(op="run_script", script="mget_xl")
             p.until(lambda: len(rows("xl_move")) >= len(near), timeout=8)
             moved = next(x for x in rows("xl_move") if x["listener"] == "XL_NEAR")
-            assert moved["text"].endswith("translated-pl"), moved
+            assert "translated-pl" in moved["text"], moved
             assert p.native('JsonString(GetResRef(GetArea(GetObjectByTag("XL_NEAR"))))') == "events2"
             p.chunk('SetLocalInt(GetModule(),"MGET_XL_MODE",6);')
             p.command(op="run_script", script="mget_xl")
@@ -192,6 +222,7 @@ def run(p, stress=False):
                 cases[ident] = {"delivered": len(delivered), "translated": sum(x["translated"] for x in delivered),
                                 "max_ms": max(x["us"] / 1000 for x in delivered)}
         return {"table": table, "measurements": measurements, "stress": stress,
+                "transport": "production Bridge + TranslationPipeline" if stub.bridge else "Python stub",
                 "cases": cases,
                 "native_listener_callbacks": len(keys), "requests": len(stub.requests),
                 "limitations": "NPC OnConversation delivery; fixture-only PC/DM enumeration adapters. No connected PC/DM UI or native player-ID tell echo proof."}
