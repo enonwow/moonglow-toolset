@@ -277,18 +277,18 @@ impl LiveService {
         self.config.allow_agents = allowed;
         if !allowed {
             // Revoke access even if removing the discovery file fails.
-            self.access.agents.set_allowed(false);
             self.store.set_agent_consent(false);
+            self.access.agents.set_allowed(false);
             return self.remove_descriptor();
         }
         if let Err(e) = self.ensure_descriptor() {
             self.config.allow_agents = false;
-            self.access.agents.set_allowed(false);
             self.store.set_agent_consent(false);
+            self.access.agents.set_allowed(false);
             return Err(e);
         }
-        self.access.agents.set_allowed(true);
         self.store.set_agent_consent(true);
+        self.access.agents.set_allowed(true);
         Ok(())
     }
     /// Authenticated clients seen within 60 seconds; no game-store lock or report clone.

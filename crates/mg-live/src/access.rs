@@ -87,13 +87,23 @@ pub struct Scope {
     pub(crate) name: String,
     pub(crate) delivery: DeliveryMode,
     groups: Option<Vec<ClientGroup>>,
+    pub(crate) agent_epoch: Option<u64>,
 }
 impl Scope {
     pub(crate) fn default() -> Self {
-        Self { name: "default".into(), groups: None, delivery: DeliveryMode::Auto }
+        Self {
+            name: "default".into(),
+            groups: None,
+            delivery: DeliveryMode::Auto,
+            agent_epoch: None,
+        }
     }
 }
 impl Scope {
+    pub(crate) fn local() -> Self {
+        Self { name: "local".into(), ..Self::default() }
+    }
+
     /// Creates a scope with exactly these groups; even an empty or complete
     /// group list never grants unrestricted local privileges.
     pub fn restricted(
@@ -101,7 +111,7 @@ impl Scope {
         groups: Vec<ClientGroup>,
         delivery: DeliveryMode,
     ) -> Self {
-        Self { name: name.into(), groups: Some(groups), delivery }
+        Self { name: name.into(), groups: Some(groups), delivery, agent_epoch: None }
     }
     pub fn name(&self) -> &str {
         &self.name
@@ -275,6 +285,7 @@ impl Access {
                 name: c.name.clone(),
                 groups: Some(c.groups.clone()),
                 delivery: c.delivery,
+                agent_epoch: None,
             }))
             .collect();
         let windows = Mutex::new((0..all.len()).map(|_| Window::default()).collect());
@@ -525,8 +536,12 @@ mod tests {
         });
         let ops = all["operations"].as_array().unwrap();
         for g in [Read, ReadChat, Npc, Spawn, Scripts, Chunks, Players] {
-            let scope =
-                Scope { name: "test".into(), groups: Some(vec![g]), delivery: DeliveryMode::Auto };
+            let scope = Scope {
+                name: "test".into(),
+                groups: Some(vec![g]),
+                delivery: DeliveryMode::Auto,
+                agent_epoch: None,
+            };
             for op in ops {
                 let name = op["name"].as_str().unwrap();
                 assert!(group(name).is_some(), "{name}");

@@ -208,9 +208,15 @@ impl LiveStore {
     }
 }
 
-fn poll_allowed(s: &State, scope: &Scope, epoch: u64) -> Result<(), super::CommandError> {
+pub(super) fn poll_allowed(
+    s: &State,
+    scope: &Scope,
+    epoch: u64,
+) -> Result<(), super::CommandError> {
     if !(scope.unrestricted() && scope.name() == "local")
-        && (s.agent_consent == Some(false) || epoch != s.agent_epoch)
+        && (s.agent_consent == Some(false)
+            || epoch != s.agent_epoch
+            || scope.agent_epoch.is_some_and(|authorized| authorized != s.agent_epoch))
     {
         return Err(super::CommandError::new(super::ErrorCode::Forbidden, crate::agents::DENIED));
     }

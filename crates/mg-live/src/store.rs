@@ -2162,9 +2162,21 @@ impl LiveStore {
     /// Queues a command. A command whose id is already queued or answered
     /// is not queued again: its id is returned (idempotent retries).
     pub fn enqueue(&self, command: Command, now_ms: u64) -> Result<String, CommandError> {
-        let mut scope = crate::access::Scope::default();
-        scope.name = "local".into();
-        self.enqueue_scoped(command, now_ms, &scope)
+        self.enqueue_scoped(command, now_ms, &crate::access::Scope::local())
+    }
+
+    /// Captures consent at authorization. A revoked epoch is never refreshed,
+    /// even if the operator enables agents again before the request finishes.
+    pub fn authorize_scope(
+        &self,
+        scope: &crate::access::Scope,
+    ) -> Result<crate::access::Scope, CommandError> {
+        let s = self.lock();
+        let epoch = scope.agent_epoch.unwrap_or(s.agent_epoch);
+        event_store::poll_allowed(&s, scope, epoch)?;
+        let mut scope = scope.clone();
+        scope.agent_epoch = Some(epoch);
+        Ok(scope)
     }
 
     pub fn enqueue_scoped(
@@ -2173,8 +2185,9 @@ impl LiveStore {
         now_ms: u64,
         scope: &crate::access::Scope,
     ) -> Result<String, CommandError> {
+        let scope = self.authorize_scope(scope)?;
         let _writer = self.command_io.lock().unwrap_or_else(|e| e.into_inner());
-        self.enqueue_reserved(command, now_ms, scope, None)
+        self.enqueue_reserved(command, now_ms, &scope, None)
     }
 
     fn enqueue_reserved(
@@ -2193,6 +2206,11 @@ impl LiveStore {
             ));
         }
         let mut s = self.lock();
+        event_store::poll_allowed(
+            &s,
+            scope,
+            scope.agent_epoch.expect("authorized before command IO"),
+        )?;
         if reservation
             .as_ref()
             .is_some_and(|(boot, endpoint)| boot != &s.boot || endpoint != &s.server)
@@ -3204,6 +3222,74 @@ mod tests {
         assert!(store.commands(2)["commands"].as_array().unwrap().is_empty());
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn authorized_scope_cannot_survive_consent_revocation_and_reenable() {
+        let store = LiveStore::default();
+        post(&store, report("boot", 1, true), 0);
+        store.set_agent_consent(true);
+        let scope = store.authorize_scope(&crate::access::Scope::default()).unwrap();
+        store.set_agent_consent(false);
+        store.set_agent_consent(true);
+        assert_eq!(
+            store.enqueue_scoped(spawn(), 0, &scope).unwrap_err().code,
+            ErrorCode::Forbidden
+        );
+        assert!(store.lock().queue.is_empty());
+        assert_eq!(store.poll_epoch(&scope).unwrap_err().code, ErrorCode::Forbidden);
+        assert!(store.enqueue_scoped(spawn(), 0, &crate::access::Scope::default()).is_ok());
+    }
+
+    #[test]
+    fn revoked_agent_waiting_on_command_io_is_not_queued() {
+        let store = LiveStore::default();
+        post(&store, report("boot", 1, true), 0);
+        store.set_agent_consent(true);
+        let scope = crate::access::Scope::default();
+        let writer = store.command_io.lock().unwrap();
+        let (started, waiting) = std::sync::mpsc::channel();
+        std::thread::scope(|threads| {
+            let worker = threads.spawn(|| {
+                started.send(()).unwrap();
+                store.enqueue_scoped(spawn(), 0, &scope)
+            });
+            waiting.recv().unwrap();
+            store.set_agent_consent(false);
+            drop(writer);
+            assert_eq!(worker.join().unwrap().unwrap_err().code, ErrorCode::Forbidden);
+        });
+        assert!(store.lock().queue.is_empty());
+        assert!(store.lock().accepted.is_empty());
+        assert!(store.enqueue(spawn(), 0).is_ok(), "local UI retains its own right");
+    }
+
+    #[test]
+    fn revoked_and_reenabled_agent_during_reservation_is_not_queued() {
+        let root = std::env::temp_dir()
+            .join(format!("mg-consent-reservation-{}", crate::service::generate_token().unwrap()));
+        let store = LiveStore::default();
+        post(&store, report("boot", 1, true), 0);
+        store.set_agent_consent(true);
+        let mut journal = crate::command_ids::Journal::new(root.clone()).unwrap();
+        journal.select_boot("boot").unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        journal.before_write = Some(barrier.clone());
+        store.lock().command_ids = Some(journal);
+        std::thread::scope(|threads| {
+            let worker = threads
+                .spawn(|| store.enqueue_scoped(spawn(), 0, &crate::access::Scope::default()));
+            barrier.wait();
+            store.set_agent_consent(false);
+            store.set_agent_consent(true);
+            barrier.wait();
+            let result = worker.join().unwrap();
+            drop(store.lock().command_ids.take());
+            std::fs::remove_dir_all(&root).unwrap();
+            assert_eq!(result.unwrap_err().code, ErrorCode::Forbidden);
+        });
+        assert!(store.lock().queue.is_empty());
+        assert!(store.lock().accepted.is_empty());
     }
 
     #[test]

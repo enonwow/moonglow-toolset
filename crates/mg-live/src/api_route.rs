@@ -57,6 +57,17 @@ pub fn route_with_context(
     live: &LiveStore,
     context: &RouteContext<'_>,
 ) -> RouteResponse {
+    let authorized = match live.authorize_scope(scope) {
+        Ok(scope) => scope,
+        Err(e) => {
+            return RouteResponse {
+                status: 403,
+                body: json!({"ok":false,"error":e.error,"code":e.code}),
+                etag: None,
+            };
+        }
+    };
+    let scope = &authorized;
     let now_ms = context.now_ms;
     let stop = context.stop;
     let input: Result<Value, _> = serde_json::from_slice(body);

@@ -186,8 +186,14 @@ pub fn play(
         let n = i + 1;
         pause(clock, stop, step.delay_ms)?;
         let at_ms = clock.now_ms() - start;
-        let mut result = operations::call(&step.op, step.input.clone(), live, stop)
-            .map_err(|e| format!("Step {n}: {e}"))?;
+        let mut result = operations::call_scoped(
+            &step.op,
+            step.input.clone(),
+            live,
+            stop,
+            &crate::access::Scope::local(),
+        )
+        .map_err(|e| format!("Step {n}: {e}"))?;
         match &step.wait {
             Wait::Nothing => {}
             Wait::Result { timeout_ms } => {
@@ -418,6 +424,25 @@ mod tests {
         assert!(at[2] >= 400 && at[2] <= 400 + POLL_MS, "after the result: {at:?}");
         assert_eq!(out[1]["result"]["ok"], true);
         assert!(out[0]["result"]["queued"].is_string());
+    }
+
+    #[test]
+    fn local_scene_can_run_while_agents_are_disabled() {
+        let live = LiveStore::default();
+        room(&live, 1, json!({}));
+        live.set_agent_consent(false);
+        let scene = Scene {
+            name: "local".into(),
+            steps: vec![step(
+                0,
+                "live_npc_say",
+                json!({"area":"room","target":"7","text":"Hello"}),
+                Wait::Nothing,
+            )],
+        };
+        let out = play(&scene, &live, &AtomicBool::new(false), &Fake::new(|_| {})).unwrap();
+        assert!(out[0]["result"]["queued"].is_string());
+        assert!(live.commands(crate::now_ms())["commands"][0].get("by").is_none());
     }
 
     #[test]

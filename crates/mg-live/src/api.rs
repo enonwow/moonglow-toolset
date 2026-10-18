@@ -353,7 +353,10 @@ fn answer(
     let now_ms = if now_ms == 0 { now() } else { now_ms };
     let mut line = head.lines().next().unwrap_or("").split(' ');
     let (method, path) = (line.next().unwrap_or(""), line.next().unwrap_or(""));
-    let scope = access.scope(who);
+    let scope = match live.authorize_scope(access.scope(who)) {
+        Ok(scope) => scope,
+        Err(_) => return (403, json!({"err":crate::agents::DENIED})),
+    };
     let input: Result<Value, _> = serde_json::from_slice(&body);
     let op = match path {
         "/v1/ping" => "ping",
@@ -398,7 +401,7 @@ fn answer(
         path,
         &headers,
         &body,
-        scope,
+        &scope,
         live,
         &RouteContext {
             now_ms,

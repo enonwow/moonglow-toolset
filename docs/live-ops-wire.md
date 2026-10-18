@@ -3322,3 +3322,20 @@ Fifteen owned intermediate proof/cache files were removed (786122 logical bytes)
 The seven compact proofs and required shared fixtures/build inputs were kept.
 No physical disk-space gain is attributed to this cleanup because other builds
 were active, and no shared build tree was deleted.
+
+## Consent at command acceptance (M2 H2)
+
+Authorization captures the store's agent-consent epoch before waiting for command
+IO. The same epoch is checked under the store mutex at acceptance, including after
+the durable ID reservation releases that mutex. Revoking and re-enabling consent
+does not revive an already authorized request. HTTP carries this snapshot through
+the shared router; direct scoped enqueue captures it before waiting. Embedders can
+use `LiveStore::authorize_scope` when authorization precedes dispatch. Local UI and
+local scene playback retain their independent right.
+
+Regression tests block command IO, revoke consent, then release it; another blocks
+the journal write and revokes/re-enables consent. Both originally queued the
+command and now refuse with `forbidden`, without an accepted command or queue
+entry. A captured scope also remains revoked after re-enabling, while a fresh
+scope and local operations still work. Run `cargo +1.98.0 test -p mg-live --lib -j 2`
+with `CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`.
