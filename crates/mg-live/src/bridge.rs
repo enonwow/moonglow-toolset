@@ -295,9 +295,9 @@ impl Bridge {
                                                     .map(|boot| (generation, boot.to_owned()));
                                             }
                                             drop(s);
-                                            if has_outbound(&reply) {
-                                                let _ = kick.send(());
-                                            }
+                                            // A command can be enqueued between sync returning
+                                            // and opening this generation's publish gate.
+                                            let _ = kick.send(());
                                             wake();
                                         }
                                         Err(e) => {
