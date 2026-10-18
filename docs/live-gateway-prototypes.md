@@ -12,6 +12,13 @@ sources: [live-ops-wire.md, live-game-performance.md]
 These prototypes test the resource and chat contracts independently of the gateway
 HTTP/UI integration. They do not enable translation on existing modules.
 
+## Module-only publishing
+
+`nwsync::module_only_contents(module, drop_ncs)` never expands haks or rewrites
+IFO bytes. NSS/NDB/GIC are always omitted; `drop_ncs` controls compiled scripts.
+The Live publisher uses `true`. Authored fixtures check byte-for-byte IFO
+preservation and deterministic manifests independent of input order.
+
 ## Clean-client NWSync
 
 `nwsync::private_module_contents` publishes only the module's own resources,

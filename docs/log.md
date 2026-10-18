@@ -1,5 +1,7 @@
 # Update log
 
+* **Module-only NWSync (2026-10-18)**: explicit bytecode exclusion and deterministic authored fixture. [Contract](live-gateway-prototypes.md#module-only-publishing).
+
 * **Revisioned gateway books in the desktop (2026-10-18)**: edit NPC/GM cards and object notes with CAS, refresh invalidations, and resolve conflicts without losing local text. [Editor and regressions](live-desktop-link.md#gateway-shared-editors-p3).
 
 * **P4 horizon and MCP final verification (2026-10-18)**: 289 scoped tests pass, including 17 MCP tests and two 200,000-command regressions; full workspace Clippy and formatting pass. The workspace test was interrupted by a concurrent GUI fixture split. [Commands, limits and cleanup](live-ops-wire.md#p4-final-verification).

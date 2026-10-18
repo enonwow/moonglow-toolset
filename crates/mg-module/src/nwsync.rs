@@ -97,8 +97,14 @@ pub type Contents = Vec<(ResKey, Source)>;
 /// Private Live module manifest: only module resources, preserving `Mod_HakList`.
 /// Source, debug, area comments and compiled scripts are never distributed.
 pub fn private_module_contents(m: &Module) -> Contents {
+    module_only_contents(m, true)
+}
+
+/// Only authored module resources; never expands haks or rewrites module.ifo.
+/// Source/debug/comments are always omitted; callers choose whether to omit bytecode.
+pub fn module_only_contents(m: &Module, drop_ncs: bool) -> Contents {
     m.keys()
-        .filter(|k| !SKIPPED.contains(&k.restype) && k.restype != ResType::NCS)
+        .filter(|k| !SKIPPED.contains(&k.restype) && (!drop_ncs || k.restype != ResType::NCS))
         .filter_map(|k| m.shared(k).map(|bytes| (*k, Source::Bytes(bytes.clone()))))
         .collect()
 }

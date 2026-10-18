@@ -213,3 +213,30 @@ fn untrusted_manifest_names_sizes_and_compressed_expansion_are_bounded() {
     assert!(loaded.open_module(&scratch.0.join("module"), loaded.clone()).is_err());
     assert!(!scratch.0.join("module").exists());
 }
+
+#[test]
+fn module_only_is_deterministic_and_bytecode_is_explicit() {
+    let scratch = Scratch::new();
+    let mut module = Module::new();
+    let mut ifo = Gff::new(*b"IFO ");
+    ifo.root.set("Mod_HakList", Value::List(vec![Struct::new(7)]));
+    module.set_info(&ifo).unwrap();
+    for typ in [ResType::NSS, ResType::NDB, ResType::GIC, ResType::NCS, ResType::TXT] {
+        module.set(key("authored", typ), &b"fixture"[..]);
+    }
+    let options = Options::default();
+    let contents = nwsync::module_only_contents(&module, false);
+    assert_eq!(contents.len(), 3);
+    assert_eq!(nwsync::module_only_contents(&module, true).len(), 2);
+    let a = nwsync::write(&scratch.0.join("a"), &contents, &options, &mut |_, _| {}).unwrap();
+    let mut reverse = contents;
+    reverse.reverse();
+    let b = nwsync::write(&scratch.0.join("b"), &reverse, &options, &mut |_, _| {}).unwrap();
+    assert_eq!(a.sha1, b.sha1);
+    let rows =
+        nwsync::read_manifest(&fs::read(scratch.0.join("a/manifests").join(a.sha1)).unwrap())
+            .unwrap();
+    assert!(rows.iter().any(
+        |(key, hash, _)| *key == Module::info_key() && *hash == sha1(&ifo.to_bytes().unwrap())
+    ));
+}
