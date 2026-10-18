@@ -220,6 +220,7 @@ pub struct Connection {
     hello: bool,
     in_flight: BTreeSet<u32>,
     seen: BTreeSet<u32>,
+    highest: Option<u32>,
 }
 impl Connection {
     pub fn receive(&mut self, frame: &ClientFrame) -> Result<(), FrameError> {
@@ -235,11 +236,18 @@ impl Connection {
             }
             _ if !self.hello => return Err(FrameError::new("invalid", "Hello must be first")),
             ClientFrame::Req(r) => {
-                if self.seen.contains(&r.id) {
+                if self.seen.contains(&r.id)
+                    || self.highest.is_some_and(|high| high >= 4096 && r.id <= high - 4096)
+                {
                     return Err(FrameError::new("invalid", "Request ID reused on this connection"));
                 }
                 if self.in_flight.len() >= 64 {
                     return Err(FrameError::new("rate_limited", "Too many in-flight requests"));
+                }
+                let high = self.highest.map_or(r.id, |high| high.max(r.id));
+                self.highest = Some(high);
+                if high >= 4096 {
+                    self.seen.retain(|id| *id > high - 4096);
                 }
                 self.seen.insert(r.id);
                 self.in_flight.insert(r.id);
@@ -250,5 +258,33 @@ impl Connection {
     }
     pub fn complete(&mut self, id: u32) -> bool {
         self.in_flight.remove(&id)
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    #[test]
+    fn audit_m4_request_history_is_bounded_and_evicted_ids_stay_invalid() {
+        let mut c = Connection::default();
+        c.hello = true;
+        for id in 0..10_000 {
+            c.receive(&ClientFrame::Req(Request {
+                id,
+                op: "call".into(),
+                a: serde_json::json!({}),
+            }))
+            .unwrap();
+            c.complete(id);
+        }
+        assert!(c.seen.len() <= 4096);
+        assert!(
+            c.receive(&ClientFrame::Req(Request {
+                id: 0,
+                op: "call".into(),
+                a: serde_json::json!({})
+            }))
+            .is_err()
+        );
     }
 }

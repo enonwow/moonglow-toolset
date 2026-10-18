@@ -165,10 +165,21 @@ struct Session {
     event_n: u64,
     event_ack: u64,
     outbox: BTreeMap<String, Outbox>,
-    completed: BTreeSet<String>,
+    completed: BTreeMap<String, u64>,
     meta: Option<Meta>,
     resume_valid: bool,
     auxiliary: VecDeque<Push>,
+}
+impl Session {
+    fn prune_completed(&mut self, now_ms: Option<u64>) {
+        if let Some(now) = now_ms {
+            self.completed.retain(|_, at| now.saturating_sub(*at) < RESULT_RETENTION_MS);
+        }
+        while self.completed.len() > 4096 {
+            let id = self.completed.iter().min_by_key(|(_, at)| *at).unwrap().0.clone();
+            self.completed.remove(&id);
+        }
+    }
 }
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
@@ -485,12 +496,13 @@ impl Gateway {
             event_n: 0,
             event_ack: 0,
             outbox: BTreeMap::new(),
-            completed: BTreeSet::new(),
+            completed: BTreeMap::new(),
             meta: None,
             resume_valid: true,
             auxiliary: VecDeque::new(),
         });
         session.generation = generation;
+        session.prune_completed(Some(now_ms));
         session.config = config;
         session.watch = watches;
         session.meta = None;
@@ -649,8 +661,9 @@ impl Gateway {
         let reservation = s.gateway.reservation;
         let session =
             s.gateway.sessions.get_mut(id).ok_or_else(|| reject("invalid", "Unknown session"))?;
-        let inserted =
-            !session.outbox.contains_key(&command_id) && !session.completed.contains(&command_id);
+        session.prune_completed(Some(now_ms));
+        let inserted = !session.outbox.contains_key(&command_id)
+            && !session.completed.contains_key(&command_id);
         if inserted {
             if session.outbox.len() >= RESULT_CAPACITY {
                 return Err(reject("rate_limited", "Result outbox is full; acknowledge results"));
@@ -740,10 +753,11 @@ impl Gateway {
         session.outbox.retain(|id, o| {
             let complete = o.acked == o.row.rev && o.row.state != ResultState::Pending;
             if complete {
-                session.completed.insert(id.clone());
+                session.completed.insert(id.clone(), o.created_ms);
             }
             !complete
         });
+        session.prune_completed(None);
         Ok(())
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
@@ -751,6 +765,7 @@ impl Gateway {
         self.update_watch(now_ms)?;
         let mut s = self.store.lock();
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;
+        session.prune_completed(Some(now_ms));
         let mut out = Vec::new();
         if session.boot != s.boot {
             out.push(Push::Boot { boot: s.boot.clone(), prev: session.boot.clone() });
@@ -823,7 +838,7 @@ impl Gateway {
         session.outbox.retain(|_, item| {
             if now_ms.saturating_sub(item.created_ms) >= RESULT_RETENTION_MS {
                 session.resume_valid = false;
-                session.completed.insert(item.row.id.clone());
+                session.completed.insert(item.row.id.clone(), item.created_ms);
                 if item.row.state != ResultState::Final {
                     let mut row = item.row.clone();
                     row.rev += 1;
@@ -844,6 +859,7 @@ impl Gateway {
                 true
             }
         });
+        session.prune_completed(Some(now_ms));
         let through = s.events.last();
         if through > session.event_n {
             let lost = lost_since(&s.events, session.event_n);
@@ -1082,5 +1098,33 @@ mod audit_tests {
                 ),
             }
         }
+    }
+    #[test]
+    fn audit_m4_completed_result_history_is_bounded() {
+        let g = setup();
+        for n in 0..5000 {
+            let id = format!("one.1234abcd.{n}");
+            g.store.lock().gateway.sessions.get_mut("dm:one").unwrap().outbox.insert(
+                id.clone(),
+                Outbox {
+                    reservation: n,
+                    row: MirroredResult {
+                        id: id.clone(),
+                        rev: 1,
+                        state: ResultState::Final,
+                        result: None,
+                    },
+                    created_ms: 0,
+                    acked: 0,
+                    sent: 1,
+                    boot: "boot".into(),
+                    ttl_ms: 30_000,
+                },
+            );
+            g.ack("dm:one", &[(id, 1)], 0).unwrap();
+        }
+        assert!(g.store.lock().gateway.sessions["dm:one"].completed.len() <= 4096);
+        g.pushes("dm:one", RESULT_RETENTION_MS).unwrap();
+        assert!(g.store.lock().gateway.sessions["dm:one"].completed.is_empty());
     }
 }

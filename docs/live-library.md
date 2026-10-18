@@ -374,3 +374,15 @@ using the environment described above.
 `spawn_json`, but never `run_script`. The same Scope check protects command,
 call and HTTP route dispatch; there is no gateway-only operation-name exception.
 The `audit_m1` regression verifies all three paths and successful JSON spawning.
+
+Request IDs use a 4,096-ID sliding replay window; IDs below its floor are refused,
+including after their individual entries were evicted. Completed gateway result
+IDs retain at most 4,096 entries for ten minutes. Mirror command history stores
+32-byte fingerprints (at most 4,096 for ten minutes), not duplicate payloads.
+The queued payloads and cached results each have a 4 MiB serialized byte budget;
+results retain at most 256 entries for ten minutes. Reset releases completed
+payloads and fingerprints, preserving bounded unknown outcomes for pending work.
+Per-process counter high-water marks prevent retired IDs from becoming runnable
+again, including across a reset; at most 64 processes share an ID prefix. A new
+prefix requires pending work to be reset first. `audit_m4` tests exercise count,
+byte and time limits, reset cleanup, owner-map cleanup and replay refusal.
