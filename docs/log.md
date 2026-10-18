@@ -1,5 +1,7 @@
 # Update log
 
+* **Neutral unknown outcomes (2026-10-18)**: both desktop log paths use warning styling and never label an unknown command as success or failure. [Regression](live-desktop-link.md#unknown-command-outcomes).
+
 * **Gateway request-set verification (2026-10-18)**: 300 scoped tests pass, four remain ignored, and all-target Clippy is clean after simplifying the dev credential-import guard. [Commands and limits](live-library.md#request-set-verification).
 
 * **Gateway outbox and retained outcomes (2026-10-18)**: assert the 64-result status ring separately from durable result lookup and the 256-entry session outbox. [Capacity regression](live-library.md#in-process-gateway-core).

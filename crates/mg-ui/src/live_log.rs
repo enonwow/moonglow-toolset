@@ -244,7 +244,9 @@ pub fn line(e: &Event, who: &dyn Fn(&str) -> String) -> String {
         "server_log" => d["line"].as_str().unwrap_or_default().to_string(),
         "command" => {
             let id = d["id"].as_str().unwrap_or_default();
-            if d["ok"] == true {
+            if unknown(e) {
+                format!("Command {id}: {UNKNOWN_OUTCOME}")
+            } else if d["ok"] == true {
                 match answer(&d["value"]) {
                     Some(value) => format!("Command {id}: {value}"),
                     None => format!("Command {id}: done"),
@@ -288,8 +290,17 @@ fn answer(value: &Value) -> Option<String> {
     })
 }
 
+pub(crate) const UNKNOWN_OUTCOME: &str = "outcome unknown - it may have run; not retried";
+
+fn unknown(e: &Event) -> bool {
+    e.kind == "command" && (e.data["code"] == "unknown" || e.data["state"] == "unknown")
+}
+
 /// Whether an event says something went wrong (shown in the error colour).
 fn bad(e: &Event) -> bool {
+    if unknown(e) {
+        return false;
+    }
     match e.kind.as_str() {
         "server_log" => e.data["script_error"] == true,
         "command" => e.data["ok"] == false,
@@ -446,7 +457,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             for (e, text, speaker) in &lines[range] {
                 let row = format!("{}  {}", clock(e.at_ms), attributed(text, e));
                 let color = speaker.and_then(|s| colors[s as usize]);
-                let shown = if bad(e) {
+                let shown = if unknown(e) {
+                    egui::RichText::new(&row).color(ui.visuals().warn_fg_color)
+                } else if bad(e) {
                     egui::RichText::new(&row).color(ui.visuals().error_fg_color)
                 } else if let Some(c) = color {
                     egui::RichText::new(&row).color(c)
@@ -492,6 +505,16 @@ pub(crate) fn attributed(text: &str, event: &mg_live::events::Event) -> String {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn unknown_is_a_warning_even_if_a_result_has_a_success_flag() {
+        for ok in [false, true] {
+            let e = event("command", json!({"id":"c1","ok":ok,"code":"unknown"}));
+            assert!(unknown(&e));
+            assert!(!bad(&e));
+            assert_eq!(line(&e, &str::to_owned), format!("Command c1: {UNKNOWN_OUTCOME}"));
+        }
+    }
 
     fn event(kind: &str, data: Value) -> Event {
         Event {

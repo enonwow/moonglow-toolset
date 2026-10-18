@@ -588,3 +588,12 @@ record; the shared build cache and shared failed-gate evidence remain in use.
 No private data or rendered artifacts are committed. Frontmatter source paths
 and Markdown targets were checked; the OKF executable was unavailable, so no
 OKF CLI validation is claimed.
+
+## Unknown command outcomes
+
+A result whose code or state is `unknown` is a warning even if an inconsistent
+payload also sets `ok`. Both the Live event log and application output say
+"outcome unknown - it may have run; not retried". Neither path claims success
+or failure. Regression tests exercise both values of `ok`:
+`cargo +1.98.0 test -p mg-ui --lib -j 2 unknown_` (with `NWN_ROOT=/nonexistent`
+and `CARGO_INCREMENTAL=0`) passes four matching tests, including both new cases.

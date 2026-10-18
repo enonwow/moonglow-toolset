@@ -1046,13 +1046,7 @@ pub(crate) fn results(app: &mut Moonglow) {
         if !app.live_commands.remove(id) {
             continue;
         }
-        let error = result["err"].as_str().unwrap_or_default();
-        if result["ok"].as_bool() == Some(true) {
-            let detail = if error.is_empty() { String::new() } else { format!(": {error}") };
-            app.log.info(format!("Live: {id} ok{detail}"));
-        } else {
-            app.log.warn(format!("Live: {id} failed: {error}"));
-        }
+        log_result(&mut app.log, id, result);
     }
     // A long UI pause can outlast the store's bounded result history. Do not
     // retain such ids forever or invent a successful outcome for them.
@@ -1065,6 +1059,20 @@ pub(crate) fn results(app: &mut Moonglow) {
                 false
             }
         });
+    }
+}
+
+fn log_result(log: &mut crate::Log, id: &str, result: &serde_json::Value) {
+    if result["code"] == "unknown" || result["state"] == "unknown" {
+        log.warn(format!("Live: {id}: {}", crate::live_log::UNKNOWN_OUTCOME));
+        return;
+    }
+    let error = result["err"].as_str().unwrap_or_default();
+    if result["ok"].as_bool() == Some(true) {
+        let detail = if error.is_empty() { String::new() } else { format!(": {error}") };
+        log.info(format!("Live: {id} ok{detail}"));
+    } else {
+        log.warn(format!("Live: {id} failed: {error}"));
     }
 }
 
@@ -1470,6 +1478,25 @@ fn say_window(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_result_is_logged_as_a_warning_without_claiming_failure_or_success() {
+        for ok in [true, false] {
+            let mut log = crate::Log::default();
+            log_result(
+                &mut log,
+                "command",
+                &serde_json::json!({"ok":ok,"code":"unknown","err":"Outcome unknown"}),
+            );
+            assert_eq!(
+                log.entries,
+                [(
+                    crate::Level::Warning,
+                    "Live: command: outcome unknown - it may have run; not retried".into()
+                )]
+            );
+        }
+    }
 
     #[test]
     fn combat_links_require_a_living_visible_pair_and_current_combat() {
