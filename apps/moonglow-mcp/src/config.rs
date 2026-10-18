@@ -3,6 +3,10 @@ use std::{env, path::PathBuf};
 #[derive(Clone)]
 pub struct Config {
     pub descriptors: Vec<PathBuf>,
+    pub gateway: Option<String>,
+    pub gateway_pin: Option<String>,
+    pub ai_token: Option<String>,
+    pub session_id: String,
     /// More folders of session descriptors, besides Moonglow's own (a demo's data folder).
     pub sessions: Vec<PathBuf>,
     pub mg: PathBuf,
@@ -33,6 +37,10 @@ impl Config {
             .and_then(|p| p.parent().map(|p| p.join(if cfg!(windows) { "mg.exe" } else { "mg" })))
             .filter(|p| p.is_file());
         let mut c = Self {
+            gateway: None,
+            gateway_pin: None,
+            ai_token: env::var("MOONGLOW_AI_TOKEN").ok(),
+            session_id: "gateway".into(),
             descriptors: env::var_os("MOONGLOW_AGENT_DESCRIPTOR")
                 .map(PathBuf::from)
                 .into_iter()
@@ -59,9 +67,13 @@ impl Config {
                 "--help" | "-h" => c.cli = vec!["help".into()],
                 "--allow-write" => c.write = true,
                 "--http-allow-remote" => c.remote = true,
-                "--descriptor" | "--sessions" | "--mg" | "--roots" | "--http" | "--http-token" => {
+                "--descriptor" | "--sessions" | "--mg" | "--roots" | "--http" | "--http-token"
+                | "--gateway" | "--gateway-pin" | "--session-id" => {
                     let value = args.next().ok_or_else(|| format!("Missing value for {arg}"))?;
                     match arg.as_str() {
+                        "--gateway" => c.gateway = Some(value),
+                        "--gateway-pin" => c.gateway_pin = Some(value),
+                        "--session-id" => c.session_id = value,
                         "--descriptor" => c.descriptors.push(value.into()),
                         "--sessions" => c.sessions.push(value.into()),
                         "--mg" => c.mg = value.into(),
@@ -86,6 +98,22 @@ impl Config {
                     ));
                 }
             }
+        }
+        if let Some(url) = &c.gateway {
+            mg_live_link::Gateway::new(url, c.gateway_pin.as_deref()).map_err(|e| e.to_string())?;
+            if !c.ai_token.as_ref().is_some_and(|s| {
+                !s.is_empty() && s.len() <= 4096 && s.bytes().all(|b| b.is_ascii_graphic())
+            }) {
+                return Err("Gateway requires MOONGLOW_AI_TOKEN in the environment".into());
+            }
+            if c.session_id.is_empty()
+                || c.session_id.len() > 128
+                || c.session_id.chars().any(char::is_control)
+            {
+                return Err("Invalid gateway session ID".into());
+            }
+        } else if c.gateway_pin.is_some() {
+            return Err("--gateway-pin requires --gateway".into());
         }
         if c.roots.is_empty() {
             c.roots.push(env::current_dir().map_err(|e| e.to_string())?);

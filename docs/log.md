@@ -777,3 +777,5 @@
 - 2026-10-18: Managed AI poll authorization now checks the current registry as well as the global consent epoch; unknown/revoked identities cannot keep reading. [Contract](live-ops-wire.md#managed-ai-reads-share-revocation-checks-p4).
 
 - 2026-10-18: Replace the lifetime accepted-ID ceiling with a boot-bound time/byte horizon and durable rejection floor; 200,000 store admissions and durable reservations, replay/rotation/restart proofs. [Contract and measurements](live-ops-wire.md#bounded-idempotency-horizon-p4).
+
+- 2026-10-18: MCP accepts a gateway URL, environment-only AI credential and string session IDs; shared WebPKI/pin TLS, real gateway router/managed-AI integration and legacy protocol tests pass. [Usage and verification](agent-protocol.md#mcp-through-the-gateway-p4).

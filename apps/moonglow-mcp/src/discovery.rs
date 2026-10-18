@@ -35,6 +35,10 @@ pub struct Descriptor {
     pin: String,
     pub pid: u32,
     #[serde(skip)]
+    id: String,
+    #[serde(skip)]
+    gateway: bool,
+    #[serde(skip)]
     client: Arc<Mutex<https::Client>>,
     #[serde(skip)]
     key: String,
@@ -45,14 +49,23 @@ pub struct Descriptor {
 }
 impl Descriptor {
     pub(crate) fn ping(&self) {
-        let _ = https::request_timeout(
-            &self.url,
-            &self.token,
-            &self.pin,
-            "/v1/ping",
-            None,
-            std::time::Duration::from_secs(2),
-        );
+        let mut client = https::Client::default();
+        let _ = self.send(&mut client, "/v1/ping", None, None, Duration::from_secs(2));
+    }
+    fn send(
+        &self,
+        client: &mut https::Client,
+        path: &str,
+        body: Option<&Value>,
+        revision: Option<&str>,
+        timeout: Duration,
+    ) -> Result<https::Reply, String> {
+        let endpoint = (&*self.url, &*self.token, &*self.pin);
+        if self.gateway {
+            client.gateway_request(endpoint, path, body, revision, timeout)
+        } else {
+            client.request(endpoint, path, body, revision, timeout)
+        }
     }
     fn response(
         &self,
@@ -60,14 +73,10 @@ impl Descriptor {
         body: Option<&Value>,
         revision: Option<&str>,
     ) -> Result<https::Reply, String> {
-        self.client.lock().map_err(|_| "Agent connection lock failed")?.request(
-            (&self.url, &self.token, &self.pin),
-            path,
-            body,
-            revision,
-            Duration::from_secs(120),
-        )
+        let mut client = self.client.lock().map_err(|_| "Agent connection lock failed")?;
+        self.send(&mut client, path, body, revision, Duration::from_secs(120))
     }
+
     fn describe(&mut self, cached: bool) -> Result<Value, String> {
         if cached
             && let Some((describe, etag)) = cache::load(&self.key, &self.fingerprint)
@@ -158,6 +167,7 @@ fn read_descriptor(path: &Path) -> Result<Descriptor, String> {
     d.key =
         cache::hash(path.canonicalize().map_err(|e| e.to_string())?.to_string_lossy().as_bytes());
     d.fingerprint = cache::hash(&bytes);
+    d.id = d.pid.to_string();
     Ok(d)
 }
 fn tool(
@@ -202,27 +212,27 @@ impl Catalogue {
     }
     pub fn for_watch(
         config: &Config,
-        pid: Option<u32>,
+        id: Option<&str>,
     ) -> Result<(Self, String, Option<String>), String> {
         let mut catalogue = Self::load(config, true, false);
         // A newly upgraded agent may advertise the streaming capability after our cache was saved.
-        if catalogue.event_stream(pid).is_err() {
+        if catalogue.event_stream(id).is_err() {
             catalogue = Self::load(config, false, false);
         }
-        let (name, session) = catalogue.event_stream(pid)?;
+        let (name, session) = catalogue.event_stream(id)?;
         Ok((catalogue, name, session))
     }
-    fn event_stream(&self, pid: Option<u32>) -> Result<(String, Option<String>), String> {
-        let session = match pid {
-            Some(pid) => self
+    fn event_stream(&self, id: Option<&str>) -> Result<(String, Option<String>), String> {
+        let session = match id {
+            Some(id) => self
                 .sessions
                 .iter()
-                .find(|s| s.descriptor.pid == pid)
+                .find(|s| s.descriptor.id == id)
                 .ok_or("Requested watch session is unavailable")?,
             None if self.sessions.len() == 1 => &self.sessions[0],
             None => {
                 return Err(format!(
-                    "Watch needs one session; use --session PID ({} found). {}",
+                    "Watch needs one session; use --session ID ({} found). {}",
                     self.sessions.len(),
                     self.diagnostics.join("; ")
                 ));
@@ -234,7 +244,7 @@ impl Catalogue {
         if !self.tools.iter().any(|t| t.name == name && t.annotations["readOnlyHint"] == true) {
             return Err("Advertised event stream is unavailable or is not read-only".into());
         }
-        Ok((name.into(), (self.sessions.len() > 1).then(|| session.descriptor.pid.to_string())))
+        Ok((name.into(), (self.sessions.len() > 1).then(|| session.descriptor.id.clone())))
     }
     fn refresh_agents(&mut self, config: &Config) {
         let cli: Vec<_> =
@@ -252,7 +262,7 @@ impl Catalogue {
             sessions: Vec::new(),
         };
         let mut paths = config.descriptors.clone();
-        if paths.is_empty() {
+        if paths.is_empty() && config.gateway.is_none() {
             let own = data_dir().map(|p| p.join("live/sessions"));
             for dir in own.iter().chain(&config.sessions) {
                 let Ok(entries) = fs::read_dir(dir) else { continue };
@@ -266,8 +276,30 @@ impl Catalogue {
         }
         paths.sort();
         paths.dedup();
+        let mut descriptors = Vec::new();
+        if let Some(url) = &config.gateway {
+            // Identity includes a non-reversible credential hash to keep cached scopes separate.
+            let key = cache::hash(format!("{url}/{}", config.session_id).as_bytes());
+            let token = config.ai_token.clone().unwrap_or_default();
+            let pin = config.gateway_pin.clone().unwrap_or_default();
+            let fingerprint = cache::hash(format!("{url}/{pin}/{token}").as_bytes());
+            descriptors.push(Descriptor {
+                protocol: "moonglow-agent/1".into(),
+                url: url.clone(),
+                token,
+                pin,
+                pid: 0,
+                id: config.session_id.clone(),
+                gateway: true,
+                client: Arc::default(),
+                key,
+                fingerprint,
+                revision: None,
+            });
+            paths.clear();
+        }
         for path in paths {
-            let mut d = match read_descriptor(&path) {
+            let d = match read_descriptor(&path) {
                 Ok(d) => d,
                 Err(e) => {
                     result.diagnostics.push(format!("Descriptor unavailable: {e}"));
@@ -278,8 +310,11 @@ impl Catalogue {
             if !cached && include_cli && config.descriptors.is_empty() && !alive(d.pid) {
                 continue;
             }
-            if result.sessions.iter().any(|s| s.descriptor.pid == d.pid) {
-                result.diagnostics.push("Duplicate session PID ignored".into());
+            descriptors.push(d);
+        }
+        for mut d in descriptors {
+            if result.sessions.iter().any(|s| s.descriptor.id == d.id) {
+                result.diagnostics.push("Duplicate session ID ignored".into());
                 continue;
             }
             match d.describe(cached) {
@@ -373,10 +408,10 @@ impl Catalogue {
                     continue;
                 }
                 if let Some(props) = input["properties"].as_object_mut() {
-                    let pids: Vec<String> = ops.iter().map(|(_, d)| d.pid.to_string()).collect();
+                    let pids: Vec<String> = ops.iter().map(|(_, d)| d.id.clone()).collect();
                     props.insert(
                         "session".into(),
-                        json!({"type": "string", "description": "Agent session PID", "enum": pids}),
+                        json!({"type": "string", "description": "Agent session ID", "enum": pids}),
                     );
                 }
                 if input.get("required").is_none() {
@@ -535,7 +570,7 @@ impl Catalogue {
                     .iter()
                     .map(|s| {
                         json!({
-                            "pid": s.descriptor.pid,
+                            "id": s.descriptor.id,
                             "url": s.descriptor.url,
                             "application": s.describe["moonglow"]
                         })
@@ -547,7 +582,7 @@ impl Catalogue {
             Target::Agent(sessions) => {
                 let selected = if tool.input["properties"].get("session").is_some() {
                     let pid = input["session"].as_str().ok_or("session required")?;
-                    sessions.iter().find(|s| s.pid.to_string() == pid).ok_or("Unknown session")?
+                    sessions.iter().find(|s| s.id == pid).ok_or("Unknown session")?
                 } else {
                     sessions.first().ok_or("Missing session")?
                 };

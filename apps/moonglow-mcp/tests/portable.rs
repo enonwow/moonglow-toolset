@@ -35,7 +35,7 @@ fn scan(path: &Path, forbidden: &[String]) {
     }
 }
 #[test]
-fn portable_sources_and_independent_dependencies() {
+fn portable_sources_and_shared_tls_dependency() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
     // A user's own names (account, private projects) come from the environment,
     // comma-separated, never from the repository.
@@ -46,9 +46,21 @@ fn portable_sources_and_independent_dependencies() {
         scan(&root.join(path), &forbidden);
     }
     let manifest = fs::read_to_string(root.join("apps/moonglow-mcp/Cargo.toml")).unwrap();
+    let dependencies = manifest
+        .split("[dependencies]")
+        .nth(1)
+        .unwrap()
+        .split("[dev-dependencies]")
+        .next()
+        .unwrap();
     assert!(
-        !manifest.contains("workspace")
-            && !manifest.contains("path =")
-            && !manifest.contains("mg-")
+        dependencies.contains("mg-live-link ="),
+        "Gateway TLS must reuse the shared trust implementation"
     );
+    for line in dependencies.lines().filter(|line| line.contains("path =")) {
+        assert!(
+            line.starts_with("mg-live-link ="),
+            "Unexpected runtime project dependency: {line}"
+        );
+    }
 }

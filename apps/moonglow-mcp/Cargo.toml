@@ -8,10 +8,16 @@ description = "Independent MCP adapter for discovered agent and CLI protocols"
 publish = false
 
 [dependencies]
+mg-live-link = { path = "../../crates/mg-live-link" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 ring = "0.17"
 
 [dev-dependencies]
+mg-gateway = { path = "../../crates/mg-gateway" }
+mg-live = { path = "../../crates/mg-live" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tower = { version = "0.5", features = ["util"] }
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }

@@ -1,7 +1,7 @@
 ---
 type: reference
 title: Agent and CLI discovery protocols
-description: Portable operation discovery, authenticated calls, the independent MCP adapter and the Live agent recipe.
+description: Portable operation discovery, authenticated calls, the MCP gateway adapter and the Live agent recipe.
 generated: false
 sources:
   - ../crates/mg-live/src/operations.rs
@@ -21,6 +21,54 @@ sources:
 ---
 
 # Agent and CLI discovery protocols
+
+## MCP through the gateway (P4)
+
+Start `moonglow-mcp --gateway https://gateway.example --session-id campaign`
+with the AI credential supplied as `MOONGLOW_AI_TOKEN` by the parent process or
+secret manager. There is no AI-token command-line option. Do not put credentials
+in URLs. For an IP endpoint, also pass `--gateway-pin SHA256`, using the verified
+64-hex-digit SHA-256 fingerprint of the gateway leaf certificate. DNS endpoints
+without a saved pin use WebPKI roots. Missing IP trust is refused before any
+HTTP request; wrong pins fail the TLS handshake. The shared
+`mg_live_link::Gateway::tls_config` implements these rules.
+
+Gateway mode bypasses local descriptor discovery. The adapter fetches
+`/agent/v1/describe`, generates the same MCP schemas from its operations, and
+calls `/agent/v1/call/NAME` with the AI bearer token and catalogue `If-Match`.
+Ping uses `/agent/v1/ping`. No tool list or permission policy is hardcoded in the
+adapter. HTTP redirects and automatic retries of uncertain calls are disabled;
+responses remain bounded to 16 MiB. Authentication, consent and policy are
+rechecked by the gateway on each request. A revoked token cannot use a cached
+catalogue to continue reading or writing.
+
+`moonglow_sessions` returns a string `id` (default `gateway`, configurable with
+`--session-id`), URL and described application; it returns no PID or credential.
+`watch --session ID` accepts the same string, including nonnumeric names. Legacy
+descriptor mode remains available without `--gateway`; its numeric PID is mapped
+to a string session ID for compatibility. CLI subprocesses do not inherit
+`MOONGLOW_AI_TOKEN`. Cache identity uses a SHA-256 credential fingerprint, never
+the credential itself. Remote HTTP error bodies are not reflected into gateway
+diagnostics.
+
+The integration test starts the real gateway router used by `mg-gateway-dev`,
+installs an owned managed AI with explicit local/global consent using the dev
+identity path, and runs the MCP executable over an authored TLS certificate.
+It checks discovery, a read call, string session listing and revocation. A
+second test checks missing/wrong IP pin, untrusted DNS certificate, absent token
+and absence of credentials from output. No game install/server is required.
+
+```text
+cargo +1.98.0 test -p moonglow-mcp --bins --tests -j 2
+```
+
+Use `NWN_ROOT=/nonexistent` and `CARGO_INCREMENTAL=0` for this workspace check.
+The app now depends on `mg-live-link` for shared TLS policy; its dev dependencies
+exercise the real gateway rather than a duplicate HTTP operation table.
+The scoped run passed all 17 MCP tests (5 unit, 2 gateway, 1 portability and
+9 legacy protocol tests). The TLS fixture explicitly switches accepted sockets
+to blocking mode on Windows and sends close-notify before closing.
+
 
 `moonglow-agent/1` describes operations as data. An adapter does not need the
 application's crates, version, fork name or operation names. Moonglow currently
@@ -77,7 +125,7 @@ descriptors whose PID has exited. The cached shell fast path reads the descripto
 files without spawning a liveness probe; TLS/authentication rejects an unavailable
 or replaced endpoint. Explicit `--descriptor FILE` (repeatable) or
 `MOONGLOW_AGENT_DESCRIPTOR` selects descriptors elsewhere, including a tunnel;
-their PIDs identify sessions without a local liveness check. The adapter
+their PIDs map to string session IDs without a local liveness check. The adapter
 never returns descriptor tokens through session listing or diagnostics.
 
 ### Conditional schema revision and persistent calls
@@ -202,11 +250,11 @@ No shell is used. The adapter invokes `<mg> --json <path...> <args...>`.
 The describe process has a five-second limit; an older or unavailable CLI
 gives no `mg_*` tools and an explanation in initialization instructions.
 
-## Independent MCP adapter
+## MCP adapter
 
-`moonglow-mcp` depends only on serde, serde_json, rustls and ring; its test
-certificate generator is a development dependency. Its package manifest
-does not inherit workspace settings, so the crate can be built separately.
+`moonglow-mcp` uses serde, serde_json, rustls, ring and the workspace's
+`mg-live-link` TLS policy. Its package settings remain explicit; build it from
+the workspace so the shared TLS dependency is available.
 It discovers a CLI via `--mg` / `MOONGLOW_MG`, then a sibling executable,
 then `PATH`. An agent or a describing CLI is required to offer application
 tools; diagnostics explain when neither source is available.
@@ -214,7 +262,7 @@ tools; diagnostics explain when neither source is available.
 Built-in adapter tools are `moonglow_sessions` and `moonglow_jobs`. They
 describe adapter state and manage only child processes it owns. Application
 tools come exclusively from discovery: agent names unchanged, CLI names
-prefixed `mg_`. Multiple sessions add a required `session` enum of PID
+prefixed `mg_`. Multiple sessions add a required `session` enum of ID
 strings to agent tools. Incompatible same-name schemas are omitted with a
 diagnostic; a session with an operation disabled is absent from its enum.
 `tools/list` rediscovers sources. Stdio sends `notifications/tools/list_changed`
@@ -313,7 +361,7 @@ watch does not start another heartbeat. Stop with Ctrl+C or a closed output pipe
 
 | Watch option | Meaning |
 |---|---|
-| `--session PID` | Required when more than one agent session is discovered |
+| `--session ID` | Required when more than one agent session is discovered |
 | `--since N` | Replay retained events newer than N instead of starting at the current tail |
 | `--from players` | PC/possessed speech, excluding silent AI shouts |
 | `--kinds chat,damage` | Comma-separated event kinds |
@@ -579,9 +627,8 @@ Chunk execution remains arbitrary script authority; the return feature does not
 add a new permission or make scripts read-only. Delayed callbacks cannot return
 a value after the synchronous chunk ends.
 
-The independent adapter validates the same union and exclusive-bound keywords
-that mg-live emits. Its workspace test checks every generated live operation
-schema, and still permits the adapter to be copied and tested separately.
+The adapter validates the same union and exclusive-bound keywords that mg-live
+emits. Its workspace test checks every generated live operation schema.
 The portability scan excludes only the explicitly machine-bound
 `tools/live/test-events.py` native proof; shipping launchers and adapter/library
 sources retain the original portability checks. The adapter also accepts and
@@ -781,23 +828,24 @@ not measured, so no wider space gain is attributed to this task.
 LiveService requires the application's data directory before accepting commands
 (`publish_descriptor` configures storage even when Allow LLM is off). A command
 ID is written and flushed **before** native enqueue/publisher wake, under
-`<data_dir>/live/command-ids/<server-hash>/<boot-hash>.jsonl`. Server identity is
+`<data_dir>/live/command-ids/<server-hash>/current.jsonl`. Server identity is
 Redis endpoint/port/prefix; localhost and loopback IP aliases share a namespace.
-Files contain only JSON strings of IDs, never command text, payloads or tokens.
+P4 records contain boot, ID, fingerprint, owner and outcome, never command
+payloads or authentication tokens. Outcome data may include returned game data.
 A held file lock prevents two services from writing the same namespace.
 
 An identical retry during the same process keeps existing deduplication/results.
-After a Moonglow restart with the same game boot, an already reserved explicit
-ID is refused with `code:"invalid"` and the explanation that it will not run
-again. Results are not replayed from disk: a command with an uncertain prior
-outcome must be reconciled against state/events, never retried under a new ID
+After a Moonglow restart with the same game boot, a matching retained ID returns
+its saved outcome, or `unknown` when no durable result exists. It is never queued
+again. A command with an uncertain prior outcome must be reconciled against
+state/events, never retried under a new ID
 without establishing whether the effect occurred. A draft reservation survives
 restart too; restart never auto-approves or publishes lost drafts.
 
-Each boot admits at most65,536 reservations, matching the existing in-process
-limit. The implementation refuses more instead of evicting IDs and enabling
-replays. Old boot files remain small metadata retained for delayed boot/replay
-safety. Invalid/truncated journals, a competing writer or a failed durable
+The original 65,536-per-boot ceiling was replaced in P4 by a bounded
+[time/byte horizon and durable rejection floor](live-ops-wire.md#bounded-idempotency-horizon-p4).
+Expired IDs return `expired` and never execute. Timed IDs are required after the
+bounded legacy migration window. Invalid/truncated journals, a competing writer or a failed durable
 reservation fail closed. The startup gap returns `disabled` until storage is
 ready. In-memory test stores without LiveService intentionally need no profile.
 

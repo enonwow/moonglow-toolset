@@ -104,8 +104,55 @@ impl Client {
         etag: Option<&str>,
         timeout: Duration,
     ) -> Result<Reply, String> {
+        self.request_inner(endpoint, path, body, etag, timeout, None)
+    }
+    pub fn gateway_request(
+        &mut self,
+        endpoint: (&str, &str, &str),
+        path: &str,
+        body: Option<&Value>,
+        etag: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Reply, String> {
+        let gateway =
+            mg_live_link::Gateway::new(endpoint.0, (!endpoint.2.is_empty()).then_some(endpoint.2))
+                .map_err(|e| e.to_string())?;
+        // Trust must be decided before constructing a request containing the bearer token.
+        let tls = gateway.tls_config().map_err(|e| e.to_string())?;
+        let path = path.strip_prefix("/v1/").ok_or("Invalid agent endpoint")?;
+        let mut reply = self.request_inner(
+            endpoint,
+            &format!("/agent/v1/{path}"),
+            body,
+            etag,
+            timeout,
+            Some(tls),
+        )?;
+        // A remote error body must never turn an echoed credential into a diagnostic.
+        if !(200..300).contains(&reply.status) {
+            reply.value = serde_json::json!({"error":"Gateway request refused"});
+        }
+        Ok(reply)
+    }
+    fn request_inner(
+        &mut self,
+        endpoint: (&str, &str, &str),
+        path: &str,
+        body: Option<&Value>,
+        etag: Option<&str>,
+        timeout: Duration,
+        tls_config: Option<Arc<rustls::ClientConfig>>,
+    ) -> Result<Reply, String> {
         let (url, token, pin) = endpoint;
-        let authority = authority(url, token, pin)?;
+        let authority = authority(
+            url,
+            token,
+            if tls_config.is_some() && pin.is_empty() {
+                "0000000000000000000000000000000000000000000000000000000000000000"
+            } else {
+                pin
+            },
+        )?;
         if !path.starts_with('/')
             || path.bytes().any(|b| !b.is_ascii_graphic())
             || etag.is_some_and(|e| !valid_etag(e))
@@ -122,7 +169,7 @@ impl Client {
         }
         let mut tls = match self.stream.take() {
             Some(tls) => tls,
-            None => connect(&authority, pin)?,
+            None => connect(&authority, pin, tls_config)?,
         };
         self.identity = identity;
         tls.get_mut().sock.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
@@ -175,16 +222,6 @@ pub fn valid_etag(e: &str) -> bool {
         && e.ends_with('"')
         && e[1..e.len() - 1].bytes().all(|b| b.is_ascii_graphic() && b != b'"')
 }
-pub fn request_timeout(
-    url: &str,
-    token: &str,
-    pin: &str,
-    path: &str,
-    body: Option<&Value>,
-    timeout: Duration,
-) -> Result<Value, String> {
-    Client::default().request((url, token, pin), path, body, None, timeout)?.json()
-}
 fn authority(url: &str, token: &str, pin: &str) -> Result<String, String> {
     let authority =
         url.strip_prefix("https://").ok_or("Descriptor URL must use HTTPS")?.trim_end_matches('/');
@@ -198,7 +235,11 @@ fn authority(url: &str, token: &str, pin: &str) -> Result<String, String> {
     }
     Ok(authority.into())
 }
-fn connect(authority: &str, pin: &str) -> Result<Tls, String> {
+fn connect(
+    authority: &str,
+    pin: &str,
+    tls_config: Option<Arc<rustls::ClientConfig>>,
+) -> Result<Tls, String> {
     let (host, port) = if let Some(ip) = authority.strip_prefix('[') {
         let (host, rest) = ip.split_once(']').ok_or("Invalid IPv6 URL")?;
         (
@@ -239,7 +280,7 @@ fn connect(authority: &str, pin: &str) -> Result<Tls, String> {
         }))
         .with_no_client_auth();
     let connection = rustls::ClientConnection::new(
-        Arc::new(config),
+        tls_config.unwrap_or_else(|| Arc::new(config)),
         ServerName::try_from(host.to_owned()).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;

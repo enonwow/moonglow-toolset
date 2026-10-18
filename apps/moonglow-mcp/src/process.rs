@@ -44,7 +44,11 @@ fn capture(mut pipe: impl Read + Send + 'static) -> OutputThread {
 impl Running {
     pub fn start(program: &Path, args: &[String], timeout: u64) -> Result<Self, String> {
         let mut cmd = Command::new(program);
-        cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.env_remove("MOONGLOW_AI_TOKEN")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;

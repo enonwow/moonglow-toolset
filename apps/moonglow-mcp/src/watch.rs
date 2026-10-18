@@ -4,15 +4,16 @@ use serde_json::{Value, json};
 use std::io::{self, Write};
 
 pub const USAGE: &str = "Usage: moonglow-mcp [tools | call TOOL [JSON] | watch [OPTIONS]]
-watch: --session PID --since N --from players --kinds chat,damage --area RESREF
+watch: --session ID --since N --from players --kinds chat,damage --area RESREF
        --to-dm --count N (stop after N events)
 Default watch starts now; --since replays retained events. Ctrl+C stops.
-Common: --descriptor FILE --sessions DIR --mg PROGRAM --roots DIR --allow-write
+Common: --gateway URL [--gateway-pin SHA256] [--session-id ID]; token: MOONGLOW_AI_TOKEN
+Legacy: --descriptor FILE --sessions DIR --mg PROGRAM --roots DIR --allow-write
 MCP: no command for stdio; --http ADDRESS --http-token TOKEN [--http-allow-remote]";
 
 #[derive(Default)]
 struct Options {
-    pid: Option<u32>,
+    session: Option<String>,
     since: Option<u64>,
     count: Option<u64>,
     filter: serde_json::Map<String, Value>,
@@ -28,9 +29,7 @@ impl Options {
             }
             let value = args.next().ok_or_else(|| format!("Missing value for {flag}"))?;
             match flag.as_str() {
-                "--session" => {
-                    options.pid = Some(value.parse().map_err(|_| "Invalid session PID")?)
-                }
+                "--session" => options.session = Some(value.clone()),
                 "--since" => {
                     options.since = Some(value.parse().map_err(|_| "Invalid event cursor")?)
                 }
@@ -63,7 +62,7 @@ impl Options {
 
 pub fn run(config: Config, args: &[String]) -> Result<(), String> {
     let options = Options::parse(args)?;
-    let (mut catalogue, name, session) = Catalogue::for_watch(&config, options.pid)?;
+    let (mut catalogue, name, session) = Catalogue::for_watch(&config, options.session.as_deref())?;
     let mut input = Value::Object(options.filter);
     if let Some(session) = session {
         input["session"] = json!(session);
