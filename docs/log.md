@@ -1,5 +1,7 @@
 # Update log
 
+* **Idle Live receipts (2026-10-18)**: receipt traffic follows current game batches rather than UI history. [Contract](live-ops-wire.md#idle-receipt-traffic-2026-10-18).
+
 * **Compact Live identities (2026-10-18)**: canonical SHA-256 replaces retained command payloads in the accepted-ID table. [Contract](live-ops-wire.md#compact-accepted-command-identities-2026-10-18).
 
 * **Live game-read quotas (2026-10-18)**: asynchronous game queries now consume client quota on both HTTP routes. [Contract](live-ops-wire.md#game-read-quotas-2026-10-18).

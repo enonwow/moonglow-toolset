@@ -3183,3 +3183,13 @@ entries. The active draft approval keeps its original command locally only
 for rollback on enqueue failure. A unit regression covers reordered JSON,
 payload sensitivity and the fixed-size retained value. Existing idempotency
 and assistant regressions verify retries and edited-draft behavior.
+
+## Idle receipt traffic (2026-10-18)
+
+Receipts follow the latest game result batch, including internal watch/resync
+results. They stop once a fresh report no longer carries the result, independent
+of the UI result-history ring. Older frames cannot restore cleared receipts.
+The publisher's existing outbound check then suppresses idle PUBLISH calls.
+`receipt_idle` covers retries, clearing and stale replay. The private WSL
+`command_receipts` proof passes: only the exact receipt removes the result and
+its ACK from subsequent reports.

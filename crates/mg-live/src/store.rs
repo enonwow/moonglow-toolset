@@ -1763,6 +1763,8 @@ struct State {
     watch: watch::Watches,
     queue: VecDeque<Queued>,
     results: VecDeque<(Command, CommandResult)>,
+    /// Receipts for the latest result batch, including control commands.
+    receipts: Vec<String>,
     /// Commands accepted by the game but awaiting a player click/timeout.
     skill_waiting: HashMap<String, (Command, u64)>,
     next: u64,
@@ -1865,6 +1867,7 @@ impl LiveStore {
         for (_, result) in &mut s.results {
             result.receipt = None;
         }
+        s.receipts.clear();
         let mut commands: Vec<_> = s.queue.drain(..).map(|q| (q.command, q.sent)).collect();
         commands.extend(s.skill_waiting.drain().map(|(_, (command, _))| (command, true)));
         for (command, sent) in commands {
@@ -2803,6 +2806,15 @@ fn receive_results(
     seq: u64,
     now_ms: u64,
 ) {
+    if seq >= s.seq {
+        let prefix = format!("{}:", s.boot);
+        s.receipts = results
+            .iter()
+            .filter_map(|r| r.receipt.as_ref())
+            .filter(|r| r.starts_with(&prefix))
+            .cloned()
+            .collect();
+    }
     for r in results {
         let command = if let Some(i) = s.queue.iter().position(|q| q.command.id == r.id) {
             Some(s.queue.remove(i).expect("position is in range").command)
@@ -2933,14 +2945,7 @@ fn game_commands(s: &mut State) -> Value {
         commands.insert(0, json!({"id":id,"op":"resync"}));
     }
     commands.extend(s.watch.pending.iter().cloned());
-    let boot_prefix = format!("{}:", s.boot);
-    let received: Vec<_> = s
-        .results
-        .iter()
-        .filter_map(|(_, result)| result.receipt.as_ref())
-        .filter(|receipt| receipt.starts_with(&boot_prefix))
-        .collect();
-    json!({"v":1,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":received})
+    json!({"v":1,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":s.receipts})
 }
 
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
