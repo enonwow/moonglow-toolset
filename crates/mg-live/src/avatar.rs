@@ -34,19 +34,31 @@ pub fn public_address(ip: IpAddr) -> bool {
                 || v4.is_multicast()
                 || v4.is_documentation()
                 || a == 0
+                || a >= 240
+                || (a == 192 && b == 0 && v4.octets()[2] == 0)
                 || (a == 100 && (64..128).contains(&b))
                 || (a == 198 && (b == 18 || b == 19)))
         }
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => public_address(IpAddr::V4(v4)),
-            None => {
-                !(v6.is_loopback()
-                    || v6.is_unspecified()
-                    || v6.is_multicast()
-                    || v6.is_unique_local()
-                    || v6.is_unicast_link_local())
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return public_address(IpAddr::V4(v4));
             }
-        },
+            let seg = v6.segments();
+            match seg[0] {
+                // 6to4 embeds an IPv4 address: check that one.
+                0x2002 => public_address(IpAddr::V4(std::net::Ipv4Addr::new(
+                    (seg[1] >> 8) as u8,
+                    seg[1] as u8,
+                    (seg[2] >> 8) as u8,
+                    seg[2] as u8,
+                ))),
+                // Teredo (2001::/32) and documentation (2001:db8::/32).
+                0x2001 if seg[1] == 0 || seg[1] == 0xdb8 => false,
+                // Deny by default: only global unicast 2000::/3 (NAT64, IPv4-compatible,
+                // site-local, ULA and link-local all fall outside it).
+                first => (0x2000..0x4000).contains(&first),
+            }
+        }
     }
 }
 
@@ -92,6 +104,14 @@ mod tests {
             IpAddr::V6(Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1)),
             IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
             IpAddr::V6(mapped),
+            v4(240, 0, 0, 1),
+            v4(192, 0, 0, 8),
+            IpAddr::V6(Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, 0xc0a8, 1)),
+            IpAddr::V6(Ipv6Addr::new(0x2002, 0xc0a8, 0x0001, 0, 0, 0, 0, 1)),
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0, 0x4136, 0xe378, 0, 0, 0, 1)),
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+            IpAddr::V6(Ipv6Addr::new(0xfec0, 0, 0, 0, 0, 0, 0, 1)),
+            IpAddr::V6(Ipv4Addr::new(10, 0, 0, 1).to_ipv6_compatible()),
         ] {
             assert!(!public_address(bad), "{bad}");
         }
