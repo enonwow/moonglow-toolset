@@ -605,3 +605,15 @@ with an 11-point readability floor), white text, blue fill, rounded corners and
 four-by-two-point padding. The in-process `gateway_backend` regression checks
 the accessible chip height as well as both DM/AI labels; it passes against the
 development host. Presence conveys focus only and never locks an object.
+
+## Gateway draft review
+
+The gateway filters draft pushes to each DM's own AIs; administrators receive all
+permitted drafts. The GUI sends approve/edit/reject through `draft.decide`, keeps
+an asynchronous pending state, and avoids duplicate clicks while a decision is
+outstanding. Local draft decisions retain their existing store path.
+
+`gateway_drafts` exercises two DM identities and their managed AIs plus an admin:
+owner-only versus admin visibility, edited approval, admin rejection and owner
+rejection. The in-process TLS host regression passes. No real AI account, game
+server or credential store is needed.

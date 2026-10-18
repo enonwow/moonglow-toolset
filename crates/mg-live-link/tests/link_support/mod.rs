@@ -55,14 +55,13 @@ pub(crate) struct Host {
 }
 impl Host {
     pub(crate) async fn new() -> Self {
+        Self::with_auth(Arc::new(Auth)).await
+    }
+    pub(crate) async fn with_auth(auth: Arc<dyn Authenticator>) -> Self {
         let store = Arc::new(LiveStore::default());
         let core = CoreHandle::new(store.clone()).await.unwrap();
-        let router = mg_gateway::router(
-            core.clone(),
-            Arc::new(Auth),
-            Arc::new(Policy::default()),
-            Config::default(),
-        );
+        let router =
+            mg_gateway::router(core.clone(), auth, Arc::new(Policy::default()), Config::default());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {

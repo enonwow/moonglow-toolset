@@ -94,7 +94,7 @@ impl<'a> LiveBackend<'a> {
             self.app.live_service.as_ref().map_or(&self.app.settings.live, |s| s.config())
         }
     }
-    fn link(&self) -> Option<&LinkService> {
+    pub(crate) fn link(&self) -> Option<&LinkService> {
         self.app.live_gateway.as_ref()?.link.as_ref()
     }
     pub fn store(&self) -> Option<Arc<LiveStore>> {

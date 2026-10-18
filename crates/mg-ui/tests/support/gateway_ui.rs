@@ -3,7 +3,10 @@
 #[path = "../../../mg-live-link/tests/link_support/mod.rs"]
 pub(crate) mod host;
 
-use egui_kittest::{Harness, kittest::Queryable};
+use egui_kittest::{
+    Harness,
+    kittest::{NodeT, Queryable},
+};
 use mg_ui::{Action, Moonglow, NoDialogs, OptionsDraft, Tab};
 use std::{sync::Arc, time::Duration};
 
@@ -49,12 +52,17 @@ pub(crate) fn app(host: &host::Host, data: &std::path::Path) -> Moonglow {
 }
 
 pub(crate) fn draw() -> impl FnMut(&mut egui::Ui, &mut Moonglow) {
+    draw_with_credentials(Arc::new(host::Memory))
+}
+pub(crate) fn draw_with_credentials(
+    backend: Arc<dyn mg_live_link::credentials::Backend>,
+) -> impl FnMut(&mut egui::Ui, &mut Moonglow) {
     let mut started = false;
     move |ui, app| {
         if !started {
             OptionsDraft::set_live_credential_backend(
                 ui.ctx(),
-                Arc::new(host::Memory),
+                backend.clone(),
                 "unused-test-credentials".into(),
             );
             app.apply_live(ui.ctx());
@@ -130,7 +138,7 @@ pub(crate) async fn label(h: &mut Harness<'_, Moonglow>, label: &str) {
     tokio::time::timeout(Duration::from_secs(12), async {
         loop {
             h.run_steps(2);
-            if h.query_by_label(label).is_some() {
+            if h.query_by_label(label).is_some_and(|node| !node.accesskit_node().is_disabled()) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(15)).await;

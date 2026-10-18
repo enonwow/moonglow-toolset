@@ -10,6 +10,7 @@ pub struct LiveDrafts {
     rows: Vec<Draft>,
     editing: HashMap<String, String>,
     notice: Option<String>,
+    pending: HashMap<String, mg_live_link::PendingCall>,
 }
 impl LiveDrafts {
     #[cfg(feature = "measure")]
@@ -28,6 +29,7 @@ impl LiveDrafts {
         }
         if !same {
             self.editing.clear();
+            self.pending.clear();
             self.notice = None;
         }
         self.rows = read();
@@ -78,7 +80,15 @@ pub(crate) fn ui(
         return;
     }
     let mut actions = Vec::new();
-    let reason = app.live_backend().shared_reason();
+    state.pending.retain(|_, call| match call.try_recv() {
+        Ok(None) => true,
+        Ok(Some(_)) => false,
+        Err(error) => {
+            state.notice = Some(error.to_string());
+            false
+        }
+    });
+    let reason = (!state.pending.is_empty()).then_some("Waiting for gateway draft decision.");
     ui.group(|ui| {
         if let Some(reason) = reason { ui.weak(reason); }
         ui.add_enabled_ui(reason.is_none(), |ui| {
@@ -127,6 +137,21 @@ pub(crate) fn ui(
         });
     });
     for (id, text) in actions {
+        if app.live_backend().is_gateway() {
+            match app
+                .live_backend()
+                .link()
+                .ok_or(mg_live_link::LinkError::Transport)
+                .and_then(|link| link.decide_draft(&id, text.as_deref()))
+            {
+                Ok(call) => {
+                    state.pending.insert(id, call);
+                    state.notice = None;
+                }
+                Err(error) => state.notice = Some(error.to_string()),
+            }
+            continue;
+        }
         match store.decide_draft(&id, text.as_deref(), mg_live::now_ms()) {
             Ok(_) => {
                 state.notice = None;

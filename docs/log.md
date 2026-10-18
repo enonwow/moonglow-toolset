@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway draft review in the desktop (2026-10-18)**: approve, edit and reject owner-filtered AI drafts through asynchronous requests; admin and owner UI regressions pass. [Flow and proof](live-desktop-link.md#gateway-draft-review).
+
 * **Readable Focus presence (2026-10-18)**: map and Focus chips share readable small text, padding and colors; the gateway UI height regression passes. [Details](live-desktop-link.md#readable-focus-presence).
 
 * **Neutral unknown outcomes (2026-10-18)**: both desktop log paths use warning styling and never label an unknown command as success or failure. [Regression](live-desktop-link.md#unknown-command-outcomes).
