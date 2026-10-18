@@ -76,25 +76,43 @@ impl std::fmt::Debug for ClientToken {
     }
 }
 
+/// A named, restricted capability set for an external Live consumer.
+/// The unrestricted local scope cannot be constructed outside this crate.
+///
+/// ```compile_fail
+/// let scope = mg_live::access::Scope::default();
+/// ```
 #[derive(Debug, Clone)]
-pub(crate) struct Scope {
-    pub name: String,
-    pub delivery: DeliveryMode,
+pub struct Scope {
+    pub(crate) name: String,
+    pub(crate) delivery: DeliveryMode,
     groups: Option<Vec<ClientGroup>>,
 }
-impl Default for Scope {
-    fn default() -> Self {
+impl Scope {
+    pub(crate) fn default() -> Self {
         Self { name: "default".into(), groups: None, delivery: DeliveryMode::Auto }
     }
 }
 impl Scope {
-    pub(crate) fn unrestricted(&self) -> bool {
+    /// Creates a scope with exactly these groups; even an empty or complete
+    /// group list never grants unrestricted local privileges.
+    pub fn restricted(
+        name: impl Into<String>,
+        groups: Vec<ClientGroup>,
+        delivery: DeliveryMode,
+    ) -> Self {
+        Self { name: name.into(), groups: Some(groups), delivery }
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn unrestricted(&self) -> bool {
         self.groups.is_none()
     }
-    pub(crate) fn has(&self, group: ClientGroup) -> bool {
+    pub fn has(&self, group: ClientGroup) -> bool {
         self.groups.as_ref().is_none_or(|g| g.contains(&group))
     }
-    pub(crate) fn allows(&self, op: &str) -> bool {
+    pub fn allows(&self, op: &str) -> bool {
         self.unrestricted()
             || (self.has(ClientGroup::Speech)
                 && matches!(

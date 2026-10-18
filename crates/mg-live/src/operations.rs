@@ -944,7 +944,7 @@ pub(crate) fn command(
 ) -> Result<Value, crate::store::CommandError> {
     command_scoped(input, live, now_ms, &crate::access::Scope::default())
 }
-pub(crate) fn command_scoped(
+pub fn command_scoped(
     mut input: Value,
     live: &LiveStore,
     now_ms: u64,
@@ -974,7 +974,7 @@ pub fn call(
 ) -> Result<Value, crate::store::CommandError> {
     call_scoped(name, input, live, stop, &crate::access::Scope::default())
 }
-pub(crate) fn call_scoped(
+pub fn call_scoped(
     name: &str,
     mut input: Value,
     live: &LiveStore,

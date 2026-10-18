@@ -39,3 +39,19 @@ without features and with `build`, and checks both normal dependency trees.
 The feature-free tree additionally rejects the four preparation dependencies.
 This must run separately from workspace checks, whose feature unification
 would otherwise hide a missing dependency in the runtime-only variant.
+
+## Restricted external scopes
+
+`Scope::restricted(name, groups, delivery)` always stores an explicit group list.
+An empty list, all groups, or the names `default` and `local` never confer local
+unrestricted privileges. `name()`, `has()`, `allows()` and `unrestricted()` are
+public queries. Fields remain crate-private and the local `default()` constructor
+is crate-private (no public `Default` implementation). A compile-fail doctest
+checks that external callers cannot construct the local default.
+
+The store's `enqueue_scoped`, `status_scoped`, `events_scoped` and operation
+functions `call_scoped`, `command_scoped` are public without changing their
+behavior. The `scope` integration tests exercise this API from outside the
+crate and check every subset of groups, both delivery modes and reserved-looking
+names. Run `cargo +1.98.0 test -p mg-live --test scope -j 2` and
+`cargo +1.98.0 test -p mg-live --doc -j 2`.

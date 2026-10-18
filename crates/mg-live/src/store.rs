@@ -2092,7 +2092,7 @@ impl LiveStore {
         self.enqueue_scoped(command, now_ms, &scope)
     }
 
-    pub(crate) fn enqueue_scoped(
+    pub fn enqueue_scoped(
         &self,
         mut command: Command,
         now_ms: u64,
@@ -2614,7 +2614,7 @@ impl LiveStore {
         self.status_scoped(now_ms, &crate::access::Scope::default())
     }
 
-    pub(crate) fn status_scoped(&self, now_ms: u64, scope: &crate::access::Scope) -> Value {
+    pub fn status_scoped(&self, now_ms: u64, scope: &crate::access::Scope) -> Value {
         let mut s = self.lock();
         expire(&mut s, now_ms);
         json!({

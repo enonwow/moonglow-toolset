@@ -113,7 +113,7 @@ impl LiveStore {
     pub fn events(&self, q: &Query) -> (Vec<Event>, u64) {
         self.events_scoped(q, &Scope::default())
     }
-    pub(crate) fn events_scoped(&self, q: &Query, scope: &Scope) -> (Vec<Event>, u64) {
+    pub fn events_scoped(&self, q: &Query, scope: &Scope) -> (Vec<Event>, u64) {
         let page = query(&self.lock(), q, scope, &ChatFilter::default());
         (page.events, page.last)
     }
