@@ -188,6 +188,13 @@ fn book_compare_and_swap_persists_revisions_and_notifies_every_session() {
 #[test]
 fn ai_registry_persists_only_hashes_and_restarts_with_global_consent_off() {
     use mg_live::gateway::Principal;
+    // Registry loading expires records against wall time, as the host does on restart.
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    let request = |g: &Gateway, who: &str, op: &str, a: Value| {
+        g.handle(who, Request { id: 1, op: op.into(), a }, now).result
+    };
     let root = std::env::temp_dir()
         .join(format!("gateway-identities-{}", mg_live::service::generate_token().unwrap()));
     let file = root.join("identities.json");
@@ -203,9 +210,9 @@ fn ai_registry_persists_only_hashes_and_restarts_with_global_consent_off() {
     let restarted = Gateway::new(Arc::new(LiveStore::default())).unwrap();
     restarted.identity_file(&file).unwrap();
     let owner = Principal { id: "dm:one".into(), name: "One".into(), groups: vec!["read".into()] };
-    assert!(restarted.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
+    assert!(restarted.authenticate_ai(token, Some(owner.clone()), now).is_none());
     restarted.set_llm_enabled(true);
-    assert!(restarted.authenticate_ai(token, Some(owner), 1000).is_some());
+    assert!(restarted.authenticate_ai(token, Some(owner), now).is_some());
     request(&g, "dm:one", "ai.revoke", json!({"id":created["ai"]["id"]})).unwrap();
     let revoked = Gateway::new(Arc::new(LiveStore::default())).unwrap();
     revoked.identity_file(&file).unwrap();
@@ -220,7 +227,7 @@ fn ai_registry_persists_only_hashes_and_restarts_with_global_consent_off() {
         Some("dm:one".into()),
         "retained digest prevents config re-import"
     );
-    assert!(revoked.authenticate_ai(token, Some(owner), 1000).is_none());
+    assert!(revoked.authenticate_ai(token, Some(owner), now).is_none());
     std::fs::remove_dir_all(root).unwrap();
 }
 

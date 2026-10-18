@@ -50,6 +50,8 @@ pub struct AiIdentity {
 struct AiRecord {
     #[serde(default)]
     revoked: bool,
+    #[serde(default)]
+    retired_ms: u64,
     identity: AiIdentity,
     hash: [u8; 32],
 }
@@ -59,6 +61,7 @@ pub(super) struct Identities {
     owners: BTreeMap<String, Principal>,
     path: Option<PathBuf>,
     global: bool,
+    imports_sealed: bool,
 }
 fn digest(token: &str) -> [u8; 32] {
     ring::digest::digest(&ring::digest::SHA256, token.as_bytes())
@@ -91,6 +94,27 @@ fn groups(value: Option<&Value>) -> Result<Vec<String>, FrameError> {
         return Err(invalid("AI groups support reads, speech drafts and focus"));
     }
     Ok(groups.into_iter().collect::<BTreeSet<_>>().into_iter().collect())
+}
+const ACTIVE_AI_PER_OWNER: usize = 16;
+const ACTIVE_AI_GLOBAL: usize = 256;
+const RETIRED_AI: usize = 64;
+const RETIRED_MS: u64 = 86_400_000;
+fn prune(ais: &mut BTreeMap<String, AiRecord>, now: u64) {
+    ais.retain(|_, a| {
+        a.identity.expires_ms > now && (!a.revoked || now.saturating_sub(a.retired_ms) < RETIRED_MS)
+    });
+    let mut retired: Vec<_> =
+        ais.iter().filter(|(_, a)| a.revoked).map(|(id, a)| (a.retired_ms, id.clone())).collect();
+    retired.sort();
+    let excess = retired.len().saturating_sub(RETIRED_AI);
+    for (_, id) in retired.into_iter().take(excess) {
+        ais.remove(&id);
+    }
+}
+fn capacity(ais: &BTreeMap<String, AiRecord>, owner: &str) -> bool {
+    ais.values().filter(|a| !a.revoked).count() < ACTIVE_AI_GLOBAL
+        && ais.values().filter(|a| !a.revoked && a.identity.owner == owner).count()
+            < ACTIVE_AI_PER_OWNER
 }
 impl Identities {
     pub(super) fn owned_by(&self, ai: &str, owner: &str) -> bool {
@@ -143,7 +167,8 @@ impl Gateway {
         if !s.gateway.sessions.is_empty() || !s.gateway.identities.ais.is_empty() {
             return Err("Configure identities before sessions".into());
         }
-        let ais: BTreeMap<String, AiRecord> = match std::fs::metadata(path) {
+        let exists = path.exists();
+        let mut ais: BTreeMap<String, AiRecord> = match std::fs::metadata(path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
             Err(_) => return Err("Cannot read AI registry".into()),
             Ok(meta) if meta.len() > 1024 * 1024 => return Err("AI registry exceeds limit".into()),
@@ -152,7 +177,7 @@ impl Gateway {
                     .map_err(|_| "Invalid AI registry")?
             }
         };
-        if ais.len() > 256
+        if ais.len() > ACTIVE_AI_GLOBAL + RETIRED_AI
             || ais.iter().any(|(id, a)| {
                 id != &a.identity.id
                     || !a.identity.owner.starts_with("dm:")
@@ -167,8 +192,10 @@ impl Gateway {
         {
             return Err("Invalid AI registry".into());
         }
+        prune(&mut ais, crate::now_ms());
         s.gateway.identities.ais = ais;
         s.gateway.identities.path = Some(path.to_owned());
+        s.gateway.identities.imports_sealed = exists;
         Ok(())
     }
     /// Host-only global switch, deliberately absent from request dispatch.
@@ -215,13 +242,21 @@ impl Gateway {
             return Err("Invalid AI credential".into());
         }
         let mut s = self.store.lock();
-        if s.gateway.identities.ais.len() >= 256
-            || s.gateway.identities.ais.contains_key(&identity.id)
+        if s.gateway.identities.imports_sealed {
+            return Err("Static AI import is sealed; create credentials through the owner API".into());
+        }
+        let mut ais = s.gateway.identities.ais.clone();
+        prune(&mut ais, crate::now_ms());
+        if !capacity(&ais, &identity.owner)
+            || ais.contains_key(&identity.id)
+            || ais.values().any(|a| a.hash == digest(token))
         {
             return Err("AI identity already exists or capacity reached".into());
         }
-        let mut ais = s.gateway.identities.ais.clone();
-        ais.insert(identity.id.clone(), AiRecord { revoked: false, identity, hash: digest(token) });
+        ais.insert(
+            identity.id.clone(),
+            AiRecord { retired_ms: 0, revoked: false, identity, hash: digest(token) },
+        );
         s.gateway.identities.save(&ais).map_err(|e| e.to_string())?;
         s.gateway.identities.ais = ais;
         Ok(())
@@ -275,10 +310,11 @@ impl Gateway {
             );
         }
         let mut ais = identities.ais.clone();
+        prune(&mut ais, now);
         let mut revoked = None;
         let result = match op {
             "ai.create" => {
-                if ais.len() >= 256 {
+                if !capacity(&ais, &config.id) {
                     return Err(FrameError::new("rate_limited", "AI capacity reached"));
                 }
                 let name = a["name"]
@@ -313,7 +349,12 @@ impl Gateway {
                 };
                 ais.insert(
                     id,
-                    AiRecord { revoked: false, identity: identity.clone(), hash: digest(&token) },
+                    AiRecord {
+                        retired_ms: 0,
+                        revoked: false,
+                        identity: identity.clone(),
+                        hash: digest(&token),
+                    },
                 );
                 json!({"ai":identity,"token":token})
             }
@@ -332,6 +373,7 @@ impl Gateway {
                 }
                 if op == "ai.revoke" {
                     ai.revoked = true;
+                    ai.retired_ms = now;
                     ai.identity.llm_allowed = false;
                     revoked = Some(id.to_owned());
                     json!({})
@@ -361,8 +403,10 @@ impl Gateway {
             }
             _ => return Err(invalid("Unknown identity operation")),
         };
+        prune(&mut ais, now);
         identities.save(&ais)?;
         identities.ais = ais;
+        identities.imports_sealed = true;
         s.agent_epoch += 1;
         if let Some(id) = revoked {
             s.gateway.sessions.remove(&id);
@@ -423,4 +467,61 @@ pub(in crate::store) fn draft_scope(
     let principal =
         ai.and_then(|ai| s.gateway.identities.effective(ai, crate::now_ms())).ok_or_else(denied)?;
     principal.scope(DeliveryMode::Auto).map_err(|_| denied())
+}
+
+#[cfg(test)]
+mod retention_audit_tests {
+    use super::*;
+    fn setup() -> (Gateway, SessionConfig) {
+        let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+        let c = SessionConfig {
+            id: "dm:owner".into(),
+            id_prefix: "owner.".into(),
+            groups: vec!["read".into(), "manage_ai".into()],
+            watch_limit: 16,
+        };
+        (g, c)
+    }
+    #[test]
+    fn revoked_identities_do_not_exhaust_capacity_or_reactivate_old_tokens() {
+        let (g, c) = setup();
+        let mut old = Vec::new();
+        for n in 0..300 {
+            let created =
+                g.identity_request(&c, "ai.create", &json!({"name":"Writer"}), n).unwrap();
+            old.push(created["token"].as_str().unwrap().to_owned());
+            g.identity_request(&c, "ai.revoke", &json!({"id":created["ai"]["id"]}), n).unwrap();
+        }
+        assert!(g.store.lock().gateway.identities.ais.len() <= 64);
+        for token in old {
+            assert!(g.authenticate_ai(&token, None, 301).is_none());
+            assert!(
+                g.install_ai(
+                    AiIdentity {
+                        id: "ai:reimport".into(),
+                        owner: c.id.clone(),
+                        name: "Old".into(),
+                        groups: vec!["read".into()],
+                        expires_ms: u64::MAX,
+                        llm_allowed: true
+                    },
+                    &token
+                )
+                .is_err()
+            );
+        }
+    }
+    #[test]
+    fn active_ai_capacity_is_scoped_to_owner() {
+        let (g, c) = setup();
+        for _ in 0..16 {
+            g.identity_request(&c, "ai.create", &json!({"name":"Writer"}), 0).unwrap();
+        }
+        assert_eq!(
+            g.identity_request(&c, "ai.create", &json!({"name":"Writer"}), 0).unwrap_err().code,
+            "rate_limited"
+        );
+        let other = SessionConfig { id: "dm:other".into(), ..c };
+        assert!(g.identity_request(&other, "ai.create", &json!({"name":"Writer"}), 0).is_ok());
+    }
 }
