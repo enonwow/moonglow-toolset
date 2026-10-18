@@ -27,6 +27,7 @@ struct Config {
     groups: Vec<String>,
     tokens: Vec<Credential>,
     data_dir: PathBuf,
+    llm_enabled: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -36,6 +37,7 @@ impl Default for Config {
             groups: default_groups(),
             tokens: vec![],
             data_dir: PathBuf::from("private/gateway-dev-data"),
+            llm_enabled: false,
         }
     }
 }
@@ -54,6 +56,10 @@ impl std::fmt::Debug for Config {
 struct Credential {
     token: String,
     principal: Principal,
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    llm_allowed: bool,
 }
 #[derive(Default)]
 struct StaticAuth {
@@ -65,6 +71,12 @@ impl std::fmt::Debug for StaticAuth {
     }
 }
 impl Authenticator for StaticAuth {
+    fn principal(&self, id: &str) -> Option<Principal> {
+        self.tokens
+            .iter()
+            .find(|c| c.principal.id == id && id.starts_with("dm:"))
+            .map(|c| c.principal.clone())
+    }
     fn authenticate(&self, bearer: &str) -> Option<Principal> {
         let mut found = None;
         for credential in &self.tokens {
@@ -122,6 +134,8 @@ impl Config {
         if !self.token.is_empty() {
             tokens.push(Credential {
                 token: std::mem::take(&mut self.token),
+                owner: None,
+                llm_allowed: false,
                 principal: Principal {
                     id: "dm:dev".into(),
                     name: "Developer".into(),
@@ -143,6 +157,13 @@ impl Config {
                 );
             }
             c.principal.validate()?;
+            if c.principal.id.starts_with("ai:")
+                && !c.owner.as_ref().is_some_and(|owner| {
+                    tokens.iter().any(|p| p.principal.id == *owner && owner.starts_with("dm:"))
+                })
+            {
+                return Err("Configured AI requires an existing DM owner".into());
+            }
             if tokens[..i].iter().any(|old| old.token == c.token) {
                 return Err("Duplicate credential".into());
             }
@@ -174,6 +195,37 @@ async fn run() -> Result<(), String> {
     let auth = Arc::new(config.auth()?);
     let live = LiveConfig::default().from_env()?;
     let core = CoreHandle::new(Arc::new(LiveStore::default())).await?;
+    let data = config.data_dir.clone();
+    let identities = auth.clone();
+    let enabled = config.llm_enabled;
+    core.with_gateway(move |g| -> Result<(), String> {
+        g.identity_file(&data.join("gateway-ai.json"))?;
+        g.store().assistant_context(data.clone(), data.join("gateway.mod"), "gateway".into())?;
+        for credential in &identities.tokens {
+            if let Some(owner) = &credential.owner {
+                if g.token_owner(&credential.token).as_ref() != Some(owner) {
+                    g.install_ai(
+                        mg_live::gateway::AiIdentity {
+                            id: credential.principal.id.clone(),
+                            owner: owner.clone(),
+                            name: credential.principal.name.clone(),
+                            groups: credential.principal.groups.clone(),
+                            expires_ms: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64
+                                + 30 * 86_400_000,
+                            llm_allowed: credential.llm_allowed,
+                        },
+                        &credential.token,
+                    )?;
+                }
+            }
+        }
+        g.set_llm_enabled(enabled);
+        Ok(())
+    })
+    .await??;
     core.start_bridge(live.redis(), config.data_dir.clone()).await?;
     let app = mg_gateway::router(
         core.clone(),
@@ -207,6 +259,7 @@ mod tests {
         let token = "x".repeat(40);
         let mut config = Config::load(None, Some(token.clone())).unwrap();
         assert_eq!(config.address().ip(), Ipv4Addr::LOCALHOST);
+        assert!(!config.llm_enabled);
         assert!(!config.groups.iter().any(|g| g == "scripts" || g == "chunks"));
         assert!(!format!("{config:?}").contains(&token));
         let auth = config.auth().unwrap();
@@ -218,7 +271,7 @@ mod tests {
     }
     #[test]
     fn private_configuration_can_explicitly_enable_scripts_and_add_ai() {
-        let text=serde_json::json!({"token":"a".repeat(32),"groups":["read","scripts","chunks"],"tokens":[{"token":"b".repeat(32),"principal":{"id":"ai:test","name":"Test","groups":["read"]}}]}).to_string();
+        let text=serde_json::json!({"token":"a".repeat(32),"groups":["read","scripts","chunks"],"tokens":[{"token":"b".repeat(32),"owner":"dm:dev","principal":{"id":"ai:test","name":"Test","groups":["read"]}}]}).to_string();
         let mut config = Config::load(Some(&text), Some("c".repeat(32))).unwrap();
         let auth = config.auth().unwrap();
         assert!(auth.authenticate(&"a".repeat(32)).is_none());
@@ -231,5 +284,18 @@ mod tests {
         assert!(Config::default().auth().is_err());
         let text=serde_json::json!({"tokens":[{"token":"x".repeat(32),"principal":{"id":"local","name":"Test","groups":["read"]}}]}).to_string();
         assert!(Config::load(Some(&text), None).unwrap().auth().is_err());
+    }
+    #[test]
+    fn configured_ai_requires_an_owner_and_explicit_consent() {
+        let value = serde_json::json!({"token":"d".repeat(32),"tokens":[{"token":"a".repeat(32),"principal":{"id":"ai:helper","name":"Helper","groups":["read"]}}]});
+        assert!(Config::load(Some(&value.to_string()), None).unwrap().auth().is_err());
+        let mut value = value;
+        value["tokens"][0]["owner"] = serde_json::json!("dm:dev");
+        let mut config = Config::load(Some(&value.to_string()), None).unwrap();
+        let auth = config.auth().unwrap();
+        assert!(!config.llm_enabled);
+        assert!(!auth.tokens[0].llm_allowed);
+        assert_eq!(auth.principal("dm:dev").unwrap().id, "dm:dev");
+        assert!(auth.principal("dm:absent").is_none());
     }
 }

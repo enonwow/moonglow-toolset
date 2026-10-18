@@ -4,7 +4,7 @@ title: Live library for headless consumers
 description: Dependency boundary, passive mirrors, gateway transport and shared scoped HTTP routing.
 tags: [live, library, gateway]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/lib.rs, ../crates/mg-live/src/access.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/store_gateway_identity.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
+sources: [../crates/mg-live/src/lib.rs, ../crates/mg-live/src/access.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/store_gateway_identity.rs, ../crates/mg-live/src/assistant_book.rs, ../crates/mg-live/src/assistant.rs, ../crates/mg-live/tests/gateway_requests.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
 ---
 
 # Live library for headless consumers
@@ -483,3 +483,15 @@ can send the exact `if_rev` it read. Book invalidations coalesce by key. A viewe
 which falls behind more than 256 distinct auxiliary updates is closed as
 `overloaded` and cannot resume that incomplete view; invalidations are never
 silently discarded.
+
+The loopback dev host persists managed identities in `gateway-ai.json` below its
+configured `data_dir`, alongside the existing durable Live journal. It opens a
+stable `gateway.mod` assistant context there (a logical identity, no game module
+is required). Set `llm_enabled: true` in the private host configuration to enable
+the global switch; new managed AIs still need their DM's `llm.allow` request.
+Optional configured AI credentials must name an existing DM `owner` and explicitly
+set `llm_allowed: true`; imports expire after 30 days. After first import, the
+registry is authoritative. No generated token or token digest is logged.
+Run `cargo +1.98.0 test -p mg-gateway-dev -j 2` for configuration checks and
+`cargo +1.98.0 test -p mg-gateway --test transport --test agent -j 2` for the
+in-process request and legacy HTTP parity tests.
