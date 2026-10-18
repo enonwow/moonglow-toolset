@@ -110,6 +110,44 @@ fn presence_tracks_focus_disconnect_and_reconnect_with_revisions() {
 }
 
 #[test]
+fn managed_ai_tokens_are_owned_hashed_and_require_both_consents() {
+    use mg_live::gateway::Principal;
+    let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+    let owner = Principal {
+        id: "dm:one".into(),
+        name: "One".into(),
+        groups: vec!["read".into(), "speech".into()],
+    };
+    session(&g, "dm:one", &["read", "speech", "manage_ai", "allow_llm"]);
+    session(&g, "dm:two", &["read", "manage_ai", "allow_llm"]);
+    let created = request(&g, "dm:one", "ai.create", json!({"name":"Helper"})).unwrap();
+    let token = created["token"].as_str().unwrap();
+    let id = created["ai"]["id"].as_str().unwrap();
+    assert!(token.starts_with("mgai_"));
+    assert_eq!(created["ai"]["owner"], "dm:one");
+    assert_eq!(created["ai"]["llm_allowed"], false);
+    assert!(g.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
+    g.set_llm_enabled(true);
+    assert!(g.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
+    request(&g, "dm:two", "llm.allow", json!({"on":true})).unwrap();
+    assert!(g.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
+    request(&g, "dm:one", "llm.allow", json!({"on":true})).unwrap();
+    let principal = g.authenticate_ai(token, Some(owner.clone()), 1000).unwrap();
+    assert_eq!(principal.groups, vec!["read", "speech"]);
+    assert!(request(&g, "dm:two", "ai.update", json!({"id":id,"name":"Stolen"})).is_err());
+    assert!(request(&g, "dm:two", "ai.revoke", json!({"id":id})).is_err());
+    let list = request(&g, "dm:one", "ai.list", json!({})).unwrap();
+    assert!(!list.to_string().contains(token));
+    assert_eq!(request(&g, "dm:two", "ai.list", json!({})).unwrap()["items"], json!([]));
+    request(&g, "dm:one", "ai.update", json!({"id":id,"name":"Renamed","groups":["read"]}))
+        .unwrap();
+    assert_eq!(g.authenticate_ai(token, Some(owner.clone()), 1000).unwrap().name, "Renamed");
+    assert!(g.authenticate_ai(token, None, 1000).is_none(), "missing owner fails closed");
+    request(&g, "dm:one", "ai.revoke", json!({"id":id})).unwrap();
+    assert!(g.authenticate_ai(token, Some(owner), 1000).is_none());
+}
+
+#[test]
 fn book_compare_and_swap_persists_revisions_and_notifies_every_session() {
     use mg_live::gateway::Push;
     let root = std::env::temp_dir()
@@ -146,3 +184,28 @@ fn book_compare_and_swap_persists_revisions_and_notifies_every_session() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn ai_registry_persists_only_hashes_and_restarts_with_global_consent_off() {
+    use mg_live::gateway::Principal;
+    let root = std::env::temp_dir()
+        .join(format!("gateway-identities-{}", mg_live::service::generate_token().unwrap()));
+    let file = root.join("identities.json");
+    let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+    g.identity_file(&file).unwrap();
+    session(&g, "dm:one", &["read", "manage_ai", "allow_llm"]);
+    let created = request(&g, "dm:one", "ai.create", json!({"name":"Helper"})).unwrap();
+    let token = created["token"].as_str().unwrap();
+    request(&g, "dm:one", "llm.allow", json!({"on":true})).unwrap();
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(!saved.contains(token));
+    assert!(!saved.contains("mgai_"));
+    let restarted = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+    restarted.identity_file(&file).unwrap();
+    let owner = Principal { id: "dm:one".into(), name: "One".into(), groups: vec!["read".into()] };
+    assert!(restarted.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
+    restarted.set_llm_enabled(true);
+    assert!(restarted.authenticate_ai(token, Some(owner), 1000).is_some());
+    std::fs::remove_dir_all(root).unwrap();
+}
+

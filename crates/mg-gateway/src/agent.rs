@@ -153,6 +153,13 @@ mod tests {
     #[derive(Debug)]
     struct Auth;
     impl crate::Authenticator for Auth {
+        fn principal(&self, id: &str) -> Option<crate::Principal> {
+            (id == "dm:owner").then(|| {
+                let mut p = self.authenticate("").unwrap();
+                p.id = id.into();
+                p
+            })
+        }
         fn authenticate(&self, _: &str) -> Option<crate::Principal> {
             Some(crate::Principal {
                 id: "ai:test".into(),
@@ -165,6 +172,23 @@ mod tests {
     async fn cancelled_http_requests_do_not_release_running_poll_slots() {
         let core =
             crate::CoreHandle::new(Arc::new(mg_live::store::LiveStore::default())).await.unwrap();
+        core.with_gateway(|g| {
+            g.install_ai(
+                mg_live::gateway::AiIdentity {
+                    id: "ai:test".into(),
+                    owner: "dm:owner".into(),
+                    name: "Test".into(),
+                    groups: vec!["read".into()],
+                    expires_ms: u64::MAX,
+                    llm_allowed: true,
+                },
+                "test-agent-credential-for-local-fixtures",
+            )
+            .unwrap();
+            g.set_llm_enabled(true);
+        })
+        .await
+        .unwrap();
         let app = App {
             core,
             auth: Arc::new(Auth),
@@ -177,7 +201,7 @@ mod tests {
             Request::builder()
                 .method("POST")
                 .uri("/agent/v1/call/live_events")
-                .header("authorization", "Bearer test-agent")
+                .header("authorization", "Bearer test-agent-credential-for-local-fixtures")
                 .body(axum::body::Body::from(r#"{"wait_ms":500}"#))
                 .unwrap()
         };

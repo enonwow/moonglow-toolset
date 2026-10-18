@@ -79,10 +79,7 @@ impl Queue {
     }
 }
 async fn revalidate(app: &App, token: &str, principal: &Principal) -> Result<(), &'static str> {
-    let auth = app.auth.clone();
-    let token = token.to_owned();
-    let current =
-        tokio::task::spawn_blocking(move || auth.authenticate(&token)).await.ok().flatten();
+    let current = crate::authenticate_token(app, token).await;
     match current {
         None => Err("revoked"),
         Some(p) if &p != principal => Err("role_changed"),

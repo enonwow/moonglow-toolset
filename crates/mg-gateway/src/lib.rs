@@ -13,47 +13,23 @@ use axum::{
 pub use core::CoreHandle;
 use mg_live::{
     MIRROR_VERSION,
-    access::{ClientGroup, DeliveryMode, Scope},
+    access::DeliveryMode,
     gateway_frames::{PROTOCOL_VERSION, ServerIdentity},
     store::Policy,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::{fmt::Debug, sync::Arc};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Principal {
-    pub id: String,
-    pub name: String,
-    pub groups: Vec<String>,
-}
-impl Principal {
-    pub fn validate(&self) -> Result<(), String> {
-        let (kind, id) = self.id.split_once(':').ok_or("Invalid principal")?;
-        if !matches!(kind, "dm" | "ai")
-            || id.is_empty()
-            || id.len() > 128
-            || matches!(id, "default" | "local")
-            || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-        {
-            return Err("Invalid or reserved principal".into());
-        }
-        Ok(())
-    }
-    pub fn scope(&self, delivery: DeliveryMode) -> Result<Scope, String> {
-        self.validate()?;
-        let groups = self
-            .groups
-            .iter()
-            .filter_map(|g| serde_json::from_value::<ClientGroup>(json!(g)).ok())
-            .collect();
-        Ok(Scope::restricted(&self.id, groups, delivery))
-    }
-}
+pub use mg_live::gateway::Principal;
 /// Called on blocking workers, on upgrade and again while the connection is alive.
 /// Never include a credential in an error or Debug output.
 pub trait Authenticator: Debug + Send + Sync + 'static {
     fn authenticate(&self, bearer: &str) -> Option<Principal>;
+    /// Current owner identity for managed AI authorization. Missing owners fail closed.
+    fn principal(&self, _id: &str) -> Option<Principal> {
+        None
+    }
 }
 pub trait PolicyResolver: Debug + Send + Sync + 'static {
     fn policy(&self) -> Policy;
@@ -148,14 +124,33 @@ async fn authenticate(
         return Err(Box::new(unauthorized()));
     };
     let bearer = bearer.to_owned();
-    let auth = app.auth.clone();
-    let token = bearer.clone();
-    let principal =
-        tokio::task::spawn_blocking(move || auth.authenticate(&token)).await.ok().flatten();
+    let principal = authenticate_token(app, &bearer).await;
     match principal {
         Some(p) if p.validate().is_ok() => Ok((bearer, p)),
         _ => Err(Box::new(unauthorized())),
     }
+}
+pub(crate) async fn authenticate_token(app: &App, bearer: &str) -> Option<Principal> {
+    let auth = app.auth.clone();
+    let token = bearer.to_owned();
+    app.core
+        .with_gateway(move |g| {
+            if let Some(owner) = g.token_owner(&token) {
+                return g.authenticate_ai(&token, auth.principal(&owner), now());
+            }
+            if token.starts_with("mgai_") {
+                return None;
+            }
+            let principal = auth.authenticate(&token)?;
+            if !principal.id.starts_with("dm:") {
+                return None;
+            }
+            g.refresh_principal(principal.clone()).ok()?;
+            Some(principal)
+        })
+        .await
+        .ok()
+        .flatten()
 }
 fn unauthorized() -> Response {
     (StatusCode::UNAUTHORIZED, Json(json!({"ok":false,"error":"Unauthorized"}))).into_response()
@@ -170,13 +165,6 @@ async fn upgrade(
         Ok(v) => v,
         Err(r) => return *r,
     };
-    if !principal.id.starts_with("dm:") {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({"ok":false,"code":"forbidden","error":"DM principal required"})),
-        )
-            .into_response();
-    }
     if versions.proto.is_some_and(|v| v != PROTOCOL_VERSION)
         || versions.mirror.is_some_and(|v| v != MIRROR_VERSION)
     {

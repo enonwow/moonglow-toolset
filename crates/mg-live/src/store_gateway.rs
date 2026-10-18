@@ -7,6 +7,11 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "store_gateway_identity.rs"]
+mod identity;
+pub use identity::{AiIdentity, Principal};
+pub(super) use identity::validate_ai_scope;
+
 pub const RESULT_RETENTION_MS: u64 = 600_000;
 pub const RESULT_CAPACITY: usize = 256;
 
@@ -137,7 +142,11 @@ impl SessionConfig {
                 groups.push(g);
             }
         }
-        Scope::restricted(&self.id, groups, DeliveryMode::Auto)
+        Scope::restricted(
+            &self.id,
+            groups,
+            if self.id.starts_with("ai:") { DeliveryMode::Drafts } else { DeliveryMode::Auto },
+        )
     }
     fn has(&self, group: &str) -> bool {
         self.groups.iter().any(|g| g == group)
@@ -186,6 +195,7 @@ impl Session {
 }
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
+    identities: identity::Identities,
     presence_rev: u64,
     watch_stamp: Option<WatchStamp>,
     #[cfg(test)]
@@ -228,6 +238,7 @@ pub(crate) struct Acceptance {
     groups: Vec<String>,
 }
 pub(super) fn validate_accept(s: &State, scope: &Scope) -> Result<(), CommandError> {
+    validate_ai_scope(s, scope)?;
     let Some(binding) = &scope.gateway_accept else {
         return Ok(());
     };
@@ -334,8 +345,13 @@ impl Gateway {
                 .ok_or_else(|| FrameError::new("forbidden", "Unknown session"))?
                 .config
                 .clone();
+            validate_ai_scope(&self.store.lock(), &config.scope())
+                .map_err(|e| FrameError::new("forbidden", e.error))?;
             let a = request.a;
             match request.op.as_str() {
+                "ai.list" | "ai.create" | "ai.update" | "ai.revoke" | "llm.allow" => {
+                    self.identity_request(&config, &request.op, &a, now_ms)
+                }
                 "book.put" => {
                     if !config.id.starts_with("dm:")
                         || (!config.has("read") && !config.has("admin"))
@@ -388,6 +404,9 @@ impl Gateway {
                     .unwrap())
                 }
                 "focus.set" => {
+                    if !config.has("focus") {
+                        return Err(FrameError::new("forbidden", "Focus permission required"));
+                    }
                     let objects = a["objects"]
                         .as_array()
                         .ok_or_else(|| invalid("Expected objects array".into()))?;
@@ -908,6 +927,8 @@ impl Gateway {
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
         let mut s = self.store.lock();
+        let current = s.gateway.sessions.get(id).ok_or("revoked")?;
+        validate_ai_scope(&s, &current.config.scope()).map_err(|_| "revoked")?;
         let presence = presence(&s.gateway);
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;
         session.prune_completed(Some(now_ms));

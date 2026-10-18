@@ -69,6 +69,14 @@ impl CoreHandle {
         });
         Ok(core)
     }
+    /// Trusted host configuration and core requests, always on a blocking worker.
+    pub async fn with_gateway<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Gateway) -> R + Send + 'static,
+    ) -> Result<R, String> {
+        let core = self.0.clone();
+        tokio::task::spawn_blocking(move || f(&core.gateway)).await.map_err(|e| e.to_string())
+    }
     pub async fn with_store<R: Send + 'static>(
         &self,
         f: impl FnOnce(&LiveStore) -> R + Send + 'static,
@@ -159,7 +167,8 @@ impl CoreHandle {
                 &hello.watch,
                 crate::now(),
             )?;
-            core.gateway.set_identity(&principal.id, &principal.name, None, None)?;
+            let owner = core.gateway.ai_owner(&principal.id);
+            core.gateway.set_identity(&principal.id, &principal.name, None, owner.as_deref())?;
             let welcome = Welcome {
                 proto: PROTOCOL_VERSION,
                 mirror: MIRROR_VERSION,

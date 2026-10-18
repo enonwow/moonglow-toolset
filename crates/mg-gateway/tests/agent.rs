@@ -13,8 +13,15 @@ use tower::ServiceExt;
 #[derive(Debug)]
 struct Auth;
 impl Authenticator for Auth {
+    fn principal(&self, id: &str) -> Option<Principal> {
+        (id == "dm:owner").then(|| {
+            let mut p = principal();
+            p.id = id.into();
+            p
+        })
+    }
     fn authenticate(&self, t: &str) -> Option<Principal> {
-        (t == "test-agent").then(principal)
+        (t == "test-agent-credential-for-local-fixtures").then(principal)
     }
 }
 fn principal() -> Principal {
@@ -39,6 +46,23 @@ impl PolicyResolver for PolicyProvider {
 }
 async fn app() -> (axum::Router, CoreHandle) {
     let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+    core.with_gateway(|g| {
+        g.install_ai(
+            mg_live::gateway::AiIdentity {
+                id: "ai:test".into(),
+                owner: "dm:owner".into(),
+                name: "Test".into(),
+                groups: vec!["read".into(), "npc".into(), "read_chat".into(), "read_tells".into()],
+                expires_ms: u64::MAX,
+                llm_allowed: true,
+            },
+            "test-agent-credential-for-local-fixtures",
+        )
+        .unwrap();
+        g.set_llm_enabled(true);
+    })
+    .await
+    .unwrap();
     core.with_store(|s| {
         s.sync(
             br#"{"v":1,"boot":"b","seq":1,"areas":[{"area":"a","full":true,"cre":[{"id":"1","hp":[3,10]}]}]}"#,
@@ -65,8 +89,10 @@ async fn exchange(
     body: &str,
     extra: Option<(&str, &str)>,
 ) -> (u16, Value, Option<String>) {
-    let mut request =
-        Request::builder().method(method).uri(path).header("authorization", "Bearer test-agent");
+    let mut request = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("authorization", "Bearer test-agent-credential-for-local-fixtures");
     if let Some((k, v)) = extra {
         request = request.header(k, v);
     }
@@ -192,8 +218,15 @@ async fn agent_chat_requires_a_separate_tell_capability_and_keeps_the_cursor() {
         tells: bool,
     }
     impl Authenticator for ChatAuth {
+        fn principal(&self, id: &str) -> Option<Principal> {
+            (id == "dm:owner").then(|| {
+                let mut p = self.authenticate("test-agent-credential-for-local-fixtures").unwrap();
+                p.id = id.into();
+                p
+            })
+        }
         fn authenticate(&self, t: &str) -> Option<Principal> {
-            if t != "test-agent" {
+            if t != "test-agent-credential-for-local-fixtures" {
                 return None;
             }
             let mut p = principal();

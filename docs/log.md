@@ -1,5 +1,7 @@
 # Update log
 
+* **Owned gateway AI identities (2026-10-18)**: hashed credentials, current owner permissions, two consent levels and revocation on both transports. [Public API and tests](live-library.md#gateway-shared-requests).
+
 * **Gateway book edits (2026-10-18)**: persist per-key revisions, reject stale edits and invalidate every session. [Contract and tests](live-library.md#gateway-shared-requests).
 
 * **Gateway presence (2026-10-18)**: revisioned actor/focus snapshots follow connects, disconnects and resumes. [Contract](live-library.md#gateway-shared-requests).

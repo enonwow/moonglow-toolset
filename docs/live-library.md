@@ -4,7 +4,7 @@ title: Live library for headless consumers
 description: Dependency boundary, passive mirrors, gateway transport and shared scoped HTTP routing.
 tags: [live, library, gateway]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/lib.rs, ../crates/mg-live/src/access.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
+sources: [../crates/mg-live/src/lib.rs, ../crates/mg-live/src/access.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/store_gateway_identity.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
 ---
 
 # Live library for headless consumers
@@ -447,3 +447,25 @@ under the assistant writer lock, shared with local edits. Card reads include
 cards migrate to revision 1; an absent entry has revision 0. The dev host opens
 one stable assistant context under its data directory. Unit persistence/CAS and
 loopback two-session conflict tests require no game or Redis.
+
+Managed AI identities live in the public core. `ai.create` takes `name`, optional
+`groups` (default `read`, `read_chat`, `speech`) and `expires_ms` (default 30 days,
+maximum one year); it returns `{ai, token}`. `ai.list` returns `{items}`;
+`ai.update` takes `id` plus changed fields and returns `{ai}`; `ai.revoke` takes
+`id` and returns `{}`. Creation always binds the caller DM and starts consent off.
+Management needs `manage_ai`; a DM with `admin` can manage other owners' entries.
+Client frames cannot set the owner or grant admin. v1 managed groups cover reads,
+speech drafts and focus; other writes require typed proposals before delegation.
+
+Tokens use `mgai_` plus OS randomness; only SHA-256 digests are persisted.
+`Authenticator::principal(owner_id)` supplies the current DM groups on each AI
+authentication. Missing owners fail closed; effective AI groups are intersected
+with those groups. Revocation removes the credential and closes its sessions;
+unknown managed tokens never fall through to host credentials. Both `/ws/v1`
+and `/agent/v1` use this same path. The core rechecks consent and groups at final
+command acceptance. `llm.allow {on}` needs `allow_llm` and changes only the caller's
+existing AIs. The host's `set_llm_enabled` switch starts off and overrides it.
+`identity_file` configures bounded persistence before serving connections (256 AIs,
+1 MiB input). Imported host credentials also require an explicit owner and consent.
+Tests cover permissions, current owner lookup, one-time token disclosure, persisted
+digests, restart consent and rejection on both transports after revocation.

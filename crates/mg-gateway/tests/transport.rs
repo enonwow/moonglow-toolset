@@ -11,13 +11,31 @@ use tokio_tungstenite::{
 #[derive(Debug)]
 struct Auth;
 impl Authenticator for Auth {
+    fn principal(&self, id: &str) -> Option<Principal> {
+        match id {
+            "dm:test" => self.authenticate("test-credential"),
+            "dm:reader" => self.authenticate("test-reader"),
+            _ => None,
+        }
+    }
     fn authenticate(&self, token: &str) -> Option<Principal> {
         let (id, groups) = match token {
-            "test-credential" => {
-                ("dm:test", vec!["read", "npc", "read_chat", "read_tells", "focus"])
-            }
-            "test-reader" => ("dm:reader", vec!["read"]),
-            "test-agent" => ("ai:test", vec!["read"]),
+            "test-credential" => (
+                "dm:test",
+                vec![
+                    "read",
+                    "npc",
+                    "speech",
+                    "read_chat",
+                    "read_tells",
+                    "focus",
+                    "manage_ai",
+                    "allow_llm",
+                    "approve_drafts",
+                ],
+            ),
+            "test-reader" => ("dm:reader", vec!["read", "approve_drafts"]),
+            "test-agent-credential-for-local-fixtures" => ("ai:test", vec!["read"]),
             _ => return None,
         };
         Some(Principal {
@@ -81,14 +99,17 @@ async fn authenticated_handshake_and_version_refusal() {
 #[tokio::test]
 async fn origin_missing_credentials_and_ai_principals_never_upgrade() {
     let (url, _, task) = server(Config::default()).await;
-    for (mode, expected) in [("origin", 403), ("missing", 401), ("agent", 403)] {
+    for (mode, expected) in [("origin", 403), ("missing", 401), ("agent", 401)] {
         let mut r = request(&url);
         if mode == "origin" {
             r.headers_mut().insert("origin", "https://example.invalid".parse().unwrap());
         } else if mode == "missing" {
             r.headers_mut().remove("authorization");
         } else {
-            r.headers_mut().insert("authorization", "Bearer test-agent".parse().unwrap());
+            r.headers_mut().insert(
+                "authorization",
+                "Bearer test-agent-credential-for-local-fixtures".parse().unwrap(),
+            );
         }
         match connect_async(r).await.unwrap_err() {
             tokio_tungstenite::tungstenite::Error::Http(r) => assert_eq!(r.status(), expected),
@@ -396,9 +417,26 @@ async fn oversized_input_closes_with_message_too_big() {
 async fn http_agent_route_matches_direct_route_over_loopback_tcp() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (url, core, task) = server(Config::default()).await;
+    core.with_gateway(|g| {
+        g.install_ai(
+            mg_live::gateway::AiIdentity {
+                id: "ai:test".into(),
+                owner: "dm:test".into(),
+                name: "Test".into(),
+                groups: vec!["read".into()],
+                expires_ms: u64::MAX,
+                llm_allowed: true,
+            },
+            "test-agent-credential-for-local-fixtures",
+        )
+        .unwrap();
+        g.set_llm_enabled(true);
+    })
+    .await
+    .unwrap();
     let address = url.trim_start_matches("ws://").trim_end_matches("/ws/v1");
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
-    stream.write_all(b"GET /agent/v1/describe HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-agent\r\nConnection: close\r\n\r\n").await.unwrap();
+    stream.write_all(b"GET /agent/v1/describe HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer test-agent-credential-for-local-fixtures\r\nConnection: close\r\n\r\n").await.unwrap();
     let mut bytes = Vec::new();
     tokio::time::timeout(std::time::Duration::from_secs(3), stream.read_to_end(&mut bytes))
         .await
@@ -416,7 +454,7 @@ async fn http_agent_route_matches_direct_route_over_loopback_tcp() {
                 &[],
                 &[],
                 &Auth
-                    .authenticate("test-agent")
+                    .authenticate("test-agent-credential-for-local-fixtures")
                     .unwrap()
                     .scope(mg_live::access::DeliveryMode::Drafts)
                     .unwrap(),
@@ -613,6 +651,72 @@ async fn presence_is_authoritative_across_focus_drop_and_reconnect() {
 }
 
 #[tokio::test]
+async fn managed_ai_requests_enforce_ownership_consent_and_revoke_both_transports() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let (url, core, task) = server(Config::default()).await;
+    feed(&core, report(1)).await;
+    let (mut dm, _) = connect(&url, vec![], None, "test-credential").await;
+    let created = call(&mut dm, 1, "ai.create", json!({"name":"Helper"})).await;
+    assert_eq!(created["ok"], true, "{created}");
+    let token = created["r"]["token"].as_str().unwrap().to_owned();
+    let id = created["r"]["ai"]["id"].as_str().unwrap().to_owned();
+    let app = mg_gateway::router(
+        core.clone(),
+        Arc::new(Auth),
+        Arc::new(Policy::default()),
+        Config::default(),
+    );
+    async fn http(app: &axum::Router, token: &str) -> u16 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/agent/v1/describe")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let code = response.status().as_u16();
+        let _ = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        code
+    }
+    assert_eq!(http(&app, &token).await, 401);
+    core.with_gateway(|g| g.set_llm_enabled(true)).await.unwrap();
+    assert_eq!(http(&app, &token).await, 401);
+    assert_eq!(call(&mut dm, 2, "llm.allow", json!({"on":true})).await["ok"], true);
+    assert_eq!(http(&app, &token).await, 200);
+    let (mut ai, welcome) = connect(&url, vec![], None, &token).await;
+    assert_eq!(welcome["user"]["id"], id);
+    assert_eq!(call(&mut dm, 4, "ai.update", json!({"id":id,"name":"Updated"})).await["ok"], true);
+    assert_eq!(call(&mut dm, 5, "ai.list", json!({})).await["r"]["items"][0]["name"], "Updated");
+    assert_eq!(call(&mut dm, 6, "ai.revoke", json!({"id":id})).await["ok"], true);
+    assert_eq!(http(&app, &token).await, 401);
+    let mut r = request(&url);
+    r.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+    match connect_async(r).await.unwrap_err() {
+        tokio_tungstenite::tungstenite::Error::Http(r) => assert_eq!(r.status(), 401),
+        e => panic!("{e}"),
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while let Some(Ok(frame)) = ai.next().await {
+            if matches!(frame, Message::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("revoked AI session closes");
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
 async fn book_requests_conflict_and_invalidate_other_sessions() {
     let root = std::env::temp_dir()
         .join(format!("gateway-book-{}", mg_live::service::generate_token().unwrap()));
@@ -643,3 +747,4 @@ async fn book_requests_conflict_and_invalidate_other_sessions() {
     task.abort();
     std::fs::remove_dir_all(root).unwrap();
 }
+
