@@ -1,5 +1,7 @@
 # Update log
 
+* **Cancellable background jobs (2026-10-18)**: resource jobs can keep the UI available, and Cancel reaches network workers even before callback registration. Existing modal jobs retain their behavior. [Job API and regressions](../crates/mg-ui/src/jobs.rs).
+
 * **Ordered language preferences (2026-10-18)**: delayed disk workers cannot overwrite a newer player choice; reverse-order writes and restart are covered by a storage regression. [Ordering contract](live-translations.md#ordered-language-writes).
 
 * **Desktop P3 scoped verification (2026-10-18)**: 745 UI tests and 34 link tests pass across the broad run and corrected target reruns; inspected PNGs and workspace limitations are recorded. [Results](live-desktop-link.md#p3-verification-and-limits).

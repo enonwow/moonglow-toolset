@@ -5,8 +5,8 @@
 //! are shared, not copied) and the game data, on a thread of its own, and
 //! hands back what it made. Then, on the interface's thread, its `finish`
 //! puts that into the application: edits through [`Moonglow::apply`], lines
-//! in the log, a window opened. While a job runs the window takes no other
-//! input, so nothing changes under it and nothing needs reconciling after.
+//! in the log, a window opened. Modal jobs block other input. A background job
+//! keeps input available and must validate its result before changing the app.
 //!
 //! One job runs at a time. With [`Moonglow::background_jobs`] off (tests,
 //! and anything without a window to keep alive), starting a job waits for
@@ -32,12 +32,19 @@ const _: fn() = || {
 
 /// How far a job is, and whether it was called off; the job writes, the
 /// window reads.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Progress {
     done: AtomicUsize,
     total: AtomicUsize,
     cancel: AtomicBool,
     note: Mutex<String>,
+    on_cancel: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for Progress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Progress").finish_non_exhaustive()
+    }
 }
 
 impl Progress {
@@ -56,6 +63,20 @@ impl Progress {
     /// return (what it returns is dropped).
     pub fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn on_cancel(&self, cancel: impl Fn() + Send + Sync + 'static) {
+        *self.on_cancel.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(cancel));
+        if self.cancelled() {
+            self.request_cancel();
+        }
+    }
+
+    pub(crate) fn request_cancel(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        if let Some(cancel) = &*self.on_cancel.lock().unwrap_or_else(|e| e.into_inner()) {
+            cancel();
+        }
     }
 
     fn note(&self) -> String {
@@ -79,6 +100,7 @@ type Finish = Box<dyn FnOnce(&mut Moonglow, Made)>;
 /// A job under way.
 pub struct Job {
     pub title: String,
+    pub(crate) modal: bool,
     progress: Arc<Progress>,
     thread: JoinHandle<Made>,
     finish: Finish,
@@ -103,7 +125,7 @@ fn panic_text(panic: &Made) -> String {
 impl Moonglow {
     /// Whether a job is under way (the window takes no other input then).
     pub fn busy(&self) -> bool {
-        self.job.is_some()
+        self.job.as_ref().is_some_and(|job| job.modal)
     }
 
     /// Starts `work` on a thread of its own, on the open module as it is
@@ -175,6 +197,7 @@ impl Moonglow {
         };
         self.job = Some(Job {
             title,
+            modal: true,
             progress,
             thread,
             finish: Box::new(move |app, made| {
@@ -219,7 +242,7 @@ impl Moonglow {
 /// The running job's window: its name, how far it is, and Cancel. Nothing
 /// else takes input while it shows.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(job) = &app.job else { return };
+    let Some(job) = app.job.as_ref().filter(|job| job.modal) else { return };
     let (title, progress, started) = (job.title.clone(), job.progress.clone(), job.started);
     egui::Modal::new(egui::Id::new("job")).show(ctx, |ui| {
         ui.set_width(320.0);
@@ -248,7 +271,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         if progress.cancelled() {
             ui.weak("Canceling…");
         } else if ui.button("Cancel").clicked() {
-            progress.cancel.store(true, Ordering::Relaxed);
+            progress.request_cancel();
         }
     });
 }
@@ -261,6 +284,18 @@ mod tests {
 
     use super::*;
     use crate::Level;
+
+    #[test]
+    fn cancellation_reaches_network_workers_even_before_callback_registration() {
+        let progress = Progress::default();
+        progress.request_cancel();
+        let called = Arc::new(AtomicBool::new(false));
+        let worker = called.clone();
+        progress.on_cancel(move || {
+            worker.store(true, Ordering::Relaxed);
+        });
+        assert!(called.load(Ordering::Relaxed));
+    }
 
     /// An application with a small module open, its jobs in the background.
     fn app(name: &str) -> Moonglow {
