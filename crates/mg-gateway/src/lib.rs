@@ -1,4 +1,5 @@
 //! Public transport for the authoritative Live core. Host authentication stays pluggable.
+mod agent;
 mod core;
 mod socket;
 
@@ -56,6 +57,12 @@ pub trait Authenticator: Debug + Send + Sync + 'static {
 }
 pub trait PolicyResolver: Debug + Send + Sync + 'static {
     fn policy(&self) -> Policy;
+    fn delivery(&self, principal: &Principal) -> DeliveryMode {
+        if principal.id.starts_with("ai:") { DeliveryMode::Drafts } else { DeliveryMode::Auto }
+    }
+    fn command_limit(&self, _principal: &Principal) -> u32 {
+        60
+    }
 }
 impl PolicyResolver for Policy {
     fn policy(&self) -> Policy {
@@ -89,6 +96,7 @@ pub(crate) struct App {
     auth: Arc<dyn Authenticator>,
     policy: Arc<dyn PolicyResolver>,
     config: Config,
+    agents: Arc<agent::AgentState>,
 }
 pub fn router(
     core: CoreHandle,
@@ -99,7 +107,14 @@ pub fn router(
     Router::new()
         .route("/health", get(|| async { Json(json!({"ok":true})) }))
         .route("/ws/v1", get(upgrade))
-        .with_state(App { core, auth, policy, config })
+        .route("/agent/v1/{*path}", axum::routing::any(agent::handle))
+        .with_state(App {
+            core,
+            auth,
+            policy,
+            config,
+            agents: Arc::new(agent::AgentState::default()),
+        })
 }
 #[derive(Debug, Default, Deserialize)]
 struct Versions {

@@ -247,3 +247,29 @@ otherwise impossible sequencing without changing its JSON frames.
 Transport regression tests run with `cargo +1.98.0 test -p mg-gateway -j 2`,
 `CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`. They bind ephemeral
 loopback ports and require neither Redis nor game data.
+
+## Shared agent routing
+
+`mg_live::api::route(method, path, headers, body, scope, store)` is the synchronous
+routing boundary for `/v1`. `route_with_context` adds the adapter's cancellation
+flag, clock, presence snapshot and quota callback. Authentication and consent
+remain adapter responsibilities; callers of the bare route must already have
+validated the principal and provide rate limiting when exposing writes.
+The existing TLS loopback API and `/agent/v1/*` both use this implementation.
+The gateway requires an `ai:` principal and rejects Origin before body reads.
+`PolicyResolver` chooses delivery mode (AI defaults to drafts) and command
+budget (60/minute by default). No client-supplied name can change attribution.
+
+Catalogue ETags, If-Match/412, scope failures and command quota bodies remain
+identical. A failed catalogue precondition does not spend quota. Long polls
+retain the catalogue's 30-second cap; sixteen concurrent agent requests are
+allowed, and body reads have a five-second budget. Quotas are shared by
+principal across reconnects and include game queries. The private host is
+responsible for its global AI consent and owner-role policy before returning
+an authenticated principal. Host route integrations should use the context
+variant to supply cancellation and metering rather than bypassing those hooks.
+
+The existing eighteen loopback API tests exercise the extracted router.
+`crates/mg-gateway/tests/agent.rs` compares discovery, reads, errors and ETags
+against the pure route, verifies 401/403/429 and checks that a waiting event
+request releases the async runtime and wakes on a subsequent report.

@@ -1,8 +1,11 @@
 //! Authenticated HTTPS for local clients. Game reports arrive only over Redis.
+#[path = "api_route.rs"]
+mod routing;
 use crate::{
     access::{Access, ClientGroup},
     store::LiveStore,
 };
+pub use routing::{RouteContext, RouteResponse, route, route_with_context};
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -384,84 +387,28 @@ fn answer(
     }
     let target =
         input.as_ref().ok().and_then(|v| v["target"].as_str().or_else(|| v["player"].as_str()));
-    let response = (|| {
-        let expected = match path {
-            "/v1/describe" | "/v1/openapi.json" | "/live/v1/status" => "GET",
-            p if p.starts_with("/live/v1/area/") => "GET",
-            "/live/v1/command" => "POST",
-            p if p.starts_with("/v1/call/") => "POST",
-            _ => return (404, json!({"ok":false,"error":"Not found"})),
-        };
-        if method != expected {
-            return (405, json!({"ok":false,"error":format!("Use {expected}")}));
-        }
-        if matches!(op, "describe" | "openapi") {
-            let value = catalogue(live, scope, op == "openapi");
-            meta.etag = Some(catalogue_tag(&value));
-            return (200, value);
-        }
-        if path.starts_with("/v1/call/")
-            && let Some(expected) = header(&head, "if-match")
-        {
-            let current = catalogue_tag(&catalogue(live, scope, false));
-            meta.etag = Some(current.clone());
-            if expected != current {
-                return (
-                    412,
-                    json!({"ok":false,"code":"catalogue_changed","error":"Refresh /v1/describe before dispatch"}),
-                );
-            }
-        }
-        if !scope.allows(op) {
-            return (
-                403,
-                json!({"ok":false,"code":"forbidden","error":"Client scope does not allow this operation"}),
-            );
-        }
-        if method == "POST"
-            && (crate::access::group(op) != Some(ClientGroup::Read)
-                || crate::operations::executes_in_game(op))
-            && let Err(seconds) = access.command(who, now_ms)
-        {
-            return (
-                429,
-                json!({"ok":false,"code":"rate_limited","error":"Client command limit exceeded","retryAfterSeconds":seconds}),
-            );
-        }
-        if path == "/live/v1/status" {
-            let mut value = live.status_scoped(now_ms, scope);
-            value["agents"] = json!(access.agents.recent(now_ms));
-            return (200, value);
-        }
-        if let Some(area) = path.strip_prefix("/live/v1/area/") {
-            return live
-                .area_json(area, now_ms)
-                .map(|v| (200, v))
-                .unwrap_or((404, json!({"error":"Not found"})));
-        }
-        let input = match &input {
-            Ok(v) => v.clone(),
-            Err(_) => return (400, json!({"ok":false,"code":"invalid","error":"Bad JSON"})),
-        };
-        let legacy = path == "/live/v1/command";
-        let result = if legacy {
-            crate::operations::command_scoped(input, live, now_ms, scope)
-        } else {
-            crate::operations::call_scoped(op, input, live, stop, scope)
-        };
-        match result {
-            Ok(mut v) => {
-                if op == "live_status" {
-                    v["agents"] = json!(access.agents.recent(now_ms));
-                }
-                (200, if legacy { v } else { json!({"ok":true,"result":v}) })
-            }
-            Err(e) => (
-                if e.code == crate::store::ErrorCode::Forbidden { 403 } else { 400 },
-                json!({"ok":false,"error":e.error,"code":e.code}),
-            ),
-        }
-    })();
+    let headers: Vec<_> = head
+        .lines()
+        .skip(1)
+        .filter_map(|l| l.split_once(':'))
+        .map(|(k, v)| (k.to_owned(), v.trim().to_owned()))
+        .collect();
+    let routed = route_with_context(
+        method,
+        path,
+        &headers,
+        &body,
+        scope,
+        live,
+        &RouteContext {
+            now_ms,
+            stop,
+            charge: &|| access.command(who, now_ms),
+            agents: json!(access.agents.recent(now_ms)),
+        },
+    );
+    meta.etag = routed.etag;
+    let response = (routed.status, routed.body);
     // Never include request bodies, credentials, script errors or returned values.
     let (status, value) = &response;
     let result = if *status == 200 {
