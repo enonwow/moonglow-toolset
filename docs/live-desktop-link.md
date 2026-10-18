@@ -17,8 +17,8 @@ sources:
 `mg-live-link` owns desktop authentication. It never opens a browser or starts
 a game server. The GUI supplies the gateway origin and optional SHA-256 leaf
 certificate pin, starts `Login` on a worker, opens `browser_url`, then calls
-`finish` on that worker. The consumed attempt closes its listener on success,
-invalid callback, timeout or drop. A slow callback is bounded by the same deadline.
+`finish` on that worker. The attempt closes its listener on success, timeout, the probe limit or drop.
+Invalid callbacks do not consume the login; all I/O shares the original deadline.
 
 ## Login and trust
 
@@ -124,7 +124,7 @@ handshake I/O. Socket timeouts alone renew on each received fragment; a peer
 sending an incomplete record slowly could otherwise hold a login worker.
 The `slow_certificate_discovery_cannot_extend_the_deadline` loopback regression
 trickles an incomplete TLS record and verifies bounded termination. All seven
-login/TLS tests pass, including this case.
+original login/TLS tests passed, including this case.
 
 ## Options and visual proof
 
@@ -176,3 +176,16 @@ source/document links checked. Keep sources, the lockfile and the one PNG as
 reproduction inputs/evidence. Disposable verification logs are summarized in
 the private task ledger and removed at closure; shared Cargo outputs remain
 in use by concurrent work and are not deleted by this task.
+
+## Loopback probe tolerance
+
+The listener accepts at most 32 connections until one valid callback arrives.
+Each connection has a 250 ms absolute read budget, capped by the overall login
+deadline. Invalid complete requests receive 400 without redeeming a grant; idle
+connections expire independently. Only a valid state/grant closes the listener
+and begins token redemption. Reaching the attempt limit fails the login.
+
+The garbage-then-real-callback regression failed with ConnectionRefused before
+the fix. All ten login/TLS tests now pass, including a wrong-state probe followed
+by success, an idle probe, the 32-attempt cap, the shared deadline and refusal
+of a second callback after successful acceptance.

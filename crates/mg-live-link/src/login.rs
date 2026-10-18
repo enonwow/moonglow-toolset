@@ -245,40 +245,57 @@ impl Login {
         self.url.as_str()
     }
 
-    /// Accept one connection, validate one callback, close the listener, then redeem.
+    /// Ignore bounded invalid probes, accept one valid callback, then close and redeem.
     pub fn finish(self) -> Result<SessionToken, Error> {
         let Self { gateway, listener, verifier, state, deadline, .. } = self;
-        let mut stream = loop {
+        let mut attempts = 0;
+        let (mut stream, grant) = loop {
             if Instant::now() >= deadline {
                 return Err(Error::Timeout);
             }
-            match listener.accept() {
-                Ok((stream, _)) => break stream,
+            let mut stream = match listener.accept() {
+                Ok((stream, _)) => stream,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(5))
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
                 }
                 Err(_) => return Err(Error::Listener),
+            };
+            attempts += 1;
+            stream.set_nonblocking(false).map_err(|_| Error::Callback)?;
+            let connection_deadline = deadline.min(Instant::now() + Duration::from_millis(250));
+            let result = callback(&mut stream, &state, connection_deadline);
+            if let Ok(grant) = result {
+                break (stream, grant);
+            }
+            callback_response(&mut stream, false, connection_deadline);
+            if attempts >= 32 {
+                return Err(Error::Callback);
             }
         };
         drop(listener);
-        stream.set_nonblocking(false).map_err(|_| Error::Callback)?;
-        stream.set_write_timeout(Some(Duration::from_secs(1))).map_err(|_| Error::Callback)?;
-        let result = callback(&mut stream, &state, deadline);
-        let (status, body) = if result.is_ok() {
-            ("200 OK", "Sign-in received. You can close this window.")
-        } else {
-            ("400 Bad Request", "Sign-in failed. Return to Moonglow and try again.")
-        };
-        let _ = write!(
-            stream,
-            "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
+        callback_response(&mut stream, true, deadline);
         drop(stream);
-        let grant = result?;
         let remaining = deadline.checked_duration_since(Instant::now()).ok_or(Error::Timeout)?;
         gateway.exchange(&grant, &verifier, remaining.min(Duration::from_secs(15)))
     }
+}
+
+fn callback_response(stream: &mut TcpStream, accepted: bool, deadline: Instant) {
+    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { return };
+    if stream.set_write_timeout(Some(remaining.min(Duration::from_millis(250)))).is_err() {
+        return;
+    }
+    let (status, body) = if accepted {
+        ("200 OK", "Sign-in received. You can close this window.")
+    } else {
+        ("400 Bad Request", "Invalid callback. Return to Moonglow and continue signing in.")
+    };
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
 }
 
 fn callback(stream: &mut TcpStream, state: &str, deadline: Instant) -> Result<String, Error> {

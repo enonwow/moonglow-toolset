@@ -9,6 +9,66 @@ use sha2::{Digest, Sha256};
 use support::{FakeGateway, callback};
 
 #[test]
+fn garbage_connection_then_real_callback_succeeds() {
+    use std::io::{Read, Write};
+    let fake = FakeGateway::start();
+    let login =
+        Login::begin(Gateway::new(&fake.url, Some(&fake.pin)).unwrap(), Duration::from_secs(5))
+            .unwrap();
+    let url = login.browser_url().to_owned();
+    let start = url::Url::parse(&url).unwrap();
+    let port: u16 = start.query_pairs().find(|(k, _)| k == "port").unwrap().1.parse().unwrap();
+    let worker = std::thread::spawn(move || login.finish());
+    let mut probe = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).unwrap();
+    probe.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    probe.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    let mut response = String::new();
+    probe.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 400"));
+    let (_, response) = callback(&url, true);
+    assert!(response.starts_with("HTTP/1.1 400"));
+    let (_, response) = callback(&url, false);
+    assert!(response.starts_with("HTTP/1.1 200"));
+    assert_eq!(worker.join().unwrap().unwrap().expose(), "fixture-session");
+    fake.finish();
+}
+
+#[test]
+fn idle_probe_cannot_consume_the_callback_deadline() {
+    let fake = FakeGateway::start();
+    let login =
+        Login::begin(Gateway::new(&fake.url, Some(&fake.pin)).unwrap(), Duration::from_secs(5))
+            .unwrap();
+    let url = login.browser_url().to_owned();
+    let start = url::Url::parse(&url).unwrap();
+    let port: u16 = start.query_pairs().find(|(k, _)| k == "port").unwrap().1.parse().unwrap();
+    let idle = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).unwrap();
+    let worker = std::thread::spawn(move || login.finish());
+    let (_, response) = callback(&url, false);
+    assert!(response.starts_with("HTTP/1.1 200"));
+    assert_eq!(worker.join().unwrap().unwrap().expose(), "fixture-session");
+    drop(idle);
+    fake.finish();
+}
+
+#[test]
+fn callback_attempts_are_capped() {
+    let login =
+        Login::begin(Gateway::new("https://localhost:1", None).unwrap(), Duration::from_secs(10))
+            .unwrap();
+    let url = login.browser_url().to_owned();
+    let worker = std::thread::spawn(move || login.finish());
+    let mut port = 0;
+    for _ in 0..32 {
+        let (callback_port, response) = callback(&url, true);
+        port = callback_port;
+        assert!(response.starts_with("HTTP/1.1 400"));
+    }
+    assert!(matches!(worker.join().unwrap(), Err(Error::Callback)));
+    assert!(TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).is_err());
+}
+
+#[test]
 fn happy_path_pkce_headers_and_second_callback_refused() {
     let fake = FakeGateway::start();
     let login =
@@ -36,7 +96,7 @@ fn happy_path_pkce_headers_and_second_callback_refused() {
 }
 
 #[test]
-fn wrong_state_closes_callback_without_redeeming() {
+fn wrong_state_is_rejected_and_shared_deadline_closes_listener() {
     let login =
         Login::begin(Gateway::new("https://localhost:1", None).unwrap(), Duration::from_secs(2))
             .unwrap();
@@ -44,7 +104,7 @@ fn wrong_state_closes_callback_without_redeeming() {
     let worker = std::thread::spawn(move || login.finish());
     let (port, response) = callback(&url, true);
     assert!(response.starts_with("HTTP/1.1 400"));
-    assert!(matches!(worker.join().unwrap(), Err(Error::State)));
+    assert!(matches!(worker.join().unwrap(), Err(Error::Timeout)));
     assert!(TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).is_err());
 }
 
