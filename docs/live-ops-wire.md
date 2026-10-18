@@ -2981,3 +2981,29 @@ named read-only credential write access. The store regression
 destroy, script, chunk, NPC movement and speech with all global switches enabled.
 Run with Rust 1.98.0, `CARGO_INCREMENTAL=0`, a nonexistent `NWN_ROOT` and
 `cargo +1.98.0 test -p mg-live --lib -j 2 direct_enqueue`.
+
+## Explicit result receipts (2026-10-18)
+
+A subscriber count from Redis PUBLISH does not confirm Moonglow received a
+result. The game retains each result until the command envelope echoes its
+opaque `receipt` in `received`. Receipts identify a version, including the boot,
+so an old progress receipt cannot remove a newer skill result. Receipt-only
+messages are published even with an empty command queue. The game bounds retained
+results to 256 entries / 2 MiB and expires them after 300 report ticks; ACK IDs
+remain bounded independently. No subscriber-count based deletion remains.
+
+An ACK without a result yields `ok:false`, `code:"unknown"`, and
+`err:"unknown: acknowledged; result not received"`, which existing UI result
+text displays. A later actual result resolves this unknown; a late ACK never
+changes a known failure or an expired command into success. The result receipt
+is optional for compatibility with old reports. Upgrade the game scripts and
+Moonglow together to obtain reliable result delivery.
+
+Store regression: `lost_failure_is_unknown_until_result_and_late_ack_never_claims_success`.
+Native proof: `tools/live/test-events.py --phase command_receipts` under WSL,
+using its private server and scratch directories, passed: failure survives two
+reports with a subscriber, wrong receipt retains it, exact receipt removes it.
+The harness can use an existing debug or release CLI via `MGLIVE_FIXTURE_MG`;
+older CLI standalone-include diagnostics are allowed only for sources with no
+executable entry point. Native executable scripts must compile. Use the generic
+fixture helper and its owned-process cleanup, never a normal user directory.

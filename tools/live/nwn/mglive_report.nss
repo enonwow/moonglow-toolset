@@ -14,6 +14,7 @@ void MgLiveReportPublish()
         if(i) rows+=",";rows+=JsonDump(GetLocalJson(m,key));DeleteLocalJson(m,key);DeleteLocalObject(m,key);
     }
     json areas=JsonParse("["+rows+"]");
+    MgLiveReceiveResults(JsonArray());
     json ack = GetLocalJson(m, "MGLIVE_ACK");
     json results = GetLocalJson(m, "MGLIVE_RESULTS");
     json body = JsonObjectSet(JsonObject(), "v", JsonInt(1));
@@ -32,11 +33,7 @@ void MgLiveReportPublish()
     string data = JsonDump(body);
     int r = NWNX_Redis_PUBLISH(GetLocalString(m, "MGLIVE_PREFIX") + ".state", data);
     int heard = NWNX_Redis_GetResultAsInt(r);
-    // Pub/sub has no durable delivery: retain these until a subscriber heard them.
-    if (heard > 0)
-    {
-        MgLiveClearSent(ack);
-    }
+    // Results remain until explicit versioned receipts or bounded expiry.
     int total=GetLocalInt(m,"MGLIVE_REPORT_US")+GetMicrosecondCounter()-start;
     if(seq==1 || seq%60==0)
         WriteTimestampedLogEntry("MGLIVE: seq="+IntToString(seq)+" full="+IntToString(full)+" tick_us="+IntToString(total)+" bytes="+IntToString(GetStringLength(data))+" heard="+IntToString(heard));

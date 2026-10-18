@@ -3,6 +3,7 @@
 #include "nwnx_creature"
 #include "nwnx_object"
 #include "mglive_evt"
+#include "mglive_receipt"
 const float MGLIVE_PERIOD = 1.0;
 const int MGLIVE_FULL_EVERY = 5;
 const int MGLIVE_DELTA_FULL_EVERY = 30;
@@ -718,21 +719,6 @@ void MgLiveFailure(string reason)
 // Defined in mglive_exec; only the pub/sub entry point reaches this handler.
 json MgLiveRun(json j);
 
-void MgLiveClearSent(json sent)
-{
-    object m = GetModule();
-    json ack = GetLocalJson(m, "MGLIVE_ACK");
-    json results = GetLocalJson(m, "MGLIVE_RESULTS");
-    int i;
-    for (i = JsonGetLength(ack) - 1; i >= 0; i--)
-        if (MgLiveContains(sent, JsonGetString(JsonArrayGet(ack, i)))) ack = JsonArrayDel(ack, i);
-    for (i = JsonGetLength(results) - 1; i >= 0; i--)
-        if (MgLiveContains(sent, JsonGetString(JsonObjectGet(JsonArrayGet(results, i), "id"))))
-            results = JsonArrayDel(results, i);
-    SetLocalJson(m, "MGLIVE_ACK", ack);
-    SetLocalJson(m, "MGLIVE_RESULTS", results);
-}
-
 void MgLiveHandleReply(string message)
 {
     object m = GetModule();
@@ -744,6 +730,7 @@ void MgLiveHandleReply(string message)
         MgLiveFailure("invalid command message; acknowledgements retained");
         return;
     }
+    MgLiveReceiveResults(JsonObjectGet(response, "received"));
     json ack = GetLocalJson(m, "MGLIVE_ACK");
     json results = GetLocalJson(m, "MGLIVE_RESULTS");
     json done = GetLocalJson(m, "MGLIVE_DONE");
@@ -768,7 +755,9 @@ void MgLiveHandleReply(string message)
             SetLocalString(m,"MGLIVE_COMMAND_ID",previousId);SetLocalString(m,"MGLIVE_COMMAND_BY",previousBy);
             done = JsonArrayInsert(done, JsonString(id));
             if (JsonGetLength(done) > MGLIVE_MAX_DONE) done = JsonArrayDel(done, 0);
-            results = JsonArrayInsert(results, result);
+            MgLiveRetainResult(result);
+            results = GetLocalJson(m, "MGLIVE_RESULTS");
+            ack = GetLocalJson(m, "MGLIVE_ACK");
         }
         if (!MgLiveContains(ack, id)) ack = JsonArrayInsert(ack, JsonString(id));
     }

@@ -1,5 +1,7 @@
 # Update log
 
+* **Explicit Live result receipts (2026-10-18)**: bounded game retention, versioned receipts and unknown ACK-only outcomes, with store and private engine regressions. [Protocol and proof](live-ops-wire.md#explicit-result-receipts-2026-10-18).
+
 * **Live preparation test helper (2026-10-18)**: the guarded PowerShell Live test routes opt into `build`, retaining fixture coverage after feature separation. [Feature checks](live-library.md#optional-module-preparation).
 
 * **Tapped Live synchronization (2026-10-18)**: expose Full/Delta/Gap/Stale and boot changes from the existing sync decision, preserving the original reply wrapper. [Contract and regressions](live-library.md#observing-synchronization-decisions).

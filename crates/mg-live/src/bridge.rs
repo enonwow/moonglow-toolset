@@ -77,6 +77,10 @@ pub(crate) fn game_json(value: &Value) -> String {
     escaped
 }
 
+fn has_outbound(value: &Value) -> bool {
+    ["commands", "received"].iter().any(|key| value[key].as_array().is_some_and(|a| !a.is_empty()))
+}
+
 /// Lifetime is owned by LiveService; its shared stop flag cancels both workers.
 #[derive(Debug)]
 pub struct Bridge {
@@ -263,10 +267,7 @@ impl Bridge {
                                             s.last_state_ms = Some(now_ms());
                                             s.received += 1;
                                             drop(s);
-                                            if reply["commands"]
-                                                .as_array()
-                                                .is_some_and(|a| !a.is_empty())
-                                            {
+                                            if has_outbound(&reply) {
                                                 let _ = kick.send(());
                                             }
                                             wake();
@@ -335,7 +336,7 @@ impl Bridge {
                         while !stop.load(Ordering::Acquire) {
                             if pending {
                                 let commands = store.commands(now_ms());
-                                if commands["commands"].as_array().is_some_and(|a| !a.is_empty()) {
+                                if has_outbound(&commands) {
                                     let body = game_json(&commands);
                                     if !matches!(request(&mut connection, &[b"PUBLISH", &channel, body.as_bytes()])?, Reply::Int(n) if n >= 0) { return Err("Redis PUBLISH failed".into()); }
                                     lock(&state).published += 1;
@@ -625,7 +626,7 @@ mod tests {
         wait(|| store.status(now_ms())["queued"].as_array().unwrap().is_empty());
         assert_eq!(
             store.status(now_ms())["results"][0]["result"]["err"],
-            "acknowledged; result not received"
+            "unknown: acknowledged; result not received"
         );
         let before = Instant::now();
         stop.store(true, Ordering::Release);

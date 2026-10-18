@@ -2,6 +2,7 @@
 // Included by mglive_nui after its common window helpers and skill-name lookup.
 #include "mglive_evt"
 #include "mglive_result"
+#include "mglive_receipt"
 
 string MgLiveSkillSigned(int value)
 {
@@ -67,12 +68,7 @@ void MgLiveSkillPublish(string id, json value)
 {
     object m = GetModule();
     json answer = MgLiveSkillAnswer(id,value);
-    json results = GetLocalJson(m,"MGLIVE_RESULTS"); int i;
-    for(i=JsonGetLength(results)-1;i>=0;i--)
-        if(JsonGetString(JsonObjectGet(JsonArrayGet(results,i),"id"))==id) results=JsonArrayDel(results,i);
-    SetLocalJson(m,"MGLIVE_RESULTS",JsonArrayInsert(results,answer));
-    json ack = GetLocalJson(m,"MGLIVE_ACK");
-    if(JsonGetType(JsonFind(ack,JsonString(id)))==JSON_TYPE_NULL) SetLocalJson(m,"MGLIVE_ACK",JsonArrayInsert(ack,JsonString(id)));
+    MgLiveRetainResult(answer);
     if (JsonGetInt(JsonObjectGet(answer,"pending"))) SetLocalJson(m,"MGLIVE_SKILL_"+id,value);
     else
     {

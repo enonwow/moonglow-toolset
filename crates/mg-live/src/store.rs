@@ -191,6 +191,8 @@ pub enum ErrorCode {
     Invalid,
     Disabled,
     Forbidden,
+    /// Execution was acknowledged, but its outcome is not known.
+    Unknown,
     UnknownScript,
     CompileError,
     Expired,
@@ -237,6 +239,9 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
     pub ok: bool,
+    /// Opaque game-issued version; receipts must not acknowledge a newer result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<String>,
     /// Accepted interactive command; more results follow under the same id.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub pending: bool,
@@ -2005,47 +2010,7 @@ impl LiveStore {
             now_ms,
         );
         s.events.game(&request.boot, &enriched, request.dropped, now_ms);
-        for r in request.results {
-            if let Some(i) = s.queue.iter().position(|q| q.command.id == r.id) {
-                let q = s.queue.remove(i).expect("position is in range");
-                if r.ok
-                    && r.pending
-                    && let Op::SkillCheck { timeout, .. } = q.command.op
-                {
-                    s.skill_waiting.insert(
-                        r.id.clone(),
-                        (q.command.clone(), now_ms + u64::from(timeout) * 1000 + 5000),
-                    );
-                }
-                push_result(&mut s, q.command, r);
-            } else if let Some((command, _)) = s.skill_waiting.get(&r.id).cloned() {
-                if request.seq < s.seq || s.results.iter().any(|(_, old)| old == &r) {
-                    continue;
-                }
-                if !r.pending || !r.ok {
-                    s.skill_waiting.remove(&r.id);
-                }
-                push_result(&mut s, command, r);
-            }
-        }
-        for id in request.ack {
-            if let Some(i) = s.queue.iter().position(|q| q.command.id == id) {
-                let q = s.queue.remove(i).expect("in range");
-                push_result(
-                    &mut s,
-                    q.command,
-                    CommandResult {
-                        id,
-                        ok: true,
-                        err: "acknowledged; result not received".into(),
-                        obj: String::new(),
-                        code: None,
-                        faction: None,
-                        ..CommandResult::default()
-                    },
-                );
-            }
-        }
+        receive_results(&mut s, request.results, request.ack, request.seq, now_ms);
         expire(&mut s, now_ms);
         if request.seq >= s.seq {
             s.seq = request.seq;
@@ -2728,6 +2693,54 @@ fn policy_error(policy: Policy, op: &Op) -> Option<&'static str> {
     }
 }
 
+fn receive_results(
+    s: &mut State,
+    results: Vec<CommandResult>,
+    ack: Vec<String>,
+    seq: u64,
+    now_ms: u64,
+) {
+    for r in results {
+        let command = if let Some(i) = s.queue.iter().position(|q| q.command.id == r.id) {
+            Some(s.queue.remove(i).expect("position is in range").command)
+        } else if let Some((command, _)) = s.skill_waiting.get(&r.id).cloned() {
+            if seq < s.seq || s.results.iter().any(|(_, old)| old == &r) {
+                continue;
+            }
+            Some(command)
+        } else {
+            // A delayed result may resolve an ACK-only unknown outcome. Never
+            // overwrite a known final result with a duplicate or older frame.
+            s.results
+                .iter()
+                .find(|(_, old)| old.id == r.id && old.code == Some(ErrorCode::Unknown))
+                .map(|(command, _)| command.clone())
+        };
+        if let Some(command) = command {
+            if r.ok && r.pending {
+                if let Op::SkillCheck { timeout, .. } = command.op {
+                    s.skill_waiting.entry(r.id.clone()).or_insert_with(|| {
+                        (command.clone(), now_ms + u64::from(timeout) * 1000 + 5000)
+                    });
+                }
+            } else {
+                s.skill_waiting.remove(&r.id);
+            }
+            push_result(s, command, r);
+        }
+    }
+    for id in ack {
+        if let Some(i) = s.queue.iter().position(|q| q.command.id == id) {
+            let q = s.queue.remove(i).expect("in range");
+            push_result(
+                s,
+                q.command,
+                failure(&id, ErrorCode::Unknown, "unknown: acknowledged; result not received"),
+            );
+        }
+    }
+}
+
 fn expire(s: &mut State, now_ms: u64) {
     let timed_out: Vec<_> = s
         .skill_waiting
@@ -2802,7 +2815,14 @@ fn game_commands(s: &State) -> Value {
         commands.insert(0, json!({"id":id,"op":"resync"}));
     }
     commands.extend(s.watch.pending.iter().cloned());
-    json!({"v":1,"commands":commands})
+    let boot_prefix = format!("{}:", s.boot);
+    let received: Vec<_> = s
+        .results
+        .iter()
+        .filter_map(|(_, result)| result.receipt.as_ref())
+        .filter(|receipt| receipt.starts_with(&boot_prefix))
+        .collect();
+    json!({"v":1,"commands":commands,"received":received})
 }
 
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
@@ -3185,6 +3205,32 @@ mod tests {
     }
 
     #[test]
+    fn lost_failure_is_unknown_until_result_and_late_ack_never_claims_success() {
+        let store = LiveStore::default();
+        post(&store, report("b", 1, true), 0);
+        let id = store.enqueue(spawn(), 1).unwrap();
+        post(&store, json!({"v":1,"boot":"b","seq":2,"ack":[id]}), 2);
+        let missing = store.result(&id).unwrap();
+        assert!(!missing.ok);
+        assert_eq!(missing.code, Some(ErrorCode::Unknown));
+        assert!(missing.err.starts_with("unknown:"));
+        let answer =
+            json!({"id":id,"ok":false,"code":"invalid","err":"spawn failed","receipt":"b:1"});
+        let reply = post(&store, json!({"v":1,"boot":"b","seq":3,"results":[answer]}), 3);
+        assert_eq!(store.result(&id).unwrap().err, "spawn failed");
+        assert_eq!(reply["received"], json!(["b:1"]));
+        post(&store, json!({"v":1,"boot":"b","seq":4,"ack":[id]}), 4);
+        assert_eq!(store.result(&id).unwrap().code, Some(ErrorCode::Invalid));
+        let expired = store.enqueue(spawn(), 5).unwrap();
+        store.expire(COMMAND_TTL_MS + 5);
+        post(&store, json!({"v":1,"boot":"b","seq":5,"ack":[expired]}), COMMAND_TTL_MS + 6);
+        assert_eq!(store.result(&expired).unwrap().code, Some(ErrorCode::Expired));
+        assert!(!store.result(&expired).unwrap().ok);
+        let reboot = post(&store, report("new", 1, true), COMMAND_TTL_MS + 7);
+        assert_eq!(reboot["received"], json!([]));
+    }
+
+    #[test]
     fn script_policy_targets_kick_and_ack_without_result() {
         let store = LiveStore::default();
         let mut state = report("b1", 1, true);
@@ -3202,7 +3248,7 @@ mod tests {
         post(&store, json!({"v":1,"boot":"b1","seq":2,"ack":["script"]}), 1);
         assert_eq!(
             store.status(1)["results"][0]["result"],
-            json!({"id":"script","ok":true,"err":"acknowledged; result not received","obj":""})
+            json!({"id":"script","ok":false,"code":"unknown","err":"unknown: acknowledged; result not received","obj":""})
         );
         assert!(store.commands(1)["commands"].as_array().unwrap().is_empty());
         store.enqueue(script, 1).unwrap();
