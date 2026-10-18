@@ -1,5 +1,7 @@
 # Update log
 
+* **Bounded note revisions (2026-10-18)**: local and gateway edits share the same 4000-key capacity, including cleared-note revisions. [Contract](live-library.md#gateway-shared-requests).
+
 * **Durable gateway revocation (2026-10-18)**: retain bounded revoked digests so dev configuration cannot resurrect a token on restart. [Persistence regression](live-library.md#gateway-shared-requests).
 
 * **Gateway UI presence ordering (2026-10-18)**: wait for applied Focus presence before authored DM/AI render fixtures; the in-process UI regression passes with the automatic host snapshots. [Cause and barrier](live-desktop-link.md#gui-fixture-synchronization).

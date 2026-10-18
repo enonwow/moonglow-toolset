@@ -319,7 +319,10 @@ impl LiveStore {
         let mut s = self.lock();
         let key = object_key(&s, id)?;
         let k = book_mut(&mut s)?;
-        if k.notes.objects.len() >= 4000 && !k.notes.objects.contains_key(&key) {
+        if k.notes.objects.len().max(k.notes.revisions.len()) >= 4000
+            && !k.notes.objects.contains_key(&key)
+            && !k.notes.revisions.contains_key(&key)
+        {
             return Err("At most 4000 object notes are supported".into());
         }
         let mut notes = k.notes.clone();
@@ -672,5 +675,28 @@ mod tests {
         s.sync(br#"{"v":1,"boot":"b","seq":1,"areas":[{"area":"gate","cre":[{"id":"a","tag":"captain","name":"Captain"},{"id":"b","pc":true,"name":"Traveller"}]}],"events":[{"seq":1,"kind":"chat","area":"gate","id":"b","target":"a","text":"Hello","channel":1}]}"#,100).unwrap();
         assert_eq!(s.npc_memory("a", Some("b"), 50).unwrap()[0].turns[0].text, "Hello");
         s.clear_assistant_context();
+    }
+    #[test]
+    fn note_revision_tombstones_share_the_note_capacity() {
+        let work = Work::new("note-revisions");
+        let store = LiveStore::default();
+        store
+            .assistant_context(work.0.clone(), work.0.join("fixture.mod"), "fixture".into())
+            .unwrap();
+        store.sync(br#"{"v":1,"boot":"b","seq":1,"areas":[{"area":"square","full":true,"cre":[{"id":"a1","tag":"guard"}]}]}"#,1000).unwrap();
+        {
+            let mut state = store.lock();
+            book_mut(&mut state).unwrap().notes.revisions =
+                (0..4000).map(|n| (format!("Creature:tag:n{n}"), 1)).collect();
+        }
+        assert!(store.save_object_note("a1", "").is_err());
+        {
+            let mut state = store.lock();
+            let revisions = &mut book_mut(&mut state).unwrap().notes.revisions;
+            revisions.remove("Creature:tag:n0");
+            revisions.insert("Creature:tag:guard".into(), 1);
+        }
+        store.save_object_note("a1", "Updated").unwrap();
+        assert_eq!(book(&store.lock()).unwrap().notes.revisions.len(), 4000);
     }
 }
