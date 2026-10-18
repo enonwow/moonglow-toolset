@@ -1,28 +1,31 @@
 """Native instruction-budget proof; run only through test-events.py's private helper."""
 
 
+def measure(p, channel, label):
+    # NWNX calls are disabled by default inside ExecuteScriptChunk. Run the
+    # measurement in a compiled fixture, under the server's unchanged VM limit.
+    assert channel in [1, 2, 3, 4, 6, 14]
+    assert label and all(c.isascii() and (c.isalnum() or c == "_") for c in label)
+    p.chunk('DeleteLocalJson(GetModule(),"MGET_XL_BUDGET");'
+            f'SetLocalInt(GetModule(),"MGET_XL_CHANNEL",{channel});'
+            f'SetLocalString(GetModule(),"MGET_XL_LABEL","{label}");')
+    p.command(op="run_script", script="mget_xlbudget")
+    row = p.native('GetLocalJson(GetModule(),"MGET_XL_BUDGET")')
+    assert isinstance(row, dict) and row.get("label") == label and row.get("channel") == channel, (
+        "compiled budget fixture did not produce a fresh measurement", row)
+    assert row.get("captured") in [0, 1], row
+    assert isinstance(row.get("instructions"), int) and isinstance(row.get("limit"), int), row
+    assert 0 < row["instructions"] < row["limit"] // 2, row
+    return row
+
+
 def run(p):
     p.chunk('SetLocalInt(GetModule(),"MGET_XL_MODE",1);')
     p.command(op="run_script", script="mget_xl")
     p.chunk('SetLocalInt(GetModule(),"MGLIVE_XL",TRUE);')
 
-    def measure(channel, label):
-        p.command(op="run_chunk", wrap=False, code='''#include "mglive_xl"
-void main() {
-    object m=GetModule(); object speaker=GetLocalObject(m,"MGET_XL_SPEAKER");
-    int start=NWNX_Util_GetInstructionsExecuted();
-    int captured=MgXlCapture(''' + str(channel) + ',"' + label + ''' hello",speaker,GetObjectByTag("XL_NEAR"));
-    int used=NWNX_Util_GetInstructionsExecuted()-start;
-    json row=JsonObjectSet(JsonObject(),"instructions",JsonInt(used));
-    JsonObjectSetInplace(row,"captured",JsonInt(captured));
-    JsonObjectSetInplace(row,"limit",JsonInt(NWNX_Util_GetInstructionLimit()));
-    SetLocalJson(m,"MGET_XL_BUDGET",row);
-}''')
-        row = p.native('GetLocalJson(GetModule(),"MGET_XL_BUDGET")')
-        assert 0 < row["instructions"] < row["limit"] // 2, row
-        return row
 
-    baseline = {c: measure(c, f"budget_before_{c}") for c in [1, 2, 3, 4, 6, 14]}
+    baseline = {c: measure(p, c, f"budget_before_{c}") for c in [1, 2, 3, 4, 6, 14]}
     # Authored fixture objects; creation is split across VM invocations. No game
     # install/user files are changed and the helper removes its scratch module.
     for _ in range(32):
@@ -32,7 +35,7 @@ void main() {
             if(!GetIsObjectValid(o)) { SetLocalInt(GetModule(),"MGET_XL_SETUP_FAILED",TRUE); break; }
         }''')
     assert not p.native('JsonBool(GetLocalInt(GetModule(),"MGET_XL_SETUP_FAILED"))')
-    loaded = {c: measure(c, f"budget_loaded_{c}") for c in baseline}
+    loaded = {c: measure(p, c, f"budget_loaded_{c}") for c in baseline}
     for c in baseline:
         assert loaded[c]["captured"] == baseline[c]["captured"] == 1, (c, loaded[c])
         assert loaded[c]["instructions"] <= baseline[c]["instructions"] + 5000, (c, baseline[c], loaded[c])
@@ -45,11 +48,11 @@ void main() {
             int h;for(h=5000;h<=5012;h++) SetEventScript(o,h,"");
             SetListening(o,TRUE);
         }''')
-    crowded = measure(1, "budget_crowded")
+    crowded = measure(p, 1, "budget_crowded")
     assert crowded["captured"] == 0, crowded
     # Tell and party do not scan unrelated NPCs, even in a crowded area.
     for c in [4, 6, 14]:
-        row = measure(c, f"budget_crowded_{c}")
+        row = measure(p, c, f"budget_crowded_{c}")
         assert row["captured"] == 1 and row["instructions"] <= baseline[c]["instructions"] + 5000, row
     return {"placeables": 4096, "extra_creatures": 288, "baseline": baseline,
             "loaded": loaded, "crowded": crowded,

@@ -14,6 +14,8 @@ sources:
   - ../crates/mg-live/src/store_translation.rs
   - ../tools/live/test_translation_config.py
   - ../tools/live/test_translation_budget.py
+  - ../tools/live/test_translation_budget_unit.py
+  - ../tools/live/fixtures/events/mget_xlbudget.nss
 ---
 
 # Live chat translation pipeline
@@ -325,3 +327,38 @@ of the handoff fix. The final all-targets Clippy command and workspace format
 check both passed. The native configuration and instruction-budget phases above
 remain **needs WSL run**; these Rust checks do not prove NWScript compilation,
 real-client audiences, instruction counts or new latency measurements.
+
+## Compiled instruction-budget measurement
+
+The native M3 follow-up supplied by the runner passed `translation_config`,
+`chat_translation` and `chat_translation_stress`. The first
+`chat_translation_budget` baseline returned all-zero counters and capture status;
+that run does not establish an instruction budget or new latency percentiles.
+
+The runner had called NWNX through `ExecuteScriptChunk`. NWNX Core disables those
+functions in chunks by default (`NWNX_CORE_ALLOW_NWNX_FUNCTIONS_IN_EXECUTE_SCRIPT_CHUNK=0`;
+[upstream configuration](https://nwnxee.github.io/unified/dark/group__nwnx.html)).
+The measurement now runs as the compiled `mget_xlbudget` fixture via `run_script`.
+Chunks only set its input locals and read its result. The result carries the
+channel and unique sample label; absent, stale, zero and over-budget measurements
+fail explicitly. No NWNX permission or VM instruction limit is raised.
+
+Local regression: `python -B tools/live/test_translation_budget_unit.py` (three
+unit tests). The fixture builder already copies and compiles every events NSS
+entry point. `tools/live/test-events.sh` is pinned to LF by `.gitattributes`.
+
+Native acceptance still **needs WSL run**, from the repository root, using the
+same configured private helper and scratch directories as the preceding run:
+
+```sh
+MGLIVE_PWSH="<PowerShell executable in WSL notation>" \
+NWNX_ROOT="$HOME/nwnx-redis-reconnect" \
+python3 tools/live/test-events.py --phase chat_translation_budget
+```
+
+Use the PowerShell executable configured in `tools/live/local.ps1`. Expected:
+all six baseline channels capture, the 4096-placeable comparison stays within
+5000 instructions of baseline, the 288-extra-creature talk case falls back,
+and tell/party/DM remain bounded. Every sample must use less than half the actual
+VM limit. Retain the helper's measurement report; do not infer instruction counts
+from these Python unit tests.
