@@ -805,7 +805,7 @@ mod tests {
         live.sync(br#"{"v":1,"boot":"b","seq":2,"ack":["tls-test"]}"#, now()).unwrap();
         assert_eq!(
             request("/live/v1/status", None)["results"][0]["result"]["err"],
-            "acknowledged; result not received"
+            "unknown: acknowledged; result not received"
         );
         let stalled = std::net::TcpStream::connect(address).unwrap();
         std::thread::sleep(Duration::from_millis(100));
