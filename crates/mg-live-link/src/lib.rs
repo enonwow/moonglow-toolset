@@ -1,5 +1,6 @@
 //! Desktop gateway login. Browser opening belongs to the caller.
 
+pub mod credentials;
 mod login;
 mod tls;
 

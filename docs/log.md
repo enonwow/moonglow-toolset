@@ -1,5 +1,7 @@
 # Update log
 
+* **Desktop session storage (2026-10-18)**: per-server OS keyring with private fallback only on unavailability, atomic replacement and recovery migration. [Contract](live-desktop-link.md#credential-storage).
+
 * **Live policy hand-off (2026-10-18)**: revocation distinguishes cancellation from work already handed to transport. [Contract](live-ops-wire.md#policy-revocation-at-hand-off-2026-10-18).
 
 * **Live sent-command outcomes (2026-10-18)**: hand-off tracking preserves uncertainty on timeout and restart. [Contract](live-ops-wire.md#sent-command-uncertainty-2026-10-18).

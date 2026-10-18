@@ -46,3 +46,21 @@ against a deployed Discord gateway.
 
 TLS API references: [ureq 2.12.1](https://docs.rs/ureq/2.12.1/ureq/),
 [rustls](https://docs.rs/rustls/0.23/rustls/).
+
+## Credential storage
+
+`credentials::TokenStore` uses keyring 3.6.3 with Windows Credential Manager,
+macOS Keychain or Linux Secret Service, one entry per server ID under
+`org.moonglow.live`. Its backend is injectable. Only `Unavailable` permits a
+fallback in the application's `live-credentials` directory; denied access fails
+closed. IDs are hashed to filenames, so they cannot escape that directory.
+Files are replaced atomically and synced. Unix uses directory 0700 / file 0600;
+Windows uses a protected DACL granting only the current user full control,
+applied through a hidden PowerShell process. Symbolic links/reparse points are
+refused. The fallback is imported back into the keyring when it recovers;
+replacement and sign-out remove obsolete fallback files. No session token is
+serialized into settings. Tests use mock backends and temporary directories,
+never the user's OS credential store. Unix modes require a Unix test run;
+Windows fallback creation, replacement, migration and deletion are tested here.
+
+Keyring API: [keyring 3.6](https://docs.rs/keyring/3.6.3/keyring/).
