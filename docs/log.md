@@ -1,5 +1,7 @@
 # Update log
 
+* **Owned gateway draft review (2026-10-18)**: reuse store approval with atomic ownership checks, current AI scopes and owner-filtered draft pushes. [Contract and loopback regression](live-library.md#gateway-shared-requests).
+
 * **Owned gateway AI identities (2026-10-18)**: hashed credentials, current owner permissions, two consent levels and revocation on both transports. [Public API and tests](live-library.md#gateway-shared-requests).
 
 * **Gateway book edits (2026-10-18)**: persist per-key revisions, reject stale edits and invalidate every session. [Contract and tests](live-library.md#gateway-shared-requests).

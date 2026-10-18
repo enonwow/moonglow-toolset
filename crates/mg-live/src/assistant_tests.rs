@@ -121,7 +121,7 @@ fn approval_stage_closes_boot_and_access_reconfiguration_races() {
     let mut s = store.lock();
     s.assistant
         .sending
-        .insert("native".into(), Sending { draft, edited: false, access: access.clone() });
+        .insert("native".into(), Sending { draft, edited: false, access: Some(access.clone()) });
     let mut approved = scope;
     approved.delivery = DeliveryMode::Auto;
     s.boot = "replacement".into();

@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[path = "store_gateway_identity.rs"]
 mod identity;
 pub use identity::{AiIdentity, Principal};
-pub(super) use identity::validate_ai_scope;
+pub(super) use identity::{draft_scope, validate_ai_scope};
 
 pub const RESULT_RETENTION_MS: u64 = 600_000;
 pub const RESULT_CAPACITY: usize = 256;
@@ -167,6 +167,7 @@ struct Session {
     online: bool,
     actor: Value,
     presence_sent: u64,
+    drafts_sent: Option<u64>,
     generation: u64,
     config: SessionConfig,
     watch: BTreeSet<String>,
@@ -351,6 +352,23 @@ impl Gateway {
             match request.op.as_str() {
                 "ai.list" | "ai.create" | "ai.update" | "ai.revoke" | "llm.allow" => {
                     self.identity_request(&config, &request.op, &a, now_ms)
+                }
+                "draft.decide" => {
+                    let id = a["id"].as_str().ok_or_else(|| invalid("Missing draft ID".into()))?;
+                    let text = match a.get("text") {
+                        Some(Value::Null) => None,
+                        Some(Value::String(text)) => Some(text.as_str()),
+                        _ => return Err(invalid("Expected draft text or null".into())),
+                    };
+                    self.store
+                        .decide_draft_gateway(id, text, now_ms, session)
+                        .map(|result| json!({"result":result}))
+                        .map_err(|e| {
+                            FrameError::new(
+                                serde_json::to_value(e.code).unwrap().as_str().unwrap(),
+                                e.error,
+                            )
+                        })
                 }
                 "book.put" => {
                     if !config.id.starts_with("dm:")
@@ -575,6 +593,7 @@ impl Gateway {
             online: true,
             actor: json!({"id": config.id, "kind": if config.id.starts_with("ai:") {"ai"} else {"dm"}, "name": config.id, "avatar":null,"owner":null,"area":null}),
             presence_sent: 0,
+            drafts_sent: None,
             generation,
             config: config.clone(),
             watch: BTreeSet::new(),
@@ -592,6 +611,7 @@ impl Gateway {
         });
         session.online = true;
         session.presence_sent = 0;
+        session.drafts_sent = None;
         session.focus.clear();
         session.actor["area"] = Value::Null;
         s.gateway.presence_rev += 1;
@@ -926,6 +946,8 @@ impl Gateway {
         Ok(())
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
+        let draft_rev = self.store.draft_revision();
+        let drafts = self.store.drafts();
         let mut s = self.store.lock();
         let current = s.gateway.sessions.get(id).ok_or("revoked")?;
         validate_ai_scope(&s, &current.config.scope()).map_err(|_| "revoked")?;
@@ -1035,6 +1057,20 @@ impl Gateway {
         if session.config.has("read") && session.presence_sent != s.gateway.presence_rev {
             session.presence_sent = s.gateway.presence_rev;
             out.push(presence);
+        }
+        if session.config.id.starts_with("dm:")
+            && (session.config.has("approve_drafts") || session.config.has("admin"))
+            && session.drafts_sent != Some(draft_rev)
+        {
+            let items = drafts
+                .into_iter()
+                .filter(|d| {
+                    session.config.has("admin") || s.gateway.identities.owned_by(&d.client, id)
+                })
+                .map(|d| serde_json::to_value(d).expect("draft serializes"))
+                .collect();
+            out.push(Push::Drafts { rev: draft_rev, items });
+            session.drafts_sent = Some(draft_rev);
         }
         s.gateway.sessions.insert(id.into(), session);
         Ok(out)

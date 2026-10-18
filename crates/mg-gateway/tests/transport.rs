@@ -35,6 +35,7 @@ impl Authenticator for Auth {
                 ],
             ),
             "test-reader" => ("dm:reader", vec!["read", "approve_drafts"]),
+            "test-admin" => ("dm:admin", vec!["read", "admin"]),
             "test-agent-credential-for-local-fixtures" => ("ai:test", vec!["read"]),
             _ => return None,
         };
@@ -748,3 +749,36 @@ async fn book_requests_conflict_and_invalidate_other_sessions() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[tokio::test]
+async fn only_the_owning_dm_can_decide_an_ai_draft() {
+    let (url, core, task) = server(Config::default()).await;
+    feed(&core, report(1)).await;
+    let (mut dm, _) = connect(&url, vec![], None, "test-credential").await;
+    let (mut other, _) = connect(&url, vec![], None, "test-reader").await;
+    let created = call(&mut dm, 1, "ai.create", json!({"name":"Speaker"})).await;
+    let token = created["r"]["token"].as_str().unwrap();
+    core.with_gateway(|g| g.set_llm_enabled(true)).await.unwrap();
+    call(&mut dm, 2, "llm.allow", json!({"on":true})).await;
+    let (mut ai, welcome) = connect(&url, vec![], None, token).await;
+    let command_id = format!("{}1234abcd.1", welcome["id_prefix"].as_str().unwrap());
+    let result=call(&mut ai,1,"cmds",json!({"commands":[{"id":command_id,"boot":"boot","ttl_ms":30000,"area":"square","op":"npc_say","target":"a1","text":"Hello"}]})).await;
+    assert_eq!(result["r"]["accepted"], json!([command_id]), "{result}");
+    let forbidden = call(&mut other, 1, "draft.decide", json!({"id":command_id,"text":null})).await;
+    assert_eq!(forbidden["err"]["code"], "forbidden", "{forbidden}");
+    let accepted =
+        call(&mut dm, 3, "draft.decide", json!({"id":command_id,"text":"Approved"})).await;
+    assert_eq!(accepted["ok"], true, "{accepted}");
+
+    assert!(core.with_store(|s| s.drafts().is_empty()).await.unwrap());
+    let second = format!("{}1234abcd.2", welcome["id_prefix"].as_str().unwrap());
+    let reply=call(&mut ai,2,"cmds",json!({"commands":[{"id":second,"boot":"boot","ttl_ms":30000,"area":"square","op":"npc_say","target":"a1","text":"Another"}]})).await;
+    assert_eq!(reply["r"]["accepted"], json!([second]));
+    let (mut admin, _) = connect(&url, vec![], None, "test-admin").await;
+    assert_eq!(
+        call(&mut admin, 1, "draft.decide", json!({"id":second,"text":null})).await["ok"],
+        true
+    );
+    assert!(core.with_store(|s| s.drafts().is_empty()).await.unwrap());
+    core.shutdown().await.unwrap();
+    task.abort();
+}

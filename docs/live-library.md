@@ -469,3 +469,11 @@ existing AIs. The host's `set_llm_enabled` switch starts off and overrides it.
 1 MiB input). Imported host credentials also require an explicit owner and consent.
 Tests cover permissions, current owner lookup, one-time token disclosure, persisted
 digests, restart consent and rejection on both transports after revocation.
+
+`draft.decide {id, text}` uses the store's existing review/send path. A string
+approves (including edits); `null` rejects. The deciding DM needs `approve_drafts`
+and must own the proposing AI; `admin` on a DM principal can decide any AI draft.
+Ownership is checked under the draft lock, and approval revalidates the AI's
+current permissions, consent, game boot and target before native enqueue. Draft
+pushes are revisioned and filtered to the owner's sessions or admins. Local
+assistant approval retains its original Access-based validation.

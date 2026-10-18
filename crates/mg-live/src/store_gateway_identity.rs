@@ -91,6 +91,9 @@ fn groups(value: Option<&Value>) -> Result<Vec<String>, FrameError> {
     Ok(groups.into_iter().collect::<BTreeSet<_>>().into_iter().collect())
 }
 impl Identities {
+    pub(super) fn owned_by(&self, ai: &str, owner: &str) -> bool {
+        self.ais.get(ai).is_some_and(|a| a.identity.owner == owner)
+    }
     fn save(&self, ais: &BTreeMap<String, AiRecord>) -> Result<(), FrameError> {
         if let Some(path) = &self.path {
             let bytes =
@@ -392,3 +395,23 @@ pub(in crate::store) fn validate_ai_scope(s: &State, scope: &Scope) -> Result<()
     Ok(())
 }
 
+pub(in crate::store) fn draft_scope(
+    s: &State,
+    caller: &str,
+    client: &str,
+    approving: bool,
+) -> Result<Scope, CommandError> {
+    let denied = || CommandError::new(ErrorCode::Forbidden, "Draft owner permission required");
+    let config = &s.gateway.sessions.get(caller).ok_or_else(denied)?.config;
+    require_dm(config, "approve_drafts").map_err(|_| denied())?;
+    let ai = s.gateway.identities.ais.get(client);
+    if !config.has("admin") && ai.is_none_or(|ai| ai.identity.owner != caller) {
+        return Err(denied());
+    }
+    if !approving {
+        return Ok(Scope::restricted(client, vec![], DeliveryMode::Auto));
+    }
+    let principal =
+        ai.and_then(|ai| s.gateway.identities.effective(ai, crate::now_ms())).ok_or_else(denied)?;
+    principal.scope(DeliveryMode::Auto).map_err(|_| denied())
+}

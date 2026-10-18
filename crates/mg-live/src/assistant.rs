@@ -41,7 +41,7 @@ impl Draft {
 struct Sending {
     draft: Draft,
     edited: bool,
-    access: Arc<Access>,
+    access: Option<Arc<Access>>,
 }
 
 #[derive(Debug, Default)]
@@ -104,7 +104,9 @@ pub(super) fn stage(
                 "The game restarted during approval",
             ));
         }
-        if s.assistant.access.as_ref().is_none_or(|a| !Arc::ptr_eq(a, &sending.access)) {
+        if sending.access.as_ref().is_some_and(|expected| {
+            s.assistant.access.as_ref().is_none_or(|a| !Arc::ptr_eq(a, expected))
+        }) {
             return Err(CommandError::new(
                 ErrorCode::Forbidden,
                 "Client permissions changed during approval; review again",
@@ -236,6 +238,26 @@ impl LiveStore {
         text: Option<&str>,
         now_ms: u64,
     ) -> Result<String, CommandError> {
+        self.decide_draft_inner(id, text, now_ms, None)
+    }
+    /// Gateway decision: caller ownership and proposing AI permissions are checked
+    /// under the same lock that removes the draft from review.
+    pub fn decide_draft_gateway(
+        &self,
+        id: &str,
+        text: Option<&str>,
+        now_ms: u64,
+        caller: &str,
+    ) -> Result<String, CommandError> {
+        self.decide_draft_inner(id, text, now_ms, Some(caller))
+    }
+    fn decide_draft_inner(
+        &self,
+        id: &str,
+        text: Option<&str>,
+        now_ms: u64,
+        caller: Option<&str>,
+    ) -> Result<String, CommandError> {
         let (native, scope, original_command) = {
             let mut s = self.lock();
             let mut draft =
@@ -243,6 +265,11 @@ impl LiveStore {
             if draft.boot != s.boot {
                 return Err("Draft belongs to an earlier game boot".into());
             }
+            let gateway_scope = caller
+                .map(|caller| {
+                    super::gateway::draft_scope(&s, caller, &draft.client, text.is_some())
+                })
+                .transpose()?;
             let Some(text) = text else {
                 s.assistant.drafts.remove(id);
                 s.assistant.revision += 1;
@@ -255,11 +282,19 @@ impl LiveStore {
             if current_area.is_none_or(|(area, _)| area != &draft.area) {
                 return Err("Draft target moved to another area or is no longer reported; reject and request a fresh proposal".into());
             }
-            let access =
-                s.assistant.access.clone().ok_or("No current client permissions are available")?;
-            let mut scope = access
-                .scope_named(&draft.client)
-                .ok_or("The proposing client has been removed; reject this draft")?;
+            let (access, mut scope) = if let Some(scope) = gateway_scope {
+                (None, scope)
+            } else {
+                let access = s
+                    .assistant
+                    .access
+                    .clone()
+                    .ok_or("No current client permissions are available")?;
+                let scope = access
+                    .scope_named(&draft.client)
+                    .ok_or("The proposing client has been removed; reject this draft")?;
+                (Some(access), scope)
+            };
             let op = serde_json::to_value(&draft.command).unwrap_or_default();
             if !scope.allows(op["op"].as_str().unwrap_or_default()) {
                 return Err(CommandError::new(
