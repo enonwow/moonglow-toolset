@@ -8161,7 +8161,8 @@ fn live_menu_starts_and_stops_live_and_opens_its_options() {
     h.get_all_by_label("Live").next().unwrap().click();
     h.run();
     h.get_by_label("Live Options…").click();
-    h.run();
+    // Account loading may request another frame after the panel opens.
+    h.run_steps(3);
     h.get_by_label("Live servers");
 }
 

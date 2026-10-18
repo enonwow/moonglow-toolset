@@ -199,3 +199,11 @@ insufficient because PowerShell also treats Unicode smart quotes as delimiters.
 The Windows-only regression creates a directory containing U+2019 and exercises
 fallback set/get/delete. It failed with `Permissions` before the fix and passes
 afterwards. Paths are never interpolated into executable script text.
+
+## UI menu frame scheduling
+
+The menu regression opens the actual Live Options panel and checks its server
+list. Background account loading can request an additional frame, so this test
+uses three explicit harness steps instead of requiring repaint quiescence within
+`Harness::run`'s four-step limit. The gate reproduced that limit before the fix;
+the corrected menu regression passes in the 750-test scoped suite.

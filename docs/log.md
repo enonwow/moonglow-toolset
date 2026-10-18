@@ -1,5 +1,7 @@
 # Update log
 
+* **Live menu frame scheduling (2026-10-18)**: the panel-opening regression tolerates background account repaint notifications. [Cause and proof](live-desktop-link.md#ui-menu-frame-scheduling).
+
 * **Opt-in game chat translation prototype (2026-10-18)**: speech-time listener snapshots, immediate Redis requests, guarded single delivery and native fallback. Private NPC acceptance and idle/stress latency measurements; connected-client limits remain explicit. [Results](live-gateway-prototypes.md#chat-interception).
 
 * **Clean-client NWSync prototype (2026-10-18)**: verified separate module/hak manifests, read-only module folder and NWSync resolution without local haks; authored acceptance and hostile-input cases pass. [Contract and results](live-gateway-prototypes.md#clean-client-nwsync).
