@@ -206,8 +206,12 @@ impl OptionsDraft {
                     });
                     ui.end_row();
                     ui.label("HAK / module cache"); ui.weak("0 B · downloads not available yet"); ui.end_row();
-                    ui.label("My AI"); ui.add_enabled(false, egui::Button::new("Manage AI"))
-                        .on_disabled_hover_text(crate::live_backend::SHARED_REASON); ui.end_row();
+                    ui.label("My AI");
+                    if ui.add_enabled(runtime.is_some_and(|(id, state)| id == server.id && state == "connected"), egui::Button::new("Manage AI"))
+                        .on_disabled_hover_text("Connect to this server to manage your AIs.").clicked() {
+                        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("live-open-ai"), server.id.clone()));
+                    }
+                    ui.end_row();
                 });
                 if let Some(prompt) = account.trust.clone() {
                     ui.separator();

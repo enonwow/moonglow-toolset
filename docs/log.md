@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway AI management in the desktop (2026-10-18)**: create, copy a token once, update and revoke through Live > AI agents; missing per-AI consent/avatar hooks remain explicit. [Flow and verification](live-desktop-link.md#gateway-ai-management).
+
 * **Gateway draft review in the desktop (2026-10-18)**: approve, edit and reject owner-filtered AI drafts through asynchronous requests; admin and owner UI regressions pass. [Flow and proof](live-desktop-link.md#gateway-draft-review).
 
 * **Readable Focus presence (2026-10-18)**: map and Focus chips share readable small text, padding and colors; the gateway UI height regression passes. [Details](live-desktop-link.md#readable-focus-presence).

@@ -120,6 +120,12 @@ pub(crate) fn dot(ui: &mut egui::Ui, connected: bool, hint: &str) {
 }
 
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui) {
+    if app.live_backend().is_gateway() {
+        if ui.button("My AI").clicked() {
+            app.live_ai.open = true;
+        }
+        return;
+    }
     let mut allowed = app.live_backend().allow_agents();
     let hint = hint(app);
     let changed = ui

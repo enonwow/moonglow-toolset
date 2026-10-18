@@ -16,6 +16,8 @@ sources:
   - ../crates/mg-live-link/tests/link.rs
   - ../crates/mg-live-link/tests/tls_config.rs
   - ../crates/mg-ui/src/live_backend.rs
+  - ../crates/mg-ui/src/live_ai.rs
+  - ../crates/mg-ui/tests/gateway_ai.rs
   - ../crates/mg-ui/tests/gateway_backend.rs
   - ../crates/mg-ui/tests/support/gateway_ui.rs
   - ../crates/mg-ui/tests/screens.rs
@@ -617,3 +619,20 @@ outstanding. Local draft decisions retain their existing store path.
 owner-only versus admin visibility, edited approval, admin rejection and owner
 rejection. The in-process TLS host regression passes. No real AI account, game
 server or credential store is needed.
+
+## Gateway AI management
+
+Live > AI agents (also the gateway toolbar and Options > My AI) lists authorized
+AIs, creates them, updates names and revokes credentials. Creation displays the
+credential once with Copy and an explicit reminder; acknowledging or closing
+the window drops the in-memory display. List/refresh cannot retrieve it. No
+credential is written to settings or application logs. New AIs start with consent
+off. The current host's `llm.allow {on}` affects every AI of the owner, so the
+per-AI checkbox stays disabled until the host explicitly advertises an id-scoped
+operation. The current identity schema also lacks an avatar update field; this
+requires a host contract before the desktop can safely expose it.
+
+The `gateway_ai` in-process UI regression passes: create, copy, close/reopen
+without redisplaying the token, update and revoke. The initial test caught an
+automatic list refresh clearing the saved-status message; refresh now preserves
+that message. Credentials never enter the application log.

@@ -32,6 +32,7 @@ pub mod keys;
 pub mod levelup_view;
 pub use mg_live::store as live;
 mod live_agents;
+mod live_ai;
 mod live_aim;
 mod live_animation;
 mod live_areas;
@@ -609,6 +610,7 @@ pub struct Moonglow {
     pub live_chat: live_chat::LiveChat,
     pub live_drafts: live_drafts::LiveDrafts,
     pub live_assistant: live_assistant::LiveAssistant,
+    live_ai: live_ai::Agents,
     pub live_focus: live_focus::LiveFocus,
     pub live_scene: live_scene::LiveScene,
     pub live_vfx: live_vfx::LiveVfx,
@@ -869,6 +871,7 @@ impl Moonglow {
             live_chat: Default::default(),
             live_drafts: Default::default(),
             live_assistant: Default::default(),
+            live_ai: Default::default(),
             live_focus: Default::default(),
             live_scene: Default::default(),
             live_vfx: Default::default(),
@@ -999,6 +1002,7 @@ impl Moonglow {
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         live_backend::update(self, ui.ctx());
+        live_ai::window(self, ui.ctx());
         live_agents::update(self, ui.ctx());
         live_assistant::update(self);
         live_focus::update(self);

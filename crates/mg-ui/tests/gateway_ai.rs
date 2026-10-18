@@ -1,0 +1,71 @@
+#[path = "support/gateway_ui.rs"]
+mod gateway_ui;
+#[path = "support/gateway_ops.rs"]
+mod ops;
+use egui_kittest::{Harness, kittest::Queryable};
+use gateway_ui as support;
+use mg_live_link::LinkService;
+use ops::{host, input};
+use std::sync::Arc;
+use support::{
+    connected,
+    host::{reply_async, until},
+    pump,
+};
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ai_token_is_shown_once_update_and_revoke_round_trip() {
+    let data = tempfile::tempdir().unwrap();
+    let host = host(data.path()).await;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300., 1000.))
+        .build_ui_state(support::draw(), support::app(&host, data.path()));
+    connected(&mut h).await;
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    h.get_by_label("AI agents").click();
+    h.run_steps(3);
+    support::label(&mut h, "New AI name").await;
+    // Wait for initial list before creating; disabled controls do not submit.
+    pump(&mut h, |_| host.frames().iter().any(|f| f["op"] == "ai.list")).await;
+    support::label(&mut h, "New AI name").await;
+    input(&mut h, "New AI name", "Scribe");
+    h.get_by_label("Create AI").click();
+    h.run_steps(2);
+    support::label(&mut h, "Save this token now. It will not be shown again.").await;
+    h.get_by_label("Copy AI token").click();
+    h.step();
+    assert!(
+        h.output()
+            .platform_output
+            .commands
+            .iter()
+            .any(|c| matches!(c,egui::OutputCommand::CopyText(text) if text.starts_with("mgai_")))
+    );
+    h.get_by_label("Close window").click();
+    h.run_steps(3);
+    h.get_by_label("Live").click(); h.run_steps(2);
+    h.get_by_label("AI agents").click(); h.run_steps(3);
+    support::label(&mut h, "AI name").await;
+    assert!(h.query_by_label("Copy AI token").is_none(), "reopening cannot reveal the token again");
+    input(&mut h, "AI name", "Guide");
+    h.get_by_label("Save AI").click();
+    h.run_steps(2);
+    pump(&mut h, |_| {
+        host.frames().iter().any(|f| f["op"] == "ai.update" && f["a"]["name"] == "Guide")
+    })
+    .await;
+    support::label(&mut h, "Updated on gateway.").await;
+    // Completion and refresh never reveal the credential again.
+    assert!(h.query_by_label("Copy AI token").is_none());
+    support::label(&mut h, "Revoke AI").await;
+    h.get_by_label("Revoke AI").click();
+    h.run_steps(2);
+    pump(&mut h, |_| host.frames().iter().any(|f| f["op"] == "ai.revoke")).await;
+    support::label(&mut h, "Updated on gateway.").await;
+    let reader =
+        LinkService::start(host.config(), &support::host::tokens(), Arc::new(|| {})).unwrap();
+    until(|| reader.is_connected()).await;
+    let list = reply_async(reader.ai_list().unwrap()).await.unwrap();
+    assert!(list["items"].as_array().unwrap().is_empty());
+    assert!(h.state().log.entries.iter().all(|(_, s)| !s.contains("mgai_")));
+}

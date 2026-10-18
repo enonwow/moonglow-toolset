@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::sync::{Arc, mpsc};
 
 pub(crate) const SHARED_REASON: &str =
-    "Shared books, drafts and AI controls are not available in this gateway UI yet.";
+    "The local global LLM switch does not apply to gateway connections.";
 
 pub(crate) struct GatewayRuntime {
     pub pending: Option<mpsc::Receiver<Result<LinkService, String>>>,
@@ -354,6 +354,10 @@ pub(crate) fn status_ui(app: &Moonglow, ui: &mut egui::Ui) {
 
 pub(crate) fn menu_status(app: &mut Moonglow, ui: &mut egui::Ui) {
     status_ui(app, ui);
+    if app.live_backend().is_gateway() && ui.button("AI agents").clicked() {
+        app.live_ai.open = true;
+        ui.close();
+    }
     if app.live_backend().is_gateway() && ui.button("Reconnect gateway").clicked() {
         app.settings.live.enabled = true;
         app.live_needs_apply = true;
