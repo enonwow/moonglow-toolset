@@ -3240,3 +3240,13 @@ store mutex, then wakes event waiters. Pending event and command waits return
 Local operations remain available. The store regression starts a 30-second
 poll, revokes consent, requires refusal within one second, and checks that
 re-enabling does not validate the original epoch.
+
+## Inbox replay across boots (2026-10-18)
+
+Store application keeps a high-water receipt for each ordered Redis queue
+epoch, independently of game boots. Replaying an inbox into the same store
+skips already applied rows before adding game events, log lines, or overflow
+and reset notices. Endpoint reset clears these receipts. At most 256 distinct
+queue epochs are admitted; exhaustion returns an error instead of forgetting
+a receipt and duplicating history. A store/inbox regression restores two
+boots twice and verifies identical history and cursor, including one notice.

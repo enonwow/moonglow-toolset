@@ -67,6 +67,26 @@ fn crash_after_apply_before_ack_replays_once_and_resumes() {
     drop(inbox);
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn inbox_replay_across_two_boots_does_not_duplicate_history_or_notices() {
+    let dir = directory();
+    let mut inbox = Inbox::new(&dir, "server").unwrap();
+    let first = entry(1);
+    let mut second = entry(2);
+    second.source = "second-boot".into();
+    second.data["seq"] = json!(1);
+    second.lost_before = 1;
+    inbox.append(&[first, second]).unwrap();
+    let store = LiveStore::default();
+    inbox.restore(&store).unwrap();
+    let before = store.events(&Query::default());
+    inbox.restore(&store).unwrap();
+    assert_eq!(store.events(&Query::default()), before);
+    assert_eq!(before.0.len(), 3);
+    drop(inbox);
+    fs::remove_dir_all(dir).unwrap();
+}
 #[test]
 fn overflow_is_exact_and_duplicate_ack_does_not_repeat_it() {
     let dir = directory();

@@ -91,17 +91,28 @@ impl LiveStore {
         if self.is_mirror() {
             return Err("A mirror cannot ingest game events".into());
         }
+        let mut s = self.lock();
+        if s.events.stream_seen(&entry.epoch, entry.n)? {
+            return Ok(());
+        }
         if entry.lost_before > 0 {
-            self.stream_overflow(entry.lost_before, now_ms);
+            s.events.transport_notice(
+                "queue_overflow",
+                &format!("{} events lost: queue overflow", entry.lost_before),
+                entry.lost_before,
+                now_ms,
+            );
         }
         if entry.reset_before {
-            self.stream_reset(now_ms);
+            s.events.transport_notice("queue_reset", "Event queue was reset: Redis persistence was lost; an unknown number of events may be missing", 0, now_ms);
         }
         if entry.kind == "log" {
             let mut message = entry.data.clone();
             message["queue_epoch"] = json!(entry.epoch);
             message["queue_n"] = json!(entry.n);
-            self.server_log(&message, now_ms);
+            crate::wire_text::server_log(&mut message);
+            s.events.server_log(&message, now_ms);
+            s.events.commit_stream(&entry.epoch, entry.n);
             return Ok(());
         }
         let mut packet = json!({"text_codepage":entry.codepage,"events":[entry.data.clone()]});
@@ -110,33 +121,16 @@ impl LiveStore {
         packet["events"][0]["queue_epoch"] = json!(entry.epoch);
         packet["events"][0]["queue_n"] = json!(entry.n);
         crate::wire_text::report(&mut packet);
-        let mut s = self.lock();
         let rows = packet["events"].as_array().ok_or("Invalid stream packet")?;
         // Historical IDs may refer to different objects in the current boot.
         let events = if s.boot == entry.source { enrich(&s, rows, now_ms) } else { rows.clone() };
         let dropped = s.events.dropped;
         s.events.game(&entry.source, &events, dropped, now_ms);
+        s.events.commit_stream(&entry.epoch, entry.n);
         super::assistant::capture(&mut s);
         Ok(())
     }
 
-    pub(crate) fn stream_overflow(&self, lost: u64, now_ms: u64) {
-        if self.is_mirror() {
-            return;
-        }
-        self.lock().events.transport_notice(
-            "queue_overflow",
-            &format!("{lost} events lost: queue overflow"),
-            lost,
-            now_ms,
-        );
-    }
-    pub(crate) fn stream_reset(&self, now_ms: u64) {
-        if self.is_mirror() {
-            return;
-        }
-        self.lock().events.transport_notice("queue_reset", "Event queue was reset: Redis persistence was lost; an unknown number of events may be missing", 0, now_ms);
-    }
     pub fn events(&self, q: &Query) -> (Vec<Event>, u64) {
         self.events_scoped(q, &Scope::default())
     }

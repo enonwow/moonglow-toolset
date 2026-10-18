@@ -1,5 +1,7 @@
 # Update log
 
+* **Live inbox replay (2026-10-18)**: queue-epoch receipts prevent duplicate history and notices across game boots. [Contract](live-ops-wire.md#inbox-replay-across-boots-2026-10-18).
+
 * **Live poll revocation (2026-10-18)**: Allow LLM revocation wakes event polls and refuses waits from the prior consent epoch. [Contract](live-ops-wire.md#revoking-pending-agent-polls-2026-10-18).
 
 * **Endpoint-local Live state (2026-10-18)**: reset history and accepted IDs on endpoint changes while preserving uncertain pending outcomes. [Contract](live-ops-wire.md#endpoint-local-history-and-identities-2026-10-18).

@@ -55,6 +55,8 @@ pub struct Query {
 
 #[derive(Debug, Default)]
 pub struct EventLog {
+    /// Durable queue numbers span game boots; replay must not reset this boundary.
+    stream_cursors: HashMap<String, u64>,
     next: u64,
     areas: HashMap<String, VecDeque<Event>>,
     evicted: HashMap<String, u64>,
@@ -73,6 +75,19 @@ fn text(v: &Value) -> Option<String> {
 }
 
 impl EventLog {
+    pub(crate) fn stream_seen(&self, epoch: &str, n: u64) -> Result<bool, String> {
+        if let Some(last) = self.stream_cursors.get(epoch) {
+            return Ok(n <= *last);
+        }
+        if self.stream_cursors.len() >= 256 {
+            return Err("Too many event queue epochs; reconnect with a fresh store".into());
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn commit_stream(&mut self, epoch: &str, n: u64) {
+        self.stream_cursors.insert(epoch.into(), n);
+    }
     pub(crate) fn reset_endpoint(&mut self) {
         // Preserve local cursor monotonicity and wake the same waiters, while
         // discarding the previous server's history and deduplication state.
