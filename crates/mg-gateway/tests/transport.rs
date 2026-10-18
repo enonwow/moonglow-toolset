@@ -13,7 +13,9 @@ struct Auth;
 impl Authenticator for Auth {
     fn authenticate(&self, token: &str) -> Option<Principal> {
         let (id, groups) = match token {
-            "test-credential" => ("dm:test", vec!["read", "npc", "read_chat", "read_tells"]),
+            "test-credential" => {
+                ("dm:test", vec!["read", "npc", "read_chat", "read_tells", "focus"])
+            }
             "test-reader" => ("dm:reader", vec!["read"]),
             "test-agent" => ("ai:test", vec!["read"]),
             _ => return None,
@@ -567,6 +569,45 @@ async fn ping_and_idle_deadlines_close_a_silent_client() {
     })
     .await
     .unwrap();
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn presence_is_authoritative_across_focus_drop_and_reconnect() {
+    async fn snapshot(ws: &mut Ws, count: usize, minimum: u64) -> Value {
+        loop {
+            let v = receive(ws).await;
+            if v["topic"] == "presence"
+                && v["body"]["rev"].as_u64().unwrap() > minimum
+                && v["body"]["actors"].as_array().unwrap().len() == count
+            {
+                return v["body"].clone();
+            }
+        }
+    }
+    let (url, core, task) = server(Config::default()).await;
+    let (mut one, _) = connect(&url, vec![], None, "test-credential").await;
+    let (mut two, _) = connect(&url, vec![], None, "test-reader").await;
+    let initial = snapshot(&mut two, 2, 0).await;
+    assert!(
+        initial["actors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == "dm:test" && a["name"] == "Test")
+    );
+    assert_eq!(
+        call(&mut one, 1, "focus.set", json!({"objects":[{"area":"square","id":"a1"}]})).await["ok"],
+        true
+    );
+    let focused = snapshot(&mut two, 2, initial["rev"].as_u64().unwrap()).await;
+    assert_eq!(focused["focus"]["a1"], json!(["dm:test"]));
+    one.close(None).await.unwrap();
+    let gone = snapshot(&mut two, 1, focused["rev"].as_u64().unwrap()).await;
+    let (_back, _) = connect(&url, vec![], None, "test-credential").await;
+    let back = snapshot(&mut two, 2, gone["rev"].as_u64().unwrap()).await;
+    assert_eq!(back["focus"], json!({}));
     core.shutdown().await.unwrap();
     task.abort();
 }

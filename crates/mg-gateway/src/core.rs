@@ -159,6 +159,7 @@ impl CoreHandle {
                 &hello.watch,
                 crate::now(),
             )?;
+            core.gateway.set_identity(&principal.id, &principal.name, None, None)?;
             let welcome = Welcome {
                 proto: PROTOCOL_VERSION,
                 mirror: MIRROR_VERSION,

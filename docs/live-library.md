@@ -432,3 +432,9 @@ Pages preserve gateway event numbers, omit unauthorized chat/tells, and advance
 as lost. Fetch the next page using `through`, never the last visible event alone.
 Run `cargo +1.98.0 test -p mg-live --test gateway_requests -j 2` with
 `CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`.
+
+Presence is a revisioned snapshot of connected actors and object-to-principal focus.
+A reconnect always gets a fresh snapshot; disconnected actors and stale focus are
+removed while their result outbox remains resumable. Identity names are supplied by
+the authenticated host, never by `focus.set`. Core and loopback WebSocket regressions
+cover connect, focus, disconnect and reconnect.

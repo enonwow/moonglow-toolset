@@ -155,6 +155,9 @@ struct Outbox {
 }
 #[derive(Debug)]
 struct Session {
+    online: bool,
+    actor: Value,
+    presence_sent: u64,
     generation: u64,
     config: SessionConfig,
     watch: BTreeSet<String>,
@@ -183,6 +186,7 @@ impl Session {
 }
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
+    presence_rev: u64,
     watch_stamp: Option<WatchStamp>,
     #[cfg(test)]
     watch_recomputations: std::sync::atomic::AtomicU64,
@@ -512,6 +516,9 @@ impl Gateway {
                         .all(|o| now_ms.saturating_sub(o.created_ms) < RESULT_RETENTION_MS)
             });
         let mut session = old.unwrap_or_else(|| Session {
+            online: true,
+            actor: json!({"id": config.id, "kind": if config.id.starts_with("ai:") {"ai"} else {"dm"}, "name": config.id, "avatar":null,"owner":null,"area":null}),
+            presence_sent: 0,
             generation,
             config: config.clone(),
             watch: BTreeSet::new(),
@@ -527,6 +534,11 @@ impl Gateway {
             resume_valid: true,
             auxiliary: VecDeque::new(),
         });
+        session.online = true;
+        session.presence_sent = 0;
+        session.focus.clear();
+        session.actor["area"] = Value::Null;
+        s.gateway.presence_rev += 1;
         session.generation = generation;
         session.prune_completed(Some(now_ms));
         session.config = config;
@@ -553,17 +565,48 @@ impl Gateway {
         Ok(resumed)
     }
     pub fn disconnect(&self, id: &str, now_ms: u64) -> Result<(), String> {
-        // Retain session outbox for resume; dropping a link does not discard its watches.
-        if !self.store.lock().gateway.sessions.contains_key(id) {
-            return Err("Unknown session".into());
+        // Delivery state remains resumable; presence and focus describe live links only.
+        let mut s = self.store.lock();
+        let session = s.gateway.sessions.get_mut(id).ok_or("Unknown session")?;
+        if session.online {
+            session.online = false;
+            session.focus.clear();
+            session.actor["area"] = Value::Null;
+            s.gateway.presence_rev += 1;
+            s.gateway.generation += 1;
         }
-        let _ = now_ms;
+        drop(s);
+        self.update_watch(now_ms)
+    }
+    /// Authenticated identity metadata, supplied by the host, never by a request frame.
+    pub fn set_identity(
+        &self,
+        id: &str,
+        name: &str,
+        avatar: Option<&str>,
+        owner: Option<&str>,
+    ) -> Result<(), String> {
+        if name.len() > 256 || avatar.is_some_and(|a| !a.starts_with("https://") || a.len() > 2048)
+        {
+            return Err("Invalid identity metadata".into());
+        }
+        let mut s = self.store.lock();
+        let session = s.gateway.sessions.get_mut(id).ok_or("Unknown session")?;
+        let mut actor = session.actor.clone();
+        actor["name"] = json!(name);
+        actor["avatar"] = json!(avatar);
+        actor["owner"] = json!(owner);
+        if actor != session.actor {
+            session.actor = actor;
+            s.gateway.presence_rev += 1;
+        }
         Ok(())
     }
     pub fn remove_session(&self, id: &str, now_ms: u64) -> Result<(), String> {
         {
             let mut s = self.store.lock();
             if s.gateway.sessions.remove(id).is_some() {
+                s.gateway.presence_rev += 1;
                 s.gateway.generation += 1;
             }
         }
@@ -636,7 +679,9 @@ impl Gateway {
         }
         let changed = session.focus != objects;
         session.focus = objects;
+        session.actor["area"] = json!(session.focus.first().map(|(area, _)| area));
         if changed {
+            s.gateway.presence_rev += 1;
             s.gateway.generation += 1;
         }
         drop(s);
@@ -826,6 +871,7 @@ impl Gateway {
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
         let mut s = self.store.lock();
+        let presence = presence(&s.gateway);
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;
         session.prune_completed(Some(now_ms));
         let mut out = Vec::new();
@@ -928,9 +974,27 @@ impl Gateway {
             out.push(Push::Events(events));
         }
         out.extend(session.auxiliary.drain(..));
+        if session.config.has("read") && session.presence_sent != s.gateway.presence_rev {
+            session.presence_sent = s.gateway.presence_rev;
+            out.push(presence);
+        }
         s.gateway.sessions.insert(id.into(), session);
         Ok(out)
     }
+}
+fn presence(g: &GatewayState) -> Push {
+    let mut actors = Vec::new();
+    let mut focus: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for session in g.sessions.values().filter(|s| s.online) {
+        actors.push(session.actor.clone());
+        for (_, object) in &session.focus {
+            let ids = focus.entry(object.clone()).or_default();
+            if !ids.contains(&session.config.id) {
+                ids.push(session.config.id.clone());
+            }
+        }
+    }
+    Push::Presence { rev: g.presence_rev, actors, focus }
 }
 fn event_batch(log: &crate::events::EventLog, since: u64, config: &SessionConfig) -> Events {
     event_page(log, since, config, 256, &[])

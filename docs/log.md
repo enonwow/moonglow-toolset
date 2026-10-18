@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway presence (2026-10-18)**: revisioned actor/focus snapshots follow connects, disconnects and resumes. [Contract](live-library.md#gateway-shared-requests).
+
 * **Gateway-backed desktop UI (2026-10-18)**: one backend selects local service or authenticated gateway; passive mirror views, boot/TTL commands, change-driven subscriptions, DM/AI presence and connection/unknown status. Unit and in-process GUI regressions cover consent, sign-out, labels, replies and reconnect. [Design and reproduction](live-desktop-link.md#unified-gui-backend-p2b-part-2).
 
 * **Gateway reads and paging (2026-10-18)**: authorize area notes and bounded event pages in the public core. [Contract and regression](live-library.md#gateway-shared-requests).

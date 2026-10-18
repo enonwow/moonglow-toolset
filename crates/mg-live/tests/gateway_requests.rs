@@ -73,3 +73,38 @@ fn notes_and_event_pages_require_read_and_preserve_filtered_cursor() {
     assert_ne!(first["rows"][0]["n"], second["rows"][0]["n"]);
     assert_eq!(second["through"], s.event_cursor());
 }
+
+#[test]
+fn presence_tracks_focus_disconnect_and_reconnect_with_revisions() {
+    use mg_live::gateway::Push;
+    let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+    session(&g, "dm:one", &["read", "focus"]);
+    session(&g, "dm:two", &["read"]);
+    let presence = |who: &str| {
+        g.pushes(who, 1000)
+            .unwrap()
+            .into_iter()
+            .find_map(|p| match p {
+                Push::Presence { rev, actors, focus } => Some((rev, actors, focus)),
+                _ => None,
+            })
+            .expect("presence snapshot")
+    };
+    let (rev, actors, _) = presence("dm:two");
+    assert_eq!(actors.len(), 2);
+    g.focus_set("dm:one", vec![("square".into(), "a1".into())]).unwrap();
+    let (focused, actors, focus) = presence("dm:two");
+    assert!(focused > rev);
+    assert_eq!(focus["a1"], vec!["dm:one"]);
+    assert!(actors.iter().any(|a| a["id"] == "dm:one" && a["area"] == "square"));
+    g.disconnect("dm:one", 1001).unwrap();
+    let (gone, actors, focus) = presence("dm:two");
+    assert!(gone > focused);
+    assert_eq!(actors.len(), 1);
+    assert!(focus.is_empty());
+    session(&g, "dm:one", &["read", "focus"]);
+    let (back, actors, focus) = presence("dm:two");
+    assert!(back > gone);
+    assert_eq!(actors.len(), 2);
+    assert!(focus.is_empty());
+}
