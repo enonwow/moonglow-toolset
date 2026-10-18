@@ -794,3 +794,9 @@ and its actions share one compact row; the modal window does not duplicate that
 row. Accessibility rectangle checks cover the compact layout, and a unit test
 covers name lookup. Resume checks that already verified blob hashes are never
 requested again, independently of the number of fixture resources.
+
+The first final workspace gate caught an idle-status layout regression in the
+existing blueprint-name UI test. An empty horizontal row reduced the local view
+height and clipped a tree item. Idle resource status now allocates no layout
+space; a unit regression checks the cursor is unchanged, and the existing UI
+regression is rerun unchanged.

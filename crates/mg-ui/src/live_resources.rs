@@ -113,6 +113,9 @@ pub(crate) fn status(app: &Moonglow, ui: &mut egui::Ui) {
         return;
     }
     let r = &app.live_resources;
+    if r.worker.is_none() && r.notice.is_empty() {
+        return;
+    }
     ui.horizontal(|ui| {
         if r.worker.is_some() {
             ui.spinner();
@@ -523,6 +526,17 @@ fn clear_cache(root: &Path, cancelled: &dyn Fn() -> bool) -> Result<u64, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn idle_resource_status_does_not_reserve_any_layout_space() {
+        let app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let ctx = egui::Context::default();
+        ctx.run_ui(Default::default(), |ui| {
+            let before = ui.cursor();
+            status(&app, ui);
+            assert_eq!(ui.cursor(), before, "local mode keeps its original viewport height");
+        })
+        .drop_without_applying_deltas();
+    }
     #[test]
     fn first_and_large_downloads_are_modal_small_updates_are_not() {
         assert!(foreground(true, 0));

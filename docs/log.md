@@ -1,5 +1,7 @@
 # Update log
 
+* **Preserve local view space (2026-10-18)**: idle resource status allocates no row; a layout unit regression and the unchanged blueprint-name UI test cover the fix. [Verification](live-desktop-link.md#gateway-resource-downloads-p7-gui).
+
 * **Readable resource progress (2026-10-18)**: compact status controls, manifest resource names, and authored tile geometry for generation-switch captures. [Tests and reproduction](live-desktop-link.md#gateway-resource-downloads-p7-gui).
 
 * **Verified gateway resources in the desktop (2026-10-18)**: plan bounded downloads, resume verified files, activate read-only generations and manage the private cache; four in-process TLS UI regressions pass. [Workflow and reproduction](live-desktop-link.md#gateway-resource-downloads-p7-gui).
