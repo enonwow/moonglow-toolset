@@ -25,6 +25,26 @@ pub(crate) struct EventPage {
     pub lost: bool,
 }
 fn query(s: &State, q: &Query, scope: &Scope, filter: &ChatFilter) -> EventPage {
+    if scope.gateway_groups.is_some() {
+        let (events, lost) = s.events.query_projected(q, |e| {
+            let row = super::gateway::project_event(s, e, scope)?;
+            ((!filter.players
+                || (row.kind == "chat"
+                    && row.data["silent"] != true
+                    && (row.data["pc"] == true || row.data["possessed"] == true)))
+                && filter.to_dm.is_none_or(|v| {
+                    row.kind == "chat" && row.data["to_dm"].as_bool().unwrap_or(false) == v
+                }))
+            .then_some(row)
+        });
+        return EventPage {
+            events,
+            lost,
+            last: s.events.last(),
+            boot: s.boot.clone(),
+            reset: q.since > s.events.last() || filter.boot.as_ref().is_some_and(|b| *b != s.boot),
+        };
+    }
     let (events, lost) = s.events.query_page(q, |e| {
         if matches!(e.kind.as_str(), "chat" | "dialog" | "server_log")
             && !scope.has(ClientGroup::ReadChat)

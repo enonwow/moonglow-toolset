@@ -266,6 +266,16 @@ impl EventLog {
         });
     }
 
+    /// Host-authored action metadata; the game result schema stays unchanged.
+    pub fn command_action(&mut self, command: &crate::store::Command, result: &Value, now_ms: u64) {
+        let mut result = result.clone();
+        result["op"] = serde_json::to_value(command).unwrap_or_default()["op"].clone();
+        if result["obj"].is_null() {
+            result["obj"] = serde_json::json!(command.target());
+        }
+        self.command(&command.area, &result, now_ms);
+    }
+
     /// What changed among an area's creatures between its last report
     /// (`None`: the first seen, which says nothing new) and this one.
     pub fn derive(
@@ -334,6 +344,41 @@ impl EventLog {
     }
     pub(crate) fn query_filtered(&self, q: &Query, visible: impl Fn(&Event) -> bool) -> Vec<Event> {
         self.query_page(q, visible).0
+    }
+    /// Project before matching text/object filters: hidden payloads must not be searchable.
+    pub(crate) fn query_projected(
+        &self,
+        q: &Query,
+        project: impl Fn(&Event) -> Option<Event>,
+    ) -> (Vec<Event>, bool) {
+        let needle = q.text.as_ref().map(|s| s.to_lowercase()).filter(|s| !s.is_empty());
+        let limit = if q.limit == 0 { MAX_QUERY } else { q.limit.min(MAX_QUERY) };
+        let mut rows: Vec<_> = self
+            .log_rows(q.since)
+            .iter()
+            .rev()
+            .filter_map(project)
+            .filter(|e| {
+                q.area.as_ref().is_none_or(|a| a.eq_ignore_ascii_case(&e.area))
+                    && (q.kinds.is_empty() || q.kinds.contains(&e.kind))
+                    && q.object
+                        .as_ref()
+                        .is_none_or(|o| e.id.as_ref() == Some(o) || e.target.as_ref() == Some(o))
+                    && needle.as_ref().is_none_or(|t| {
+                        e.name.to_lowercase().contains(t)
+                            || e.data.to_string().to_lowercase().contains(t)
+                    })
+            })
+            .take(limit + 1)
+            .collect();
+        let more = rows.len() > limit;
+        rows.truncate(limit);
+        rows.reverse();
+        let evicted = match &q.area {
+            Some(a) => self.evicted.get(&a.to_ascii_lowercase()).is_some_and(|n| *n > q.since),
+            None => self.evicted.values().any(|n| *n > q.since),
+        };
+        (rows, more || evicted)
     }
     pub(crate) fn query_page(
         &self,
@@ -638,5 +683,25 @@ mod bounded_query_tests {
         assert!(log.query(&q).is_empty());
         q.area = None;
         assert_eq!(ids(log.query(&q)), [5]);
+    }
+}
+
+#[cfg(test)]
+mod action_metadata_tests {
+    use super::*;
+    #[test]
+    fn action_metadata_does_not_modify_the_game_result() {
+        let command: crate::store::Command = serde_json::from_value(
+            json!({"id":"one","op":"npc_say","area":"room","target":"1","text":"private draft"}),
+        )
+        .unwrap();
+        let result = json!({"id":"one","ok":true});
+        let mut log = EventLog::default();
+        log.command_action(&command, &result, 1);
+        let rows = log.query(&Query::default());
+        assert_eq!(rows[0].data["op"], "npc_say");
+        assert_eq!(rows[0].id.as_deref(), Some("1"));
+        assert_eq!(result, json!({"id":"one","ok":true}));
+        assert!(!rows[0].data.to_string().contains("private draft"));
     }
 }

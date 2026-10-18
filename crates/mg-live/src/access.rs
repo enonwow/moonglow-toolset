@@ -92,6 +92,7 @@ pub struct Scope {
     pub(crate) agent_epoch: Option<u64>,
     pub(crate) gateway_accept: Option<crate::store::gateway::Acceptance>,
     pub(crate) command_limit: u32,
+    pub(crate) gateway_groups: Option<Vec<String>>,
 }
 impl Scope {
     pub(crate) fn default() -> Self {
@@ -102,6 +103,7 @@ impl Scope {
             agent_epoch: None,
             gateway_accept: None,
             command_limit: 60,
+            gateway_groups: None,
         }
     }
 }
@@ -124,6 +126,7 @@ impl Scope {
             agent_epoch: None,
             gateway_accept: None,
             command_limit: 60,
+            gateway_groups: None,
         }
     }
     /// Host-configured game-command attempts per owner per minute. The store's
@@ -306,6 +309,7 @@ impl Access {
                 agent_epoch: None,
                 gateway_accept: None,
                 command_limit: c.per_minute,
+                gateway_groups: None,
             }))
             .collect();
         Ok(Self {
@@ -524,6 +528,7 @@ mod tests {
                 agent_epoch: None,
                 gateway_accept: None,
                 command_limit: 60,
+                gateway_groups: None,
             };
             for op in ops {
                 let name = op["name"].as_str().unwrap();

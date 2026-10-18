@@ -7,8 +7,11 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "store_gateway_events.rs"]
+mod event_view;
 #[path = "store_gateway_identity.rs"]
 mod identity;
+pub(super) use event_view::project_event;
 pub use identity::{AiIdentity, Principal};
 pub(super) use identity::{draft_scope, validate_ai_scope};
 
@@ -142,11 +145,13 @@ impl SessionConfig {
                 groups.push(g);
             }
         }
-        Scope::restricted(
+        let mut scope = Scope::restricted(
             &self.id,
             groups,
             if self.id.starts_with("ai:") { DeliveryMode::Drafts } else { DeliveryMode::Auto },
-        )
+        );
+        scope.gateway_groups = Some(self.groups.clone());
+        scope
     }
     fn has(&self, group: &str) -> bool {
         self.groups.iter().any(|g| g == group)
@@ -463,8 +468,7 @@ impl Gateway {
                         serde_json::from_value(a.get("kinds").cloned().unwrap_or(json!([])))
                             .map_err(|e| invalid(e.to_string()))?;
                     let s = self.store.lock();
-                    Ok(serde_json::to_value(event_page(&s.events, n, &config, limit, &kinds))
-                        .unwrap())
+                    Ok(serde_json::to_value(event_page(&s, n, &config, limit, &kinds)).unwrap())
                 }
                 "call" => {
                     let op = a["op"]
@@ -526,7 +530,7 @@ impl Gateway {
                             limit: input["limit"].as_u64().unwrap_or(100).min(500) as usize,
                         };
                         return Ok(
-                            json!({"events":s.events.query_filtered(&q,|e|visible_event(e,&config)),"last":s.events.last(),"boot":s.boot}),
+                            json!({"events":s.events.query_projected(&q, |e| project_event(&s, e, &config.scope())).0,"last":s.events.last(),"boot":s.boot}),
                         );
                     }
                     crate::operations::call_scoped(
@@ -1060,7 +1064,7 @@ impl Gateway {
         });
         session.prune_completed(Some(now_ms));
         if s.events.last() > session.event_n {
-            let events = event_batch(&s.events, session.event_n, &session.config);
+            let events = event_batch(&s, session.event_n, &session.config);
             session.event_n = events.through;
             out.push(Push::Events(events));
         }
@@ -1101,16 +1105,18 @@ fn presence(g: &GatewayState) -> Push {
     }
     Push::Presence { rev: g.presence_rev, actors, focus }
 }
-fn event_batch(log: &crate::events::EventLog, since: u64, config: &SessionConfig) -> Events {
-    event_page(log, since, config, 256, &[])
+fn event_batch(s: &State, since: u64, config: &SessionConfig) -> Events {
+    event_page(s, since, config, 256, &[])
 }
 fn event_page(
-    log: &crate::events::EventLog,
+    s: &State,
     since: u64,
     config: &SessionConfig,
     limit: usize,
     kinds: &[String],
 ) -> Events {
+    let log = &s.events;
+    let scope = config.scope();
     const BUDGET: usize = 1024 * 1024;
     let mut rows = Vec::new();
     let mut bytes = 128; // Envelope, cursor/lost digits and array punctuation.
@@ -1119,8 +1125,9 @@ fn event_page(
     let mut oversized = 0;
     let mut complete = true;
     for event in log.log_rows(since) {
-        let visible =
-            visible_event(&event, config) && (kinds.is_empty() || kinds.contains(&event.kind));
+        let projected = project_event(s, &event, &scope);
+        let visible = projected.is_some() && (kinds.is_empty() || kinds.contains(&event.kind));
+        let event = projected.unwrap_or(event);
         let size = if visible {
             serde_json::to_vec(&event).expect("event serializes").len() + 1
         } else {
@@ -1209,21 +1216,6 @@ fn valid_id(id: &str, prefix: &str) -> bool {
 }
 fn lost_since(log: &crate::events::EventLog, since: u64) -> u64 {
     log.last().saturating_sub(since).saturating_sub(log.log_rows(since).len() as u64)
-}
-fn visible_event(e: &Event, config: &SessionConfig) -> bool {
-    if !config.has("read") {
-        return false;
-    }
-    if matches!(e.kind.as_str(), "chat" | "dialog" | "server_log") && !config.has("read_chat") {
-        return false;
-    }
-    if e.kind == "chat"
-        && (e.data["channel"] == "tell" || matches!(e.data["channel"].as_u64(), Some(4 | 20)))
-        && !config.has("read_tells")
-    {
-        return false;
-    }
-    true
 }
 
 #[cfg(test)]
@@ -1531,5 +1523,120 @@ mod audit_tests {
         assert_eq!(batch.lost, 1);
         assert_eq!(batch.rows.len(), 1);
         assert_eq!(batch.through, g.store.event_cursor());
+    }
+}
+
+#[cfg(test)]
+mod privacy_audit_tests {
+    use super::*;
+    #[test]
+    fn action_log_redacts_payloads_on_every_read_path_and_before_text_search() {
+        let store = Arc::new(LiveStore::default());
+        let gateway = Gateway::new(store.clone()).unwrap();
+        for (id, groups) in [
+            ("dm:owner", vec!["read", "approve_drafts"]),
+            ("dm:other", vec!["read"]),
+            ("dm:admin", vec!["read", "admin"]),
+        ] {
+            gateway
+                .connect(
+                    SessionConfig {
+                        id: id.into(),
+                        id_prefix: format!("{id}."),
+                        groups: groups.into_iter().map(str::to_owned).collect(),
+                        watch_limit: 16,
+                    },
+                    None,
+                    &[],
+                    0,
+                )
+                .unwrap();
+        }
+        gateway
+            .install_ai(
+                AiIdentity {
+                    id: "ai:writer".into(),
+                    owner: "dm:owner".into(),
+                    name: "Writer".into(),
+                    groups: vec!["read".into()],
+                    expires_ms: u64::MAX,
+                    llm_allowed: false,
+                },
+                &"a".repeat(40),
+            )
+            .unwrap();
+        {
+            let mut s = store.lock();
+            s.events.command("room", &json!({"id":"cmd","by":"dm:owner","op":"dump_locals","obj":"1","ok":true,"value":{"secret":"unpublished-secret"}}), 1);
+            s.events.command("room", &json!({"id":"draft","pending":true,"value":{"draft":{"client":"ai:writer","text":"unpublished-secret"}}}), 2);
+        }
+        for id in ["dm:other", "dm:owner", "dm:admin"] {
+            let full = id != "dm:other";
+            let pushes = gateway.pushes(id, 3).unwrap();
+            let events: Vec<_> = pushes
+                .iter()
+                .filter_map(|p| if let Push::Events(e) = p { Some(&e.rows) } else { None })
+                .collect();
+            assert_eq!(
+                serde_json::to_string(&events).unwrap().contains("unpublished-secret"),
+                full
+            );
+            for (op, a) in
+                [("events.since", json!({"n":0})), ("call", json!({"op":"events","input":{}}))]
+            {
+                let response = gateway.handle(
+                    id,
+                    crate::gateway_frames::Request { id: 1, op: op.into(), a },
+                    3,
+                );
+                assert_eq!(
+                    response.result.unwrap().to_string().contains("unpublished-secret"),
+                    full
+                );
+            }
+            let principal = Principal {
+                id: id.into(),
+                name: id.into(),
+                groups: store.lock().gateway.sessions[id].config.groups.clone(),
+            };
+            let scope = principal.scope(DeliveryMode::Auto).unwrap();
+            let (rows, _) = store.events_scoped(&crate::events::Query::default(), &scope);
+            assert_eq!(serde_json::to_string(&rows).unwrap().contains("unpublished-secret"), full);
+            if !full {
+                assert_eq!(rows.len(), 2);
+                assert_eq!(
+                    rows[0]
+                        .data
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                    vec!["actor", "op", "target", "area", "time", "outcome"]
+                );
+                let response = gateway.handle(
+                    id,
+                    crate::gateway_frames::Request {
+                        id: 2,
+                        op: "call".into(),
+                        a: json!({"op":"events","input":{"text":"unpublished-secret"}}),
+                    },
+                    3,
+                );
+                assert_eq!(response.result.unwrap()["events"], json!([]));
+                assert!(
+                    store
+                        .events_scoped(
+                            &crate::events::Query {
+                                text: Some("unpublished-secret".into()),
+                                ..Default::default()
+                            },
+                            &scope
+                        )
+                        .0
+                        .is_empty()
+                );
+            }
+        }
     }
 }
