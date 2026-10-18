@@ -78,6 +78,7 @@ pub(crate) struct Shared {
 pub struct LinkService {
     config: LinkConfig,
     pub(crate) shared: Arc<Shared>,
+    avatars: crate::AvatarClient,
     outgoing: tokio::sync::mpsc::Sender<Outgoing>,
     stop: tokio::sync::watch::Sender<bool>,
     worker: Option<JoinHandle<()>>,
@@ -115,6 +116,7 @@ impl LinkService {
         if !token.expose().bytes().all(|b| b.is_ascii_graphic()) {
             return Err(LinkError::Credentials.into());
         }
+        let avatars = crate::AvatarClient::new(&config.gateway, token.clone())?;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -142,10 +144,14 @@ impl LinkService {
                 ));
             })
             .map_err(|_| LinkError::Transport)?;
-        Ok(Self { config, shared, outgoing, stop, worker: Some(worker) })
+        Ok(Self { config, shared, avatars, outgoing, stop, worker: Some(worker) })
     }
     pub fn config(&self) -> &LinkConfig {
         &self.config
+    }
+    /// Loads avatar images from this gateway with this link's credential.
+    pub fn avatar_client(&self) -> crate::AvatarClient {
+        self.avatars.clone()
     }
     pub fn store(&self) -> Arc<LiveStore> {
         self.shared.store.clone()
@@ -245,6 +251,11 @@ pub(crate) fn fixture() -> (LinkService, tokio::sync::mpsc::Receiver<Outgoing>) 
     let (outgoing, receiver) = tokio::sync::mpsc::channel(64);
     let (stop, _) = tokio::sync::watch::channel(false);
     let service = LinkService {
+        avatars: crate::AvatarClient::new(
+            &Gateway::new("https://example.invalid", None).unwrap(),
+            crate::SessionToken::new("test".into()).unwrap(),
+        )
+        .unwrap(),
         config: LinkConfig::new("test", Gateway::new("https://example.invalid", None).unwrap()),
         shared,
         outgoing,

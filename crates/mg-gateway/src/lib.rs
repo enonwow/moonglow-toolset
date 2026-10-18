@@ -1,5 +1,6 @@
 //! Public transport for the authoritative Live core. Host authentication stays pluggable.
 mod agent;
+pub mod avatars;
 mod core;
 pub mod files;
 mod socket;
@@ -59,6 +60,8 @@ pub trait Extensions {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub publisher: Option<Arc<files::Publisher>>,
+    /// Serves `GET /avatars/<id>`; fetches from the public internet unless replaced.
+    pub avatars: Arc<avatars::Avatars>,
     pub server: ServerIdentity,
     pub queue_frames: usize,
     pub queue_bytes: usize,
@@ -78,6 +81,7 @@ impl Default for Config {
             features: vec![],
             nwsync: None,
             publisher: None,
+            avatars: Arc::default(),
         }
     }
 }
@@ -100,6 +104,7 @@ pub fn router(
         .route("/health", get(|| async { Json(json!({"ok":true})) }))
         .route("/ws/v1", get(upgrade))
         .route("/files/v1/{*path}", get(files::handle))
+        .route("/avatars/{id}", get(avatars::handle))
         .route("/agent/v1/{*path}", axum::routing::any(agent::handle))
         .with_state(App {
             core,

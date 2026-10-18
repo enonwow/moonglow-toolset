@@ -4,7 +4,7 @@ title: Live gateway protocol
 description: Normative moonglow-gw/1 JSON envelopes, finished-state mirror and session delivery contract.
 tags: [live, gateway, protocol]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-gateway/src/lib.rs]
+sources: [../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/src/avatars.rs]
 ---
 
 # moonglow-gw/1: the Moonglow ↔ gateway protocol (draft 1)
@@ -247,6 +247,36 @@ The complete field definitions, identity calculation, download limits and atomic
 activation rules are in [Live resource generations](live-resource-generations.md#descriptor-and-wire-extension).
 This additive optional field does not change protocol/mirror versions or the game wire.
 
+## Avatars
+
+An avatar URL (`avatar`) is set by an AI's owner and is display text only: a client
+MUST NOT resolve or connect to it. The gateway fetches it and serves the image.
+Every actor in `presence` and every row of `ai.list`/`ai.create`/`ai.update` that has an
+avatar also carries `avatar_path`, the gateway route that serves the image
+(`"/avatars/ai:scribe"`; the principal id is one percent-encoded path segment). The
+field is `null` (presence) or absent (`ai.*` rows) without an avatar, and clients
+that do not know it ignore it.
+
+`GET /avatars/<principal id>` with `Authorization: Bearer ...` is available to
+authenticated DM and AI bearers, never to players (401, as for `/files/v1`; a request
+with an `Origin` header is refused, 403). Responses:
+
+| status | meaning |
+|---|---|
+| 200 | `Content-Type: image/png`, at most 128 by 128 pixels, `Cache-Control: private, max-age=300` |
+| 404 | unknown principal, or no avatar |
+| 429 | too many concurrent fetches (per principal or global) |
+| 502 | the origin failed: unreachable, not public, not 200, too large, or not a PNG/JPEG |
+
+The gateway applies the URL rules of `mg_live::avatar` (public HTTPS with a DNS name,
+no credentials), resolves with every non-public address dropped at connect time, follows
+no redirects, uses short timeouts, accepts at most 512 KiB of body, decodes PNG or
+JPEG with dimension (1024) and memory (8 MiB) limits and re-encodes a PNG of at most
+128 by 128. Results are cached per (principal, URL) for five minutes in a bounded cache
+(256 entries, 8 MiB). A client loads the image with its session bearer, from the
+gateway origin it is connected to and the same certificate pin it uses for the
+WebSocket; it MUST NOT send that bearer anywhere else.
+
 
 ## Audited gateway boundaries and identity wire
 
@@ -284,7 +314,8 @@ from host configuration rather than reset the registry to bypass revocation.
 
 The identity request contract is:
 
-- `ai.list` returns the array `[{id,name,owner,avatar,llm}]` directly.
+- `ai.list` returns the array `[{id,name,owner,avatar,avatar_path?,llm}]` directly
+  (`avatar_path`: see [Avatars](#avatars)).
 - `ai.create` and `ai.update` accept optional `avatar`: an HTTPS URL or null.
   Omitting it on update preserves the previous value; null clears it.
   `ai.create` returns `{ai,token}` once; only the token digest is persisted.
@@ -292,7 +323,8 @@ The identity request contract is:
   With no id it selects the caller's own AIs. An admin can select another
   owner's AI explicitly. A new AI starts off; the host global switch still
   overrides per-AI consent.
-- Presence and welcome copy the managed AI avatar; updates invalidate presence.
+- Presence and welcome copy the managed AI avatar; presence also carries `avatar_path`.
+  Updates invalidate presence.
 
 Hosts register `Gateway::set_identity_observer(Arc<dyn IdentityObserver>)`
 through `CoreHandle::with_gateway`. `IdentityObserver::disabled(principal, reason)`

@@ -44,6 +44,9 @@ pub struct AiSummary {
     pub name: String,
     pub owner: String,
     pub avatar: Option<String>,
+    /// Gateway route that serves the avatar image (absent without an avatar).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_path: Option<String>,
     pub llm: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +94,10 @@ impl AiRecord {
             name: self.identity.name.clone(),
             owner: self.identity.owner.clone(),
             avatar: self.avatar.clone(),
+            avatar_path: self
+                .avatar
+                .as_ref()
+                .map(|_| crate::avatar::avatar_path(&self.identity.id)),
             llm: self.identity.llm_allowed,
         }
     }
@@ -542,6 +549,7 @@ impl Gateway {
             {
                 session.actor["name"] = json!(ai.name);
                 session.actor["avatar"] = json!(ai.avatar);
+                session.actor["avatar_path"] = json!(ai.avatar_path);
                 presence_changed = true;
             }
         }

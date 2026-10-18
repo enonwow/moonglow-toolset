@@ -20,6 +20,7 @@ async fn live_gateway_ai_identity() {
     mg_testkit::gpu::hold();
     let data = tempfile::tempdir().unwrap();
     let host = gateway_ops::host(data.path()).await;
+    host.serve_avatar(gateway_ops::AVATAR, gateway_ops::avatar_bytes());
     let writer = gateway_ops::link(&host, gateway_ui::host::SECRET).await;
     let created = gateway_ui::host::reply_async(writer.ai_create(serde_json::json!({"name":"Scribe","avatar":gateway_ops::AVATAR,"groups":["read","focus"]})).unwrap()).await.unwrap();
     host.core.with_gateway(|g| g.set_llm_enabled(true)).await.unwrap();
@@ -39,7 +40,6 @@ async fn live_gateway_ai_identity() {
         .with_size(egui::vec2(1280., 900.))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(gateway_ui::draw(), app);
-    h.ctx.include_bytes(gateway_ops::AVATAR, gateway_ops::avatar_bytes());
     gateway_ui::connected(&mut h).await;
     h.get_by_label("Live").click();
     h.run_steps(2);

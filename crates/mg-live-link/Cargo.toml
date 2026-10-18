@@ -36,6 +36,7 @@ mg-erf.workspace = true
 rcgen.workspace = true
 mg-gateway = { path = "../mg-gateway" }
 axum = { version = "0.8", features = ["ws"] }
+png.workspace = true
 
 [lints]
 workspace = true

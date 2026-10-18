@@ -15,6 +15,12 @@ struct AiInfo {
     llm: bool,
     #[serde(default)]
     avatar: Option<String>,
+    /// Gateway route serving the saved avatar image.
+    #[serde(default)]
+    avatar_path: Option<String>,
+    /// The avatar URL as saved on the gateway: only that one can be previewed.
+    #[serde(skip)]
+    saved: Option<String>,
     #[serde(skip)]
     preview: Option<String>,
 }
@@ -70,6 +76,7 @@ impl AiListResponse {
             return Err(());
         }
         for item in &mut items {
+            item.saved = item.avatar.clone();
             item.preview = item.avatar.clone();
         }
         Ok(items)
@@ -224,15 +231,21 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             if !valid {
                                 ui.colored_label(ui.visuals().error_fg_color, "Use an HTTPS URL without credentials, or leave it empty.");
                             }
+                            // The gateway fetches the image, so only the saved URL has one to show.
+                            let saved = (item.saved.as_deref() == Some(avatar.as_str()))
+                                .then(|| crate::live_avatar::Ref::new(item.avatar_path.as_deref(), item.saved.as_deref()))
+                                .flatten();
                             ui.horizontal(|ui| {
-                                if ui.add_enabled(valid && !avatar.is_empty(), egui::Button::new("Preview avatar")).clicked() {
-                                    crate::live_avatar::retry(ui.ctx(), avatar);
+                                if ui.add_enabled(saved.is_some(), egui::Button::new("Preview avatar")).clicked()
+                                    && let Some(saved) = &saved
+                                {
+                                    crate::live_avatar::retry(ui.ctx(), saved);
                                     item.preview = Some(avatar.clone());
                                 }
-                                ui.weak("PNG or JPEG. Empty removes the avatar.");
+                                ui.weak("PNG or JPEG. Empty removes the avatar. Save first: the gateway loads the image.");
                             });
-                            if let Some(url) = &item.preview {
-                                match crate::live_avatar::get(ui.ctx(), url) {
+                            if let Some(saved) = saved.as_ref().filter(|_| item.preview.is_some()) {
+                                match crate::live_avatar::get(ui.ctx(), saved) {
                                     crate::live_avatar::Avatar::Ready(texture) => {
                                         ui.add(egui::Image::new(&texture).max_size(egui::vec2(64.,64.)))
                                             .widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::Image,true,"Avatar preview"));

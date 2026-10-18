@@ -2598,17 +2598,21 @@ version = "1.33.0"
 dependencies = [
  "axum",
  "futures-util",
+ "image",
  "mg-core",
  "mg-gff",
  "mg-live",
  "mg-module",
  "mg-resman",
+ "png",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tower",
+ "ureq",
+ "url",
 ]
 
 [[package]]
@@ -2693,6 +2697,7 @@ dependencies = [
  "mg-live",
  "mg-module",
  "mg-resman",
+ "png",
  "rcgen",
  "rustls",
  "serde",

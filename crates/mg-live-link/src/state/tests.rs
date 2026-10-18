@@ -10,7 +10,7 @@ use serde_json::json;
 
 fn welcome(epoch: &str, resumed: bool) -> Welcome {
     serde_json::from_value(json!({
-        "proto":1,"mirror":1,"gw_epoch":epoch,"now_ms":0,
+        "proto":1,"mirror":2,"gw_epoch":epoch,"now_ms":0,
         "server":{"id":"test","name":"Test"},
         "user":{"id":"dm:test","kind":"dm","name":"Test","avatar":null},
         "groups":["read"],"policy":{},"id_prefix":"test.",

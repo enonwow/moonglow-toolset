@@ -1,17 +1,39 @@
-//! Small, bounded HTTPS avatar cache shared by the AI editor and presence chips.
+//! Small, bounded avatar cache shared by the AI editor and presence chips.
+//!
+//! Images are loaded only from the connected gateway (`GET /avatars/<id>`, with the session
+//! bearer and the link's own pin or roots). The third-party URL a gateway advertises is
+//! display text: this module never resolves or connects to it.
+use mg_live_link::AvatarClient;
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
+    io::Cursor,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
-const MAX_BYTES: u64 = 512 * 1024;
+const MAX_BYTES: usize = 256 * 1024;
+/// The gateway serves at most this many pixels per side.
+const MAX_EDGE: u32 = 128;
+const TEXTURE_EDGE: u32 = 64;
 const MAX_ENTRIES: usize = 64;
 const MAX_JOBS: usize = 4;
 
 pub(crate) fn valid_url(text: &str) -> bool {
     mg_live::avatar::avatar_url(text).is_some()
+}
+
+/// An avatar as advertised by the gateway: the route that serves the image, and the source URL
+/// (text for display; it also tells a changed image from an unchanged one).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Ref {
+    path: String,
+    url: String,
+}
+impl Ref {
+    pub(crate) fn new(path: Option<&str>, url: Option<&str>) -> Option<Self> {
+        let (path, url) = (path?, url?);
+        (valid_url(url) && path.starts_with("/avatars/") && path.len() <= 256)
+            .then(|| Self { path: path.into(), url: url.into() })
+    }
 }
 
 #[derive(Clone)]
@@ -20,37 +42,68 @@ pub(crate) enum Avatar {
     Ready(egui::TextureHandle),
     Unavailable,
 }
+type Loader = Arc<dyn Fn(&str) -> Result<Vec<u8>, ()> + Send + Sync>;
 #[derive(Default)]
 struct Cache {
-    entries: BTreeMap<String, (u64, Avatar)>,
+    connection: Option<AvatarClient>,
+    loader: Option<Loader>,
+    entries: BTreeMap<Ref, (u64, Avatar)>,
     clock: u64,
     jobs: usize,
+}
+impl PartialOrd for Ref {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Ref {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.path, &self.url).cmp(&(&other.path, &other.url))
+    }
 }
 fn cache(ctx: &egui::Context) -> Arc<Mutex<Cache>> {
     ctx.data_mut(|d| {
         d.get_temp_mut_or_default::<Arc<Mutex<Cache>>>(egui::Id::new("live-avatar-cache")).clone()
     })
 }
-pub(crate) fn retry(ctx: &egui::Context, url: &str) {
+/// Call every frame with the active link's client (`None` without one). A different
+/// connection drops every cached image.
+pub(crate) fn set_client(ctx: &egui::Context, client: Option<AvatarClient>) {
+    let shared = cache(ctx);
+    let mut cache = shared.lock().unwrap_or_else(|e| e.into_inner());
+    let same = match (&cache.connection, &client) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.same_connection(b),
+        _ => false,
+    };
+    if same {
+        return;
+    }
+    cache.entries.clear();
+    cache.loader =
+        client.clone().map(|c| -> Loader { Arc::new(move |path| c.fetch(path).map_err(|_| ())) });
+    cache.connection = client;
+}
+pub(crate) fn retry(ctx: &egui::Context, avatar: &Ref) {
     let cache = cache(ctx);
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if cache.entries.get(url).is_some_and(|(_, a)| !matches!(a, Avatar::Loading)) {
-        cache.entries.remove(url);
+    if cache.entries.get(avatar).is_some_and(|(_, a)| !matches!(a, Avatar::Loading)) {
+        cache.entries.remove(avatar);
     }
 }
-pub(crate) fn get(ctx: &egui::Context, url: &str) -> Avatar {
-    if !valid_url(url) {
-        return Avatar::Unavailable;
-    }
+pub(crate) fn get(ctx: &egui::Context, avatar: &Ref) -> Avatar {
     let shared = cache(ctx);
-    {
+    let loader = {
         let mut cache = shared.lock().unwrap_or_else(|e| e.into_inner());
         cache.clock = cache.clock.wrapping_add(1);
         let now = cache.clock;
-        if let Some((used, avatar)) = cache.entries.get_mut(url) {
+        if let Some((used, found)) = cache.entries.get_mut(avatar) {
             *used = now;
-            return avatar.clone();
+            return found.clone();
         }
+        let Some(loader) = cache.loader.clone() else {
+            return Avatar::Unavailable;
+        };
         if cache.jobs >= MAX_JOBS {
             return Avatar::Loading;
         }
@@ -60,27 +113,23 @@ pub(crate) fn get(ctx: &egui::Context, url: &str) -> Avatar {
                 .iter()
                 .filter(|(_, (_, a))| !matches!(a, Avatar::Loading))
                 .min_by_key(|(_, (used, _))| *used)
-                .map(|(url, _)| url.clone());
+                .map(|(key, _)| key.clone());
             if let Some(oldest) = oldest {
                 cache.entries.remove(&oldest);
             } else {
                 return Avatar::Loading;
             }
         }
-        cache.entries.insert(url.into(), (now, Avatar::Loading));
+        cache.entries.insert(avatar.clone(), (now, Avatar::Loading));
         cache.jobs += 1;
-    }
-    let ctx = ctx.clone();
-    let address = url.to_owned();
+        loader
+    };
+    let key = avatar.clone();
     let worker_cache = shared.clone();
     let worker_ctx = ctx.clone();
     let result = std::thread::Builder::new().name("live-avatar".into()).spawn(move || {
-        // Included bytes use the same bounded decoder (also useful for authored fixtures).
-        let decoded = match worker_ctx.try_load_bytes(&address) {
-            Ok(egui::load::BytesPoll::Ready { bytes, .. }) => decode(&bytes),
-            _ => fetch(&address).and_then(|bytes| decode(&bytes)),
-        };
-        let avatar = decoded.map_or(Avatar::Unavailable, |image| {
+        let decoded = loader(&key.path).and_then(|bytes| decode(&bytes));
+        let found = decoded.map_or(Avatar::Unavailable, |image| {
             Avatar::Ready(worker_ctx.load_texture(
                 "Live avatar",
                 image,
@@ -89,8 +138,8 @@ pub(crate) fn get(ctx: &egui::Context, url: &str) -> Avatar {
         });
         let mut cache = worker_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.jobs -= 1;
-        if let Some((_, value)) = cache.entries.get_mut(&address) {
-            *value = avatar;
+        if let Some((_, value)) = cache.entries.get_mut(&key) {
+            *value = found;
         }
         drop(cache);
         worker_ctx.request_repaint();
@@ -98,89 +147,45 @@ pub(crate) fn get(ctx: &egui::Context, url: &str) -> Avatar {
     if result.is_err() {
         let mut cache = shared.lock().unwrap_or_else(|e| e.into_inner());
         cache.jobs -= 1;
-        if let Some((_, value)) = cache.entries.get_mut(url) {
+        if let Some((_, value)) = cache.entries.get_mut(avatar) {
             *value = Avatar::Unavailable;
         }
         return Avatar::Unavailable;
     }
     Avatar::Loading
 }
-fn fetch(url: &str) -> Result<Vec<u8>, ()> {
-    // No gateway bearer, cookies, referrer or redirect to another URL.
-    let agent = ureq::AgentBuilder::new()
-        .redirects(0)
-        // Resolved addresses are checked at connect time, so DNS cannot point into the viewer's network.
-        .resolver(|addr: &str| {
-            use std::net::ToSocketAddrs;
-            let found: Vec<_> = addr
-                .to_socket_addrs()?
-                .filter(|a| mg_live::avatar::public_address(a.ip()))
-                .collect();
-            if found.is_empty() {
-                return Err(std::io::Error::other("avatar host is not public"));
-            }
-            Ok(found)
-        })
-        .timeout(Duration::from_secs(10))
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(5))
-        .build();
-    let response = agent.get(url).call().map_err(|_| ())?;
-    if response.status() != 200 {
-        return Err(());
-    }
-    bounded(response.into_reader())
-}
-fn bounded(reader: impl Read) -> Result<Vec<u8>, ()> {
-    let mut bytes = Vec::new();
-    reader.take(MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|_| ())?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(());
-    }
-    Ok(bytes)
-}
+/// The gateway sends PNGs of at most 128 by 128 pixels; anything else is refused.
 fn decode(bytes: &[u8]) -> Result<egui::ColorImage, ()> {
-    if bytes.len() as u64 > MAX_BYTES {
+    if bytes.len() > MAX_BYTES {
         return Err(());
     }
-    let rgba = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        let mut decoder = png::Decoder::new_with_limits(
-            Cursor::new(bytes),
-            png::Limits { bytes: 8 * 1024 * 1024 },
-        );
-        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-        let mut reader = decoder.read_info().map_err(|_| ())?;
-        let info = reader.info();
-        if info.width == 0 || info.height == 0 || info.width > 1024 || info.height > 1024 {
-            return Err(());
-        }
-        let size = reader.output_buffer_size().filter(|size| *size <= 4 * 1024 * 1024).ok_or(())?;
-        let mut data = vec![0; size];
-        let info = reader.next_frame(&mut data).map_err(|_| ())?;
-        let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-        let channels = info.color_type.samples();
-        for p in data[..info.buffer_size()].chunks_exact(channels) {
-            rgba.extend_from_slice(&match info.color_type {
-                png::ColorType::Rgba => [p[0], p[1], p[2], p[3]],
-                png::ColorType::Rgb => [p[0], p[1], p[2], 255],
-                png::ColorType::GrayscaleAlpha => [p[0], p[0], p[0], p[1]],
-                png::ColorType::Grayscale => [p[0], p[0], p[0], 255],
-                png::ColorType::Indexed => return Err(()),
-            });
-        }
-        image::RgbaImage::from_raw(info.width, info.height, rgba).ok_or(())?
-    } else {
-        let mut reader =
-            image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Jpeg);
-        let mut limits = image::Limits::default();
-        limits.max_image_width = Some(1024);
-        limits.max_image_height = Some(1024);
-        limits.max_alloc = Some(8 * 1024 * 1024);
-        reader.limits(limits);
-        reader.decode().map_err(|_| ())?.into_rgba8()
-    };
-    let small = if rgba.width() > 64 || rgba.height() > 64 {
-        image::DynamicImage::ImageRgba8(rgba).thumbnail(64, 64).into_rgba8()
+    let mut decoder =
+        png::Decoder::new_with_limits(Cursor::new(bytes), png::Limits { bytes: 4 * 1024 * 1024 });
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|_| ())?;
+    let info = reader.info();
+    if info.width == 0 || info.height == 0 || info.width > MAX_EDGE || info.height > MAX_EDGE {
+        return Err(());
+    }
+    let size = reader
+        .output_buffer_size()
+        .filter(|size| *size <= MAX_EDGE as usize * MAX_EDGE as usize * 4)
+        .ok_or(())?;
+    let mut data = vec![0; size];
+    let info = reader.next_frame(&mut data).map_err(|_| ())?;
+    let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
+    for p in data[..info.buffer_size()].chunks_exact(info.color_type.samples()) {
+        rgba.extend_from_slice(&match info.color_type {
+            png::ColorType::Rgba => [p[0], p[1], p[2], p[3]],
+            png::ColorType::Rgb => [p[0], p[1], p[2], 255],
+            png::ColorType::GrayscaleAlpha => [p[0], p[0], p[0], p[1]],
+            png::ColorType::Grayscale => [p[0], p[0], p[0], 255],
+            png::ColorType::Indexed => return Err(()),
+        });
+    }
+    let rgba = image::RgbaImage::from_raw(info.width, info.height, rgba).ok_or(())?;
+    let small = if rgba.width() > TEXTURE_EDGE || rgba.height() > TEXTURE_EDGE {
+        image::DynamicImage::ImageRgba8(rgba).thumbnail(TEXTURE_EDGE, TEXTURE_EDGE).into_rgba8()
     } else {
         rgba
     };
@@ -189,9 +194,9 @@ fn decode(bytes: &[u8]) -> Result<egui::ColorImage, ()> {
         small.as_raw(),
     ))
 }
-pub(crate) fn paint(ui: &egui::Ui, rect: egui::Rect, url: Option<&str>) -> bool {
-    if let Some(url) = url
-        && let Avatar::Ready(texture) = get(ui.ctx(), url)
+pub(crate) fn paint(ui: &egui::Ui, rect: egui::Rect, avatar: Option<&Ref>) -> bool {
+    if let Some(avatar) = avatar
+        && let Avatar::Ready(texture) = get(ui.ctx(), avatar)
     {
         ui.painter().image(
             texture.id(),
@@ -213,6 +218,7 @@ pub(crate) fn paint(ui: &egui::Ui, rect: egui::Rect, url: Option<&str>) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
     fn png(width: u32) -> Vec<u8> {
         let mut bytes = Vec::new();
         {
@@ -225,6 +231,9 @@ mod tests {
                 .unwrap();
         }
         bytes
+    }
+    fn avatar(path: &str) -> Ref {
+        Ref::new(Some(path), Some("https://cdn.example.org/portrait.png")).unwrap()
     }
     #[test]
     fn urls_require_bounded_https_without_credentials() {
@@ -241,28 +250,59 @@ mod tests {
         assert!(!valid_url(&format!("https://example.invalid/{}", "a".repeat(2048))));
     }
     #[test]
-    fn decoder_bounds_encoded_bytes_pixels_and_output_texture() {
-        assert_eq!(decode(&png(128)).unwrap().size, [64, 1]);
-        assert!(decode(&png(1025)).is_err());
-        assert!(decode(b"garbage").is_err());
-        assert!(decode(&png(16)[..20]).is_err());
-        assert!(bounded(std::io::repeat(0)).is_err());
-        assert!(decode(&vec![0; MAX_BYTES as usize + 1]).is_err());
+    fn only_gateway_avatar_routes_are_references() {
+        let url = Some("https://cdn.example.org/a.png");
+        assert!(Ref::new(Some("/avatars/ai:scribe"), url).is_some());
+        for path in [
+            None,
+            Some("https://cdn.example.org/a.png"),
+            Some("//cdn.example.org/avatars/x"),
+            Some("/files/v1/x"),
+            Some(""),
+        ] {
+            assert!(Ref::new(path, url).is_none(), "{path:?}");
+        }
+        assert!(
+            Ref::new(Some("/avatars/ai:scribe"), Some("http://cdn.example.org/a.png")).is_none()
+        );
+        assert!(Ref::new(Some("/avatars/ai:scribe"), None).is_none());
     }
     #[test]
-    fn included_avatar_uses_the_real_async_decoder_and_is_cached() {
+    fn decoder_bounds_encoded_bytes_pixels_and_output_texture() {
+        assert_eq!(decode(&png(128)).unwrap().size, [64, 1]);
+        assert_eq!(decode(&png(16)).unwrap().size, [16, 1]);
+        assert!(decode(&png(129)).is_err());
+        assert!(decode(b"garbage").is_err());
+        assert!(decode(&png(16)[..20]).is_err());
+        assert!(decode(&vec![0; MAX_BYTES + 1]).is_err());
+    }
+    #[test]
+    fn nothing_loads_without_a_gateway_connection() {
         let ctx = egui::Context::default();
-        let url = "https://example.invalid/avatar.png";
-        ctx.include_bytes(url, png(16));
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        assert!(matches!(get(&ctx, &avatar("/avatars/ai:a")), Avatar::Unavailable));
+        assert!(cache(&ctx).lock().unwrap().entries.is_empty());
+    }
+    #[test]
+    fn the_loader_is_asked_for_the_gateway_path_only_and_results_are_cached() {
+        let ctx = egui::Context::default();
+        let asked = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = asked.clone();
+        cache(&ctx).lock().unwrap().loader = Some(Arc::new(move |path| {
+            log.lock().unwrap().push(path.into());
+            Ok(png(16))
+        }));
+        let wanted = avatar("/avatars/ai:a");
+        let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            if let Avatar::Ready(texture) = get(&ctx, url) {
+            if let Avatar::Ready(texture) = get(&ctx, &wanted) {
                 assert_eq!(texture.size(), [16, 1]);
                 break;
             }
-            assert!(std::time::Instant::now() < deadline);
+            assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(5));
         }
+        get(&ctx, &wanted);
+        assert_eq!(*asked.lock().unwrap(), ["/avatars/ai:a"]);
         assert_eq!(cache(&ctx).lock().unwrap().entries.len(), 1);
     }
 }

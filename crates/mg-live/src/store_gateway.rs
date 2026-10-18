@@ -619,7 +619,7 @@ impl Gateway {
             });
         let mut session = old.unwrap_or_else(|| Session {
             online: true,
-            actor: json!({"id": config.id, "kind": if config.id.starts_with("ai:") {"ai"} else {"dm"}, "name": config.id, "avatar":null,"owner":null,"area":null}),
+            actor: json!({"id": config.id, "kind": if config.id.starts_with("ai:") {"ai"} else {"dm"}, "name": config.id, "avatar":null,"avatar_path":null,"owner":null,"area":null}),
             presence_sent: 0,
             drafts_sent: None,
             overloaded: false,
@@ -700,6 +700,7 @@ impl Gateway {
         let mut actor = session.actor.clone();
         actor["name"] = json!(name);
         actor["avatar"] = json!(avatar);
+        actor["avatar_path"] = json!(avatar.map(|_| crate::avatar::avatar_path(id)));
         actor["owner"] = json!(owner);
         if actor != session.actor {
             session.actor = actor;

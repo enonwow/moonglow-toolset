@@ -43,6 +43,18 @@ impl Authenticator for Auth {
         })
     }
 }
+/// The "internet" behind avatar URLs: the gateway fetches from here, and nothing else does.
+#[derive(Debug, Default)]
+pub(crate) struct AvatarOrigin {
+    bodies: Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
+    fetched: Mutex<Vec<String>>,
+}
+impl mg_gateway::avatars::AvatarSource for AvatarOrigin {
+    fn fetch(&self, url: &url::Url) -> Result<Vec<u8>, String> {
+        self.fetched.lock().unwrap().push(url.as_str().into());
+        self.bodies.lock().unwrap().get(url.as_str()).cloned().ok_or_else(|| "missing".into())
+    }
+}
 pub(crate) struct Host {
     pub(crate) origin: String,
     pub(crate) pin: String,
@@ -52,6 +64,7 @@ pub(crate) struct Host {
     kill: watch::Sender<u64>,
     fault: watch::Sender<Option<Vec<u8>>>,
     frames: Arc<Mutex<Vec<Value>>>,
+    avatars: Arc<AvatarOrigin>,
 }
 impl Host {
     pub(crate) async fn new() -> Self {
@@ -60,8 +73,19 @@ impl Host {
     pub(crate) async fn with_auth(auth: Arc<dyn Authenticator>) -> Self {
         let store = Arc::new(LiveStore::default());
         let core = CoreHandle::new(store.clone()).await.unwrap();
-        let router =
-            mg_gateway::router(core.clone(), auth, Arc::new(Policy::default()), Config::default());
+        let avatars = Arc::new(AvatarOrigin::default());
+        let router = mg_gateway::router(
+            core.clone(),
+            auth,
+            Arc::new(Policy::default()),
+            Config {
+                avatars: Arc::new(mg_gateway::avatars::Avatars::new(
+                    avatars.clone(),
+                    Default::default(),
+                )),
+                ..Config::default()
+            },
+        );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -130,13 +154,23 @@ impl Host {
                 }
             }
         });
-        Self { origin, pin, store, core, tasks: vec![server, proxy], kill, fault, frames }
+        Self { origin, pin, store, core, tasks: vec![server, proxy], kill, fault, frames, avatars }
     }
     pub(crate) fn config(&self) -> LinkConfig {
         let mut config =
             LinkConfig::new("test", Gateway::new(&self.origin, Some(&self.pin)).unwrap());
         config.watch = vec!["square".into()];
         config
+    }
+    /// Makes `url` serve `bytes` to the gateway's avatar fetcher.
+    #[allow(dead_code)]
+    pub(crate) fn serve_avatar(&self, url: &str, bytes: Vec<u8>) {
+        self.avatars.bodies.lock().unwrap().insert(url.into(), bytes);
+    }
+    /// Every URL the gateway fetched for an avatar, in order.
+    #[allow(dead_code)]
+    pub(crate) fn avatar_fetches(&self) -> Vec<String> {
+        self.avatars.fetched.lock().unwrap().clone()
     }
     pub(crate) fn frames(&self) -> Vec<Value> {
         self.frames.lock().unwrap().clone()

@@ -21,6 +21,14 @@ pub fn avatar_url(text: &str) -> Option<url::Url> {
         .then_some(url)
 }
 
+/// The gateway route that serves an actor's avatar image (`GET`, session bearer). Clients load
+/// avatars only from there, never from the advertised third-party URL.
+pub fn avatar_path(id: &str) -> String {
+    let mut base = url::Url::parse("https://gateway.invalid/avatars/").expect("static URL");
+    base.path_segments_mut().expect("hierarchical URL").pop_if_empty().push(id);
+    base.path().to_owned()
+}
+
 /// Whether a resolved address is a public unicast one (checked again at connect time).
 pub fn public_address(ip: IpAddr) -> bool {
     match ip {
@@ -84,6 +92,12 @@ mod tests {
         ] {
             assert!(avatar_url(bad).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn avatar_paths_are_one_encoded_segment() {
+        assert_eq!(avatar_path("ai:scribe-1"), "/avatars/ai:scribe-1");
+        assert_eq!(avatar_path("ai:a/b?c#d e"), "/avatars/ai:a%2Fb%3Fc%23d%20e");
     }
 
     #[test]

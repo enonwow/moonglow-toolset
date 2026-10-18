@@ -176,7 +176,7 @@ impl<'a> LiveBackend<'a> {
 pub(crate) struct FocusActor {
     pub id: String,
     pub label: String,
-    pub avatar: Option<String>,
+    pub avatar: Option<crate::live_avatar::Ref>,
 }
 
 fn focus_names(snapshot: &mg_live_link::LinkSnapshot, object: &str) -> Vec<FocusActor> {
@@ -198,10 +198,10 @@ fn focus_names(snapshot: &mg_live_link::LinkSnapshot, object: &str) -> Vec<Focus
             Some(FocusActor {
                 id: id.clone(),
                 label: format!("{name} · {kind}"),
-                avatar: actor["avatar"]
-                    .as_str()
-                    .filter(|url| crate::live_avatar::valid_url(url))
-                    .map(str::to_owned),
+                avatar: crate::live_avatar::Ref::new(
+                    actor["avatar_path"].as_str(),
+                    actor["avatar"].as_str(),
+                ),
             })
         })
         .collect()
@@ -220,7 +220,10 @@ pub(crate) fn update(app: &mut Moonglow, ctx: &egui::Context) {
         }
         app.live_gateway.take();
     }
-    let Some(runtime) = &mut app.live_gateway else { return };
+    let Some(runtime) = &mut app.live_gateway else {
+        crate::live_avatar::set_client(ctx, None);
+        return;
+    };
     if let Some(receiver) = &runtime.pending {
         match receiver.try_recv() {
             Ok(Ok(link)) => {
@@ -240,7 +243,11 @@ pub(crate) fn update(app: &mut Moonglow, ctx: &egui::Context) {
             Err(mpsc::TryRecvError::Empty) => {}
         }
     }
-    let Some(link) = &runtime.link else { return };
+    let Some(link) = &runtime.link else {
+        crate::live_avatar::set_client(ctx, None);
+        return;
+    };
+    crate::live_avatar::set_client(ctx, Some(link.avatar_client()));
     let snapshot = link.snapshot();
     if snapshot.connections != runtime.connection {
         runtime.connection = snapshot.connections;
@@ -344,7 +351,7 @@ pub(crate) fn chips(app: &Moonglow, ui: &mut egui::Ui, id: &str) {
 }
 
 pub(crate) fn avatar_chip(ui: &egui::Ui, rect: egui::Rect, actor: &FocusActor, object: &str) {
-    if crate::live_avatar::paint(ui, rect, actor.avatar.as_deref()) {
+    if crate::live_avatar::paint(ui, rect, actor.avatar.as_ref()) {
         ui.interact(
             rect,
             ui.id().with(("presence-avatar", object, &actor.id)),
@@ -489,21 +496,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presence_retains_only_valid_avatar_urls() {
+    fn presence_retains_only_gateway_served_avatars_with_valid_urls() {
         let snapshot = mg_live_link::LinkSnapshot {
             actors: vec![
-                json!({"id":"ai:a","kind":"ai","name":"Scribe","avatar":"https://example.invalid/a.png"}),
-                json!({"id":"dm:b","kind":"dm","name":"Guide","avatar":"file:///private.png"}),
+                json!({"id":"ai:a","kind":"ai","name":"Scribe","avatar":"https://example.invalid/a.png","avatar_path":"/avatars/ai:a"}),
+                json!({"id":"dm:b","kind":"dm","name":"Guide","avatar":"file:///private.png","avatar_path":"/avatars/dm:b"}),
+                json!({"id":"dm:c","kind":"dm","name":"Old","avatar":"https://example.invalid/c.png"}),
+                json!({"id":"dm:d","kind":"dm","name":"Odd","avatar":"https://example.invalid/d.png","avatar_path":"https://example.invalid/d.png"}),
             ],
             focus: std::collections::BTreeMap::from([(
                 "object".into(),
-                vec!["ai:a".into(), "dm:b".into()],
+                vec!["ai:a".into(), "dm:b".into(), "dm:c".into(), "dm:d".into()],
             )]),
             ..Default::default()
         };
         let actors = focus_names(&snapshot, "object");
-        assert_eq!(actors[0].avatar.as_deref(), Some("https://example.invalid/a.png"));
-        assert!(actors[1].avatar.is_none());
+        let kept = crate::live_avatar::Ref::new(
+            Some("/avatars/ai:a"),
+            Some("https://example.invalid/a.png"),
+        );
+        assert!(kept.is_some());
+        assert_eq!(actors[0].avatar, kept);
+        // A bad URL, a gateway without avatar routes and a foreign path draw no image.
+        assert!(actors[1..].iter().all(|a| a.avatar.is_none()));
     }
 
     #[test]

@@ -50,6 +50,8 @@ async fn consent_targets_one_ai_and_leaves_the_other_off() {
 async fn avatar_validates_previews_updates_presence_and_clears() {
     let data = tempfile::tempdir().unwrap();
     let host = host(data.path()).await;
+    // Only the gateway can reach this "internet": the desktop has no path to it.
+    host.serve_avatar(ops::AVATAR, ops::avatar_bytes());
     let reader = ops::link(&host, support::host::SECRET).await;
     let created = reply_async(
         reader.ai_create(serde_json::json!({"name":"Scribe","groups":["read","focus"]})).unwrap(),
@@ -66,7 +68,6 @@ async fn avatar_validates_previews_updates_presence_and_clears() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1300., 1000.))
         .build_ui_state(support::draw(), support::app(&host, data.path()));
-    h.ctx.include_bytes(ops::AVATAR, ops::avatar_bytes());
     connected(&mut h).await;
     h.get_by_label("Live").click();
     h.run_steps(2);
@@ -78,14 +79,17 @@ async fn avatar_validates_previews_updates_presence_and_clears() {
     h.get_by_label("Use an HTTPS URL without credentials, or leave it empty.");
     assert!(!host.frames().iter().any(|f| f["op"] == "ai.update"));
     input(&mut h, "AI avatar URL", ops::AVATAR);
-    h.get_by_label("Preview avatar").click();
-    h.run_steps(2);
-    support::label(&mut h, "Avatar preview").await;
+    // The gateway loads the image, so there is nothing to preview before saving.
+    assert!(h.get_by_label("Preview avatar").accesskit_node().is_disabled());
+    assert!(host.avatar_fetches().is_empty());
     h.get_by_label("Save AI").click();
     h.run_steps(2);
     support::label(&mut h, "Updated on gateway.").await;
+    support::label(&mut h, "Avatar preview").await;
     let rows = reply_async(reader.ai_list().unwrap()).await.unwrap();
     assert_eq!(rows[0]["avatar"], ops::AVATAR);
+    assert_eq!(rows[0]["avatar_path"], format!("/avatars/{}", rows[0]["id"].as_str().unwrap()));
+    assert_eq!(host.avatar_fetches(), [ops::AVATAR], "the gateway fetched it once, for everyone");
     h.get_by_label("Close window").click();
     h.run_steps(3);
     support::focus(&mut h);

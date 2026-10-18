@@ -489,8 +489,8 @@ the current module's local campaign book. Sign-out stops the matching runtime.
 Connection state appears in the Live menu, Panel, Log and Options. Unknown
 outcomes remain visible in mirror result history after per-frame logging drains;
 the message explains that the command may have run. Presence chips show names
-and DM/AI roles in Focus and on map markers. They fetch no external avatars and
-never represent locks. Gateway tools open a wider default right pane so Focus
+and DM/AI roles in Focus and on map markers. Avatars come from the gateway only
+(see Per-AI consent and avatars) and chips never represent locks. Gateway tools open a wider default right pane so Focus
 keeps its two columns and composer visible; the local split is unchanged.
 The local global AI switch is disabled in gateway mode. Live > AI agents owns
 remote AI management; per-AI consent requires an explicit host capability so an
@@ -914,21 +914,31 @@ and decodes the image before drawing it; failed images show a fixed message and
 can be retried explicitly. Presence copies the advertised avatar into both Focus
 and map chips, keeping the participant's name and role visible.
 
+Avatars no longer reach third-party hosts from the desktop. The gateway fetches the
+advertised URL, re-encodes it and serves it at `GET /avatars/<id>` (see
+[Avatars](live-gateway-protocol.md#avatars)); presence and `ai.list` carry the route as
+`avatar_path`, and the URL stays as display text. `mg_live_link::AvatarClient` loads
+only that route from the connected gateway origin, with the session bearer and the
+link's own certificate pin or WebPKI roots, no redirects, a 256 KiB cap and fixed
+timeouts; a path that is not an `/avatars/` path of that origin is refused before any
+request. The desktop has no other avatar fetch path.
+
 The shared in-memory avatar cache holds at most 64 thumbnails with four concurrent
-workers. It accepts PNG/JPEG, limits transfers to 512 KiB and images to 1024 by
-1024 pixels, then reduces large images to at most 64 by 64. Fetches have bounded
-timeouts, use WebPKI HTTPS, carry no gateway bearer/cookies/referrer and reject
-redirects. Self-signed avatar hosts are not supported; gateway certificate pins
-are not applied to unrelated avatar URLs. The cache writes no files.
+workers. It decodes the gateway's PNG (at most 128 by 128 pixels) and reduces it to at
+most 64 by 64. Entries are keyed by route and URL and dropped when the connection
+changes. The cache writes no files. Because the gateway loads the image, the AI editor
+previews only the saved URL; an edited URL is previewed after Save.
 
 Before implementation, two worker regressions reproduced malformed consent
 acceptance and per-AI changes overwriting the all-owned value. The UI regression
 reproduced the disabled checkbox. The new UI flows check independent consent for
 two AIs, invalid URL feedback, preview, update, avatar presence and clearing.
-Avatar image tests use authored PNG bytes through egui's included-bytes loader,
-exercising the same asynchronous decoder/cache without contacting an external CDN.
-They do not prove a live avatar CDN deployment. Decoder tests cover malformed,
-truncated and excessive images and preservation of small image dimensions.
+Avatar image tests serve authored PNG bytes from a fake origin that only the in-process
+gateway can reach, so the UI tests exercise the real gateway route, link client and
+decoder without contacting an external CDN. They do not prove a live avatar CDN
+deployment. Gateway tests cover authentication, unknown principals, invalid and
+oversized images, the cache, concurrency permits and the private-address resolver;
+decoder tests cover malformed, truncated and excessive images.
 
 ```text
 cargo +1.98.0 test -p mg-live-link --lib -j 2 consent_
