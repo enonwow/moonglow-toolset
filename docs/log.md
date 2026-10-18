@@ -1,5 +1,7 @@
 # Update log
 
+* **Central Live enqueue authorization (2026-10-18)**: direct store calls enforce operation groups even when global script policy is enabled. [Contract and regression](live-ops-wire.md#central-enqueue-authorization-2026-10-18).
+
 * **Live event deserialization (2026-10-18)**: events retain the existing wire shape and now deserialize for external consumers, with exact JSON round trips. [Library contract](live-library.md#event-transport).
 
 * **Restricted Live library scopes (2026-10-18)**: external consumers can construct explicit scopes and call the scoped APIs; the local unrestricted constructor stays crate-private. [Contract and tests](live-library.md#restricted-external-scopes).

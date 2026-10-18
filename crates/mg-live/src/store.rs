@@ -2099,12 +2099,11 @@ impl LiveStore {
         scope: &crate::access::Scope,
     ) -> Result<String, CommandError> {
         command.validate()?;
-        if matches!(command.op, Op::SpawnJson { .. })
-            && !scope.has(crate::access::ClientGroup::Scripts)
-        {
+        let operation = serde_json::to_value(&command.op).expect("operation serializes");
+        if !scope.allows(operation["op"].as_str().unwrap_or_default()) {
             return Err(CommandError::new(
                 ErrorCode::Forbidden,
-                "Object JSON includes scripts; scripts group also required",
+                "Client scope does not allow this operation",
             ));
         }
         let mut s = self.lock();
@@ -2912,6 +2911,40 @@ mod tests {
                 faction: None,
             },
         }
+    }
+
+    #[test]
+    fn direct_enqueue_enforces_all_operation_groups_even_with_global_policy() {
+        use crate::access::{Access, ClientGroup, ClientToken};
+        let access = Access::new(
+            "d".repeat(32),
+            &[ClientToken {
+                name: "reader".into(),
+                token: "r".repeat(32),
+                groups: vec![ClientGroup::Read],
+                ..ClientToken::default()
+            }],
+        )
+        .unwrap();
+        let store = LiveStore::default();
+        post(&store, report("scope", 1, true), 10);
+        store.set_policy(Policy { scripts: true, chunks: true, players: true });
+        for op in [
+            json!({"op":"destroy","target":"7f02"}),
+            json!({"op":"run_script","script":"mglive_probe"}),
+            json!({"op":"run_chunk","code":"int x = 1;"}),
+            json!({"op":"npc_move","target":"7f01","x":1,"y":2,"z":0}),
+            json!({"op":"npc_say","target":"7f01","text":"hello"}),
+        ] {
+            let mut value = op;
+            value["area"] = json!("market");
+            let command = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                store.enqueue_scoped(command, 11, access.scope(1)).unwrap_err().code,
+                ErrorCode::Forbidden
+            );
+        }
+        assert!(store.commands(11)["commands"].as_array().unwrap().is_empty());
     }
 
     #[test]

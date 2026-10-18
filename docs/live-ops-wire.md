@@ -2970,3 +2970,14 @@ Evidence/cleanup inventory: `target/test-output/live-watch/ledger.md`. The small
 regenerable app fixture was retained after automatic approval review blocked its
 scoped deletion; no space reclamation is claimed. Shared build/fixture data and
 the active conversation history were left intact.
+
+## Central enqueue authorization (2026-10-18)
+
+All enqueue entry points enforce `Scope::allows` for the serialized operation
+before checking global policy or reserving an ID. HTTP discovery/validation keeps
+its existing refusal behavior. Global script/chunk/player switches never grant a
+named read-only credential write access. The store regression
+`direct_enqueue_enforces_all_operation_groups_even_with_global_policy` covers
+destroy, script, chunk, NPC movement and speech with all global switches enabled.
+Run with Rust 1.98.0, `CARGO_INCREMENTAL=0`, a nonexistent `NWN_ROOT` and
+`cargo +1.98.0 test -p mg-live --lib -j 2 direct_enqueue`.
