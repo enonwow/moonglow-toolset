@@ -9,7 +9,7 @@ pub mod assistant;
 pub mod measure;
 
 use glam::Vec3;
-use mg_area::ObjectKind;
+use mg_core::ObjectKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 #[path = "atmosphere.rs"]

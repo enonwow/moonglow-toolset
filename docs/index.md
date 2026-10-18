@@ -104,3 +104,5 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 # Implementation
 
 * [Prepare a module for Live](live-build.md) - Shared embedded Rust builder, CLI/GUI, byte-preserving dialogue instrumentation, deployment settings and private proofs.
+
+* [Live library for headless consumers](live-library.md) - Dependency boundary and public API contracts for embedding the Live store.

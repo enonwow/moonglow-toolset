@@ -5,7 +5,7 @@ use super::{
     memory::{self, Conversation, Turn},
 };
 use crate::store::{LiveObject, LiveStore, State};
-use mg_area::ObjectKind;
+use mg_core::ObjectKind;
 use std::path::PathBuf;
 
 #[derive(Debug)]

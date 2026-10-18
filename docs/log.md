@@ -1,5 +1,7 @@
 # Update log
 
+* **Headless Live object kinds (2026-10-18)**: moved the shared kind to core with an area re-export, a nine-row mapping regression and a renderer dependency guard. [Library contract](live-library.md).
+
 * **Discoverable NPC guidance (2026-10-16)**: first-level Live NPC context actions open the stable NPC card and Focus Memory, with player/DM exclusions and the Focus setting respected. [Click proof and pictures](live-mode-next.md#npc-card-and-memory-menu-2026-10-16).
 
 * **Live portrait fallback (2026-10-16)**: reproduced the demo's chicken portraits from its real report; shared Selection/Focus/Chat resolution now honors appearance defaults and humanoid race/gender without an animal placeholder. [Diagnosis, pictures and reproduction](live-mode-next.md#shared-live-portrait-fallback-2026-10-16).
