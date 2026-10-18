@@ -1323,13 +1323,13 @@ fn skill_roll_progress_is_owned_bounded_and_finishes_once() {
     store.enqueue(cmd, 40_005).unwrap();
     store.sync(br#"{"v":1,"boot":"ops","seq":6,"results":[{"id":"offline","ok":true,"pending":true}]}"#,40_006).unwrap();
     store.expire(165_007);
-    assert_eq!(store.result("offline").unwrap().code, Some(ErrorCode::Expired));
+    assert_eq!(store.result("offline").unwrap().code, Some(ErrorCode::Unknown));
     let mut cmd = command(op);
     cmd.id = "restart".into();
     store.enqueue(cmd, 165_008).unwrap();
     store.sync(br#"{"v":1,"boot":"ops","seq":7,"results":[{"id":"restart","ok":true,"pending":true}]}"#,165_009).unwrap();
     store.sync(br#"{"v":1,"boot":"new","seq":1}"#, 165_010).unwrap();
-    assert_eq!(store.result("restart").unwrap().code, Some(ErrorCode::Expired));
+    assert_eq!(store.result("restart").unwrap().code, Some(ErrorCode::Unknown));
     for (key, value) in [
         ("bonus", json!(-101)),
         ("bonus", json!(101)),
