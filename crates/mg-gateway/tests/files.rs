@@ -251,3 +251,35 @@ async fn welcome_and_files_request_report_the_same_generation() {
     task.abort();
     core.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn download_permits_live_until_the_response_body_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, publisher, g) = fixture(dir.path());
+    let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+    let app = mg_gateway::router(
+        core,
+        Arc::new(Auth),
+        Arc::new(Policy::default()),
+        Config { publisher: Some(publisher), ..Default::default() },
+    );
+    let request = || {
+        Request::builder()
+            .uri(format!("/files/v1/manifests/{}", g.module_manifest))
+            .header("authorization", "Bearer fixture-dm")
+            .body(Body::empty())
+            .unwrap()
+    };
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        let r = app.clone().oneshot(request()).await.unwrap();
+        assert_eq!(r.status(), 200);
+        held.push(r);
+    }
+    assert_eq!(app.clone().oneshot(request()).await.unwrap().status(), 429);
+    held.pop();
+    let r = app.clone().oneshot(request()).await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(!to_bytes(r.into_body(), 1024 * 1024).await.unwrap().is_empty());
+    assert_eq!(app.oneshot(request()).await.unwrap().status(), 200);
+}
