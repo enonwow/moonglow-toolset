@@ -1,9 +1,9 @@
 ---
 type: Reference
 title: 'Live game operations: wire contract and engine proof'
-description: Game and mg-live operation schemas, automatic area watches, local/server player permission, Unicode publisher, API validation and private-server proofs. UI integration remains with the coordinating workers.
+description: Live operation schemas, centralized scope checks, explicit result receipts, interrupted-command deduplication, boot-bound delivery, automatic area watches and private engine proofs.
 tags: [live, operations, nwnx, protocol, dm]
-generated: { by: codex/astra2, at: 2026-10-14T00:00:00Z }
+generated: { by: codex/astra1, at: 2026-10-18T00:00:00Z }
 sources: [live-mode-next.md, live-mode-roadmap.md, live-events-wire.md]
 ---
 
@@ -3048,3 +3048,70 @@ post-reconnect report. `tools/live/test-events.py --phase command_boot` passed
 in the private WSL engine: wrong boot and wrong prefix each make no side effect;
 the same command with the current identity executes once. These are transport
 identity guards, not cryptographic authentication of Redis peers.
+
+### Reproduction evidence and limits
+
+The current private engine evidence is in
+`target/test-output/live-events/command_receipts.json`,
+`target/test-output/live-events/command_interrupt.json` and
+`target/test-output/live-events/command_boot.json`. Each retains compiler,
+server, plugin and source hashes plus owned-process cleanup results. Frame dumps
+are reproducible and were removed after the native verification stage closed.
+All three engine runs passed; each owned server/Redis process exited. The tests
+exercise server behavior, not a rendered UI. Existing UI result text consumes
+`CommandResult.err`, now explicitly identifying unknown or ambiguous outcomes.
+
+The first-report publisher wake is unconditional after a valid report: an enqueue
+racing the readiness transition cannot lose its notification. Empty envelopes
+still do not cause PUBLISH. TLS and runtime UI regression fixtures now inject their baseline
+*after* endpoint binding, matching the fresh-report requirement.
+
+Optional follow-up audit findings (consent revocation during waits, inbox replay
+across boots, continuous retention/rotation and filesystem work outside the store
+lock) remain separate work. Passing these regressions is not owner acceptance.
+
+The full Windows gate uses a nonexistent game root to avoid native server tests:
+
+```powershell
+$env:NWN_ROOT = Join-Path $PWD 'private/no-native-game'
+if (Test-Path -LiteralPath $env:NWN_ROOT) { throw 'Choose a nonexistent game root' }
+$env:CARGO_INCREMENTAL = '0'
+New-Item -ItemType Directory -Force target/test-output/live-accept6-astra2 | Out-Null
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+The directory creation is an existing UI-test prerequisite:
+`live_inventory_grid::inventory_nondroppable_potion_has_a_confirmed_dm_drop`
+saves a screenshot without creating its parent. The first full gate reached that
+save and failed with a missing-path error; the rerun uses the required directory.
+No UI test was disabled and no UI production source was changed for this audit.
+
+## Audit closure and final gates (2026-10-18)
+
+Implementation commits: `63dbe29` (enqueue scopes), `715501b` (receipts and
+unknown outcomes), `f73c533` (per-command interruption recovery), `2f07cb0`
+(endpoint/boot binding), `78e6a28` (first-report wake race). Contract-aligned test
+fixtures: `66624f7`, `08c1f7a`, `6c97301`. Rust toolchain: 1.98.0.
+
+The exact full workspace gate above passed: 1626 tests across 55 test binaries,
+0 failures, 24 ignored. `clippy --workspace --all-targets -j 2 -- -D warnings`
+and `fmt --check` both exited 0. All three private engine regressions passed;
+the targeted bridge suite passed 3 tests, with its external Redis test ignored.
+The gate covered the refreshed TLS and runtime UI fixtures. No manual live UI
+render inspection is claimed.
+
+Run workspace tests in only one process per checkout. Cargo's build lock does
+not protect the execution phase: `mg_testkit::scratch_dir` removes fixed output
+names, so concurrent gate processes can race and fail CLI fixtures. A concurrent
+retry exposed this; the final gate ran after coordinating exclusive test ownership.
+The separate package UI build was cancelled before tests when it selected another
+dependency feature graph; the final check reused the full workspace graph instead.
+
+The OKF CLI was unavailable. Changed frontmatter, new section anchors, source
+references and retained engine evidence were checked locally; this is not a claim
+that the entire existing bundle passed `okf lint`. Shared Cargo/test artifacts are
+retained for the concurrent worker; only identified task-owned temporary outputs
+are cleaned. The local task ledger records cleanup and session-history retention
+separately from this public document.

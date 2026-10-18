@@ -1,5 +1,7 @@
 # Update log
 
+* **Live delivery audit gate (2026-10-18)**: mandatory findings 1?4 closed with native receipt/TMI/boot proofs, 1626 passing workspace tests, warning-free clippy and fmt. [Reproduction, fixture prerequisites and remaining scope](live-ops-wire.md#audit-closure-and-final-gates-2026-10-18).
+
 * **Server-bound Live commands (2026-10-18)**: bind command envelopes to boot/prefix, invalidate reused endpoint state, and wait for a fresh report after reconnect. [Contract and regressions](live-ops-wire.md#server-bound-commands-2026-10-18).
 
 * **Interrupted Live command batches (2026-10-18)**: persist each command boundary, report interrupted execution as ambiguous, and avoid replayed side effects. [TMI engine regression](live-ops-wire.md#interrupted-command-batches-2026-10-18).

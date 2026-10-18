@@ -3,7 +3,8 @@ type: Proposal
 title: 'Live mode over Redis: implementation plan'
 description: The implementation plan for live mode's second version - clients (a DM's tools, an LLM) talk to Moonglow over its HTTPS API, Moonglow talks to the running NWNX server over Redis pub/sub, live mode is its own page in Options, commands can run a module's script or a chunk of NWScript, and an MCP server tied to no Moonglow version, fork, machine or LLM discovers what to offer - with the channels, every file to change, the NWScript side, the WSL setup, tests and the morning acceptance run.
 tags: [proposal, live, redis, nwnx, dm, llm, options, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T02:00:00Z }
+generated: { by: codex/astra1, at: 2026-10-18T00:00:00Z }
+sources: [live-ops-wire.md]
 ---
 
 # Live mode over Redis: implementation plan
@@ -159,31 +160,35 @@ sockets; the store is kept so the view shows the last report as stale.
 
 Channel names are `<prefix>.state` and `<prefix>.cmd`; the prefix is
 `mglive` unless set (Options › Live, `MGLIVE_PREFIX` on the server).
-Message bodies are **exactly v1's JSON**:
+The v1 envelopes now include the delivery safeguards from
+[the current wire contract](live-ops-wire.md#server-bound-commands-2026-10-18):
 
 * **`<prefix>.state`** — the game, every second: v1's sync request body
-  (`v`, `boot`, `seq`, `ack`, `results`, `areas`, every fifth one
+  (`v`, `prefix`, `boot`, `seq`, `ack`, `results`, `areas`, every fifth one
   `full`). See [v1 protocol](live-mode-proposal.md#game--moonglow-post-livev1sync).
 * **`<prefix>.cmd`** — Moonglow: v1's sync reply body
   `{"v":1,"commands":[…]}`, published
-  * after each state message, **only if the queue is not empty** (each
+  * after each accepted state message, **only if commands or result receipts are pending** (each
     message runs a script in the game);
   * at once when a command is queued (from the API or the view), so an
     NPC moves within milliseconds, not at the next second.
 
-Delivery stays **exactly once in effect** with fire-and-forget pub/sub:
+Delivery uses bounded command deduplication and explicit result receipts; interrupted
+execution is ambiguous and does not promise rollback:
 
 * Moonglow publishes every unacknowledged command again after each
   state message until the game acknowledges it, and expires it after
   30 s (v1 rules).
 * The game runs a command id once (its last 256 ids, `MGLIVE_DONE`) and
   acknowledges repeats without running them.
-* The game clears the acknowledgements and results it sent **only when
-  PUBLISH reached at least one subscriber** (the reply of `PUBLISH`);
-  otherwise it sends them again next second. If they are lost anyway
-  (Moonglow died after receiving), the command is published again, the
-  game acknowledges the repeat without running it, and Moonglow records
-  `"ok":true,"err":"acknowledged; result not received"`.
+* The game retains results until Moonglow echoes their versioned receipts,
+  subject to the [retention bounds](live-ops-wire.md#explicit-result-receipts-2026-10-18).
+  PUBLISH subscriber counts are diagnostic only. ACK without a result becomes
+  `ok:false, code:"unknown"`; a later actual result can resolve it.
+* Each command's start/done boundary is persisted independently. An interrupted
+  command becomes `ambiguous` and is not automatically rerun on retransmission.
+* Commands are bound to the report's boot and configured prefix. Reconnects wait
+  for a fresh report; changing endpoints invalidates the prior validated queue.
 * A new `boot` (server restart) drops the areas and expires the queue
   (v1).
 
@@ -926,8 +931,8 @@ older than the workspace minimum).
    * `LiveStore::set_kick(Sender<()>)`; `enqueue` sends a kick after
      queueing (ignore a closed channel).
    * A result for an acknowledged command without a result:
-     `ok:true, err:"acknowledged; result not received"` (today such a
-     command just leaves the queue).
+     `ok:false, code:"unknown", err:"unknown: acknowledged; result not received"`
+     (the original success fallback was superseded on 2026-10-18).
    `crates/mg-ui/src/lib.rs`: `pub mod live;` becomes
    `pub use mg_live::store as live;` so `live_view.rs` and the tests keep
    compiling (or update their `use` lines).
@@ -1060,7 +1065,8 @@ In `tools/live/nwn/`:
   `int r = NWNX_Redis_PUBLISH(prefix + ".state", JsonDump(body));`
   `int heard = NWNX_Redis_GetResultAsInt(r);` — if `heard > 0` remove the
   acks/results that were in this body (v1's "sent" logic moves here);
-  drop `MGLIVE_BUSY`/`INFLIGHT`/`SENT_AT` (no request in flight any more).
+  retire legacy HTTP request markers, but preserve the current per-command
+  `MGLIVE_INFLIGHT` interruption marker.
   Log once a minute: `seq`, `full`, tick µs, bytes, `heard`.
 * **`mglive_ps.nss`** (new; replaces `mglive_http.nss`, delete that):
   `struct NWNX_Redis_PubSubMessageData d = NWNX_Redis_GetPubSubMessageData();`
@@ -1496,12 +1502,11 @@ and the status JSON beside them.
 
 * **Redis install needs the owner** (sudo). Without it nothing in this
   version runs; v1 (HTTPS) stays in git history as a fallback.
-* **PUBLISH's subscriber count** is the game's delivery signal. Phase E
-  verified `NWNX_Redis_GetResultAsInt` returned 1 on the first report.
-  Keep acknowledgement/results when no subscriber receives them; do not
-  weaken that check if a different plugin build behaves differently.
+* **PUBLISH's subscriber count** is not proof of result delivery. Phase E
+  verified a count of 1, but the current implementation requires explicit
+  versioned receipts; see the [receipt regression](live-ops-wire.md#explicit-result-receipts-2026-10-18).
 * **One script run per Redis message** in the game: Moonglow publishes
-  commands only when there are some; a burst of API commands publishes
+  commands or receipt-only envelopes only when needed; a burst of API commands publishes
   one message per enqueue — acceptable for a DM's pace; batch (publish at
   most every 50 ms) if logs show load.
 * **`run_chunk` is arbitrary code** on the server: two switches, logging,
