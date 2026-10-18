@@ -1,5 +1,7 @@
 # Update log
 
+* **Late unknown result correlation (2026-10-18)**: bounded boot-bound registry survives UI eviction, resolves late failures and advances the acknowledged gateway outbox revision; endpoint and capacity regressions pass. [Contract and reproduction](live-ops-wire.md#late-unknown-results-beyond-ui-history-m2-m3).
+
 * **Unknown result acknowledgement (2026-10-18)**: retain ACKed unknown outbox entries so the unresolved-command registry can deliver a late final revision. [Boundary and regression](live-library.md#gateway-audit-invariants).
 
 * **Shared gateway command log (2026-10-18)**: Read sessions see command and skill-roll events from other principals; results stay owner-scoped. [Two-session regression](live-library.md#gateway-audit-invariants).

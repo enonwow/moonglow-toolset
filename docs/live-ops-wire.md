@@ -3375,3 +3375,28 @@ cannot survive session removal, replacement or a boot change during command IO.
 The gateway implementation owns the binding and its regression; the store owns
 this integration point. The blocked-acceptance regression passes with the hook,
 alongside the consent-epoch regressions.
+
+## Late unknown results beyond UI history (M2 M3)
+
+Unknown outcomes have a separate correlation registry for the current game boot:
+at most 4096 commands and 8 MiB of serialized command/result data. The UI history
+remains 64 entries. A correlated late result can replace Unknown after that UI
+entry is evicted, updates the command event and gateway result revision, and
+removes the unresolved entry once a known result arrives. Duplicates cannot
+replace a known final result. Boot changes invalidate correlation, and endpoint
+changes clear it even if the other endpoint reports the same boot name.
+
+Oldest unresolved entries are evicted when either budget is reached; this is a
+bounded late-result horizon, not indefinite archival. Accepted ID fingerprints
+remain separate, so correlation eviction never authorizes automatic re-execution.
+Acknowledging an Unknown gateway result must retain its outbox row until a final
+result or the existing outbox retention limit. Only an acknowledged Final may be
+retired as completed; otherwise a late final cannot advance the delivered revision.
+
+Regressions first reproduced both UI eviction losing a late failure and a new
+boot incorrectly resolving an old Unknown. The acceptance acknowledges Unknown,
+completes 65 other commands, then checks the late real failure, owner attribution,
+command event and final outbox revision; a duplicate cannot change it again.
+Additional store tests cover endpoint isolation and both registry capacity limits.
+Run `cargo +1.98.0 test -p mg-live --lib store::accept_tests -j 2` with the environment
+specified above; no game server or external data is required.

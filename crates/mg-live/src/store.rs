@@ -1748,6 +1748,60 @@ struct Queued {
     ttl_ms: u64,
 }
 
+const MAX_UNRESOLVED: usize = 4096;
+const MAX_UNRESOLVED_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug)]
+struct UnresolvedEntry {
+    command: Command,
+    result: CommandResult,
+    bytes: usize,
+}
+#[derive(Debug, Default)]
+struct Unresolved {
+    boot: String,
+    entries: HashMap<String, UnresolvedEntry>,
+    order: VecDeque<String>,
+    bytes: usize,
+}
+impl Unresolved {
+    fn select_boot(&mut self, boot: &str) {
+        if self.boot != boot {
+            *self = Self { boot: boot.into(), ..Self::default() };
+        }
+    }
+    fn remove(&mut self, id: &str) {
+        if let Some(entry) = self.entries.remove(id) {
+            self.bytes -= entry.bytes;
+            self.order.retain(|old| old != id);
+        }
+    }
+    fn record(&mut self, boot: &str, command: &Command, result: &CommandResult) {
+        self.select_boot(boot);
+        self.remove(&command.id);
+        if result.code != Some(ErrorCode::Unknown) {
+            return;
+        }
+        let bytes = serde_json::to_vec(&(command, result)).expect("command/result serialize").len();
+        if bytes > MAX_UNRESOLVED_BYTES {
+            return;
+        }
+        while self.entries.len() >= MAX_UNRESOLVED || self.bytes + bytes > MAX_UNRESOLVED_BYTES {
+            let id = self.order.pop_front().expect("nonempty unresolved registry");
+            self.bytes -= self.entries.remove(&id).expect("ordered entry").bytes;
+        }
+        self.order.push_back(command.id.clone());
+        self.entries.insert(
+            command.id.clone(),
+            UnresolvedEntry { command: command.clone(), result: result.clone(), bytes },
+        );
+        self.bytes += bytes;
+    }
+    fn get(&self, boot: &str, id: &str) -> Option<&UnresolvedEntry> {
+        (self.boot == boot).then(|| self.entries.get(id)).flatten()
+    }
+}
+
 const COMMAND_WINDOW_MS: u64 = 60_000;
 const GLOBAL_COMMANDS_PER_WINDOW: u32 = 600;
 
@@ -1827,6 +1881,7 @@ struct State {
     watch: watch::Watches,
     queue: VecDeque<Queued>,
     results: VecDeque<(Command, CommandResult)>,
+    unresolved: Unresolved,
     /// Receipts for the latest result batch, including control commands.
     receipts: Vec<String>,
     /// Commands accepted by the game but awaiting a player click/timeout.
@@ -1950,6 +2005,7 @@ impl LiveStore {
             let result = undelivered(&command.id, sent, "server endpoint changed");
             push_result(&mut s, command, result);
         }
+        s.unresolved = Unresolved::default();
         s.accepted.clear();
         let retained: HashSet<_> = s.results.iter().map(|(c, _)| c.id.clone()).collect();
         s.owners.retain(|id, _| retained.contains(id));
@@ -2792,6 +2848,7 @@ impl LiveStore {
             .iter()
             .find(|(_, r)| r.id == id)
             .map(|(_, r)| r.clone())
+            .or_else(|| s.unresolved.get(&s.boot, id).map(|entry| entry.result.clone()))
             .or_else(|| assistant::pending(&s, id))
             .map(|mut result| {
                 result.by = s.owners.get(id).filter(|by| by.as_str() != "local").cloned();
@@ -2986,6 +3043,7 @@ fn receive_results(
     seq: u64,
     now_ms: u64,
 ) {
+    s.unresolved.select_boot(&s.boot);
     if seq >= s.seq {
         let prefix = format!("{}:", s.boot);
         s.receipts = results
@@ -3004,12 +3062,9 @@ fn receive_results(
             }
             Some(command)
         } else {
-            // A delayed result may resolve an ACK-only unknown outcome. Never
-            // overwrite a known final result with a duplicate or older frame.
-            s.results
-                .iter()
-                .find(|(_, old)| old.id == r.id && old.code == Some(ErrorCode::Unknown))
-                .map(|(command, _)| command.clone())
+            // Correlation outlives the UI history, but never its game boot.
+            // A known final result removes this entry, so duplicates cannot replace it.
+            s.unresolved.get(&s.boot, &r.id).map(|entry| entry.command.clone())
         };
         if let Some(command) = command {
             if r.ok && r.pending {
@@ -3130,6 +3185,7 @@ fn game_commands(s: &mut State) -> Value {
 
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
     result.by = s.owners.get(&command.id).filter(|by| by.as_str() != "local").cloned();
+    s.unresolved.record(&s.boot, &command, &result);
     let draft_answer = assistant::completed(s, &command, &result);
     if let Some(audit) = &s.audit {
         let cmd = serde_json::to_value(&command).unwrap_or_default();
