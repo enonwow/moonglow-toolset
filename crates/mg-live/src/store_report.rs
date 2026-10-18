@@ -6,7 +6,9 @@ use super::{
 
 impl SyncRequest {
     pub(super) fn parse(body: &[u8]) -> Result<Self, String> {
-        if body.len() > 4 * 1024 * 1024 {
+        // The game budgets result batches to 512 KiB in addition to the
+        // existing 4 MiB state allowance. Keep headroom for JSON framing.
+        if body.len() > 5 * 1024 * 1024 {
             return Err("Body too large".into());
         }
         let mut message: Value =

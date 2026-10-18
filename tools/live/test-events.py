@@ -342,6 +342,10 @@ class Proof:
         from test_command_delivery import receipts
         return receipts(self)
 
+    def command_budget(self):
+        from test_command_delivery import result_budget
+        return result_budget(self)
+
     def watch_areas(self):
         from test_watch_areas import run
         return run(self)
@@ -2311,6 +2315,7 @@ def main():
     parser._option_string_actions["--phase"].choices.append("redis_restart")
     parser._option_string_actions["--phase"].choices.append("stress")
     parser._option_string_actions["--phase"].choices.append("command_receipts")
+    parser._option_string_actions["--phase"].choices.append("command_budget")
     parser._option_string_actions["--phase"].choices.append("command_interrupt")
     parser._option_string_actions["--phase"].choices.append("command_boot")
     args = parser.parse_args()

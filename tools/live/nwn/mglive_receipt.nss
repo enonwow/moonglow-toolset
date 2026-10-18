@@ -1,6 +1,22 @@
 // Bounded, versioned results. PUBLISH subscriber counts are not receipts.
 const int MGLIVE_RESULT_LIMIT = 256;
 const int MGLIVE_RESULT_TICKS = 300;
+// Leave space for the state baseline inside the receiver's report limit.
+const int MGLIVE_REPORT_RESULT_BYTES = 524288;
+
+json MgLiveReportResults()
+{
+    json retained=GetLocalJson(GetModule(),"MGLIVE_RESULTS");
+    json batch=JsonArray();int bytes=2;int i;
+    for(i=0;i<JsonGetLength(retained);i++)
+    {
+        json result=JsonArrayGet(retained,i);
+        int size=GetStringLength(JsonDump(result))+1;
+        if(bytes+size>MGLIVE_REPORT_RESULT_BYTES) break;
+        batch=JsonArrayInsert(batch,result);bytes+=size;
+    }
+    return batch;
+}
 
 void MgLiveRetainResult(json answer)
 {

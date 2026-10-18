@@ -1,5 +1,7 @@
 # Update log
 
+* **Bounded Live result reports (2026-10-18)**: 512 KiB batches, deferred receipts and bounded parser headroom; private engine proof passes. [Contract](live-ops-wire.md#report-result-budget-2026-10-18).
+
 * **Desktop session storage (2026-10-18)**: per-server OS keyring with private fallback only on unavailability, atomic replacement and recovery migration. [Contract](live-desktop-link.md#credential-storage).
 
 * **Live policy hand-off (2026-10-18)**: revocation distinguishes cancellation from work already handed to transport. [Contract](live-ops-wire.md#policy-revocation-at-hand-off-2026-10-18).

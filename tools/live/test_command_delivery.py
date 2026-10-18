@@ -25,6 +25,38 @@ def receipts(p):
             "wrong_receipt_retained": True, "explicit_receipt_cleared": True}
 
 
+def result_budget(p):
+    # Synthetic large rows exercise the native transport budget independently
+    # of object capture size/content validation.
+    code = '''string blob="x"; int i; for(i=0;i<18;i++) blob+=blob;
+    blob=GetStringLeft(blob,180000); json rows=JsonArray();
+    for(i=0;i<4;i++) {
+        string id="budget-"+IntToString(i);
+        json r=JsonObjectSet(JsonObject(),"id",JsonString(id));
+        r=JsonObjectSet(r,"ok",JsonBool(TRUE));
+        r=JsonObjectSet(r,"value",JsonString(blob));
+        r=JsonObjectSet(r,"receipt",JsonString(GetLocalString(GetModule(),"MGLIVE_BOOT")+":"+id));
+        r=JsonObjectSet(r,"expires",JsonInt(GetLocalInt(GetModule(),"MGLIVE_SEQ")+100));
+        rows=JsonArrayInsert(rows,r);
+    } SetLocalJson(GetModule(),"MGLIVE_RESULTS",rows);'''
+    publish(p, [{"id": "budget-setup", "area": "events", "op": "run_chunk", "code": code}])
+    seen = set()
+    sizes = []
+    while len(seen) < 4:
+        p.until(lambda: any(r["id"].startswith("budget-") and r["id"] != "budget-setup"
+                            for r in p.state.get("results", [])))
+        batch = p.state["results"]
+        size = len(json.dumps(batch, separators=(",", ":")).encode())
+        assert size <= 524288, size
+        sizes.append(size)
+        seen.update(r["id"] for r in batch if r["id"] != "budget-setup")
+        assert set(p.state["ack"]) == {r["id"] for r in batch}
+        seq = p.state["seq"]
+        publish(p, received=[r["receipt"] for r in batch])
+        p.until(lambda: p.state["seq"] > seq)
+    return {"report_result_bytes": sizes, "all_deferred_results_delivered": sorted(seen)}
+
+
 def interrupted(p):
     commands = [
         {"id": "batch-first", "area": "events", "op": "run_chunk", "code":

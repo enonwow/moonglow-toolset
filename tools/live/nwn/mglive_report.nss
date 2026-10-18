@@ -16,8 +16,11 @@ void MgLiveReportPublish()
     json areas=JsonParse("["+rows+"]");
     MgLiveRecoverCommand();
     MgLiveReceiveResults(JsonArray());
-    json ack = GetLocalJson(m, "MGLIVE_ACK");
-    json results = GetLocalJson(m, "MGLIVE_RESULTS");
+    json results = MgLiveReportResults();
+    // Deferred results must not look like lost outcomes via an early ACK.
+    json ack = JsonArray();
+    for(i=0;i<JsonGetLength(results);i++)
+        ack=JsonArrayInsert(ack,JsonObjectGet(JsonArrayGet(results,i),"id"));
     json body = JsonObjectSet(JsonObject(), "v", JsonInt(1));
     body = JsonObjectSet(body, "text_codepage", JsonString(MgLiveTextCodepage()));
     body = JsonObjectSet(body, "prefix", JsonString(GetLocalString(m,"MGLIVE_PREFIX")));

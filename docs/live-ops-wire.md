@@ -3149,3 +3149,17 @@ handed to the publisher becomes `unknown`, with an explicit possible-execution
 message. It is removed from retransmission. A late result can still resolve it.
 The deterministic hand-off regression revokes policy after copying a transport
 batch and verifies both outcomes and late success.
+
+## Report result budget (2026-10-18)
+
+Each game report includes at most 512 KiB of retained results and acknowledges
+only that batch. Remaining results wait for subsequent reports and explicit
+receipts. The parser allows 5 MiB total, reserving result/envelope headroom
+above the original 4 MiB state allowance while retaining a hard bound.
+
+Private WSL proof: run `tools/live/test-events.py --phase command_budget`
+with the existing fixture compiler through `MGLIVE_FIXTURE_MG`. The harness
+uses its private server and scratch directory. Four synthetic 180,000-byte
+rows were delivered across bounded reports and cleared with exact receipts;
+no deferred result was prematurely acknowledged. `report_budget` checks parser
+headroom and rejection beyond the hard limit.
