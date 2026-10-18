@@ -500,6 +500,45 @@ fn system_tokens()
     Ok(mg_live_link::credentials::TokenStore::system(&dir))
 }
 
+/// Live identifies clients by unique, case-insensitive names.
+fn client_credential_id(name: &str) -> String {
+    format!("local-dev/client/{}", name.to_lowercase())
+}
+
+#[derive(Serialize)]
+struct SavedClient<'a> {
+    name: &'a str,
+    groups: &'a [mg_live::access::ClientGroup],
+    per_minute: u32,
+    delivery: mg_live::access::DeliveryMode,
+}
+
+fn restore_client_credentials<B: mg_live_link::credentials::Backend>(
+    live: &mut mg_live::LiveConfig,
+    store: &mg_live_link::credentials::TokenStore<B>,
+) -> Result<(), mg_live_link::credentials::StoreError> {
+    for client in &mut live.clients {
+        if client.token.is_empty() {
+            client.token = store
+                .get(&client_credential_id(&client.name))?
+                .ok_or(mg_live_link::credentials::StoreError::Storage)?
+                .expose()
+                .to_owned();
+        }
+    }
+    Ok(())
+}
+
+/// Resolve saved client identities only when starting the legacy local service.
+pub(crate) fn restore_live_clients(
+    live: &mut mg_live::LiveConfig,
+) -> Result<(), mg_live_link::credentials::StoreError> {
+    if live.clients.iter().any(|client| client.token.is_empty()) {
+        restore_client_credentials(live, &system_tokens()?)?;
+    }
+    Ok(())
+}
+
 /// Saving cannot discard an unmigrated credential when secure storage fails.
 fn save_legacy_live<S: serde::Serializer>(
     live: &mg_live::LiveConfig,
@@ -511,6 +550,15 @@ fn save_legacy_live<S: serde::Serializer>(
         system_tokens()
             .and_then(|s| s.set("local-dev", &token))
             .map_err(serde::ser::Error::custom)?;
+    }
+    for client in &live.clients {
+        if !client.token.is_empty() {
+            let token = mg_live_link::SessionToken::new(client.token.clone())
+                .map_err(serde::ser::Error::custom)?;
+            system_tokens()
+                .and_then(|s| s.set(&client_credential_id(&client.name), &token))
+                .map_err(serde::ser::Error::custom)?;
+        }
     }
     use serde::ser::SerializeStruct;
     let mg_live::LiveConfig {
@@ -533,7 +581,16 @@ fn save_legacy_live<S: serde::Serializer>(
     value.serialize_field("allow_agents", allow_agents)?;
     value.serialize_field("api_bind", api_bind)?;
     value.serialize_field("api_port", api_port)?;
-    value.serialize_field("clients", clients)?;
+    let clients: Vec<_> = clients
+        .iter()
+        .map(|client| SavedClient {
+            name: &client.name,
+            groups: &client.groups,
+            per_minute: client.per_minute,
+            delivery: client.delivery,
+        })
+        .collect();
+    value.serialize_field("clients", &clients)?;
     value.serialize_field("redis_host", redis_host)?;
     value.serialize_field("redis_port", redis_port)?;
     value.serialize_field("prefix", prefix)?;
@@ -562,6 +619,17 @@ impl Settings {
                 let mut local = LiveServers::default().servers.remove(0);
                 local.selected = self.live_servers.servers.is_empty();
                 self.live_servers.servers.push(local);
+            }
+        }
+        for client in &mut self.live.clients {
+            if !client.token.is_empty() {
+                let token = mg_live_link::SessionToken::new(client.token.clone())
+                    .map_err(|_| mg_live_link::credentials::StoreError::Storage)?;
+                let id = client_credential_id(&client.name);
+                if store.get(&id)?.is_none() {
+                    store.set(&id, &token)?;
+                }
+                client.token.clear();
             }
         }
         Ok(())
@@ -666,6 +734,39 @@ mod tests {
             self.0.lock().unwrap().remove(id);
             Ok(())
         }
+    }
+
+    #[test]
+    fn named_client_migration_saves_references_without_plaintext() {
+        let mut settings: Settings = serde_json::from_str(
+            r#"{"live":{"clients":[{"name":"reader","token":"fixture-reader"},{"name":"writer","token":"fixture-writer","per_minute":12}]}}"#,
+        ).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let store = mg_live_link::credentials::TokenStore::new(MemoryTokens::default(), dir.path());
+        settings.migrate_live(&store).unwrap();
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(!json.contains("fixture-reader"), "client secret leaked into settings");
+        assert!(!json.contains("fixture-writer"));
+        assert!(!json.contains("\"token\""));
+        assert_eq!(
+            store.get("local-dev/client/reader").unwrap().unwrap().expose(),
+            "fixture-reader"
+        );
+        assert_eq!(
+            store.get("local-dev/client/writer").unwrap().unwrap().expose(),
+            "fixture-writer"
+        );
+        let loaded: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.live.clients[0].name, "reader");
+        assert_eq!(loaded.live.clients[1].per_minute, 12);
+        assert!(loaded.live.clients.iter().all(|client| client.token.is_empty()));
+        let ron = ron::to_string(&loaded).unwrap();
+        assert!(!ron.contains("fixture-reader"));
+        let mut restored: Settings = ron::from_str(&ron).unwrap();
+        restore_client_credentials(&mut restored.live, &store).unwrap();
+        assert_eq!(restored.live.clients[0].token, "fixture-reader");
+        assert_eq!(restored.live.clients[1].token, "fixture-writer");
+        assert_eq!(restored.live.clients[1].per_minute, 12);
     }
 
     #[test]

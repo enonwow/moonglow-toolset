@@ -298,6 +298,7 @@ impl Moonglow {
             if !config.enabled {
                 return Ok(None);
             }
+            crate::settings::restore_live_clients(&mut config).map_err(|e| e.to_string())?;
             let store = self.live.get_or_insert_with(Default::default).clone();
             let ctx = ctx.clone();
             let mut service = mg_live::LiveService::start(

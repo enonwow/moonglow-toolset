@@ -97,6 +97,19 @@ credential wins over an old legacy token. The emitted JSON/RON omits the old
 `token` field. JSON round trips, migration with a mock store and desktop RON
 round trips (including `keep_wsl: Some(false)`) are regression-tested.
 
+Named legacy clients now use their unique case-insensitive name as the client
+ID, with credential keys `local-dev/client/<id>`. Settings retain the name,
+groups, delivery mode and rate limit, never the bearer field. Explicit migration
+imports each old secret and clears it only after storage succeeds; newer stored
+credentials win. Saving an unmigrated or rotated client imports its current
+secret before emitting the reference. Local Live startup resolves these names
+from secure storage; a missing credential fails startup instead of granting access.
+
+The `named_client_migration_saves_references_without_plaintext` regression first
+failed because JSON contained the client secret. It covers two separate client
+entries, secret-free JSON, RON references and restoring credentials for runtime
+use with an injected memory backend.
+
 `LiveServers::resolve` takes `MOONGLOW_GATEWAY_URL` and
 `MOONGLOW_GATEWAY_TOKEN` over saved settings, without persisting either.
 A URL override uses a distinct environment identity and cannot inherit a saved
@@ -145,7 +158,7 @@ window, isolated settings, no game install and no real account. The list,
 fields, buttons and placeholder lines fit without clipping. This is visual
 verification, separate from user acceptance.
 
-Focused verification: `cargo +1.98.0 test -p mg-live-link -p mg-ui --lib
+Initial implementation verification (before the M2 audit fixes): `cargo +1.98.0 test -p mg-live-link -p mg-ui --lib
 --test login --test credentials --test live_connection -j 2` passed 7 login,
 4 credential, 271 UI library and 2 UI integration tests (one existing ignored
 library test). The manual screen test passed. `cargo +1.98.0 fmt --check` passed.
