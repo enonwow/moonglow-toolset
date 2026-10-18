@@ -51,6 +51,17 @@ struct Writer {
 }
 
 impl Writer {
+    fn maintain(
+        &mut self,
+        dir: &Path,
+        now: SystemTime,
+        age: Duration,
+        bytes: u64,
+    ) -> std::io::Result<()> {
+        prune(dir, now, age, bytes)?;
+        self.receipts.retain(|path, _| path.exists());
+        Ok(())
+    }
     fn append(
         &mut self,
         dir: &Path,
@@ -179,6 +190,7 @@ pub fn keep(
         }
         let mut since = 0;
         let mut writer = Writer::default();
+        let mut maintenance = std::time::Instant::now();
         loop {
             let stopping = stop.load(Ordering::Acquire);
             let (boot, events, last) = store.log_rows(since);
@@ -187,6 +199,12 @@ pub fn keep(
                     Ok(()) => since = last,
                     Err(e) => log::warn!("Live logs: writing {}: {e}", dir.display()),
                 }
+            }
+            if !events.is_empty() || maintenance.elapsed() >= Duration::from_secs(60) {
+                if let Err(e) = writer.maintain(&dir, SystemTime::now(), MAX_AGE, MAX_BYTES) {
+                    log::warn!("Live logs: retention maintenance: {e}");
+                }
+                maintenance = std::time::Instant::now();
             }
             if stopping {
                 break;
@@ -205,6 +223,23 @@ pub fn keep(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn running_writer_enforces_retention_and_can_append_after_pruning() {
+        let dir = std::env::temp_dir()
+            .join(format!("mg-retention-{}", crate::service::generate_token().unwrap()));
+        let mut writer = Writer::default();
+        writer.append(&dir, "active", &[event(1, "chat")], true).unwrap();
+        writer.maintain(&dir, SystemTime::now(), MAX_AGE, 1).unwrap();
+        assert!(writer.receipts.is_empty());
+        assert!(!dir.join("active").exists());
+        writer.append(&dir, "active", &[event(2, "chat")], true).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("active/chat.jsonl")).unwrap().lines().count(),
+            1
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn final_flush_drains_more_than_an_api_page() {

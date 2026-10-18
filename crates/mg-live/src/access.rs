@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashSet,
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -321,7 +321,7 @@ impl Access {
 
 #[derive(Debug, Default)]
 struct AuditState {
-    file: Option<File>,
+    path: Option<PathBuf>,
     pending: Vec<Value>,
     dropped: u64,
 }
@@ -329,9 +329,35 @@ struct AuditState {
 pub(crate) struct Audit {
     state: Mutex<AuditState>,
 }
-// Format one complete row before appending; separate service instances share this file.
-fn audit_line(file: &mut File, record: &Value) -> std::io::Result<()> {
-    file.write_all(format!("{record}\n").as_bytes())
+const AUDIT_BYTES: u64 = 8 * 1024 * 1024;
+
+// Reopen under an OS lock so separate service instances never keep writing an
+// inode which another instance has rotated. Keep one bounded previous segment.
+fn audit_line(path: &Path, record: &Value, limit: u64) -> std::io::Result<()> {
+    let guard = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path.with_extension("lock"))?;
+    guard.lock()?;
+    let row = format!("{record}\n");
+    if path.metadata().is_ok_and(|m| m.len() + row.len() as u64 > limit) {
+        let previous = path.with_extension("1.jsonl");
+        if previous.exists() {
+            std::fs::remove_file(&previous)?;
+        }
+        std::fs::rename(path, previous)?;
+    }
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(row.as_bytes())?;
+    file.flush()
 }
 impl Audit {
     pub(crate) fn open(&self, data_dir: &Path) -> Result<(), String> {
@@ -344,21 +370,20 @@ impl Audit {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file =
-            options.open(dir.join("audit.jsonl")).map_err(|e| format!("Audit file: {e}"))?;
+        let path = dir.join("audit.jsonl");
+        drop(options.open(&path).map_err(|e| format!("Audit file: {e}"))?);
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if s.file.is_some() {
+        if s.path.is_some() {
             return Ok(());
         }
         for record in &s.pending {
-            audit_line(&mut file, record).map_err(|e| format!("Audit write: {e}"))?;
+            audit_line(&path, record, AUDIT_BYTES).map_err(|e| format!("Audit write: {e}"))?;
         }
         if s.dropped > 0 {
-            audit_line(&mut file,&json!({"at_ms":crate::now_ms(),"who":"local","op":"audit","target":null,"result":"buffer_overflow","dropped":s.dropped})).map_err(|e|e.to_string())?;
+            audit_line(&path,&json!({"at_ms":crate::now_ms(),"who":"local","op":"audit","target":null,"result":"buffer_overflow","dropped":s.dropped}), AUDIT_BYTES).map_err(|e|e.to_string())?;
         }
-        file.flush().map_err(|e| e.to_string())?;
         s.pending.clear();
-        s.file = Some(file);
+        s.path = Some(path);
         Ok(())
     }
     pub(crate) fn record(
@@ -379,8 +404,8 @@ impl Audit {
             .filter(|t| !t.is_empty() && t.len() <= 16 && t.bytes().all(|b| b.is_ascii_hexdigit()));
         let value = json!({"at_ms":crate::now_ms(),"who":who,"by":who,"op":op,"target":target,"result":result,"phase":phase});
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(file) = s.file.as_mut() {
-            if audit_line(file, &value).and_then(|_| file.flush()).is_err() {
+        if let Some(path) = &s.path {
+            if audit_line(path, &value, AUDIT_BYTES).is_err() {
                 log::error!("Live audit write failed");
             }
         } else if s.pending.len() < 4096 {
@@ -394,6 +419,29 @@ impl Audit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn audit_rotates_during_appends_and_keeps_complete_recent_rows() {
+        let dir = std::env::temp_dir()
+            .join(format!("mg-audit-rotate-{}", crate::service::generate_token().unwrap()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        for n in 0..20 {
+            audit_line(&path, &json!({"n":n,"text":"bounded"}), 100).unwrap();
+        }
+        let mut rows = Vec::new();
+        for file in [path.with_extension("1.jsonl"), path] {
+            assert!(file.metadata().unwrap().len() <= 100);
+            rows.extend(
+                std::fs::read_to_string(file).unwrap().lines().map(|line| {
+                    serde_json::from_str::<Value>(line).unwrap()["n"].as_u64().unwrap()
+                }),
+            );
+        }
+        assert_eq!(rows.last(), Some(&19));
+        assert!(rows.len() < 20);
+        assert!(rows.windows(2).all(|pair| pair[1] == pair[0] + 1));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn only_local_scope_can_issue_raw_watch_commands() {
         let mut scope = Scope::default();

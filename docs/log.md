@@ -1,5 +1,7 @@
 # Update log
 
+* **Continuous Live retention (2026-10-18)**: runtime log maintenance and bounded audit rotation with shared writer locking. [Contract](live-ops-wire.md#retention-during-a-running-service-2026-10-18).
+
 * **Live inbox replay (2026-10-18)**: queue-epoch receipts prevent duplicate history and notices across game boots. [Contract](live-ops-wire.md#inbox-replay-across-boots-2026-10-18).
 
 * **Live poll revocation (2026-10-18)**: Allow LLM revocation wakes event polls and refuses waits from the prior consent epoch. [Contract](live-ops-wire.md#revoking-pending-agent-polls-2026-10-18).

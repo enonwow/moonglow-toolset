@@ -3250,3 +3250,14 @@ and reset notices. Endpoint reset clears these receipts. At most 256 distinct
 queue epochs are admitted; exhaustion returns an error instead of forgetting
 a receipt and duplicating history. A store/inbox regression restores two
 boots twice and verifies identical history and cursor, including one notice.
+
+## Retention during a running service (2026-10-18)
+
+The log writer applies the existing whole-run 14-day/500-MiB retention policy
+after writes and at least once per idle minute. It forgets cached receipts for
+removed files, so a continuing run can recreate its log safely. This remains
+whole-run retention: an over-budget active run can be removed. Audit appends
+rotate at 8 MiB, retaining one previous segment. Each append reopens the file
+under an OS lock, so multiple service instances do not continue writing a
+renamed segment. Small-limit tests cover ongoing pruning/recreation and valid,
+ordered JSON rows across repeated audit rotations.
