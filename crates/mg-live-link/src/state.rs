@@ -107,7 +107,10 @@ impl Replica {
             return Err(LinkError::Protocol);
         }
         let negotiated = limits(&welcome.limits)?;
-        store.set_id_prefix(&welcome.id_prefix).map_err(|_| LinkError::Protocol)?;
+        // Validate with the store's canonical prefix rules before changing any live state.
+        LiveStore::new_mirror()
+            .set_id_prefix(&welcome.id_prefix)
+            .map_err(|_| LinkError::Protocol)?;
         if !welcome.resumed {
             store.mirror_reset("gateway snapshot replaced").map_err(|_| LinkError::Protocol)?;
             self.resume = Some(Resume { gw_epoch: welcome.gw_epoch.clone(), ..Resume::default() });
@@ -117,6 +120,9 @@ impl Replica {
             self.ack_dirty = false;
             self.ack_items = 0;
         }
+        // Reset settles the old queue as Unknown and clears the boot, so no old
+        // envelope can be resent (or queued between reset and this prefix switch).
+        store.set_id_prefix(&welcome.id_prefix).map_err(|_| LinkError::Protocol)?;
         store.set_policy(welcome.policy);
         self.limits = negotiated;
         self.snapshot.status = LinkStatus::Connected;

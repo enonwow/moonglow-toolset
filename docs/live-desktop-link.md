@@ -19,6 +19,7 @@ sources:
   - ../crates/mg-live-link/src/link.rs
   - ../crates/mg-live-link/src/facade.rs
   - ../crates/mg-live-link/src/state.rs
+  - ../crates/mg-live-link/src/state/tests.rs
   - ../crates/mg-live-link/src/websocket.rs
   - ../crates/mg-live-link/src/worker.rs
   - ../crates/mg-live-link/tests/link.rs
@@ -835,3 +836,27 @@ and agent histories are untouched.
 Cleanup removed 14 owned temporary files (670,985 logical bytes). No physical
 allocation or global free-space recovery is claimed; concurrent workspace activity
 can change those measurements.
+
+## M3 desktop audit corrections
+
+### Gateway restart with pending commands (M2)
+
+A fresh gateway epoch may carry a new command prefix. Applying that prefix while
+commands are still queued fails the mirror guard and turns a normal reconnect
+into a terminal protocol error. Welcome validation now includes a scratch mirror
+using the store's canonical prefix validator, before changing any live state.
+For a fresh snapshot, mirror reset settles old commands as Unknown, clears the
+queue and boot, then the client installs the new prefix. Nothing is resent. A
+resumed snapshot retains the existing queue behavior.
+
+The state regression first failed with `Protocol` on a changed-prefix welcome.
+It covers a sent pending command, successful reconnect state, Unknown result,
+empty resend queue and subsequent new-prefix commands. A second regression
+ensures an invalid prefix leaves the existing boot and pending command intact.
+No engine test is required for this transport-independent transition.
+
+```text
+cargo +1.98.0 test -p mg-live-link --lib -j 2 restart_
+```
+
+Use `NWN_ROOT=/nonexistent` and `CARGO_INCREMENTAL=0` as in the resource workflow.

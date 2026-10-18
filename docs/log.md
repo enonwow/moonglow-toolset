@@ -1,5 +1,7 @@
 # Update log
 
+* **Restarted gateway prefix (2026-10-18)**: validate welcome before mutation, settle old commands as Unknown, then switch prefix; regression reproduced the fatal reconnect error. [M3 correction](live-desktop-link.md#gateway-restart-with-pending-commands-m2).
+
 * **Bounded chat audience (2026-10-18)**: spatial/type filtering and a capped fallback replace the per-object loop; 4096-placeable/288-NPC regression needs WSL run. [Bounds](live-translations.md#bounded-audience-enumeration).
 
 * **Trusted translation configuration (2026-10-18)**: boot-bound, report-acknowledged settings reach game locals; native proof needs WSL run. [Host API](live-translations.md#trusted-game-configuration).

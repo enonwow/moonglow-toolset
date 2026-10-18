@@ -166,3 +166,40 @@ fn acknowledgements_flush_at_32_items_and_keep_the_highest_revision() {
     assert_eq!(replica.ack(false).unwrap().results, vec![("test.1234abcd.1".into(), 32)]);
     assert!(replica.ack(true).is_none());
 }
+
+#[test]
+fn restart_with_new_prefix_settles_pending_commands_before_reconnecting() {
+    let (mut replica, store) = ready();
+    let command: Command =
+        serde_json::from_value(json!({"op":"stop_patrol","area":"square","target":"a1"})).unwrap();
+    let id = store.enqueue(command.clone(), 100).unwrap();
+    store.mirror_mark_sent(std::slice::from_ref(&id)).unwrap();
+    let mut next = welcome("restarted", false);
+    next.id_prefix = "next.".into();
+    replica.welcome(&store, next).unwrap();
+    assert_eq!(replica.snapshot.status, LinkStatus::Connected);
+    assert_eq!(replica.snapshot.connections, 2);
+    assert!(store.mirror_commands(101).unwrap().is_empty(), "old command must never be resent");
+    assert_eq!(store.result(&id).unwrap().code, Some(mg_live::store::ErrorCode::Unknown));
+    let meta = serde_json::from_value(json!({"topic":"meta","body":{
+        "boot":"boot","rev":1,"factions":[],"watched":{"desired":[],"reported":[]},
+        "policy":{},"game":{"connected":true,"age_ms":0},"redis":{}
+    }}))
+    .unwrap();
+    replica.push(&store, meta, 101).unwrap();
+    assert!(store.enqueue(command, 101).unwrap().starts_with("next."));
+}
+
+#[test]
+fn malformed_restart_welcome_does_not_reset_pending_commands() {
+    let (mut replica, store) = ready();
+    let command: Command =
+        serde_json::from_value(json!({"op":"stop_patrol","area":"square","target":"a1"})).unwrap();
+    let id = store.enqueue(command, 100).unwrap();
+    let mut next = welcome("restarted", false);
+    next.id_prefix = "invalid/prefix".into();
+    assert_eq!(replica.welcome(&store, next), Err(LinkError::Protocol));
+    assert_eq!(store.mirror_commands(101).unwrap()[0].command.id, id);
+    assert_eq!(store.boot(), "boot");
+    assert_eq!(replica.snapshot.connections, 1);
+}
