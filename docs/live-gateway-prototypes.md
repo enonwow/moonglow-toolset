@@ -162,3 +162,31 @@ private connected-client fixture; the existing NPC fixture cannot establish
 those claims. The stub uses ASCII authored text; translation quality and non-ASCII codec round trips are not established here. Authenticated HTTPS/cache transport,
 whole-generation switching and renderer invalidation belong to later integration.
 
+## Verification and retained evidence
+
+The shared final gate uses Rust 1.98.0, `CARGO_INCREMENTAL=0`, a nonexistent
+`NWN_ROOT`, and at most two Cargo jobs:
+
+```text
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+The shared workspace run containing all completed prototype source changes on
+2026-10-18 passed: 1720 passed, zero failed, 24 ignored, including both clean-client
+NWSync tests. Workspace Clippy with warnings denied and `fmt --check` both passed.
+Native server tests run separately through the guarded helper; their two passing
+acceptances are described above. Later concurrent gateway and desktop changes
+require their own final verification; the prototype sources stayed unchanged.
+
+The reproducible sources and two compact native proof files are retained:
+`target/test-output/live-events/chat_translation.json` and
+`target/test-output/live-events/chat_translation_stress.json`. These ignored
+proofs include native process cleanup; neither owned server nor Redis process
+remained after the runs. Six owned intermediate state, log and observation files
+were removed after the measurements were recorded (3,795,320 logical bytes).
+Physical disk recovery is not attributed while concurrent workspace builds run.
+Shared build outputs and the reusable fixture workset were preserved. The
+authored NWSync acceptance removes its own temporary fixture directories.
+
