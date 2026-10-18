@@ -121,3 +121,41 @@ mirror change increments `revision()`, including metadata, results and events.
 `mirror_commands`, `mirror_mark_sent` and `mirror_set_ttl` support the transport.
 Run `cargo +1.98.0 test -p mg-live --test passive_mirror -j 2` and the library
 unit test `reset_keeps_waiters_signal_and_cannot_open_a_journal`.
+
+## In-process gateway core
+
+`mg_live::gateway::Gateway` owns session views of an authoritative `Arc<LiveStore>`.
+The host supplies authenticated `SessionConfig` values; no network or identity
+provider is included. `connect` validates resume epoch, boot, area revisions,
+event retention and result retention. `pushes` emits boot/meta/changed areas,
+results and filtered events in protocol order. Area updates coalesce to the
+latest report, at most once per 250 ms per area/session. Focus targets and PCs
+also make areas visible. The mirror applies store topics through `Push::apply`.
+
+Per-area revisions advance only when reports apply. `received_ms` is excluded
+from the area push's nested snapshot; `age_ms` reconstructs local receipt time.
+`full_ms` stays an authoritative baseline identity, not a local receipt clock.
+Events preserve `n`; filtered rows still advance `through`. Chat requires
+`read_chat`; tell channels 4 and 20 additionally require `read_tells`. Command
+and skill events are limited to the owning session.
+
+Each session retains up to 256 result entries for ten minutes from acceptance.
+A full outbox refuses new commands with `rate_limited`; it never evicts an
+unacknowledged result to admit work. Versioned ACKs cannot acknowledge a newer
+result. Final results are immutable; an unknown result can be resolved by a
+late authoritative reply. Expired pending retention emits unknown once and
+invalidates resume. The ordinary 64-result UI ring does not constrain outboxes.
+
+Commands use `operations::command_scoped`, including policy, ownership and
+player checks. Prefix/random/counter syntax, boot and TTL are checked first;
+boot is checked again under the enqueue lock. TTL is 1..30000 ms, starts at
+gateway acceptance and does not renew on retries. `watch_areas` and `resync`
+are refused. Watch sets are absolute, at most the configured session limit;
+the sorted union selects the first 64 and reports the remainder as waiting.
+`spawn_scripted` grants scripted spawning, not standalone `run_script`.
+
+The host can publish already authorized auxiliary drafts, presence, book
+invalidations, session updates and notices with `publish_session`; these drain
+after core state pushes. Identity ownership of AIs and book persistence belong
+to the host, so the core does not infer those permissions.
+Run `cargo +1.98.0 test -p mg-live --test gateway_core -j 2`.

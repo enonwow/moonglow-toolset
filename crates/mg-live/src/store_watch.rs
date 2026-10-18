@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
 pub(super) struct Watches {
-    desired: Option<BTreeSet<String>>,
+    pub(super) desired: Option<BTreeSet<String>>,
     managed: BTreeSet<String>,
     pub reported: Option<Vec<String>>,
     pub pending: Vec<Value>,

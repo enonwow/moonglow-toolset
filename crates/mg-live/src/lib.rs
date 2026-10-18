@@ -30,3 +30,6 @@ pub fn now_ms() -> u64 {
 
 /// Version of the finished-state mirror schema (independent of the game wire).
 pub const MIRROR_VERSION: u32 = 1;
+
+/// In-process gateway core; transport and authentication are supplied by the host.
+pub use store::gateway;

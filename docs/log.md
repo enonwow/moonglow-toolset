@@ -1,5 +1,7 @@
 # Update log
 
+* **Live gateway session core (2026-10-18)**: revisioned views, scoped command delivery, retained result outboxes and resumable event cursors. [Contract and decisions](live-library.md#in-process-gateway-core).
+
 * **Passive Live mirror (2026-10-18)**: finished-state imports, preserved event cursors and no-resend command lifecycle. [Contract](live-library.md#passive-mirror).
 
 * **Versioned Live mirror schema (2026-10-18)**: finished state Serde and version-bound schema fixtures preserve the game wire. [Contract](live-library.md#versioned-finished-state).

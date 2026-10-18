@@ -18,6 +18,8 @@ mod atmosphere;
 mod delta;
 #[path = "store_events.rs"]
 pub(crate) mod event_store;
+#[path = "store_gateway.rs"]
+pub mod gateway;
 #[cfg(test)]
 #[path = "measure.rs"]
 mod measurement;
@@ -1737,11 +1739,13 @@ struct Queued {
     command: Command,
     players: bool,
     queued_ms: u64,
+    ttl_ms: u64,
 }
 
 #[derive(Debug, Default)]
 struct State {
     mirror: Option<mirror::Mirror>,
+    gateway: gateway::GatewayState,
     assistant: assistant::AssistantState,
     command_ids: Option<crate::command_ids::Journal>,
     command_ids_required: bool,
@@ -2076,8 +2080,9 @@ impl LiveStore {
                     s.resync = None;
                 }
                 s.has_baseline = true;
-                let State { areas, events, .. } = &mut *s;
+                let State { areas, events, gateway, .. } = &mut *s;
                 for (mut a, merged) in request.areas.into_iter().zip(prepared) {
+                    *gateway.area_revs.entry(a.area.to_ascii_lowercase()).or_default() += 1;
                     let live = areas.entry(a.area.to_ascii_lowercase()).or_default();
                     let seen = live.received_ms != 0;
                     if let Some(merged) = merged {
@@ -2156,6 +2161,17 @@ impl LiveStore {
         }
         let mut s = self.lock();
         expire(&mut s, now_ms);
+        let ttl_ms = if let Some((boot, ttl)) = gateway::command_binding(&s.gateway, &command.id) {
+            if boot != s.boot {
+                return Err(CommandError::new(
+                    ErrorCode::Expired,
+                    "Game boot changed before enqueue",
+                ));
+            }
+            ttl
+        } else {
+            COMMAND_TTL_MS
+        };
         if s.mirror.is_some() {
             return mirror::enqueue(&mut s, command, now_ms, scope);
         }
@@ -2596,7 +2612,7 @@ impl LiveStore {
         if drafted {
             return Ok(id);
         }
-        s.queue.push_back(Queued { command, players, queued_ms: now_ms });
+        s.queue.push_back(Queued { command, players, queued_ms: now_ms, ttl_ms });
         if let Some(kick) = &s.kick {
             let _ = kick.send(());
         }
@@ -2830,7 +2846,7 @@ fn expire(s: &mut State, now_ms: u64) {
     }
     let mut i = 0;
     while i < s.queue.len() {
-        if now_ms.saturating_sub(s.queue[i].queued_ms) >= COMMAND_TTL_MS {
+        if now_ms.saturating_sub(s.queue[i].queued_ms) >= s.queue[i].ttl_ms {
             let q = s.queue.remove(i).expect("in range");
             let result =
                 failure(&q.command.id, ErrorCode::Expired, "expired: not acknowledged in time");
@@ -2910,6 +2926,7 @@ fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
             if result.pending { "progress" } else { "completion" },
         );
     }
+    gateway::record_result(&mut s.gateway, &result);
     let answer = serde_json::to_value(&result).unwrap_or_default();
     s.events.command(&command.area, &answer, crate::now_ms());
     s.results.retain(|(_, old)| old.id != result.id);
