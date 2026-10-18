@@ -8,6 +8,8 @@ server=${NWN_SERVER:-${NWN_ROOT:-}/bin/linux-x86/nwserver-linux}
 plugins=${NWNX_ROOT:?Set NWNX_ROOT to the directory containing Binaries}/Binaries
 server=$(realpath -- "$server")
 port=${MGLIVE_REDIS_PORT:-6379}
+# A gateway in Docker keeps Redis on the Windows side of WSL: an IPv4 literal only.
+redis_host=${MGLIVE_REDIS_HOST:-127.0.0.1}
 prefix=${MGLIVE_PREFIX:-mglive}
 # This helper only starts private demos. In particular, never silently turn
 # a request for a public/password-free server into a public launch.
@@ -15,6 +17,7 @@ if [[ "${MGLIVE_PUBLIC:-0}" != 0 ]]; then echo 'Public servers are not supported
 passwords=${MGLIVE_PASSWORDS:-0}
 [[ "$passwords" == 0 || "$passwords" == 1 ]] || { echo 'MGLIVE_PASSWORDS must be 0 or 1' >&2; exit 2; }
 [[ -f "$module" && -x "$server" && -f "$plugins/NWNX_Redis.so" &&
+   "$redis_host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ &&
    "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 &&
    "$prefix" =~ ^[A-Za-z0-9_:.-]{1,64}$ ]] || { echo 'Invalid server/Redis configuration' >&2; exit 2; }
 [[ -z "$areas" || "$areas" =~ ^[A-Za-z0-9_-]{1,16}(,[A-Za-z0-9_-]{1,16})*$ ]] || exit 2
@@ -53,7 +56,7 @@ printf '%s\n' "$server" > "$scratch/server.exe"
 cd "$(dirname -- "$server")"
 exec env -i HOME="$HOME" PATH=/usr/bin:/bin LANG=C.UTF-8 \
     LD_PRELOAD="$plugins/NWNX_Core.so" NWNX_CORE_LOAD_PATH="$plugins" NWNX_CORE_SKIP_ALL=y \
-    NWNX_REDIS_SKIP=n NWNX_UTIL_SKIP=n NWNX_CREATURE_SKIP=n NWNX_CHAT_SKIP=n NWNX_REDIS_HOST=127.0.0.1 NWNX_REDIS_PORT="$port" \
+    NWNX_REDIS_SKIP=n NWNX_UTIL_SKIP=n NWNX_CREATURE_SKIP=n NWNX_CHAT_SKIP=n NWNX_REDIS_HOST="$redis_host" NWNX_REDIS_PORT="$port" \
     NWNX_DAMAGE_SKIP=n NWNX_EVENTS_SKIP=n NWNX_AREA_SKIP=n NWNX_OBJECT_SKIP=n NWNX_DIALOG_SKIP=n \
     NWNX_REDIS_PUBSUB_SCRIPT=mglive_ps NWNX_REDIS_PUBSUB_CHANNELS="$prefix.cmd,$prefix.xl" \
     MGLIVE_ALLOW_PLAYER_OPS="${MGLIVE_ALLOW_PLAYER_OPS:-0}" \
