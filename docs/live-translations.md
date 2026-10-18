@@ -173,3 +173,21 @@ receives and replies to `.xl.req` before any state report. Pipeline coverage
 includes preserved emotes/colour markup, untrusted output, per-pair cache, bounded
 LRU, per-player quota, priority, expired queued work, parallel language deadlines,
 in-flight disable and language persistence across restart.
+
+
+## Ordered language writes
+
+Blocking-pool workers can acquire the language-book mutex in a different order
+from request arrival. Without an ordering check, an older choice could overwrite
+a newer saved choice. Each admitted preference request now receives a monotonic
+revision before entering that pool; storage rejects a write older than the last
+committed revision for that player. Other players have independent revision
+checks. The revision map is bounded by the same 4096 saved keys and needs no
+restart persistence because outstanding workers belong to the old process.
+
+`reversed_language_workers_cannot_overwrite_a_newer_choice` applies writes in the
+opposite order, verifies another player's earlier revision still saves, then
+reopens the book and checks the newest choice. All nine pipeline unit tests pass
+after this follow-up (ten distinct translation tests including the bridge test).
+The chat scheduler, game scripts and measured transport path are unchanged by
+this persistence fix; the native measurements above belong to `84b30a3`.

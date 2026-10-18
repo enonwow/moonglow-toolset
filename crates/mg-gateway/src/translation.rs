@@ -364,6 +364,8 @@ async fn run_job(
 struct LanguageBook {
     path: PathBuf,
     values: Mutex<BTreeMap<String, String>>,
+    revisions: Mutex<BTreeMap<String, u64>>,
+    next_revision: std::sync::atomic::AtomicU64,
     slots: Arc<tokio::sync::Semaphore>,
     runtime: tokio::runtime::Handle,
 }
@@ -388,6 +390,8 @@ impl LanguageBook {
         Ok(Self {
             path,
             values: Mutex::new(values),
+            revisions: Mutex::new(BTreeMap::new()),
+            next_revision: std::sync::atomic::AtomicU64::new(1),
             slots: Arc::new(tokio::sync::Semaphore::new(16)),
             runtime: tokio::runtime::Handle::current(),
         })
@@ -395,28 +399,56 @@ impl LanguageBook {
     fn key(key: &str) -> bool {
         !key.is_empty() && key.len() <= 128 && key.bytes().all(|b| b.is_ascii_alphanumeric())
     }
+    fn save(&self, key: &str, lang: &str, revision: u64) -> Result<bool, std::io::Error> {
+        let mut values = self.values.lock().unwrap_or_else(|e| e.into_inner());
+        let mut revisions = self.revisions.lock().unwrap_or_else(|e| e.into_inner());
+        if revisions.get(key).is_some_and(|last| *last >= revision) {
+            return Ok(false);
+        }
+        if !Self::key(key)
+            || !LANGUAGES.contains(&lang)
+            || (!values.contains_key(key) && values.len() >= 4096)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid language preference",
+            ));
+        }
+        let mut next = values.clone();
+        next.insert(key.into(), lang.into());
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temp = self.path.with_extension("pending");
+        let mut file = std::fs::File::create(&temp)?;
+        use std::io::Write;
+        file.write_all(&serde_json::to_vec(&next)?)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(temp, &self.path)?;
+        *values = next;
+        revisions.insert(key.into(), revision);
+        Ok(true)
+    }
+
     fn request(self: &Arc<Self>, value: Value, reply: TranslationReply) {
         let Ok(permit) = self.slots.clone().try_acquire_owned() else { return };
+        // Assign before entering the blocking pool: worker lock order is not arrival order.
+        use std::sync::atomic::Ordering;
+        let Ok(revision) =
+            self.next_revision
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        else {
+            return;
+        };
         let this = self.clone();
         self.runtime.spawn_blocking(move || {
-            let _permit=permit;
-            let Some(key)=value["player"].as_str().filter(|k|Self::key(k)) else { return };
-            if value["req"].as_str().is_none_or(|s|s.len()>128) || value["pc"].as_str().is_none_or(|s|s.len()>16) { return; }
-            let mut values=this.values.lock().unwrap_or_else(|e|e.into_inner());
-            if let Some(lang)=value["lang"].as_str() {
-                if !LANGUAGES.contains(&lang) || (!values.contains_key(key) && values.len()>=4096) { return; }
-                let mut next=values.clone(); next.insert(key.into(),lang.into());
-                let result=(|| -> Result<(),std::io::Error> {
-                    if let Some(parent)=this.path.parent() { std::fs::create_dir_all(parent)?; }
-                    let temp=this.path.with_extension("pending");
-                    let mut file=std::fs::File::create(&temp)?;
-                    use std::io::Write;
-                    file.write_all(&serde_json::to_vec(&next)?)?; file.sync_all()?; drop(file);
-                    std::fs::rename(temp,&this.path)
-                })();
-                if result.is_err() { return; }
-                *values=next;
-            }
+            let _permit = permit;
+            let Some(key) = value["player"].as_str().filter(|k| Self::key(k)) else { return };
+            if value["req"].as_str().is_none_or(|s| s.len() > 128) || value["pc"].as_str().is_none_or(|s| s.len() > 16) { return; }
+            if let Some(lang) = value["lang"].as_str()
+                && !matches!(this.save(key, lang, revision), Ok(true)) { return; }
+            let values = this.values.lock().unwrap_or_else(|e| e.into_inner());
             reply(json!({"kind":"language","req":value["req"],"pc":value["pc"],"lang":values.get(key).map(String::as_str).unwrap_or("en")}));
         });
     }

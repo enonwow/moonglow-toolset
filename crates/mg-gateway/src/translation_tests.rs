@@ -193,3 +193,20 @@ async fn disabling_in_flight_translation_returns_original() {
     assert_eq!(receive.await.unwrap()["miss"], true);
     assert_eq!(answer(&p, value("hello")).await["miss"], true);
 }
+
+#[tokio::test]
+async fn reversed_language_workers_cannot_overwrite_a_newer_choice() {
+    let (p, path) = fixture(Arc::new(Fake::default()));
+    // Worker 2 reaches storage first; worker 1 was delayed in the blocking pool.
+    assert!(p.languages.save("PLAYER", "pl", 2).unwrap());
+    assert!(!p.languages.save("PLAYER", "de", 1).unwrap());
+    // Revision order is per player, not a global drop of other players' writes.
+    assert!(p.languages.save("OTHER", "fr", 1).unwrap());
+    assert!(p.languages.save("PLAYER", "it", 3).unwrap());
+    drop(p);
+    let restored = LanguageBook::open(path.join("languages.json")).unwrap();
+    assert_eq!(restored.values.lock().unwrap()["PLAYER"], "it");
+    assert_eq!(restored.values.lock().unwrap()["OTHER"], "fr");
+    drop(restored);
+    std::fs::remove_dir_all(path).unwrap();
+}
