@@ -16,6 +16,9 @@ sources:
 # Live chat translation pipeline
 
 This is the public P8 implementation of the [interception prototype](live-gateway-prototypes.md).
+Rebuild the prepared module with `mg live-build` to include the new language
+entry/NUI scripts; the generated server configuration already subscribes to
+`<prefix>.xl`. Keep `MGLIVE_XL` off until the host pipeline is attached.
 `MGLIVE_XL` remains off by default. Enabling the gateway configuration alone does
 not change that module switch. The game chooses listeners at speech time, delivers
 same-language speech immediately, and owns the 0.9-second original-text fallback.
@@ -191,3 +194,38 @@ reopens the book and checks the newest choice. All nine pipeline unit tests pass
 after this follow-up (ten distinct translation tests including the bridge test).
 The chat scheduler, game scripts and measured transport path are unchanged by
 this persistence fix; the native measurements above belong to `84b30a3`.
+
+
+## Final verification snapshot
+
+P8 source checkpoints are `84b30a3`, the language-ordering fix `61d5407`, and
+Clippy-only decoder placement `c87fe5c`. The owner cancellation hook is `4c06993`;
+the six already-committed MCP dependency lock entries were confirmed with
+`cargo +1.98.0 metadata --locked --format-version 1 --no-deps` and committed in
+`9e469ec`. No push was performed.
+
+All Cargo runs used Rust 1.98.0, a nonexistent `NWN_ROOT`,
+`CARGO_INCREMENTAL=0` and at most two compiler jobs. Shared-workspace verification
+was coordinated as one run rather than competing full builds.
+
+| Gate | Result |
+| --- | --- |
+| `cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2` | The first run passed 1817 tests, zero failures, 24 ignored. The repeat after the language-ordering fix stopped during compilation: concurrent GUI work declared `live_resources` before creating its module file. No tests executed in that repeat. |
+| `cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings` | Passed on the frozen P8 checkpoint `c87fe5c`. |
+| `cargo +1.98.0 fmt --check` | The final snapshot found formatting changes in concurrent GUI tests `gateway_resources.rs` and `support/resource_host.rs`. |
+| `cargo +1.98.0 test -p mg-live -p mg-gateway --lib --bins --tests -j 2` | Final P8 source passed: 312 tests, zero failures, four ignored manual tests. |
+| `cargo +1.98.0 clippy -p mg-live -p mg-gateway --all-targets -j 2 -- -D warnings` | Passed. |
+| `cargo +1.98.0 fmt -p mg-live -p mg-gateway --check` | Passed. |
+
+The four ignored tests require external TLS/Redis, WSL service lifecycle or
+engine snapshot fixtures. The two native translation proofs above were run
+separately. The final scoped pass is not a claim that the moving full workspace
+is green. The GUI owner must repeat its full gate after that work stabilizes.
+OKF tooling was unavailable; frontmatter, source paths and link targets were
+checked directly.
+
+Ten task-owned temporary logs and proof-runner build files were removed after
+preserving these results (31,393,053 logical bytes). The current native fixture,
+its reports, per-listener observations and compact verification records remain
+for review/reproduction. Shared build caches were preserved. Concurrent compiler activity prevents attributing changes in free
+disk space to this cleanup.
