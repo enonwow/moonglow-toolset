@@ -1778,6 +1778,8 @@ struct State {
     logs: VecDeque<String>,
     redis: Option<Arc<Mutex<crate::bridge::State>>>,
     events: crate::events::EventLog,
+    agent_consent: Option<bool>,
+    agent_epoch: u64,
 }
 
 /// What the game last reported and what waits for it. Shared by the HTTPS

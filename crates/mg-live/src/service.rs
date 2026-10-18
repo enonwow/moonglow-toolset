@@ -178,6 +178,7 @@ impl LiveService {
         let stop = Arc::new(AtomicBool::new(false));
         let access = Arc::new(crate::access::Access::new(config.token.clone(), &config.clients)?);
         access.agents.set_allowed(config.allow_agents);
+        store.set_agent_consent(config.allow_agents);
         // Apply gates before opening the listener: a known client can connect immediately.
         store.set_policy(config.policy);
         store.set_audit(access.audit.clone());
@@ -277,14 +278,17 @@ impl LiveService {
         if !allowed {
             // Revoke access even if removing the discovery file fails.
             self.access.agents.set_allowed(false);
+            self.store.set_agent_consent(false);
             return self.remove_descriptor();
         }
         if let Err(e) = self.ensure_descriptor() {
             self.config.allow_agents = false;
             self.access.agents.set_allowed(false);
+            self.store.set_agent_consent(false);
             return Err(e);
         }
         self.access.agents.set_allowed(true);
+        self.store.set_agent_consent(true);
         Ok(())
     }
     /// Authenticated clients seen within 60 seconds; no game-store lock or report clone.

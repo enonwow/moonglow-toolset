@@ -59,6 +59,24 @@ fn query(s: &State, q: &Query, scope: &Scope, filter: &ChatFilter) -> EventPage 
     }
 }
 impl LiveStore {
+    pub(crate) fn set_agent_consent(&self, allowed: bool) {
+        let mut s = self.lock();
+        s.agent_consent = Some(allowed);
+        if !allowed {
+            s.agent_epoch = s.agent_epoch.wrapping_add(1);
+        }
+        s.events.changed.notify_all();
+    }
+
+    pub(crate) fn poll_epoch(&self, scope: &Scope) -> Result<u64, super::CommandError> {
+        let s = self.lock();
+        poll_allowed(&s, scope, s.agent_epoch)?;
+        Ok(s.agent_epoch)
+    }
+
+    pub(crate) fn check_poll(&self, scope: &Scope, epoch: u64) -> Result<(), super::CommandError> {
+        poll_allowed(&self.lock(), scope, epoch)
+    }
     pub(crate) fn log_rows(&self, since: u64) -> (String, Vec<Event>, u64) {
         let s = self.lock();
         (s.boot.clone(), s.events.log_rows(since), s.events.last())
@@ -133,11 +151,13 @@ impl LiveStore {
         filter: &ChatFilter,
         wait_ms: u64,
         stop: &AtomicBool,
-    ) -> Result<EventPage, String> {
+    ) -> Result<EventPage, super::CommandError> {
         let deadline = Instant::now() + Duration::from_millis(wait_ms.min(30000));
         let mut s = self.lock();
+        let epoch = s.agent_epoch;
         let signal = s.events.changed.clone();
         loop {
+            poll_allowed(&s, scope, epoch)?;
             if stop.load(Ordering::Acquire) {
                 return Err("Live service stopped".into());
             }
@@ -192,6 +212,15 @@ impl LiveStore {
         super::assistant::capture(&mut s);
         Ok(old != s.events.last())
     }
+}
+
+fn poll_allowed(s: &State, scope: &Scope, epoch: u64) -> Result<(), super::CommandError> {
+    if !(scope.unrestricted() && scope.name() == "local")
+        && (s.agent_consent == Some(false) || epoch != s.agent_epoch)
+    {
+        return Err(super::CommandError::new(super::ErrorCode::Forbidden, crate::agents::DENIED));
+    }
+    Ok(())
 }
 
 pub(super) fn enrich(s: &State, events: &[Value], now_ms: u64) -> Vec<Value> {
@@ -348,6 +377,38 @@ mod tests {
         stop.store(true, Ordering::Release);
         s.wake_event_waiters();
         assert!(worker.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn revocation_wakes_and_refuses_pending_polls_even_after_reenable() {
+        let s = store();
+        s.set_agent_consent(true);
+        let epoch = s.poll_epoch(&Scope::default()).unwrap();
+        let reader = s.clone();
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            let result = reader.wait_events(
+                &Query::default(),
+                &Scope::default(),
+                &ChatFilter::default(),
+                30_000,
+                &AtomicBool::new(false),
+            );
+            send.send(result.err().map(|e| e.code)).unwrap();
+        });
+        thread::sleep(Duration::from_millis(25));
+        assert!(!worker.is_finished());
+        s.set_agent_consent(false);
+        assert_eq!(
+            receive.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Some(super::super::ErrorCode::Forbidden)
+        );
+        worker.join().unwrap();
+        s.set_agent_consent(true);
+        assert_eq!(
+            s.check_poll(&Scope::default(), epoch).unwrap_err().code,
+            super::super::ErrorCode::Forbidden
+        );
     }
     #[test]
     fn players_filter_includes_possession_but_never_ai_shouts() {

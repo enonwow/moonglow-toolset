@@ -1,5 +1,7 @@
 # Update log
 
+* **Live poll revocation (2026-10-18)**: Allow LLM revocation wakes event polls and refuses waits from the prior consent epoch. [Contract](live-ops-wire.md#revoking-pending-agent-polls-2026-10-18).
+
 * **Endpoint-local Live state (2026-10-18)**: reset history and accepted IDs on endpoint changes while preserving uncertain pending outcomes. [Contract](live-ops-wire.md#endpoint-local-history-and-identities-2026-10-18).
 
 * **Live module compatibility (2026-10-18)**: versioned script envelopes and an actionable visible rebuild message; native guard proof passes. [Contract](live-ops-wire.md#prepared-module-compatibility-2026-10-18).

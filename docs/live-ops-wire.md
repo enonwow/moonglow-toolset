@@ -3231,3 +3231,12 @@ gets its explicit expired/unknown cancellation, preserving the sent distinction.
 A newly accepted command may reuse an old endpoint's ID without inheriting
 its prior result. The bridge/store regression covers history isolation, sent
 uncertainty and actual re-enqueue after an endpoint change.
+
+## Revoking pending agent polls (2026-10-18)
+
+Revoking Allow LLM updates store consent and its revocation epoch under the
+store mutex, then wakes event waiters. Pending event and command waits return
+`forbidden`; re-enabling consent does not revive a wait from the old epoch.
+Local operations remain available. The store regression starts a 30-second
+poll, revokes consent, requires refusal within one second, and checks that
+re-enabling does not validate the original epoch.

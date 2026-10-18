@@ -1036,10 +1036,12 @@ pub fn call_scoped(
             live.enqueue_scoped(command, now_ms(), scope).map(|id| json!({"queued":id}))
         }
         Handler::Wait => {
+            let epoch = live.poll_epoch(scope)?;
             let id = input["id"].as_str().unwrap_or_default();
             let deadline = Instant::now()
                 + Duration::from_millis(input["timeout_ms"].as_u64().unwrap_or(5000));
             loop {
+                live.check_poll(scope, epoch)?;
                 if stop.load(Ordering::Acquire) {
                     return Err("Live service stopped".into());
                 }
