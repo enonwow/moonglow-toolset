@@ -2954,16 +2954,11 @@ impl LiveStore {
         if let Some(mirror) = &s.mirror {
             return mirror.result(id);
         }
-        s.results
-            .iter()
-            .find(|(_, r)| r.id == id)
-            .map(|(_, r)| r.clone())
+        s.history
+            .get(&crate::command_history::boot_key(&s.boot), id)
+            .and_then(|e| e.outcome.clone())
+            .or_else(|| s.results.iter().find(|(_, r)| r.id == id).map(|(_, r)| r.clone()))
             .or_else(|| s.unresolved.get(&s.boot, id).map(|entry| entry.result.clone()))
-            .or_else(|| {
-                s.history
-                    .get(&crate::command_history::boot_key(&s.boot), id)
-                    .and_then(|e| e.outcome.clone())
-            })
             .or_else(|| assistant::pending(&s, id))
             .map(|mut result| {
                 result.by = s.owners.get(id).filter(|by| by.as_str() != "local").cloned();
@@ -3111,6 +3106,13 @@ impl LiveStore {
 fn restore_identities(s: &mut State) {
     s.accepted.clear();
     let boot = crate::command_history::boot_key(&s.boot);
+    // The UI ring spans boot changes. A reused ID must not keep another boot's row.
+    s.results.retain(|(command, result)| {
+        s.history.get(&boot, &result.id).is_none_or(|entry| {
+            entry.fingerprint == Some(command_fingerprint(command))
+                && entry.outcome.as_ref() == Some(result)
+        })
+    });
     let visible: HashSet<_> = s.results.iter().map(|(_, r)| r.id.clone()).collect();
     s.owners.retain(|id, _| visible.contains(id));
     for ((b, id), entry) in &s.history.entries {

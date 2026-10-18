@@ -3523,3 +3523,9 @@ retaining 19,568 rows / 16,378,416 accounted bytes. Peak journal size was
 33,554,358 bytes (below 32 MiB). The temporary test directory was removed by the
 test. Store admission, horizon replay, journal recovery and migration tests
 passed. Final workspace verification is recorded separately below.
+
+The current boot's retained outcome takes precedence over the short UI history.
+When a boot returns, a colliding ID removes a UI row with a different command or
+outcome. The regression reuses one ID across two boots with different results,
+then returns to the first boot: before the fix it returned the second answer;
+afterward it returns the first answer without queueing another command.

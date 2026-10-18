@@ -41,3 +41,36 @@ fn timed_replay_inside_horizon_is_idempotent_and_outside_is_expired() {
     assert_eq!(store.enqueue(command, START + DAY + 1).unwrap_err().code, ErrorCode::Expired);
     assert!(store.lock().queue.is_empty());
 }
+
+#[test]
+fn reused_id_returns_the_current_boot_outcome_after_returning_to_an_earlier_boot() {
+    let store = store();
+    let c = command(1, START);
+    for (n, boot, value) in [(2, "boot", "first"), (4, "second", "second")] {
+        store
+            .sync(
+                &serde_json::to_vec(&json!({"v":1,"boot":boot,"seq":n,
+            "areas":[{"area":"a","full":true,"cre":[{"id":"1"}]}]}))
+                .unwrap(),
+                START + n,
+            )
+            .unwrap();
+        store.enqueue(c.clone(), START + n).unwrap();
+        store
+            .sync(
+                &serde_json::to_vec(&json!({"v":1,"boot":boot,"seq":n+1,
+            "results":[{"id":c.id,"ok":true,"value":value}]}))
+                .unwrap(),
+                START + n + 1,
+            )
+            .unwrap();
+    }
+    store.sync(br#"{"v":1,"boot":"boot","seq":1}"#, START + 10).unwrap();
+    store.enqueue(c.clone(), START + 10).unwrap();
+    assert!(store.lock().queue.is_empty());
+    assert_eq!(store.result(&c.id).unwrap().value, Some(json!("first")));
+    assert!(
+        store.lock().results.is_empty(),
+        "another boot's UI row must not survive an ID collision"
+    );
+}

@@ -787,3 +787,4 @@
 - 2026-10-18: Replace the lifetime accepted-ID ceiling with a boot-bound time/byte horizon and durable rejection floor; 200,000 store admissions and durable reservations, replay/rotation/restart proofs. [Contract and measurements](live-ops-wire.md#bounded-idempotency-horizon-p4).
 
 - 2026-10-18: MCP accepts a gateway URL, environment-only AI credential and string session IDs; shared WebPKI/pin TLS, real gateway router/managed-AI integration and legacy protocol tests pass. [Usage and verification](agent-protocol.md#mcp-through-the-gateway-p4).
+- 2026-10-18: Prefer the current boot outcome over a colliding ID in the UI result ring; a two-boot replay regression prevents returning another boot answer. [Horizon contract](live-ops-wire.md#bounded-idempotency-horizon-p4).
