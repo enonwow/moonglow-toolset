@@ -752,7 +752,7 @@ pub(crate) fn overlay(
                 let text = actors.join(" / ");
                 let galley = painter.layout_no_wrap(
                     text.clone(),
-                    egui::FontId::proportional(11.),
+                    crate::live_backend::presence_font(ui),
                     Color32::WHITE,
                 );
                 let chip = Rect::from_min_size(

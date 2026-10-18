@@ -1,5 +1,7 @@
 # Update log
 
+* **Readable Focus presence (2026-10-18)**: map and Focus chips share readable small text, padding and colors; the gateway UI height regression passes. [Details](live-desktop-link.md#readable-focus-presence).
+
 * **Neutral unknown outcomes (2026-10-18)**: both desktop log paths use warning styling and never label an unknown command as success or failure. [Regression](live-desktop-link.md#unknown-command-outcomes).
 
 * **Gateway request-set verification (2026-10-18)**: 300 scoped tests pass, four remain ignored, and all-target Clippy is clean after simplifying the dev credential-import guard. [Commands and limits](live-library.md#request-set-verification).

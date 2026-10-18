@@ -307,13 +307,24 @@ pub(crate) fn set_allowed(app: &mut Moonglow, allowed: bool) -> Result<(), Strin
 
 pub(crate) fn chips(app: &Moonglow, ui: &mut egui::Ui, id: &str) {
     for actor in app.live_backend().presence(id) {
-        ui.label(
-            egui::RichText::new(actor)
-                .small()
-                .background_color(egui::Color32::from_rgb(44, 67, 86)),
-        )
-        .on_hover_text("Has this object in Focus. Presence does not lock the object.");
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(44, 67, 86))
+            .corner_radius(5.)
+            .inner_margin(egui::Margin::symmetric(4, 2))
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(actor).font(presence_font(ui)).color(egui::Color32::WHITE),
+                )
+                .on_hover_text("Has this object in Focus. Presence does not lock the object.");
+            });
     }
+}
+
+/// Keep map and Focus chips readable even in the compact application theme.
+pub(crate) fn presence_font(ui: &egui::Ui) -> egui::FontId {
+    let mut font = egui::TextStyle::Small.resolve(ui.style());
+    font.size = font.size.max(11.);
+    font
 }
 
 pub(crate) fn status_ui(app: &Moonglow, ui: &mut egui::Ui) {

@@ -34,6 +34,7 @@ async fn gateway_gui_mirror_command_presence_reconnect_and_unknown() {
     .await;
     presence(&host, &mut h).await;
     h.get_by_label("Guide · DM");
+    assert!(h.get_by_label("Guide · DM").rect().height() >= 11.);
     h.get_by_label("Scribe · AI");
     assert!(h.get_by_label("NPC card").accesskit_node().is_disabled());
     h.state_mut().live_focus.text = "A test greeting".into();

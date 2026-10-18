@@ -597,3 +597,11 @@ payload also sets `ok`. Both the Live event log and application output say
 or failure. Regression tests exercise both values of `ok`:
 `cargo +1.98.0 test -p mg-ui --lib -j 2 unknown_` (with `NWN_ROOT=/nonexistent`
 and `CARGO_INCREMENTAL=0`) passes four matching tests, including both new cases.
+
+## Readable Focus presence
+
+Focus chips now use the same font policy as map chips (the normal small font,
+with an 11-point readability floor), white text, blue fill, rounded corners and
+four-by-two-point padding. The in-process `gateway_backend` regression checks
+the accessible chip height as well as both DM/AI labels; it passes against the
+development host. Presence conveys focus only and never locks an object.
