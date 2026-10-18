@@ -8,7 +8,10 @@ use mg_live::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[derive(Debug)]
@@ -21,6 +24,7 @@ struct Core {
     gateway: Gateway,
     sessions: Mutex<HashMap<String, Session>>,
     bridge: Mutex<Option<Bridge>>,
+    stopped: AtomicBool,
 }
 /// Every closure runs on Tokio's blocking pool; no store guard crosses an await.
 #[derive(Debug, Clone)]
@@ -32,6 +36,7 @@ impl CoreHandle {
                 gateway: Gateway::new(store)?,
                 sessions: Mutex::new(HashMap::new()),
                 bridge: Mutex::new(None),
+                stopped: AtomicBool::new(false),
             })))
         })
         .await
@@ -46,25 +51,37 @@ impl CoreHandle {
             .await
             .map_err(|e| e.to_string())
     }
-    pub async fn start_bridge(&self, config: RedisConfig) -> Result<(), String> {
+    pub async fn start_bridge(
+        &self,
+        config: RedisConfig,
+        data: std::path::PathBuf,
+    ) -> Result<(), String> {
         let core = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let mut bridge = core.bridge.lock().unwrap_or_else(|e| e.into_inner());
             if bridge.is_some() {
                 return Err("Bridge already started".into());
             }
-            *bridge = Some(Bridge::start(
+            *bridge = Some(Bridge::start_persistent(
                 config,
                 core.gateway.store().clone(),
                 Arc::new(|| {}),
                 Arc::new(AtomicBool::new(false)),
+                &data,
             )?);
             Ok(())
         })
         .await
         .map_err(|e| e.to_string())?
     }
+    pub fn request_shutdown(&self) {
+        self.0.stopped.store(true, Ordering::Release);
+    }
+    pub fn is_shutdown(&self) -> bool {
+        self.0.stopped.load(Ordering::Acquire)
+    }
     pub async fn shutdown(&self) -> Result<(), String> {
+        self.request_shutdown();
         let core = self.0.clone();
         tokio::task::spawn_blocking(move || {
             core.bridge.lock().unwrap_or_else(|e| e.into_inner()).take();

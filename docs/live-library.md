@@ -273,3 +273,33 @@ The existing eighteen loopback API tests exercise the extracted router.
 `crates/mg-gateway/tests/agent.rs` compares discovery, reads, errors and ETags
 against the pure route, verifies 401/403/429 and checks that a waiting event
 request releases the async runtime and wakes on a subsequent report.
+
+## Development gateway
+
+Run `cargo +1.98.0 run -p mg-gateway-dev -j 2 -- --config private/gateway-dev.json`.
+The config file is optional when `MOONGLOW_GATEWAY_TOKEN` is set. Use a fresh
+random credential with 32..256 printable ASCII characters; the environment
+value overrides the file's `token`. The default principal is `dm:dev`, with
+all current DM groups except `scripts` and `chunks`. File `groups` replaces
+that list explicitly. `tokens` optionally adds objects with `token` and
+`principal: {id, name, groups}`, including `ai:` identities for agent tests.
+Never commit the configuration or print tokens. Debug implementations redact
+credentials and configuration parse errors do not echo input.
+
+Supported config keys are `port` (8080), `token`, `groups`, `tokens` and
+`data_dir` (`private/gateway-dev-data`). `--port` overrides the file port;
+port zero is supported. There is no configurable bind address: it is always
+127.0.0.1. `/health` can be used without a game or Redis connection. This host
+uses plain local HTTP/WebSocket; a public deployment needs the host's TLS
+reverse proxy and authentication integration.
+
+Redis configuration uses `LiveConfig::from_env`, including
+`MOONGLOW_LIVE_REDIS` and `MOONGLOW_LIVE_PREFIX`. `Bridge::start_persistent`
+binds the endpoint and initializes the existing command-ID journal before
+starting workers, then restores the durable event inbox. Keep `data_dir`
+across restarts; it is required state, not a disposable cache. Core shutdown
+signals WebSocket pumps and joins Redis workers off the async runtime.
+The binary writes status to stdout and does not log requests or credentials.
+
+Configuration regressions run with
+`cargo +1.98.0 test -p mg-gateway-dev -j 2`. These tests do not connect to Redis.

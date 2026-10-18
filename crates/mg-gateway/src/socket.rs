@@ -179,6 +179,9 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
         let mut ping = Instant::now();
         loop {
             tick.tick().await;
+            if app.core.is_shutdown() {
+                return Err("shutdown".into());
+            }
             if last_seen.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
                 >= Duration::from_secs(45)
             {

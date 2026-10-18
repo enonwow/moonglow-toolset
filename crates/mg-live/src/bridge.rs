@@ -186,6 +186,32 @@ pub(crate) fn request(
 }
 
 impl Bridge {
+    /// Headless owner: initialize durable command identities before workers can
+    /// accept commands, then attach the existing durable event inbox.
+    pub fn start_persistent(
+        config: RedisConfig,
+        store: Arc<LiveStore>,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        stop: Arc<AtomicBool>,
+        data: &std::path::Path,
+    ) -> Result<Self, String> {
+        config.validate()?;
+        let host = if config.host.eq_ignore_ascii_case("localhost")
+            || config.host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        {
+            "loopback".to_owned()
+        } else {
+            config.host.to_ascii_lowercase()
+        };
+        let server = serde_json::to_string(&(host, config.port, &config.prefix))
+            .map_err(|e| e.to_string())?;
+        store.bind_server(&config);
+        store.require_command_identity();
+        store.set_command_identity(data, &server)?;
+        let bridge = Self::start(config, store.clone(), wake, stop)?;
+        bridge.event_storage(data, &server, &store)?;
+        Ok(bridge)
+    }
     pub fn start(
         config: RedisConfig,
         store: Arc<LiveStore>,

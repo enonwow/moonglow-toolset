@@ -1,5 +1,7 @@
 # Update log
 
+* **Loopback development gateway (2026-10-18)**: private static credentials, Live Redis settings and durable command/event storage. [Configuration and lifecycle](live-library.md#development-gateway).
+
 * **Shared Live agent routing (2026-10-18)**: loopback and gateway use the same ETag, scoped dispatch and quota response logic. [Embedding contract](live-library.md#shared-agent-routing).
 
 * **Public gateway transport (2026-10-18)**: authenticated WebSocket, blocking core handle, bounded coalescing and resume. [Contract and version negotiation](live-library.md#gateway-transport).
