@@ -39,10 +39,13 @@ impl Drop for Scratch {
                     writable(&path);
                 } else {
                     #[cfg(windows)]
+                    #[expect(
+                        clippy::permissions_set_readonly_false,
+                        reason = "Windows-only cleanup of this test's read-only files; never used on Unix"
+                    )]
                     {
-                        use std::os::windows::fs::{MetadataExt, PermissionsExt};
-                        let attrs = fs::metadata(&path).unwrap().file_attributes();
-                        let perms = fs::Permissions::from_attributes(attrs & !1);
+                        let mut perms = fs::metadata(&path).unwrap().permissions();
+                        perms.set_readonly(false);
                         fs::set_permissions(&path, perms).unwrap();
                     }
                 }
