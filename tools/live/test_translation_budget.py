@@ -16,6 +16,19 @@ def measure(p, channel, label):
     assert row.get("captured") in [0, 1], row
     assert isinstance(row.get("instructions"), int) and isinstance(row.get("limit"), int), row
     assert 0 < row["instructions"] < row["limit"] // 2, row
+    if channel in [1, 3]:
+        assert row.get("target_hears") is True, ("fixture listener outside hearing range", row)
+    if row["captured"]:
+        expected = row.get("expected")
+        assert isinstance(expected, list) and expected, ("missing audience observation", row)
+        observed = []
+        def delivered():
+            nonlocal observed
+            observed = p.native(f'GetLocalJson(GetModule(),"MGET_XL_SENT_{label}")') or []
+            return isinstance(observed, list) and len(observed) >= len(expected)
+        p.until(delivered)
+        assert sorted(observed) == sorted(expected), ("missing or repeated listener", row, observed)
+        row["delivered"] = observed
     return row
 
 
@@ -45,7 +58,7 @@ def run(p):
     for _ in range(32):
         p.chunk('''object speaker=GetLocalObject(GetModule(),"MGET_XL_SPEAKER");
         int i; for(i=0;i<128;i++) {
-            object o=CreateObject(OBJECT_TYPE_PLACEABLE,"mget_polish",GetLocation(speaker),FALSE,"XL_BUDGET_FILLER");
+            object o=CreateObject(OBJECT_TYPE_PLACEABLE,"mget_polish",Location(GetArea(speaker),Vector(15.0,15.0,0.0),0.0),FALSE,"XL_BUDGET_FILLER");
             if(!GetIsObjectValid(o)) { SetLocalInt(GetModule(),"MGET_XL_SETUP_FAILED",TRUE); break; }
             SetLocalInt(GetModule(),"MGET_XL_PLACEABLES",GetLocalInt(GetModule(),"MGET_XL_PLACEABLES")+1);
         }''')

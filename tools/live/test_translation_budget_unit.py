@@ -19,10 +19,15 @@ class Proof:
 
     def native(self, expression):
         assert self.compiled, "measurement must execute a compiled fixture"
+        if "MGET_XL_SENT_" in expression:
+            return ["one"]
         return self.row if self.row is not None else {
             "label": "baseline", "channel": 1, "captured": 1,
-            "instructions": 200, "limit": 10000,
+            "instructions": 200, "limit": 10000, "target_hears": True, "expected": ["one"],
         }
+
+    def until(self, predicate):
+        assert predicate(), "expected audience was not delivered"
 
 
 class PopulationProof:
@@ -116,6 +121,13 @@ class BudgetRunnerTests(unittest.TestCase):
                      "instructions": 200, "limit": 10000}]:
             with self.subTest(row=row), self.assertRaises(AssertionError):
                 measure(Proof({} if row is None else row), 1, "baseline")
+
+    def test_missing_expected_listener_is_rejected(self):
+        row = {"label": "baseline", "channel": 1, "captured": 1,
+               "instructions": 200, "limit": 10000,
+               "expected": ["one", "two"], "target_hears": True}
+        with self.assertRaises(AssertionError):
+            measure(Proof(row), 1, "baseline")
 
     def test_instruction_budget_is_enforced(self):
         for used, limit in [(0, 0), (0, 10000), (5000, 10000)]:

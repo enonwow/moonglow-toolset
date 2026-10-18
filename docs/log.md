@@ -850,3 +850,5 @@
 * **Describe command actions (2026-10-18)**: draft and completion event producers supply operation and target metadata to the shared action log. [Contract and regression](live-events-wire.md#action-metadata-for-draft-and-completion-events).
 
 * **Budget fixture reporting isolation (2026-10-18)**: keep the full chat stress population out of state snapshots, confirm a fresh report before loading, and verify created counts. [Native diagnosis, regressions and rerun](live-translations.md#isolate-budget-measurements-from-state-serialization).
+
+* **Whisper budget coverage (2026-10-18)**: control the near-listener geometry and assert exact delivery recipients under load. [Diagnosis and native rerun](live-translations.md#stable-whisper-geometry-and-delivery-coverage).

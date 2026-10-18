@@ -420,3 +420,36 @@ before stopping in mg-live (239 passed there). The failure remains
 `SEC_E_NO_CREDENTIALS`; later test binaries were not run. All-target Clippy with
 warnings denied and the workspace format check passed. Repeat the test gate
 outside the sandbox; these checks do not establish native budget acceptance.
+
+
+## Stable whisper geometry and delivery coverage
+
+Channel 2 is shout; channel 3 is whisper (the DM counterparts are 18 and 19).
+The next native run completed population setup, but the loaded whisper sample
+returned `captured=0` after 1341 instructions. That is not evidence that the
+bounded NPC scan dropped a listener: `MgXlCapture` returns false before sending
+anything when there are no translated listeners, and the real chat hook then
+leaves native delivery enabled. The budget runner calls capture directly and
+previously assumed that initial creature placement still defined the range
+case after thousands of colliding objects were created at the speaker.
+
+The fixture now creates placeables away from the audience, inside the authored
+20-by-20 metre area. Immediately before each timed capture it pins the translated
+near listener half a metre from the speaker in the same VM. Diagnostics record
+its distance before/after, native hearing range and eligibility. This controls
+the range precondition without modifying production audience selection. The
+previous artifacts do not contain the listener positions at failure; collision
+or placement drift is the working diagnosis, pending the next native run.
+
+The compiled fixture independently lists the expected authored clients and
+listening NPC. A fixture-only trace at the real `MgXlSend` boundary records every
+manual delivery, including delayed original fallback. The runner requires the
+exact recipient multiset: missing or duplicate sends fail. This distinguishes
+a real bounded-audience omission from a listener that was never in range. It
+observes delivery calls, not a connected client's UI; the existing
+`chat_translation` phase still checks native conversation callbacks.
+
+`python -B tools/live/test_translation_budget_unit.py` passes eight tests. The
+new missing-recipient regression failed before the delivery check was added.
+Run both `chat_translation_budget` and `chat_translation` with the private helper
+command above. Both **need WSL run**; no loaded measurements are claimed here.

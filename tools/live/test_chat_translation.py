@@ -27,6 +27,20 @@ def prepare(module):
     needle = 'JsonObjectSetInplace(pending,"at",JsonInt(GetMicrosecondCounter()));'
     assert needle in text
     text = text.replace(needle, needle + '\n    SetLocalInt(m,"MGET_XL_AT_"+GetStringLeft(text,FindSubString(text," ")),JsonGetInt(JsonObjectGet(pending,"at")));')
+    # Fixture-only delivery-boundary trace, including delayed original fallback.
+    # It observes real MgXlSend calls without changing the production audience.
+    needle = '    NWNX_Chat_SendMessage(channel,text,speaker,listener);'
+    assert needle in text
+    text = text.replace(needle, '''    string sample=GetStringLeft(text,FindSubString(text," "));
+    if(GetStringLeft(sample,7)=="budget_")
+    {
+        string trace="MGET_XL_SENT_"+sample;
+        json sent=GetLocalJson(m,trace);
+        if(JsonGetType(sent)!=JSON_TYPE_ARRAY) sent=JsonArray();
+        JsonArrayInsertInplace(sent,JsonString(ObjectToString(listener)));
+        SetLocalJson(m,trace,sent);
+    }
+''' + needle)
     path.write_text(text)
 
 
