@@ -3,7 +3,7 @@ type: Reference
 title: Live desktop connection and authentication
 description: Desktop authentication, credentials, WebSocket transport and passive gateway mirror.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T11:23:16Z }
+generated: { by: codex, at: 2026-10-18T12:07:26Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-live-link/src/login.rs
@@ -421,3 +421,25 @@ shape is still unspecified, and requires an explicit key/revision for writes;
 it does not guess a key or silently overwrite a stale entry. Initial LLM consent
 needs an authoritative read/push too; until confirmed it remains `None`.
 These are host/protocol follow-ups, not reasons to change local campaign data.
+
+### P2b desktop verification (2026-10-18)
+
+Desktop source commits `586209e` and `b0224c5` passed the scoped gate above on
+Windows with Rust 1.98.0: **33 passed, 0 failed, 0 ignored** (12 unit tests,
+6 gateway integration tests, 5 credential tests and 10 login tests). Eighteen
+of these tests are new transport/facade regressions. Clippy `--all-targets`
+with `-D warnings` and `fmt -p mg-live-link --check` both passed. This is a
+scoped desktop gate, not a claim that the complete workspace or a deployed
+game/gateway was accepted. The production GUI was not switched or rendered.
+
+Two fixture details matter when reproducing the tests: event cursor convergence
+can precede the coalesced area update, so equality waits for both. A socket-drop
+notification must be marked observed when a new proxy connection starts;
+otherwise the fixture accidentally drops every reconnect as well as the intended
+old socket. Both conditions are encoded in the retained integration fixture.
+
+Canonical frontmatter sources and relative Markdown targets were checked to
+exist. The OKF executable was unavailable, so no OKF CLI validation is claimed.
+The reproduction needs only the committed sources and Cargo.lock; ephemeral
+listeners/certificates and temporary credential directories are test-owned.
+The shared Cargo build cache remains in place for other workspace consumers.

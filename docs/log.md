@@ -1,5 +1,7 @@
 # Update log
 
+* **Desktop gateway verification (2026-10-18)**: 33 scoped tests pass; Clippy and formatting are clean. Retained reproduction covers TLS, mirror/resume, ACKs, hostile input and GUI facade contracts. [Results and limits](live-desktop-link.md#p2b-desktop-verification-2026-10-18).
+
 * **Scripted spawn capability (2026-10-18)**: separate JSON-spawn permission from arbitrary script execution on command, call and HTTP paths. [Contract and regression](live-library.md#gateway-audit-invariants).
 
 * **Gateway final-acceptance integration (2026-10-18)**: check the captured gateway session and boot under the store lock before acceptance; blocked removal/replacement/restart regression passes. [Boundary](live-ops-wire.md#gateway-acceptance-under-the-store-lock-m2-h1-integration).
