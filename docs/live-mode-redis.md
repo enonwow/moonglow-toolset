@@ -167,7 +167,7 @@ The v1 envelopes now include the delivery safeguards from
   (`v`, `prefix`, `boot`, `seq`, `ack`, `results`, `areas`, every fifth one
   `full`). See [v1 protocol](live-mode-proposal.md#game--moonglow-post-livev1sync).
 * **`<prefix>.cmd`** — Moonglow: v1's sync reply body
-  `{"v":1,"commands":[…]}`, published
+  `{"v":1,"script_version":2,"boot":"reported-boot","prefix":"server-prefix","commands":[…]}`, published
   * after each accepted state message, **only if commands or result receipts are pending** (each
     message runs a script in the game);
   * at once when a command is queued (from the API or the view), so an
@@ -968,7 +968,7 @@ older than the workspace minimum).
    * thread **publisher**: its own connection; waits on a channel
      (`recv_timeout(1 s)`) fed by the subscriber (a reply to publish) and
      by `LiveStore`'s kick (publish the current queue as
-     `{"v":1,"commands":[…]}` if not empty); `PUBLISH <prefix>.cmd <json>`,
+     `{"v":1,"script_version":2,"boot":"reported-boot","prefix":"server-prefix","commands":[…]}` if not empty); `PUBLISH <prefix>.cmd <json>`,
      reads the integer reply; reconnects like the subscriber; a `PING`
      every 10 s of silence;
    * `pub fn status() -> Value`: `connected`, `lastStateMs`, `lastError`,

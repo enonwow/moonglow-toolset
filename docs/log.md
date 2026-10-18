@@ -1,5 +1,7 @@
 # Update log
 
+* **M1 Live audit verification (2026-10-18)**: authorization, delivery uncertainty, bounded receipts, replay and persistence regressions; 1690 passing workspace tests and seven private engine proofs. [Results and limitations](live-ops-wire.md#m1-audit-verification-2026-10-18).
+
 * **Unlocked Live persistence (2026-10-18)**: journal reservation revalidates after disk IO; serialized card/note saves release the store mutex. [Contract and remaining cold path](live-ops-wire.md#unlocked-command-reservations-and-card-saves-2026-10-18).
 
 * **Continuous Live retention (2026-10-18)**: runtime log maintenance and bounded audit rotation with shared writer locking. [Contract](live-ops-wire.md#retention-during-a-running-service-2026-10-18).

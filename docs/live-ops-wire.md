@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: 'Live game operations: wire contract and engine proof'
-description: Live operation schemas, centralized scope checks, explicit result receipts, interrupted-command deduplication, boot-bound delivery, automatic area watches and private engine proofs.
+description: Live authorization, owner-scoped watches, uncertain delivery outcomes, bounded result receipts, script compatibility, compact identities, revocable polls, replay protection, runtime retention and persistence proofs.
 tags: [live, operations, nwnx, protocol, dm]
 generated: { by: codex/astra1, at: 2026-10-18T00:00:00Z }
 sources: [live-mode-next.md, live-mode-roadmap.md, live-events-wire.md]
@@ -40,7 +40,7 @@ where applicable). Literal UTF-8 is not accepted losslessly by native JsonParse;
 see [the proven encoding boundary](#polish-text-and-the-encoding-boundary).
 
 ```json
-{"v":1,"boot":"reported-boot","prefix":"server-prefix","commands":[{"id":"unique-1","area":"events","op":"npc_move","target":"2","x":15,"y":10,"z":0,"hold":true,"timeout":30}]}
+{"v":1,"script_version":2,"boot":"reported-boot","prefix":"server-prefix","commands":[{"id":"unique-1","area":"events","op":"npc_move","target":"2","x":15,"y":10,"z":0,"hold":true,"timeout":30}]}
 ```
 
 `id` is 1-64 bytes and unique within a boot. `area` is the area resref,
@@ -3082,9 +3082,9 @@ racing the readiness transition cannot lose its notification. Empty envelopes
 still do not cause PUBLISH. TLS and runtime UI regression fixtures now inject their baseline
 *after* endpoint binding, matching the fresh-report requirement.
 
-Optional follow-up audit findings (consent revocation during waits, inbox replay
-across boots, continuous retention/rotation and filesystem work outside the store
-lock) remain separate work. Passing these regressions is not owner acceptance.
+The later M1 audit sections below address consent revocation during waits, inbox
+replay across boots, runtime retention/rotation and unlocked command/card writes.
+Cold boot journal selection remains unchanged. Passing regressions is not owner acceptance.
 
 The full Windows gate uses a nonexistent game root to avoid native server tests:
 
@@ -3111,7 +3111,7 @@ unknown outcomes), `f73c533` (per-command interruption recovery), `2f07cb0`
 (endpoint/boot binding), `78e6a28` (first-report wake race). Contract-aligned test
 fixtures: `66624f7`, `08c1f7a`, `6c97301`. Rust toolchain: 1.98.0.
 
-The exact full workspace gate above passed: 1626 tests across 55 test binaries,
+The preceding delivery-audit baseline gate passed: 1626 tests across 55 test binaries,
 0 failures, 24 ignored. `clippy --workspace --all-targets -j 2 -- -D warnings`
 and `fmt --check` both exited 0. All three private engine regressions passed;
 the targeted bridge suite passed 3 tests, with its external Redis test ignored.
@@ -3276,3 +3276,49 @@ Card/note writes use a separate writer lock shared with assistant context
 switches. They snapshot under the store lock, write outside it, then install
 the saved value. Concurrent NPC-card saves are tested through disk reload,
 so independent edits cannot overwrite one another.
+
+
+## M1 audit verification (2026-10-18)
+
+The final shared workspace gate included the restart-during-reservation regression
+in `82df205`: 1690 passed, 0 failed, 24 ignored. Rust 1.98.0 was used with
+`CARGO_INCREMENTAL=0`, a nonexistent `NWN_ROOT`, and at most two jobs:
+
+```text
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+All three commands exited zero. The complete workspace test run was shared with
+concurrent work to avoid races in shared test fixtures; clippy and formatting
+were independently repeated on the final checkout. Unit/store coverage includes
+watch ownership and admission, sent/unsent expiry and policy revocation, late
+results, report bounds, game-read quotas, canonical fingerprints, idle receipts,
+legacy status, endpoint isolation, consent revocation, inbox replay, retention,
+audit rotation, unlocked reservation and concurrent card persistence. A second
+reservation barrier test changes the boot during disk IO and proves the old
+command never enters the new server queue.
+
+Seven private WSL engine phases passed against the final scripts:
+`command_receipts`, `command_budget`, `command_accounting`, `command_expiry`,
+`command_version`, `command_interrupt`, and `command_boot`. Reproduce each with
+`python3 tools/live/test-events.py --phase <phase>` in the project's configured
+WSL fixture environment. The helper uses scratch server/user data; its compact
+`target/test-output/live-events/<phase>.json` proof records source, module,
+compiler, server and plugin hashes, assertions and owned-process cleanup.
+No production game server was used. Current-version rejection is engine-tested;
+the old-module diagnostic is covered by a bridge test, without a legacy-module
+UI screenshot.
+
+The command/card persistence changes share commit `8efb27e` with a concurrent
+settings change because of a shared-index collision. Subsequent regression
+`82df205` isolates the restart case; shared history was preserved. The remaining
+cold-boot journal selection inside report ingestion still holds the store lock.
+The OKF CLI was unavailable: frontmatter, index coverage and new log anchors
+were checked directly. Passing checks is not owner acceptance.
+
+Fifteen owned intermediate proof/cache files were removed (786122 logical bytes).
+The seven compact proofs and required shared fixtures/build inputs were kept.
+No physical disk-space gain is attributed to this cleanup because other builds
+were active, and no shared build tree was deleted.
