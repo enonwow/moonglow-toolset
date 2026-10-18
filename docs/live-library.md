@@ -31,7 +31,9 @@ The default feature set is empty. `build` enables `mg_live::build` and its
 optional `mg-module`, `mg-resman`, `mg-tlk` and `zip` dependencies. The CLI and
 UI explicitly enable it. Fixture preparation tests (`live_build`,
 `measure_fixture`, `private_fixture`) require the feature; ordinary runtime
-integration tests remain available without it. Run the build unit tests with
+integration tests remain available without it. The existing `tools/live/check.ps1`
+Live test routes explicitly enable `build` so preparation filters still run.
+Run the build unit tests with
 `cargo +1.98.0 test -p mg-live --features build -j 2`.
 
 `python tools/live/check-library.py --check-features` checks all targets both

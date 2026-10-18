@@ -44,7 +44,7 @@ try {
     $checks = @(
         @{ Name = 'fmt'; Args = @('fmt') },
         @{ Name = 'clippy'; Args = @('clippy', '--workspace', '--all-targets', '--', '-D', 'warnings') },
-        @{ Name = 'live'; Args = @('test', '-p', 'mg-live') },
+        @{ Name = 'live'; Args = @('test', '-p', 'mg-live', '--features', 'build') },
         @{ Name = 'workspace'; Args = @('test', '--workspace', '--no-fail-fast') },
         @{ Name = 'fmt-check'; Args = @('fmt', '--check') }
     )
@@ -52,6 +52,8 @@ try {
     if ($CheckFmt) { $checks = $checks | Where-Object { $_.Name -ne 'fmt' } }
     if ($Package) {
         $testArgs = @('test', '-p', $Package)
+        # Preparation fixture tests require the optional module builder.
+        if ($Package -eq 'mg-live') { $testArgs += @('--features', 'build') }
         if ($LibraryOnly) { $testArgs += '--lib' }
         if ($Filter) { $testArgs += $Filter }
         if ($NoCapture) { $testArgs += @('--', '--nocapture') }
