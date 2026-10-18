@@ -37,7 +37,7 @@ def run(proof, output, scratch):
     stages=[]
     for live_off in [False, True, False]:
         code=f'SetLocalInt(GetModule(),"MP_LIVE_OFF",{int(live_off)});'
-        proof.pub.send("PUBLISH","mglive-events.cmd",json.dumps({"v":1,"commands":[{"id":"stress-toggle-"+str(len(stages)),"op":"run_chunk","area":area,"code":code}]})); proof.pub.read()
+        proof.pub.send("PUBLISH","mglive-events.cmd",json.dumps({"v":1,"boot":proof.state["boot"],"prefix":"mglive-events","commands":[{"id":"stress-toggle-"+str(len(stages)),"op":"run_chunk","area":area,"code":code}]})); proof.pub.read()
         offset=log.stat().st_size
         start_seq=proof.state["seq"]
         end=time.monotonic()+18
@@ -56,7 +56,7 @@ def run(proof, output, scratch):
     # A known failing private child is the sole negative control, after positive gates.
     offset=engine.stat().st_size
     routine_offset=log.stat().st_size
-    proof.pub.send("PUBLISH","mglive-events.cmd",json.dumps({"v":1,"commands":[{"id":"vm-negative","op":"run_script","area":area,"script":"mp_vmfail"}]}));proof.pub.read()
+    proof.pub.send("PUBLISH","mglive-events.cmd",json.dumps({"v":1,"boot":proof.state["boot"],"prefix":"mglive-events","commands":[{"id":"vm-negative","op":"run_script","area":area,"script":"mp_vmfail"}]}));proof.pub.read()
     seq=proof.state["seq"];proof.until(lambda:proof.state["seq"]>=seq+3)
     vm=vm_read()
     assert 0<vm["after_tmi"]<1000,vm

@@ -24,7 +24,7 @@ where applicable). Literal UTF-8 is not accepted losslessly by native JsonParse;
 see [the proven encoding boundary](#polish-text-and-the-encoding-boundary).
 
 ```json
-{"v":1,"commands":[{"id":"unique-1","area":"events","op":"npc_move","target":"2","x":15,"y":10,"z":0,"hold":true,"timeout":30}]}
+{"v":1,"boot":"reported-boot","prefix":"server-prefix","commands":[{"id":"unique-1","area":"events","op":"npc_move","target":"2","x":15,"y":10,"z":0,"hold":true,"timeout":30}]}
 ```
 
 `id` is 1-64 bytes and unique within a boot. `area` is the area resref,
@@ -3025,3 +3025,26 @@ After replaying both commands, native readback is exactly `[1,1]` and the first
 success remains recorded. The existing Rust error-code round trip also covers
 `unknown` and `ambiguous`. Done history is bounded to 256 IDs; this does not claim
 unlimited game-side deduplication of arbitrarily old external messages.
+
+## Server-bound commands (2026-10-18)
+
+Every outbound command envelope now carries `boot` and `prefix`; both must
+match the game before any command or result receipt is applied. Reports include
+`prefix` too. Upgrade producer and consumer together: missing identity fields
+fail closed. A bridge accepts only reports naming its configured prefix.
+
+The publisher requires a valid report after both Redis connections are ready.
+Either connection losing/re-establishing connectivity invalidates that readiness;
+a report from the previous connection generation cannot reopen publishing.
+Reusing a store with a changed host, port or prefix expires old queued/waiting
+commands and clears its old object baseline. Direct enqueue cannot validate
+against those objects before a report from the new endpoint. A reconnect to the
+same configuration keeps the queue, gated on the new report and matching boot.
+
+Regressions: `endpoint_switch_waits_for_new_report_and_discards_old_queue` uses
+a fake Redis endpoint and the same boot name to expose accidental store reuse;
+`bridge_reports_kicks_retries_and_reconnects` checks no publish before the first
+post-reconnect report. `tools/live/test-events.py --phase command_boot` passed
+in the private WSL engine: wrong boot and wrong prefix each make no side effect;
+the same command with the current identity executes once. These are transport
+identity guards, not cryptographic authentication of Redis peers.

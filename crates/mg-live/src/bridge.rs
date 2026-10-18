@@ -50,6 +50,8 @@ pub(crate) struct State {
     last_error: String,
     published: u64,
     received: u64,
+    generation: u64,
+    reported: Option<(u64, String)>,
     events: event_stream::SharedStatus,
 }
 
@@ -77,6 +79,11 @@ pub(crate) fn game_json(value: &Value) -> String {
     escaped
 }
 
+#[derive(Deserialize)]
+struct ReportIdentity {
+    prefix: String,
+}
+
 fn has_outbound(value: &Value) -> bool {
     ["commands", "received"].iter().any(|key| value[key].as_array().is_some_and(|a| !a.is_empty()))
 }
@@ -97,6 +104,8 @@ fn lock<T>(state: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn connection_state(state: &Mutex<State>, subscriber: bool, result: Result<(), String>) {
     let mut s = lock(state);
+    s.generation += 1;
+    s.reported = None;
     if subscriber {
         s.subscriber = result.is_ok();
     } else {
@@ -171,6 +180,7 @@ impl Bridge {
             return Err("Redis host resolved to no address".into());
         }
         let state = Arc::new(Mutex::new(State::default()));
+        store.bind_server(&config);
         store.set_redis_status(state.clone());
         let (kick, receive) = mpsc::channel();
         store.set_kick(kick.clone());
@@ -199,6 +209,7 @@ impl Bridge {
                 kick.clone(),
                 addresses.clone(),
             );
+            let prefix = config.prefix.clone();
             let channel = format!("{}.state", config.prefix).into_bytes();
             // The server log (`tools/live/wsl/log-tail.sh`), into the live events.
             let log_channel = format!("{}.log", config.prefix).into_bytes();
@@ -261,11 +272,28 @@ impl Bridge {
                                     Reply::Bulk(Some(name)),
                                     Reply::Bulk(Some(body)),
                                 ] if kind == b"message" && name == &channel => {
+                                    let generation = lock(&state).generation;
+                                    if serde_json::from_slice::<ReportIdentity>(body)
+                                        .ok()
+                                        .is_none_or(|report| report.prefix != prefix)
+                                    {
+                                        lock(&state).last_error =
+                                            "State server prefix mismatch".into();
+                                        continue;
+                                    }
                                     match store.sync(body, now_ms()) {
                                         Ok(reply) => {
                                             let mut s = lock(&state);
                                             s.last_state_ms = Some(now_ms());
                                             s.received += 1;
+                                            if s.generation == generation
+                                                && s.publisher
+                                                && s.subscriber
+                                            {
+                                                s.reported = reply["boot"]
+                                                    .as_str()
+                                                    .map(|boot| (generation, boot.to_owned()));
+                                            }
                                             drop(s);
                                             if has_outbound(&reply) {
                                                 let _ = kick.send(());
@@ -335,12 +363,18 @@ impl Bridge {
                         let mut pending = true;
                         while !stop.load(Ordering::Acquire) {
                             if pending {
+                                let reported = lock(&state).reported.clone();
                                 let commands = store.commands(now_ms());
-                                if has_outbound(&commands) {
+                                let mut current = lock(&state);
+                                if reported.as_ref().is_some_and(|(_, boot)| commands["boot"] == *boot)
+                                    && current.reported == reported && current.subscriber && current.publisher
+                                    && commands["prefix"] == config.prefix && !stop.load(Ordering::Acquire)
+                                    && has_outbound(&commands) {
                                     let body = game_json(&commands);
                                     if !matches!(request(&mut connection, &[b"PUBLISH", &channel, body.as_bytes()])?, Reply::Int(n) if n >= 0) { return Err("Redis PUBLISH failed".into()); }
-                                    lock(&state).published += 1;
+                                    current.published += 1;
                                     sent = Instant::now();
+                                    drop(current);
                                     wake();
                                 }
                             }
@@ -576,7 +610,43 @@ mod tests {
         }
     }
     fn report(seq: u64) -> Value {
-        json!({"v":1,"boot":"test","seq":seq,"areas":[{"area":"a","cre":[{"id":"ab"}]}]})
+        json!({"v":1,"prefix":"test","boot":"test","seq":seq,"areas":[{"area":"a","cre":[{"id":"ab"}]}]})
+    }
+
+    #[test]
+    fn endpoint_switch_waits_for_new_report_and_discards_old_queue() {
+        let fake = Fake::start();
+        let store = Arc::new(LiveStore::default());
+        let mut config = RedisConfig { host: "127.0.0.1".into(), port: 1, prefix: "test".into() };
+        store.bind_server(&config);
+        store.sync(&serde_json::to_vec(&report(1)).unwrap(), now_ms()).unwrap();
+        let command = |id: &str| {
+            serde_json::from_value(json!({"id":id,"area":"a","op":"destroy","target":"ab"}))
+                .unwrap()
+        };
+        store.enqueue(command("old"), now_ms()).unwrap();
+        config.port = fake.address.port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut bridge =
+            Bridge::start(config, store.clone(), Arc::new(|| {}), stop.clone()).unwrap();
+        wait(|| bridge.status()["connected"] == true && !lock(&fake.subscribers).is_empty());
+        assert!(fake.published.recv_timeout(Duration::from_millis(250)).is_err());
+        assert_eq!(store.result("old").unwrap().code, Some(crate::store::ErrorCode::Expired));
+        assert!(store.enqueue(command("early"), now_ms()).is_err());
+        let mut wrong = report(2);
+        wrong["prefix"] = json!("another-server");
+        fake.state(wrong);
+        assert!(fake.published.recv_timeout(Duration::from_millis(250)).is_err());
+        assert!(store.area("a").is_none());
+        fake.state(report(3));
+        wait(|| store.area("a").is_some());
+        store.enqueue(command("fresh"), now_ms()).unwrap();
+        let (_, wire) = fake.published.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(wire["boot"], "test");
+        assert_eq!(wire["prefix"], "test");
+        assert_eq!(wire["commands"][0]["id"], "fresh");
+        stop.store(true, Ordering::Release);
+        bridge.join();
     }
 
     #[test]
@@ -622,7 +692,12 @@ mod tests {
         fake.disconnect();
         // (Each connection also subscribes to the server log: count the state's.)
         wait(|| lock(&fake.subscribers).iter().filter(|(c, _)| c == b"test.state").count() >= 2);
-        fake.state(json!({"v":1,"boot":"test","seq":3,"ack":["once"]}));
+        wait(|| bridge.status()["connected"] == true);
+        assert!(
+            fake.published.recv_timeout(Duration::from_millis(250)).is_err(),
+            "reconnect must wait for a fresh game report"
+        );
+        fake.state(json!({"v":1,"prefix":"test","boot":"test","seq":3,"ack":["once"]}));
         wait(|| store.status(now_ms())["queued"].as_array().unwrap().is_empty());
         assert_eq!(
             store.status(now_ms())["results"][0]["result"]["err"],
@@ -650,7 +725,9 @@ mod tests {
         .unwrap();
         wait(|| bridge.status()["connected"] == true);
         let mut client = connect(&["127.0.0.1:6379".parse().unwrap()], &stop).unwrap();
-        let body = report(1).to_string();
+        let mut body = report(1);
+        body["prefix"] = json!(prefix);
+        let body = body.to_string();
         assert!(
             matches!(request(&mut client, &[b"PUBLISH", format!("{prefix}.state").as_bytes(), body.as_bytes()]).unwrap(), Reply::Int(n) if n >= 1)
         );

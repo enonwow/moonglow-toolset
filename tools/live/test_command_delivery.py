@@ -4,7 +4,7 @@ import json
 
 def publish(p, commands=(), received=()):
     p.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({
-        "v": 1, "commands": list(commands), "received": list(received)}))
+        "v": 1, "boot": p.state["boot"], "prefix": "mglive-events", "commands": list(commands), "received": list(received)}))
     assert p.pub.read() > 0
 
 
@@ -45,3 +45,19 @@ def interrupted(p):
     assert not answer["ok"] and answer["code"] == "ambiguous", answer
     return {"counts_after_retransmission": counts, "interrupted": answer,
             "first_result_persisted": True}
+
+
+def boot_bound(p):
+    command = {"id": "bound-command", "op": "run_chunk", "area": "events",
+               "code": 'SetLocalInt(GetModule(),"MGET_BOUND",GetLocalInt(GetModule(),"MGET_BOUND")+1);'}
+    for boot, prefix in [("old-boot", "mglive-events"), (p.state["boot"], "other-server")]:
+        p.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({
+            "v": 1, "boot": boot, "prefix": prefix, "commands": [command]}))
+        assert p.pub.read() > 0
+    start = p.state["seq"]
+    p.until(lambda: p.state["seq"] >= start + 2)
+    assert p.native('JsonInt(GetLocalInt(GetModule(),"MGET_BOUND"))') == 0
+    publish(p, [command])
+    p.until(lambda: any(r["id"] == command["id"] for r in p.state["results"]))
+    assert p.native('JsonInt(GetLocalInt(GetModule(),"MGET_BOUND"))') == 1
+    return {"wrong_boot_rejected": True, "wrong_prefix_rejected": True, "current_boot_count": 1}

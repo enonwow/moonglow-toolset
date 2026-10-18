@@ -755,6 +755,13 @@ void MgLiveHandleReply(string message)
         MgLiveFailure("invalid command message; acknowledgements retained");
         return;
     }
+    // Reject stale endpoint/boot envelopes before receipts or side effects.
+    if(JsonGetString(JsonObjectGet(response,"boot"))!=GetLocalString(m,"MGLIVE_BOOT") ||
+        JsonGetString(JsonObjectGet(response,"prefix"))!=GetLocalString(m,"MGLIVE_PREFIX"))
+    {
+        MgLiveFailure("command server boot or prefix mismatch");
+        return;
+    }
     MgLiveRecoverCommand();
     MgLiveReceiveResults(JsonObjectGet(response, "received"));
     int i;

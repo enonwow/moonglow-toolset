@@ -1,5 +1,7 @@
 # Update log
 
+* **Server-bound Live commands (2026-10-18)**: bind command envelopes to boot/prefix, invalidate reused endpoint state, and wait for a fresh report after reconnect. [Contract and regressions](live-ops-wire.md#server-bound-commands-2026-10-18).
+
 * **Interrupted Live command batches (2026-10-18)**: persist each command boundary, report interrupted execution as ambiguous, and avoid replayed side effects. [TMI engine regression](live-ops-wire.md#interrupted-command-batches-2026-10-18).
 
 * **Explicit Live result receipts (2026-10-18)**: bounded game retention, versioned receipts and unknown ACK-only outcomes, with store and private engine regressions. [Protocol and proof](live-ops-wire.md#explicit-result-receipts-2026-10-18).

@@ -20,6 +20,7 @@ void MgLiveReportPublish()
     json results = GetLocalJson(m, "MGLIVE_RESULTS");
     json body = JsonObjectSet(JsonObject(), "v", JsonInt(1));
     body = JsonObjectSet(body, "text_codepage", JsonString(MgLiveTextCodepage()));
+    body = JsonObjectSet(body, "prefix", JsonString(GetLocalString(m,"MGLIVE_PREFIX")));
     body = JsonObjectSet(body, "boot", JsonString(GetLocalString(m, "MGLIVE_BOOT")));
     body = JsonObjectSet(body, "seq", JsonInt(seq));
     body = JsonObjectSet(body, "watched_areas", GetLocalJson(m,"MGLIVE_WATCHED_AREAS"));

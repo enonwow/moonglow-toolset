@@ -1743,6 +1743,7 @@ struct State {
     command_ids: Option<crate::command_ids::Journal>,
     command_ids_required: bool,
     boot: String,
+    server: Option<crate::bridge::RedisConfig>,
     seq: u64,
     has_baseline: bool,
     resync: Option<String>,
@@ -1838,6 +1839,35 @@ impl LiveStore {
 
     pub fn policy(&self) -> Policy {
         self.lock().policy
+    }
+
+    /// Reusing a store for another endpoint must not reuse its validated objects.
+    pub(crate) fn bind_server(&self, config: &crate::bridge::RedisConfig) {
+        let mut s = self.lock();
+        if s.server.as_ref() == Some(config) {
+            return;
+        }
+        assistant::cancel(&mut s, "expired: server endpoint changed");
+        for (_, result) in &mut s.results {
+            result.receipt = None;
+        }
+        let mut commands: Vec<_> = s.queue.drain(..).map(|q| q.command).collect();
+        commands.extend(s.skill_waiting.drain().map(|(_, (command, _))| command));
+        for command in commands {
+            let result =
+                failure(&command.id, ErrorCode::Expired, "expired: server endpoint changed");
+            push_result(&mut s, command, result);
+        }
+        s.server = Some(config.clone());
+        s.boot.clear();
+        s.areas.clear();
+        s.factions = None;
+        s.received_ms = 0;
+        s.seq = 0;
+        s.has_baseline = false;
+        s.resync = None;
+        s.delta = false;
+        s.watch.restart();
     }
 
     /// Both Options and the client API observe the same transport state.
@@ -2823,7 +2853,7 @@ fn game_commands(s: &State) -> Value {
         .filter_map(|(_, result)| result.receipt.as_ref())
         .filter(|receipt| receipt.starts_with(&boot_prefix))
         .collect();
-    json!({"v":1,"commands":commands,"received":received})
+    json!({"v":1,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":received})
 }
 
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
