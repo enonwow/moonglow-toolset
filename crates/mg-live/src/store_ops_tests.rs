@@ -1117,7 +1117,7 @@ fn teleport_destination_bounds_alias_and_retries() {
         let command: Command = serde_json::from_value(op.clone()).unwrap();
         s.enqueue(command.clone(), 3).unwrap();
         assert_eq!(s.enqueue(command, 4).unwrap(), format!("tp-{i}"));
-        let wire = game_commands(&mut s.lock());
+        let wire = game_commands(&s.lock());
         op["players"] = json!(true);
         assert_eq!(wire["commands"][i], op);
     }
@@ -1220,7 +1220,7 @@ fn teleport_named_npc_client_cannot_force_a_player() {
         scope,
     )
     .unwrap();
-    let wire = game_commands(&mut s.lock());
+    let wire = game_commands(&s.lock());
     assert!(wire["commands"][0].get("players").is_none());
 }
 
@@ -1230,7 +1230,7 @@ fn stop_combat_pc_requires_players_and_only_emits_exact_target() {
     assert_eq!(store(false).enqueue(command(op.clone()), 2).unwrap_err().code, ErrorCode::Disabled);
     let enabled = store(true);
     enabled.enqueue(command(op.clone()), 2).unwrap();
-    let wire = game_commands(&mut enabled.lock());
+    let wire = game_commands(&enabled.lock());
     assert_eq!(
         wire["commands"][0],
         json!({"id":"test","area":"events","op":"stop_combat","target":"2","players":true})

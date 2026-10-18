@@ -1,5 +1,7 @@
 # Update log
 
+* **Revocation before Redis handoff (2026-10-18)**: report processing and closed publication gates no longer mark commands sent; final batch selection and transport handoff share the acceptance lock. [Regression and contract](live-ops-wire.md#transport-handoff-after-reconnect).
+
 * **Desktop resource final verification (2026-10-18)**: exact workspace gate passes 1831 tests with 24 ignored; all-target and manual UI Clippy and formatting pass. Final TLS/UI captures inspected, and the local-layout regression is closed. [Results and limits](live-desktop-link.md#p7-final-verification).
 
 * **Preserve local view space (2026-10-18)**: idle resource status allocates no row; a layout unit regression and the unchanged blueprint-name UI test cover the fix. [Verification](live-desktop-link.md#gateway-resource-downloads-p7-gui).

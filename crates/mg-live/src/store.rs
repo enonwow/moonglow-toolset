@@ -2188,14 +2188,45 @@ impl LiveStore {
         self.lock().logs.drain(..).collect()
     }
 
-    /// The current queue, also used after a reconnect; expire before publishing.
+    /// Commit a batch to a transport. Inspection/report processing must use peek_commands.
     pub fn commands(&self, now_ms: u64) -> Value {
         let mut s = self.lock();
         expire(&mut s, now_ms);
         if let Some(mirror) = &s.mirror {
             return json!({"commands": mirror.queue});
         }
-        game_commands(&mut s)
+        let batch = game_commands(&s);
+        mark_handed_off(&mut s, &batch);
+        batch
+    }
+
+    /// Inspect the current batch without making unsent commands irrevocable.
+    pub fn peek_commands(&self, now_ms: u64) -> Value {
+        let mut s = self.lock();
+        expire(&mut s, now_ms);
+        if let Some(mirror) = &s.mirror {
+            return json!({"commands": mirror.queue});
+        }
+        game_commands(&s)
+    }
+
+    /// The bridge holds its connection gate while this lock serializes the final
+    /// batch selection and transport handoff with acceptance and owner revocation.
+    pub(crate) fn handoff_commands<R>(
+        &self,
+        now_ms: u64,
+        boot: &str,
+        prefix: &str,
+        send: impl FnOnce(Value) -> R,
+    ) -> Option<R> {
+        let mut s = self.lock();
+        expire(&mut s, now_ms);
+        if s.boot != boot || s.server.as_ref().is_none_or(|c| c.prefix != prefix) {
+            return None;
+        }
+        let batch = game_commands(&s);
+        mark_handed_off(&mut s, &batch);
+        Some(send(batch))
     }
 
     /// Takes the game's post (JSON) and returns the reply: the commands it
@@ -2357,7 +2388,7 @@ impl LiveStore {
         }
         assistant::capture(&mut s);
         watch::prepare(&mut s.watch, now_ms);
-        let synced = Synced { reply: game_commands(&mut s), outcome, boot_changed };
+        let synced = Synced { reply: game_commands(&s), outcome, boot_changed };
         drop(s);
         self.flush_identity_outcomes()?;
         Ok(synced)
@@ -3363,7 +3394,21 @@ fn attributed_command(s: &State, command: &Command) -> Value {
     value
 }
 
-fn game_commands(s: &mut State) -> Value {
+fn mark_handed_off(s: &mut State, batch: &Value) {
+    let ids: HashSet<_> = batch["commands"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["id"].as_str())
+        .collect();
+    for q in &mut s.queue {
+        if ids.contains(q.command.id.as_str()) {
+            q.sent = true;
+        }
+    }
+}
+
+fn game_commands(s: &State) -> Value {
     let mut commands: Vec<Value> = s
         .queue
         .iter()
@@ -3384,10 +3429,6 @@ fn game_commands(s: &mut State) -> Value {
             Some(value)
         })
         .collect();
-    // Only commands actually included in this bounded hand-off may have run.
-    for q in s.queue.iter_mut().take(commands.len()) {
-        q.sent = true;
-    }
     if let Some(id) = &s.resync {
         commands.insert(0, json!({"id":id,"op":"resync"}));
     }

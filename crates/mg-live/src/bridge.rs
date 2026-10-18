@@ -472,15 +472,20 @@ impl Bridge {
                         while !stop.load(Ordering::Acquire) {
                             if pending {
                                 let reported = lock(&state).reported.clone();
-                                let commands = store.commands(now_ms());
+                                let commands = store.peek_commands(now_ms());
                                 let mut current = lock(&state);
                                 if reported.as_ref().is_some_and(|(_, boot)| commands["boot"] == *boot)
                                     && current.reported == reported && current.subscriber && current.publisher
                                     && commands["prefix"] == config.prefix && !stop.load(Ordering::Acquire)
                                     && has_outbound(&commands) {
-                                    let body = game_json(&commands);
-                                    if !matches!(request(&mut connection, &[b"PUBLISH", &channel, body.as_bytes()])?, Reply::Int(n) if n >= 0) { return Err("Redis PUBLISH failed".into()); }
-                                    current.published += 1;
+                                    let boot = reported.as_ref().expect("gate checked").1.clone();
+                                    let published = store.handoff_commands(now_ms(), &boot, &config.prefix, |commands| {
+                                        if !has_outbound(&commands) { return Ok::<bool, String>(false); }
+                                        let body = game_json(&commands);
+                                        if !matches!(request(&mut connection, &[b"PUBLISH", &channel, body.as_bytes()])?, Reply::Int(n) if n >= 0) { return Err("Redis PUBLISH failed".into()); }
+                                        Ok(true)
+                                    }).transpose()?.unwrap_or(false);
+                                    current.published += u64::from(published);
                                     sent = Instant::now();
                                     drop(current);
                                     wake();
@@ -771,6 +776,36 @@ mod tests {
         assert_eq!(channel, "test.xl");
         assert_eq!(reply["to"]["pl"], "witaj");
         assert!(bridge.status()["lastStateMs"].is_null());
+    }
+
+    #[test]
+    fn closed_publish_gate_keeps_commands_revocable() {
+        let fake = Fake::start();
+        let store = Arc::new(LiveStore::default());
+        let config = RedisConfig {
+            host: "127.0.0.1".into(),
+            port: fake.address.port(),
+            prefix: "test".into(),
+        };
+        store.bind_server(&config);
+        store.sync(&serde_json::to_vec(&report(1)).unwrap(), now_ms()).unwrap();
+        let command =
+            serde_json::from_value(json!({"id":"revoked","area":"a","op":"destroy","target":"ab"}))
+                .unwrap();
+        store.enqueue(command, now_ms()).unwrap();
+        // Reconnect to the same endpoint: retained state permits enqueue, but
+        // publication must wait for the new subscriber's first report.
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut bridge =
+            Bridge::start(config, store.clone(), Arc::new(|| {}), stop.clone()).unwrap();
+        wait(|| bridge.status()["connected"] == true && !lock(&fake.subscribers).is_empty());
+        assert!(fake.published.recv_timeout(Duration::from_millis(250)).is_err());
+        assert_eq!(store.revoke_owner("local", "revoked during reconnect"), 1);
+        fake.state(report(2));
+        wait(|| bridge.status()["lastStateMs"].is_number());
+        assert!(fake.published.recv_timeout(Duration::from_millis(250)).is_err());
+        stop.store(true, Ordering::Release);
+        bridge.join();
     }
 
     #[test]

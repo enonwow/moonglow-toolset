@@ -9,6 +9,23 @@ sources: [live-mode-next.md, live-mode-roadmap.md, live-events-wire.md]
 
 # Live game operations
 
+## Transport handoff after reconnect
+
+Queue inspection (`peek_commands`) and processing a game report do not set `sent`.
+The Redis bridge first checks its fresh-report/connection gate, then calls
+`handoff_commands` with the expected boot and prefix. Under the store acceptance
+lock, that method selects the current batch, marks only its commands as handed
+off and invokes the transport. Revocation therefore cancels commands still behind
+a closed gate or removed between inspection and handoff. A transport error after
+handoff remains uncertain, since bytes may already have reached Redis.
+
+The fake Redis regression `closed_publish_gate_keeps_commands_revocable` first
+failed with zero commands revoked, then passed after the split: reconnect with
+the gate closed, revoke, receive a fresh report, and observe no publication.
+`owner_revocation_serializes_with_publish_handoff` covers the competing lock
+acquisitions. The explicit `commands()` API remains a handoff for direct transports;
+callers inspecting/reporting queue state must use `peek_commands()`.
+
 Status: the coordinator accepted E3/E4 at `f4e2a92` and game E5/E6/E7.1 at
 `00cb8b8`. The coordinator also accepted the subsequent mg-live Rust integration and private
 HTTPS engine proof (`e1da522` through `9977c32`). The coordinator accepted E7.2/E7.3/E7.4/E8.1. The owner-regression/DM quality-of-life
