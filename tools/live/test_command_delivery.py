@@ -4,7 +4,7 @@ import json
 
 def publish(p, commands=(), received=()):
     p.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({
-        "v": 1, "boot": p.state["boot"], "prefix": "mglive-events", "commands": list(commands), "received": list(received)}))
+        "v": 1, "script_version": 2, "boot": p.state["boot"], "prefix": "mglive-events", "commands": list(commands), "received": list(received)}))
     assert p.pub.read() > 0
 
 
@@ -113,7 +113,7 @@ def boot_bound(p):
                "code": 'SetLocalInt(GetModule(),"MGET_BOUND",GetLocalInt(GetModule(),"MGET_BOUND")+1);'}
     for boot, prefix in [("old-boot", "mglive-events"), (p.state["boot"], "other-server")]:
         p.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({
-            "v": 1, "boot": boot, "prefix": prefix, "commands": [command]}))
+            "v": 1, "script_version": 2, "boot": boot, "prefix": prefix, "commands": [command]}))
         assert p.pub.read() > 0
     start = p.state["seq"]
     p.until(lambda: p.state["seq"] >= start + 2)
@@ -122,3 +122,20 @@ def boot_bound(p):
     p.until(lambda: any(r["id"] == command["id"] for r in p.state["results"]))
     assert p.native('JsonInt(GetLocalInt(GetModule(),"MGET_BOUND"))') == 1
     return {"wrong_boot_rejected": True, "wrong_prefix_rejected": True, "current_boot_count": 1}
+
+
+def script_version(p):
+    assert p.state["script_version"] == 2
+    command = {"id":"version-test", "op":"run_chunk", "area":"events",
+               "code":'SetLocalInt(GetModule(),"MGET_VERSION",GetLocalInt(GetModule(),"MGET_VERSION")+1);'}
+    for version in [None, 1, 3]:
+        envelope = {"v":1, "boot":p.state["boot"], "prefix":"mglive-events", "commands":[command]}
+        if version is not None:
+            envelope["script_version"] = version
+        p.pub.send("PUBLISH", "mglive-events.cmd", json.dumps(envelope))
+        assert p.pub.read() > 0
+    assert p.native('JsonInt(GetLocalInt(GetModule(),"MGET_VERSION"))') == 0
+    publish(p, [command])
+    p.until(lambda: any(r["id"] == "version-test" for r in p.state["results"]))
+    assert p.native('JsonInt(GetLocalInt(GetModule(),"MGET_VERSION"))') == 1
+    return {"report_script_version":2, "incompatible_commands_rejected":True, "current_command_runs_once":True}

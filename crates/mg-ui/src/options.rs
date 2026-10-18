@@ -465,6 +465,9 @@ fn live_page(
     } else if let Some(status) = status {
         ui.label(format!("API listening on {}", status["api"].as_str().unwrap_or_default()));
         let redis = &status["redis"];
+        if let Some(message) = redis["moduleStatus"].as_str() {
+            ui.colored_label(ui.visuals().error_fg_color, message);
+        }
         if redis["connected"].as_bool() == Some(true) {
             ui.label("Redis connected");
         } else {

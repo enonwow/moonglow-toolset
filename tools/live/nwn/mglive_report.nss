@@ -22,6 +22,7 @@ void MgLiveReportPublish()
     for(i=0;i<JsonGetLength(results);i++)
         ack=JsonArrayInsert(ack,JsonObjectGet(JsonArrayGet(results,i),"id"));
     json body = JsonObjectSet(JsonObject(), "v", JsonInt(1));
+    body = JsonObjectSet(body, "script_version", JsonInt(2));
     body = JsonObjectSet(body, "text_codepage", JsonString(MgLiveTextCodepage()));
     body = JsonObjectSet(body, "prefix", JsonString(GetLocalString(m,"MGLIVE_PREFIX")));
     body = JsonObjectSet(body, "boot", JsonString(GetLocalString(m, "MGLIVE_BOOT")));

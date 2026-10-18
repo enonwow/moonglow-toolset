@@ -48,6 +48,7 @@ pub(crate) struct State {
     publisher: bool,
     last_state_ms: Option<u64>,
     last_error: String,
+    module_status: Option<String>,
     published: u64,
     received: u64,
     generation: u64,
@@ -57,7 +58,7 @@ pub(crate) struct State {
 
 pub(crate) fn status(state: &Mutex<State>) -> Value {
     let s = lock(state);
-    json!({"connected":s.subscriber && s.publisher,"lastStateMs":s.last_state_ms,"lastError":s.last_error,"published":s.published,"received":s.received,"events":*lock(&s.events)})
+    json!({"connected":s.subscriber && s.publisher,"moduleStatus":s.module_status,"lastStateMs":s.last_state_ms,"lastError":s.last_error,"published":s.published,"received":s.received,"events":*lock(&s.events)})
 }
 
 /// The one outbound encoding boundary: NWScript JsonParse consumes the server's
@@ -81,7 +82,28 @@ pub(crate) fn game_json(value: &Value) -> String {
 
 #[derive(Deserialize)]
 struct ReportIdentity {
+    #[serde(default)]
     prefix: String,
+    #[serde(default)]
+    script_version: u32,
+}
+
+const SCRIPT_VERSION: u32 = 2;
+const REBUILD_MODULE: &str =
+    "this module was prepared by an older Moonglow; rebuild it with mg live-build";
+
+fn check_module(body: &[u8], prefix: &str) -> Result<(), String> {
+    let report: ReportIdentity = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    if report.script_version < SCRIPT_VERSION || report.prefix.is_empty() {
+        return Err(REBUILD_MODULE.into());
+    }
+    if report.script_version != SCRIPT_VERSION {
+        return Err("This module requires a newer Moonglow; update the application".into());
+    }
+    if report.prefix != prefix {
+        return Err("State server prefix mismatch".into());
+    }
+    Ok(())
 }
 
 fn has_outbound(value: &Value) -> bool {
@@ -273,18 +295,20 @@ impl Bridge {
                                     Reply::Bulk(Some(body)),
                                 ] if kind == b"message" && name == &channel => {
                                     let generation = lock(&state).generation;
-                                    if serde_json::from_slice::<ReportIdentity>(body)
-                                        .ok()
-                                        .is_none_or(|report| report.prefix != prefix)
-                                    {
-                                        lock(&state).last_error =
-                                            "State server prefix mismatch".into();
+                                    if let Err(message) = check_module(body, &prefix) {
+                                        let mut s = lock(&state);
+                                        s.last_error = message.clone();
+                                        s.module_status = Some(message);
+                                        s.reported = None;
+                                        drop(s);
+                                        wake();
                                         continue;
                                     }
                                     match store.sync(body, now_ms()) {
                                         Ok(reply) => {
                                             let mut s = lock(&state);
                                             s.last_state_ms = Some(now_ms());
+                                            s.module_status = None;
                                             s.received += 1;
                                             if s.generation == generation
                                                 && s.publisher
@@ -442,6 +466,23 @@ impl Drop for Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_module_has_an_actionable_status_even_when_redis_is_connected() {
+        for body in [json!({"v":1}), json!({"v":1,"prefix":"test"})] {
+            let message = check_module(&serde_json::to_vec(&body).unwrap(), "test").unwrap_err();
+            assert_eq!(message, REBUILD_MODULE);
+            let state = Mutex::new(State {
+                subscriber: true,
+                publisher: true,
+                module_status: Some(message),
+                ..State::default()
+            });
+            assert_eq!(status(&state)["moduleStatus"], REBUILD_MODULE);
+            assert_eq!(status(&state)["connected"], true);
+        }
+        assert!(check_module(br#"{"v":1,"prefix":"test","script_version":2}"#, "test").is_ok());
+    }
     use std::net::{Shutdown, TcpListener};
     #[test]
     fn publisher_json_preserves_polish_and_json_escaping() {
@@ -610,7 +651,7 @@ mod tests {
         }
     }
     fn report(seq: u64) -> Value {
-        json!({"v":1,"prefix":"test","boot":"test","seq":seq,"areas":[{"area":"a","cre":[{"id":"ab"}]}]})
+        json!({"v":1,"script_version":2,"prefix":"test","boot":"test","seq":seq,"areas":[{"area":"a","cre":[{"id":"ab"}]}]})
     }
 
     #[test]
@@ -697,7 +738,9 @@ mod tests {
             fake.published.recv_timeout(Duration::from_millis(250)).is_err(),
             "reconnect must wait for a fresh game report"
         );
-        fake.state(json!({"v":1,"prefix":"test","boot":"test","seq":3,"ack":["once"]}));
+        fake.state(
+            json!({"v":1,"script_version":2,"prefix":"test","boot":"test","seq":3,"ack":["once"]}),
+        );
         wait(|| store.status(now_ms())["queued"].as_array().unwrap().is_empty());
         assert_eq!(
             store.status(now_ms())["results"][0]["result"]["err"],

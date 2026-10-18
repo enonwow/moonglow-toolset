@@ -3210,3 +3210,14 @@ well as its result row. The store already treats a handed-off command without
 a final outcome as unknown. Private WSL `command_expiry` passes: advancing
 beyond the retention window removes both the failed result and its ID from
 the native ACK buffer, verified by a direct engine query.
+
+## Prepared-module compatibility (2026-10-18)
+
+Reports and command envelopes carry `script_version: 2` alongside wire `v: 1`.
+The bridge rejects legacy or mismatched modules before opening the publish gate.
+Live Options shows a dedicated module-status error even when Redis is connected:
+"this module was prepared by an older Moonglow; rebuild it with mg live-build".
+A current report clears the compatibility message. The game likewise rejects
+missing, older or newer script versions before any side effect. Bridge unit
+coverage checks legacy status; private WSL `command_version` proves the report
+version and rejection, then one execution with the current envelope.

@@ -354,6 +354,10 @@ class Proof:
         from test_command_delivery import result_expiry
         return result_expiry(self)
 
+    def command_version(self):
+        from test_command_delivery import script_version
+        return script_version(self)
+
     def watch_areas(self):
         from test_watch_areas import run
         return run(self)
@@ -404,7 +408,7 @@ class Proof:
         ident = f"proof-{self.counter}"
         command = {"id":ident, "area":"events", **args}
         if command["area"] is None: command.pop("area")
-        self.pub.send("PUBLISH", PREFIX + ".cmd", json.dumps({"v": 1, "boot": self.state["boot"], "prefix": PREFIX, "commands": [command]},ensure_ascii=wire_ascii))
+        self.pub.send("PUBLISH", PREFIX + ".cmd", json.dumps({"v": 1, "script_version": 2, "boot": self.state["boot"], "prefix": PREFIX, "commands": [command]},ensure_ascii=wire_ascii))
         assert self.pub.read() > 0, "Game has not subscribed"
         self.until(lambda: any(r["id"] == ident for f in self.frames for r in f["results"]))
         result = next(r for f in self.frames for r in f["results"] if r["id"] == ident)
@@ -665,7 +669,7 @@ class Proof:
         # now wait in Redis, independently of state publication/subscriber count.
         self.sub.close()
         for n in range(8):
-            self.pub.send("PUBLISH",PREFIX+".cmd",json.dumps({"v":1,"boot":self.state["boot"],"prefix":PREFIX,"commands":[{"id":f"overflow-{n}","op":"run_script","area":"events","script":"mget_chat"}]}))
+            self.pub.send("PUBLISH",PREFIX+".cmd",json.dumps({"v":1,"script_version":2,"boot":self.state["boot"],"prefix":PREFIX,"commands":[{"id":f"overflow-{n}","op":"run_script","area":"events","script":"mget_chat"}]}))
             assert self.pub.read()>0
             time.sleep(.2)
         time.sleep(2)
@@ -680,7 +684,7 @@ class Proof:
         self.command(op="run_script", script="mglive_probe")
         self.sub.close()
         # Retain a later native speech event across ticks with zero subscribers.
-        self.pub.send("PUBLISH", PREFIX + ".cmd", json.dumps({"v": 1, "boot": self.state["boot"], "prefix": PREFIX, "commands": [{
+        self.pub.send("PUBLISH", PREFIX + ".cmd", json.dumps({"v": 1, "script_version": 2, "boot": self.state["boot"], "prefix": PREFIX, "commands": [{
             "id": "no-listener", "area": "events", "op": "npc_say", "target": actor,
             "text": "retained-without-listener"}]}))
         assert self.pub.read() > 0
@@ -2262,7 +2266,7 @@ class Proof:
         assert error["line"].endswith("] Script error: MGET_LOG classifier fixture")
         assert not any(e["script_error"] for e in self.logs if "MGLIVE: chunk" in e["line"])
         self.sub.close()
-        self.pub.send("PUBLISH", PREFIX + ".cmd", json.dumps({"v": 1, "boot": self.state["boot"], "prefix": PREFIX, "commands": [{
+        self.pub.send("PUBLISH", PREFIX + ".cmd", json.dumps({"v": 1, "script_version": 2, "boot": self.state["boot"], "prefix": PREFIX, "commands": [{
             "id": "log-no-listener", "area": "events", "op": "run_chunk",
             "code": 'WriteTimestampedLogEntry("MGET_LOG retained");'}]}))
         assert self.pub.read() > 0
@@ -2326,6 +2330,7 @@ def main():
     parser._option_string_actions["--phase"].choices.append("command_budget")
     parser._option_string_actions["--phase"].choices.append("command_accounting")
     parser._option_string_actions["--phase"].choices.append("command_expiry")
+    parser._option_string_actions["--phase"].choices.append("command_version")
     parser._option_string_actions["--phase"].choices.append("command_interrupt")
     parser._option_string_actions["--phase"].choices.append("command_boot")
     args = parser.parse_args()

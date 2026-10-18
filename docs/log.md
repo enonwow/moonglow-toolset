@@ -1,5 +1,7 @@
 # Update log
 
+* **Live module compatibility (2026-10-18)**: versioned script envelopes and an actionable visible rebuild message; native guard proof passes. [Contract](live-ops-wire.md#prepared-module-compatibility-2026-10-18).
+
 * **Live ACK expiry (2026-10-18)**: expired/evicted results release their native acknowledgements; WSL proof passes. [Contract](live-ops-wire.md#expired-result-acknowledgements-2026-10-18).
 
 * **Live result byte accounting (2026-10-18)**: incremental retention accounting replaces repeated full-list serialization; native proof passes. [Contract](live-ops-wire.md#retained-result-byte-accounting-2026-10-18).

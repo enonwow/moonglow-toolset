@@ -270,7 +270,7 @@ def main():
         assert status == 400 and refusal["code"] == "dead", refusal
         evidence["storeRefusal"] = refusal
         # Bypass the store deliberately to test the game's independent gate.
-        raw = {"v": 1, "boot": api("status")[1]["boot"], "prefix": prefix, "commands": [{"id": "phase1-dead-game", "area": area,
+        raw = {"v": 1, "script_version": 2, "boot": api("status")[1]["boot"], "prefix": prefix, "commands": [{"id": "phase1-dead-game", "area": area,
             "op": "npc_move", "target": owned, "x": 20, "y": 20, "z": 0}]}
         publisher.send("PUBLISH", prefix + ".cmd", json.dumps(raw))
         assert publisher.read() > 0

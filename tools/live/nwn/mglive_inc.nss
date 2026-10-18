@@ -749,6 +749,11 @@ void MgLiveHandleReply(string message)
     object m = GetModule();
     json response = JsonParse(message);
     json commands = JsonObjectGet(response, "commands");
+    if(JsonGetInt(JsonObjectGet(response,"script_version"))!=2)
+    {
+        MgLiveFailure("incompatible Moonglow script protocol; rebuild with mg live-build");
+        return;
+    }
     if (JsonGetInt(JsonObjectGet(response, "v")) != 1 || JsonGetType(commands) != JSON_TYPE_ARRAY ||
         JsonGetLength(commands) > MGLIVE_MAX_DONE)
     {

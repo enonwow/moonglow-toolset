@@ -338,7 +338,7 @@ def run(proof, pid):
         # A live-off stage still accepts pubsub commands but cannot ack them;
         # restore it directly before the next command waits for a result.
         if summary["stages"] and summary["stages"][-1]["live_off"]:
-            proof.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({"v": 1, "boot": proof.state["boot"], "prefix": "mglive-events", "commands": [{"id": "resume-"+name, "area": DEMO_AREA, "op": "run_chunk", "code": 'SetLocalInt(GetModule(),"MP_LIVE_OFF",0);'}]}))
+            proof.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({"v": 1, "script_version": 2, "boot": proof.state["boot"], "prefix": "mglive-events", "commands": [{"id": "resume-"+name, "area": DEMO_AREA, "op": "run_chunk", "code": 'SetLocalInt(GetModule(),"MP_LIVE_OFF",0);'}]}))
             proof.pub.read()
         code = 'object m=GetModule();' + ''.join(f'SetLocalInt(m,"{key}",{value});' for key, value in [("MP_DETAIL", detail), ("MGLIVE_DELTA", delta), ("MGLIVE_RESYNC", 1), ("MP_ROUTINES_OFF", routines_off), ("MP_LIVE_OFF", 0)])
         code += 'object a=GetObjectByTag("'+DEMO_AREA+'"); if(!GetIsObjectValid(a)) a=GetFirstArea();'
@@ -356,7 +356,7 @@ def run(proof, pid):
         while time.monotonic() < end:
             proof.poll(.25)
         if live_off:
-            proof.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({"v": 1, "boot": proof.state["boot"], "prefix": "mglive-events", "commands": [{"id": "pause-"+name, "area": DEMO_AREA, "op": "run_chunk", "code": 'SetLocalInt(GetModule(),"MP_LIVE_OFF",1);'}]}))
+            proof.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({"v": 1, "script_version": 2, "boot": proof.state["boot"], "prefix": "mglive-events", "commands": [{"id": "pause-"+name, "area": DEMO_AREA, "op": "run_chunk", "code": 'SetLocalInt(GetModule(),"MP_LIVE_OFF",1);'}]}))
             proof.pub.read()
         offset = log.stat().st_size
         first = len(proof.frames)
@@ -438,7 +438,7 @@ def run(proof, pid):
         # No live subscriber: two ticks must retain the same events for reconnect.
         proof.sub.close()
         offset = log.stat().st_size
-        proof.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({"v": 1, "boot": proof.state["boot"], "prefix": "mglive-events", "commands": [{
+        proof.pub.send("PUBLISH", "mglive-events.cmd", json.dumps({"v": 1, "script_version": 2, "boot": proof.state["boot"], "prefix": "mglive-events", "commands": [{
             "id": "measure-no-listener", "area": DEMO_AREA, "op": "run_chunk",
             "code": 'SetLocalInt(GetModule(),"MP_BURST_N",10); ExecuteScript("mp_burst",GetModule());'}]}))
         assert proof.pub.read() > 0

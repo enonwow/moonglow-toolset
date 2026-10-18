@@ -2945,7 +2945,7 @@ fn game_commands(s: &mut State) -> Value {
         commands.insert(0, json!({"id":id,"op":"resync"}));
     }
     commands.extend(s.watch.pending.iter().cloned());
-    json!({"v":1,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":s.receipts})
+    json!({"v":1,"script_version":2,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":s.receipts})
 }
 
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
