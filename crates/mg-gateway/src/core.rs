@@ -44,16 +44,27 @@ impl CoreHandle {
         .map_err(|e| e.to_string())??;
         let weak = Arc::downgrade(&core.0);
         tokio::spawn(async move {
+            let mut last_reap = std::time::Instant::now();
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 let Some(core) = weak.upgrade() else {
                     break;
                 };
                 if core.stopped.load(Ordering::Acquire) {
                     break;
                 }
-                let _ =
-                    tokio::task::spawn_blocking(move || core.reap(std::time::Instant::now())).await;
+                let reap = last_reap.elapsed() >= std::time::Duration::from_secs(1);
+                if reap {
+                    last_reap = std::time::Instant::now();
+                }
+                let _ = tokio::task::spawn_blocking(move || {
+                    core.gateway.tick(crate::now())?;
+                    if reap {
+                        core.reap(std::time::Instant::now())?;
+                    }
+                    Ok::<(), String>(())
+                })
+                .await;
             }
         });
         Ok(core)

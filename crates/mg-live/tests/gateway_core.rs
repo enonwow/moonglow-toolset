@@ -138,6 +138,7 @@ fn shorter_ttl_and_watch_union_are_enforced() {
     let mut c = command(1);
     c["ttl_ms"] = json!(10);
     g.commands("one", &[c], 1000).unwrap();
+    g.tick(1010).unwrap();
     g.pushes("one", 1010).unwrap();
     assert_eq!(s.result("one.1234abcd.1").unwrap().code, Some(mg_live::store::ErrorCode::Expired));
     for i in 0..5 {

@@ -183,11 +183,37 @@ impl Session {
 }
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
+    watch_stamp: Option<WatchStamp>,
+    #[cfg(test)]
+    watch_recomputations: std::sync::atomic::AtomicU64,
     generation: u64,
     reservation: u64,
     pub area_revs: BTreeMap<String, u64>,
     meta: Option<Meta>,
     sessions: BTreeMap<String, Session>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WatchStamp {
+    generation: u64,
+    boot: String,
+    seq: u64,
+    owners: BTreeMap<String, BTreeSet<String>>,
+}
+impl WatchStamp {
+    fn new(s: &State) -> Self {
+        Self {
+            generation: s.gateway.generation,
+            boot: s.boot.clone(),
+            seq: s.seq,
+            owners: s
+                .watch
+                .owners
+                .iter()
+                .filter(|(id, _)| id.as_str() != "gateway")
+                .map(|(id, areas)| (id.clone(), areas.clone()))
+                .collect(),
+        }
+    }
 }
 /// Captured independently of outbox retention, checked under the store accept lock.
 #[derive(Debug, Clone)]
@@ -267,6 +293,8 @@ pub struct WatchReply {
 pub struct Gateway {
     store: Arc<LiveStore>,
     epoch: String,
+    watch_update: Mutex<()>,
+    tick_at: Mutex<Option<u64>>,
 }
 impl Gateway {
     pub fn new(store: Arc<LiveStore>) -> Result<Self, String> {
@@ -275,8 +303,13 @@ impl Gateway {
         }
         let epoch = crate::service::generate_token()?;
         // A new gateway epoch cannot resume old session delivery state.
-        store.lock().gateway.sessions.clear();
-        Ok(Self { store, epoch })
+        {
+            let mut s = store.lock();
+            s.gateway.sessions.clear();
+            s.gateway.generation += 1;
+            s.gateway.watch_stamp = None;
+        }
+        Ok(Self { store, epoch, watch_update: Mutex::new(()), tick_at: Mutex::new(None) })
     }
     /// Dispatch public core requests. Host-owned book/AI operations return unsupported.
     pub fn handle(
@@ -531,26 +564,60 @@ impl Gateway {
         if !self.store.lock().gateway.sessions.contains_key(id) {
             return Err("Unknown session".into());
         }
-        self.update_watch(now_ms)
+        let _ = now_ms;
+        Ok(())
     }
     pub fn remove_session(&self, id: &str, now_ms: u64) -> Result<(), String> {
-        self.store.lock().gateway.sessions.remove(id);
+        {
+            let mut s = self.store.lock();
+            if s.gateway.sessions.remove(id).is_some() {
+                s.gateway.generation += 1;
+            }
+        }
         self.update_watch(now_ms)
     }
     fn update_watch(&self, now_ms: u64) -> Result<(), String> {
-        let active = active_watch(&self.store.lock());
+        let _update = self.watch_update.lock().unwrap_or_else(|e| e.into_inner());
+        let (active, stamp) = {
+            let s = self.store.lock();
+            let stamp = WatchStamp::new(&s);
+            if s.gateway.watch_stamp.as_ref() == Some(&stamp) {
+                return Ok(());
+            }
+            #[cfg(test)]
+            {
+                s.gateway.watch_recomputations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            (active_watch(&s), stamp)
+        };
         self.store.set_watched_areas_owned(
             "gateway",
             &active.iter().cloned().collect::<Vec<_>>(),
             now_ms,
         )?;
+        self.store.lock().gateway.watch_stamp = Some(stamp);
         Ok(())
+    }
+    /// Host maintenance, independent of the number of session pumps.
+    pub fn tick(&self, now_ms: u64) -> Result<(), String> {
+        let mut last = self.tick_at.lock().unwrap_or_else(|e| e.into_inner());
+        if *last == Some(now_ms) {
+            return Ok(());
+        }
+        *last = Some(now_ms);
+        self.store.expire(now_ms);
+        self.update_watch(now_ms)
     }
     pub fn watch_set(&self, id: &str, areas: &[String], now_ms: u64) -> Result<WatchReply, String> {
         let mut s = self.store.lock();
         let session = s.gateway.sessions.get_mut(id).ok_or("Unknown session")?;
-        session.watch = validate_watch(areas, session.config.watch_limit)?;
+        let next = validate_watch(areas, session.config.watch_limit)?;
+        let changed = next != session.watch;
+        session.watch = next;
         let desired = session.watch.clone();
+        if changed {
+            s.gateway.generation += 1;
+        }
         let active = active_watch(&s);
         drop(s);
         self.update_watch(now_ms)?;
@@ -574,7 +641,11 @@ impl Gateway {
         if !session.config.has("focus") {
             return Err("Focus permission required".into());
         }
+        let changed = session.focus != objects;
         session.focus = objects;
+        if changed {
+            s.gateway.generation += 1;
+        }
         drop(s);
         self.update_watch(crate::now_ms())
     }
@@ -761,8 +832,6 @@ impl Gateway {
         Ok(())
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
-        self.store.expire(now_ms);
-        self.update_watch(now_ms)?;
         let mut s = self.store.lock();
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;
         session.prune_completed(Some(now_ms));
@@ -1166,5 +1235,32 @@ mod audit_tests {
         assert_eq!(row.state, ResultState::Unknown);
         g.ack("dm:one", &[(row.id.clone(), row.rev)], 0).unwrap();
         assert!(g.store.lock().gateway.sessions["dm:one"].outbox.contains_key(&row.id));
+    }
+    #[test]
+    fn audit_e1_session_pumps_do_not_expire_shared_store() {
+        let g = setup();
+        let mut c = command(1);
+        c["ttl_ms"] = json!(1);
+        g.commands("dm:one", &[c], 0).unwrap();
+        for _ in 0..10 {
+            g.pushes("dm:one", 10).unwrap();
+        }
+        assert!(g.store.result("one.1234abcd.1").is_none(), "expiration belongs to the host tick");
+        let count = || {
+            g.store.lock().gateway.watch_recomputations.load(std::sync::atomic::Ordering::Relaxed)
+        };
+        let before = count();
+        g.tick(10).unwrap();
+        assert_eq!(g.store.result("one.1234abcd.1").unwrap().code, Some(ErrorCode::Expired));
+        for now in 11..100 {
+            g.tick(now).unwrap();
+            g.pushes("dm:one", now).unwrap();
+        }
+        assert_eq!(count(), before);
+        g.watch_set("dm:one", &["a".into()], 100).unwrap();
+        assert_eq!(count(), before + 1);
+        let restarted = Gateway::new(g.store.clone()).unwrap();
+        restarted.tick(101).unwrap();
+        assert!(!g.store.lock().watch.owners.contains_key("gateway"));
     }
 }

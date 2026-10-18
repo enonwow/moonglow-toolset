@@ -4,7 +4,7 @@ title: Live library for headless consumers
 description: Dependency boundary, passive mirrors, gateway transport and shared scoped HTTP routing.
 tags: [live, library, gateway]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/lib.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
+sources: [../crates/mg-live/src/lib.rs, ../crates/mg-live/src/access.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs, ../crates/mg-gateway/src/lib.rs, ../crates/mg-gateway/tests/transport.rs, ../apps/mg-gateway-dev/src/main.rs]
 ---
 
 # Live library for headless consumers
@@ -127,7 +127,8 @@ unit test `reset_keeps_waiters_signal_and_cannot_open_a_journal`.
 `mg_live::gateway::Gateway` owns session views of an authoritative `Arc<LiveStore>`.
 The host supplies authenticated `SessionConfig` values; no network or identity
 provider is included. `connect` validates resume epoch, boot, area revisions,
-event retention and result retention. `pushes` emits boot/meta/changed areas,
+event retention and result retention. The host calls `tick` once per maintenance
+interval, independently of session count. `pushes` emits boot/meta/changed areas,
 results and filtered events in protocol order. Area updates coalesce to the
 latest report, at most once per 250 ms per area/session. Focus targets and PCs
 also make areas visible. The mirror applies store topics through `Push::apply`.
@@ -137,7 +138,7 @@ from the area push's nested snapshot; `age_ms` reconstructs local receipt time.
 `full_ms` stays an authoritative baseline identity, not a local receipt clock.
 Events preserve `n`; filtered rows still advance `through`. Chat requires
 `read_chat`; tell channels 4 and 20 additionally require `read_tells`. Command
-and skill events are limited to the owning session.
+and skill events are shared by Read-capable sessions; result pushes remain owner-scoped.
 
 Each session retains up to 256 result entries for ten minutes from acceptance.
 A full outbox refuses new commands with `rate_limited`; it never evicts an
@@ -397,3 +398,11 @@ entry remains until a late final result or the existing retention deadline,
 so the unresolved-command registry can deliver a newer result revision. Only
 ACKed `final` entries retire immediately. `audit_m3` checks this boundary; the
 store acceptance suite covers late final delivery after the UI ring wraps.
+
+The public host runs one `Gateway::tick` every 50 ms on a blocking worker, while
+session pumps only build views. Expiry no longer runs once per viewer. Watch
+admission is cached against the report boot/sequence, session watch/focus changes
+and other watch owners; unchanged ticks do not rebuild or reapply the union. A
+new gateway invalidates the cache and releases old session watches even when no
+new client connects. `audit_e1` checks expiry ownership, unchanged tick/pump work,
+watch changes and gateway restart. Direct core embedders must drive `tick`.
