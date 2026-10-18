@@ -1,5 +1,7 @@
 # Update log
 
+* **Unlocked Live persistence (2026-10-18)**: journal reservation revalidates after disk IO; serialized card/note saves release the store mutex. [Contract and remaining cold path](live-ops-wire.md#unlocked-command-reservations-and-card-saves-2026-10-18).
+
 * **Continuous Live retention (2026-10-18)**: runtime log maintenance and bounded audit rotation with shared writer locking. [Contract](live-ops-wire.md#retention-during-a-running-service-2026-10-18).
 
 * **Live inbox replay (2026-10-18)**: queue-epoch receipts prevent duplicate history and notices across game boots. [Contract](live-ops-wire.md#inbox-replay-across-boots-2026-10-18).

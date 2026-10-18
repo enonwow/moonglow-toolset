@@ -147,7 +147,10 @@ pub(super) fn enqueue(
 
 impl LiveStore {
     pub fn new_mirror() -> Self {
-        Self { state: Mutex::new(State { mirror: Some(Mirror::default()), ..State::default() }) }
+        Self {
+            state: Mutex::new(State { mirror: Some(Mirror::default()), ..State::default() }),
+            ..Self::default()
+        }
     }
     pub fn is_mirror(&self) -> bool {
         self.lock().mirror.is_some()

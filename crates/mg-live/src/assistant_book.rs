@@ -122,12 +122,13 @@ impl LiveStore {
         module: PathBuf,
         server: String,
     ) -> Result<(), String> {
+        let _writer = self.knowledge_io.lock().unwrap_or_else(|e| e.into_inner());
         let context = (data, module, server);
         if self.lock().assistant.knowledge.as_ref().is_some_and(|k| k.context == context) {
             return Ok(());
         }
         // Stop serving the old module's secrets even if the new file fails to load.
-        self.clear_assistant_context();
+        self.clear_assistant_context_inner();
         let path = cards::folder(&context.0, &context.1);
         let server = path.join(format!("server-{:016x}", cards::hash(&context.2)));
         // A corrupt file fails closed and is never overwritten.
@@ -154,6 +155,10 @@ impl LiveStore {
         Ok(())
     }
     pub fn clear_assistant_context(&self) {
+        let _writer = self.knowledge_io.lock().unwrap_or_else(|e| e.into_inner());
+        self.clear_assistant_context_inner();
+    }
+    fn clear_assistant_context_inner(&self) {
         let mut s = self.lock();
         super::cancel(&mut s, "Assistant module context closed");
         let old = s.assistant.knowledge.take();
@@ -215,12 +220,16 @@ impl LiveStore {
     }
     pub fn save_gm_card(&self, card: GmCard) -> Result<(), String> {
         card.check()?;
+        let _writer = self.knowledge_io.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = self.lock();
         let k = book_mut(&mut s)?;
         let mut cards = k.cards.clone();
         cards.gm = card;
-        cards::write(&k.cards_path, &cards)?;
-        k.cards = cards;
+        let path = k.cards_path.clone();
+        drop(s);
+        cards::write(&path, &cards)?;
+        let mut s = self.lock();
+        book_mut(&mut s)?.cards = cards;
         s.assistant.knowledge_revision += 1;
         Ok(())
     }
@@ -232,6 +241,7 @@ impl LiveStore {
     }
     pub fn save_npc_card(&self, id: &str, mut card: NpcCard) -> Result<(), String> {
         card.check()?;
+        let _writer = self.knowledge_io.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = self.lock();
         let (key, _) = npc(&s, id)?;
         card.id = key.clone();
@@ -241,8 +251,11 @@ impl LiveStore {
         }
         let mut cards = k.cards.clone();
         cards.npcs.insert(key, card);
-        cards::write(&k.cards_path, &cards)?;
-        k.cards = cards;
+        let path = k.cards_path.clone();
+        drop(s);
+        cards::write(&path, &cards)?;
+        let mut s = self.lock();
+        book_mut(&mut s)?.cards = cards;
         s.assistant.knowledge_revision += 1;
         Ok(())
     }
@@ -253,6 +266,7 @@ impl LiveStore {
     }
     pub fn save_object_note(&self, id: &str, note: &str) -> Result<(), String> {
         cards::bounded(&[note])?;
+        let _writer = self.knowledge_io.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = self.lock();
         let key = object_key(&s, id)?;
         let k = book_mut(&mut s)?;
@@ -265,8 +279,11 @@ impl LiveStore {
         } else {
             notes.objects.insert(key, note.into());
         }
-        cards::write(&k.notes_path, &notes)?;
-        k.notes = notes;
+        let path = k.notes_path.clone();
+        drop(s);
+        cards::write(&path, &notes)?;
+        let mut s = self.lock();
+        book_mut(&mut s)?.notes = notes;
         s.assistant.knowledge_revision += 1;
         Ok(())
     }
@@ -442,6 +459,27 @@ mod tests {
         s.assistant_context(work.0.clone(), work.0.join("other.mod"), "server-one".into()).unwrap();
         assert_eq!(s.gm_card().unwrap(), GmCard::default());
         s.clear_assistant_context();
+    }
+
+    #[test]
+    fn concurrent_card_saves_keep_both_updates() {
+        let work = Work::new("concurrent-cards");
+        let s = store();
+        let module = work.0.join("campaign.mod");
+        s.assistant_context(work.0.clone(), module.clone(), "server".into()).unwrap();
+        std::thread::scope(|threads| {
+            for name in ["tag:first", "tag:second"] {
+                let s = &s;
+                threads.spawn(move || {
+                    let card = NpcCard { personality: name.into(), ..Default::default() };
+                    s.save_npc_card(name, card).unwrap();
+                });
+            }
+        });
+        s.clear_assistant_context();
+        s.assistant_context(work.0.clone(), module, "server".into()).unwrap();
+        assert_eq!(s.npc_card("tag:first").unwrap().personality, "tag:first");
+        assert_eq!(s.npc_card("tag:second").unwrap().personality, "tag:second");
     }
     #[test]
     fn assistant_memory_keeps_both_directions_deduplicates_and_persists() {

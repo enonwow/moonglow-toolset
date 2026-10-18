@@ -36,6 +36,8 @@ pub(crate) struct Journal {
     boot: String,
     file: Option<File>,
     ids: HashSet<String>,
+    #[cfg(test)]
+    pub(crate) before_write: Option<std::sync::Arc<std::sync::Barrier>>,
 }
 
 impl Journal {
@@ -52,7 +54,15 @@ impl Journal {
         let lock = open(&root.join("writer.lock"))?;
         lock.try_lock()
             .map_err(|e| format!("Another Live service owns this command journal: {e}"))?;
-        Ok(Self { root, _lock: lock, boot: String::new(), file: None, ids: HashSet::new() })
+        Ok(Self {
+            root,
+            _lock: lock,
+            boot: String::new(),
+            file: None,
+            ids: HashSet::new(),
+            #[cfg(test)]
+            before_write: None,
+        })
     }
 
     pub(crate) fn select_boot(&mut self, boot: &str) -> Result<(), String> {
@@ -86,6 +96,10 @@ impl Journal {
         self.ids.contains(id)
     }
 
+    pub(crate) fn contains_boot(&self, boot: &str, id: &str) -> bool {
+        self.boot == boot && self.contains(id)
+    }
+
     /// Reserve before any native enqueue/publisher wake. Even an uncertain
     /// write failure retains the in-memory reservation; callers fail closed.
     pub(crate) fn reserve(&mut self, id: &str) -> Result<(), String> {
@@ -100,6 +114,11 @@ impl Journal {
         let file = self.file.as_mut().ok_or("No server boot selected for command identity")?;
         let line = serde_json::to_string(id).map_err(|e| e.to_string())? + "\n";
         self.ids.insert(id.into());
+        #[cfg(test)]
+        if let Some(barrier) = &self.before_write {
+            barrier.wait();
+            barrier.wait();
+        }
         file.write_all(line.as_bytes()).and_then(|()| file.sync_data()).map_err(|e| {
             format!("Command identity reservation failed; command was not queued: {e}")
         })

@@ -1787,6 +1787,8 @@ struct State {
 #[derive(Debug, Default)]
 pub struct LiveStore {
     state: Mutex<State>,
+    command_io: Mutex<()>,
+    knowledge_io: Mutex<()>,
 }
 
 /// How this frame affected the state baseline. Side-channel events and command
@@ -1828,7 +1830,8 @@ impl LiveStore {
         data: &std::path::Path,
         server: &str,
     ) -> Result<(), String> {
-        let mut s = self.lock();
+        let _writer = self.command_io.lock().unwrap_or_else(|e| e.into_inner());
+        let s = self.lock();
         if s.mirror.is_some() {
             return Err("Mirrors do not journal command IDs".into());
         }
@@ -1836,12 +1839,20 @@ impl LiveStore {
         if s.command_ids.as_ref().is_some_and(|j| j.is_at(&root)) {
             return Ok(());
         }
+        let boot = s.boot.clone();
+        let endpoint = s.server.clone();
+        let ids: Vec<_> = s.accepted.keys().cloned().collect();
+        drop(s);
         let mut journal = crate::command_ids::Journal::new(root)?;
-        journal.select_boot(&s.boot)?;
-        for id in s.accepted.keys() {
+        journal.select_boot(&boot)?;
+        for id in &ids {
             if !journal.contains(id) {
                 journal.reserve(id)?;
             }
+        }
+        let mut s = self.lock();
+        if s.boot != boot || s.server != endpoint {
+            return Err("Server changed while opening command identity storage; retry".into());
         }
         s.command_ids = Some(journal);
         Ok(())
@@ -2158,9 +2169,20 @@ impl LiveStore {
 
     pub fn enqueue_scoped(
         &self,
+        command: Command,
+        now_ms: u64,
+        scope: &crate::access::Scope,
+    ) -> Result<String, CommandError> {
+        let _writer = self.command_io.lock().unwrap_or_else(|e| e.into_inner());
+        self.enqueue_reserved(command, now_ms, scope, None)
+    }
+
+    fn enqueue_reserved(
+        &self,
         mut command: Command,
         now_ms: u64,
         scope: &crate::access::Scope,
+        reservation: Option<(String, Option<crate::bridge::RedisConfig>)>,
     ) -> Result<String, CommandError> {
         command.validate()?;
         let operation = serde_json::to_value(&command.op).expect("operation serializes");
@@ -2171,6 +2193,15 @@ impl LiveStore {
             ));
         }
         let mut s = self.lock();
+        if reservation
+            .as_ref()
+            .is_some_and(|(boot, endpoint)| boot != &s.boot || endpoint != &s.server)
+        {
+            return Err(CommandError::new(
+                ErrorCode::Expired,
+                "Server changed during command reservation; command was not queued",
+            ));
+        }
         expire(&mut s, now_ms);
         let ttl_ms = if let Some((boot, ttl)) = gateway::command_binding(&s.gateway, &command.id) {
             if boot != s.boot {
@@ -2224,7 +2255,9 @@ impl LiveStore {
                 Err("Command id already belongs to a different operation".into())
             };
         }
-        if s.command_ids.as_ref().is_some_and(|j| j.contains(&command.id)) {
+        if reservation.is_none()
+            && s.command_ids.as_ref().is_some_and(|j| j.contains_boot(&s.boot, &command.id))
+        {
             return Err(
                 "Command id was already reserved in this server boot; it will not run again".into(),
             );
@@ -2583,7 +2616,10 @@ impl LiveStore {
                 s.next += 1;
                 command.id = format!("{}-c{}", s.prefix, s.next);
                 if !s.accepted.contains_key(&command.id)
-                    && !s.command_ids.as_ref().is_some_and(|j| j.contains(&command.id))
+                    && !s
+                        .command_ids
+                        .as_ref()
+                        .is_some_and(|j| j.contains_boot(&s.boot, &command.id))
                 {
                     break;
                 }
@@ -2594,10 +2630,23 @@ impl LiveStore {
             return Err("Live session operation limit reached; restart the listener".into());
         }
         let id = command.id.clone();
-        let boot = s.boot.clone();
-        if let Some(journal) = &mut s.command_ids {
-            journal.select_boot(&boot)?;
-            journal.reserve(&id)?;
+        if reservation.is_none()
+            && let Some(mut journal) = s.command_ids.take()
+        {
+            let binding = (s.boot.clone(), s.server.clone());
+            drop(s);
+            let started = std::time::Instant::now();
+            let result = journal.select_boot(&binding.0).and_then(|()| journal.reserve(&id));
+            self.lock().command_ids = Some(journal);
+            result?;
+            // Durable reservation is not authorization: reports and policy may
+            // have changed while the disk was busy. Revalidate before enqueue.
+            return self.enqueue_reserved(
+                command,
+                now_ms.saturating_add(started.elapsed().as_millis() as u64),
+                scope,
+                Some(binding),
+            );
         }
         let audit = match &command.op {
             Op::RunScript { script, .. } => {
@@ -3068,6 +3117,43 @@ mod ops_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_command_reservation_releases_store_lock_and_revalidates_policy() {
+        let root = std::env::temp_dir()
+            .join(format!("mg-reserve-unlocked-{}", crate::service::generate_token().unwrap()));
+        let store = LiveStore::default();
+        post(&store, report("b", 1, true), 0);
+        let mut journal = crate::command_ids::Journal::new(root.clone()).unwrap();
+        journal.select_boot("b").unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        journal.before_write = Some(barrier.clone());
+        store.lock().command_ids = Some(journal);
+        std::thread::scope(|threads| {
+            let worker = threads.spawn(|| {
+                store.enqueue(
+                    Command {
+                        id: "reserved".into(),
+                        area: "market".into(),
+                        op: Op::RunScript { script: "test_script".into(), target: None },
+                    },
+                    0,
+                )
+            });
+            barrier.wait();
+            let unlocked = store.state.try_lock().is_ok();
+            if unlocked {
+                store.set_policy(Policy { scripts: false, ..Policy::default() });
+            }
+            barrier.wait();
+            let result = worker.join().unwrap();
+            assert!(unlocked, "disk write held the store mutex");
+            assert_eq!(result.unwrap_err().code, ErrorCode::Disabled);
+        });
+        assert!(store.commands(1)["commands"].as_array().unwrap().is_empty());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn accepted_identity_is_fixed_size_and_payload_sensitive() {

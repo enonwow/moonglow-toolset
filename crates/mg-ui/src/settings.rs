@@ -101,8 +101,10 @@ impl Default for PaintSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Options › Live. The API token is stored in plain text with these settings.
+    /// Legacy development configuration. Secrets migrate before serialization.
+    #[serde(serialize_with = "save_legacy_live")]
     pub live: mg_live::LiveConfig,
+    pub live_servers: LiveServers,
     /// NWNX folder used only by the module preparer, never a server lifecycle setting.
     pub live_nwnx: String,
     /// Focus watch lists and alerts are enabled unless explicitly disabled.
@@ -363,7 +365,208 @@ pub struct Settings {
     pub dialog_backup_minutes: Option<u32>,
 }
 
+/// Versioned gateway choices. Session secrets belong to the credential store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "LiveServersWire")]
+pub struct LiveServers {
+    pub version: u32,
+    pub servers: Vec<LiveServer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveServer {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_pin: Option<String>,
+    #[serde(default)]
+    pub selected: bool,
+}
+
+#[derive(Deserialize)]
+struct LiveServersWire {
+    version: u32,
+    servers: Vec<LiveServer>,
+}
+
+impl TryFrom<LiveServersWire> for LiveServers {
+    type Error = String;
+    fn try_from(wire: LiveServersWire) -> Result<Self, Self::Error> {
+        if wire.version != 1 {
+            return Err("Unsupported Live servers version".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        if wire.servers.iter().any(|s| s.id.is_empty() || !ids.insert(s.id.clone())) {
+            return Err("Live server IDs must be nonempty and unique".into());
+        }
+        let mut result = Self { version: 1, servers: wire.servers };
+        if !result.servers.is_empty() {
+            let selected =
+                result.servers.iter().find(|s| s.selected).unwrap_or(&result.servers[0]).id.clone();
+            result.select(&selected);
+        }
+        Ok(result)
+    }
+}
+
+impl Default for LiveServers {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            servers: vec![LiveServer {
+                id: "local-dev".into(),
+                name: "Local (dev)".into(),
+                url: "https://127.0.0.1:8080".into(),
+                cert_pin: None,
+                selected: true,
+            }],
+        }
+    }
+}
+
+impl LiveServers {
+    pub fn selected(&self) -> Option<&LiveServer> {
+        self.servers.iter().find(|s| s.selected)
+    }
+    pub fn select(&mut self, id: &str) {
+        if self.servers.iter().any(|s| s.id == id) {
+            for server in &mut self.servers {
+                server.selected = server.id == id;
+            }
+        }
+    }
+    pub fn add(&mut self) -> String {
+        let id = loop {
+            let id = format!("server-{:016x}", fastrand::u64(..));
+            if !self.servers.iter().any(|s| s.id == id) {
+                break id;
+            }
+        };
+        self.servers.push(LiveServer {
+            id: id.clone(),
+            name: "New server".into(),
+            url: "https://live.example.org".into(),
+            cert_pin: None,
+            selected: false,
+        });
+        self.select(&id);
+        id
+    }
+    pub fn remove(&mut self, id: &str) {
+        self.servers.retain(|s| s.id != id);
+        if self.selected().is_none()
+            && let Some(first) = self.servers.first_mut()
+        {
+            first.selected = true;
+        }
+    }
+
+    /// Testable environment resolution without mutating process-global variables.
+    /// An overridden URL never reuses a saved server's credential or certificate pin.
+    pub fn resolve_with(&self, env: impl Fn(&str) -> Option<String>) -> Option<ResolvedGateway> {
+        let url = env("MOONGLOW_GATEWAY_URL").filter(|s| !s.is_empty());
+        let token =
+            env("MOONGLOW_GATEWAY_TOKEN").and_then(|s| mg_live_link::SessionToken::new(s).ok());
+        let server = if let Some(url) = url {
+            LiveServer {
+                id: "environment".into(),
+                name: "Environment (dev)".into(),
+                url,
+                cert_pin: None,
+                selected: true,
+            }
+        } else {
+            self.selected()?.clone()
+        };
+        Some(ResolvedGateway { server, token })
+    }
+
+    pub fn resolve(&self) -> Option<ResolvedGateway> {
+        self.resolve_with(|key| std::env::var(key).ok())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedGateway {
+    pub server: LiveServer,
+    pub token: Option<mg_live_link::SessionToken>,
+}
+
+fn system_tokens()
+-> Result<mg_live_link::credentials::TokenStore, mg_live_link::credentials::StoreError> {
+    let dir =
+        crate::recovery::data_dir().ok_or(mg_live_link::credentials::StoreError::Unavailable)?;
+    Ok(mg_live_link::credentials::TokenStore::system(&dir))
+}
+
+/// Saving cannot discard an unmigrated credential when secure storage fails.
+fn save_legacy_live<S: serde::Serializer>(
+    live: &mg_live::LiveConfig,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if !live.token.is_empty() {
+        let token = mg_live_link::SessionToken::new(live.token.clone())
+            .map_err(serde::ser::Error::custom)?;
+        system_tokens()
+            .and_then(|s| s.set("local-dev", &token))
+            .map_err(serde::ser::Error::custom)?;
+    }
+    use serde::ser::SerializeStruct;
+    let mg_live::LiveConfig {
+        token: _,
+        enabled,
+        allow_agents,
+        api_bind,
+        api_port,
+        clients,
+        redis_host,
+        redis_port,
+        prefix,
+        policy,
+        keep_logs,
+        log_chat,
+        keep_wsl,
+    } = live;
+    let mut value = serializer.serialize_struct("LiveConfig", 12)?;
+    value.serialize_field("enabled", enabled)?;
+    value.serialize_field("allow_agents", allow_agents)?;
+    value.serialize_field("api_bind", api_bind)?;
+    value.serialize_field("api_port", api_port)?;
+    value.serialize_field("clients", clients)?;
+    value.serialize_field("redis_host", redis_host)?;
+    value.serialize_field("redis_port", redis_port)?;
+    value.serialize_field("prefix", prefix)?;
+    value.serialize_field("policy", policy)?;
+    value.serialize_field("keep_logs", keep_logs)?;
+    value.serialize_field("log_chat", log_chat)?;
+    value.serialize_field("keep_wsl", keep_wsl)?;
+    value.end()
+}
+
 impl Settings {
+    /// Import the previous plaintext token; leave it intact on storage failure.
+    /// Redis host, port and prefix remain in `live` for the development transition.
+    pub fn migrate_live<B: mg_live_link::credentials::Backend>(
+        &mut self,
+        store: &mg_live_link::credentials::TokenStore<B>,
+    ) -> Result<(), mg_live_link::credentials::StoreError> {
+        if !self.live.token.is_empty() {
+            let token = mg_live_link::SessionToken::new(self.live.token.clone())
+                .map_err(|_| mg_live_link::credentials::StoreError::Storage)?;
+            if store.get("local-dev")?.is_none() {
+                store.set("local-dev", &token)?;
+            }
+            self.live.token.clear();
+            if !self.live_servers.servers.iter().any(|s| s.id == "local-dev") {
+                let mut local = LiveServers::default().servers.remove(0);
+                local.selected = self.live_servers.servers.is_empty();
+                self.live_servers.servers.push(local);
+            }
+        }
+        Ok(())
+    }
+
     /// Puts a module at the top of the recent list.
     pub fn remember(&mut self, path: &Path) {
         self.recent.retain(|p| p != path);
@@ -438,6 +641,114 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Default)]
+    struct MemoryTokens(
+        std::sync::Mutex<std::collections::HashMap<String, mg_live_link::SessionToken>>,
+    );
+    impl mg_live_link::credentials::Backend for MemoryTokens {
+        fn get(
+            &self,
+            id: &str,
+        ) -> Result<Option<mg_live_link::SessionToken>, mg_live_link::credentials::StoreError>
+        {
+            Ok(self.0.lock().unwrap().get(id).cloned())
+        }
+        fn set(
+            &self,
+            id: &str,
+            token: &mg_live_link::SessionToken,
+        ) -> Result<(), mg_live_link::credentials::StoreError> {
+            self.0.lock().unwrap().insert(id.into(), token.clone());
+            Ok(())
+        }
+        fn delete(&self, id: &str) -> Result<(), mg_live_link::credentials::StoreError> {
+            self.0.lock().unwrap().remove(id);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn live_servers_round_trip_selection_and_version() {
+        let mut settings = Settings::default();
+        let id = settings.live_servers.add();
+        settings.live_servers.servers[1].cert_pin = Some("a".repeat(64));
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(!json.contains("\"token\""));
+        let copy: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(settings, copy);
+        assert_eq!(copy.live_servers.selected().unwrap().id, id);
+        settings.live_servers.remove(&id);
+        assert_eq!(settings.live_servers.selected().unwrap().id, "local-dev");
+        assert!(serde_json::from_str::<LiveServers>(r#"{"version":2,"servers":[]}"#).is_err());
+        assert!(
+            serde_json::from_str::<LiveServers>(
+                r#"{"version":1,"servers":[{"id":"","name":"","url":""}]}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn live_settings_round_trip_desktop_ron() {
+        let mut settings = Settings::default();
+        settings.live.keep_wsl = Some(false);
+        let text = ron::to_string(&settings).unwrap();
+        assert_eq!(ron::from_str::<Settings>(&text).unwrap(), settings);
+    }
+
+    #[test]
+    fn legacy_live_migration_keeps_dev_parameters_and_removes_plain_token() {
+        let mut settings: Settings = serde_json::from_str(r#"{"live":{"redis_host":"localhost","redis_port":6390,"prefix":"demo","token":"fixture-session"}}"#).unwrap();
+        let dir = std::env::temp_dir().join(format!("mg-link-settings-{}", fastrand::u64(..)));
+        let store = mg_live_link::credentials::TokenStore::new(MemoryTokens::default(), &dir);
+        settings.migrate_live(&store).unwrap();
+        assert!(settings.live.token.is_empty());
+        assert_eq!(store.get("local-dev").unwrap().unwrap().expose(), "fixture-session");
+        assert_eq!(settings.live_servers.selected().unwrap().name, "Local (dev)");
+        assert_eq!(
+            (&*settings.live.redis_host, settings.live.redis_port, &*settings.live.prefix),
+            ("localhost", 6390, "demo")
+        );
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(!json.contains("fixture-session"));
+        assert!(!json.contains("\"token\""));
+        assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), settings);
+        assert!(!dir.exists(), "working keyring creates no fallback");
+    }
+
+    #[test]
+    fn legacy_migration_does_not_overwrite_a_new_session() {
+        let mut settings = Settings::default();
+        settings.live.token = "old-fixture".into();
+        let dir = std::env::temp_dir().join(format!("mg-link-migration-{}", fastrand::u64(..)));
+        let store = mg_live_link::credentials::TokenStore::new(MemoryTokens::default(), &dir);
+        store
+            .set("local-dev", &mg_live_link::SessionToken::new("new-fixture".into()).unwrap())
+            .unwrap();
+        settings.migrate_live(&store).unwrap();
+        assert_eq!(store.get("local-dev").unwrap().unwrap().expose(), "new-fixture");
+        assert!(settings.live.token.is_empty());
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn gateway_environment_takes_precedence_without_persisting_secrets() {
+        let servers = LiveServers::default();
+        let resolved = servers
+            .resolve_with(|key| match key {
+                "MOONGLOW_GATEWAY_URL" => Some("https://127.0.0.1:8443".into()),
+                "MOONGLOW_GATEWAY_TOKEN" => Some("fixture-environment".into()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(resolved.server.id, "environment");
+        assert_eq!(resolved.server.url, "https://127.0.0.1:8443");
+        assert_eq!(resolved.token.as_ref().unwrap().expose(), "fixture-environment");
+        assert!(!format!("{resolved:?}").contains("fixture-environment"));
+        assert!(!serde_json::to_string(&servers).unwrap().contains("fixture-environment"));
+        assert_eq!(servers.resolve_with(|_| None).unwrap().server.id, "local-dev");
+    }
 
     /// The game's text is read in the language edited, where the install
     /// has that language.

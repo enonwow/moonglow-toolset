@@ -3261,3 +3261,18 @@ rotate at 8 MiB, retaining one previous segment. Each append reopens the file
 under an OS lock, so multiple service instances do not continue writing a
 renamed segment. Small-limit tests cover ongoing pruning/recreation and valid,
 ordered JSON rows across repeated audit rotations.
+
+## Unlocked command reservations and card saves (2026-10-18)
+
+Command admission has a dedicated writer lock. Durable ID reservation and
+journal installation run without holding the store mutex; admission then
+revalidates scope, policy, server binding and targets before enqueue. Failed
+revalidation leaves the durable ID consumed and never publishes the command.
+A barrier regression pauses the actual reservation, verifies the store mutex
+is available, revokes script permission and requires refusal after the write.
+The existing cold boot journal selection inside report ingestion is unchanged.
+
+Card/note writes use a separate writer lock shared with assistant context
+switches. They snapshot under the store lock, write outside it, then install
+the saved value. Concurrent NPC-card saves are tested through disk reload,
+so independent edits cannot overwrite one another.
