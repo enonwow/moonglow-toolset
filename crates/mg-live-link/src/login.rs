@@ -95,6 +95,7 @@ impl Gateway {
         {
             return Ok(());
         }
+        let deadline = Instant::now() + timeout;
         let observed = Arc::new(Mutex::new(None));
         let cfg = tls::config(Some(Pinned { pin: None, observed: observed.clone() }));
         let host = self.origin.host_str().ok_or(Error::InvalidGateway)?.trim_matches(['[', ']']);
@@ -103,16 +104,17 @@ impl Gateway {
             .map_err(|_| Error::Transport)?
             .next()
             .ok_or(Error::Transport)?;
-        let mut stream =
-            TcpStream::connect_timeout(&addr, timeout).map_err(|_| Error::Transport)?;
+        let stream = TcpStream::connect_timeout(&addr, timeout).map_err(|_| Error::Transport)?;
         stream.set_read_timeout(Some(timeout)).map_err(|_| Error::Transport)?;
         stream.set_write_timeout(Some(timeout)).map_err(|_| Error::Transport)?;
         let name = rustls::pki_types::ServerName::try_from(host.to_owned())
             .map_err(|_| Error::InvalidGateway)?;
         let mut conn =
             rustls::ClientConnection::new(Arc::new(cfg), name).map_err(|_| Error::Transport)?;
-        let _ = conn.complete_io(&mut stream);
-        let sha256 = observed.lock().unwrap().clone().ok_or(Error::Transport)?;
+        let _ = conn.complete_io(&mut DeadlineSocket { stream, deadline });
+        let sha256 = observed.lock().unwrap().clone().ok_or_else(|| {
+            if Instant::now() >= deadline { Error::Timeout } else { Error::Transport }
+        })?;
         Err(Error::TrustRequired(TrustPrompt {
             origin: self.origin.origin().ascii_serialization(),
             sha256,
@@ -161,6 +163,38 @@ impl Gateway {
         }
         let reply: Reply = serde_json::from_slice(&bytes).map_err(|_| Error::Token)?;
         SessionToken::new(reply.token)
+    }
+}
+
+/// Socket timeouts alone restart on each read; a slow peer must not extend discovery forever.
+struct DeadlineSocket {
+    stream: TcpStream,
+    deadline: Instant,
+}
+
+impl DeadlineSocket {
+    fn remaining(&self) -> std::io::Result<Duration> {
+        self.deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::TimedOut))
+    }
+}
+
+impl Read for DeadlineSocket {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.stream.set_read_timeout(Some(self.remaining()?))?;
+        self.stream.read(buf)
+    }
+}
+
+impl Write for DeadlineSocket {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.stream.set_write_timeout(Some(self.remaining()?))?;
+        self.stream.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
     }
 }
 

@@ -101,3 +101,29 @@ fn reject_unsafe_urls_and_bad_pins() {
     assert!(matches!(Gateway::new("https://example.org", Some("abc")), Err(Error::InvalidPin)));
     assert!(Gateway::new("wss://example.org", None).is_ok());
 }
+
+#[test]
+fn slow_certificate_discovery_cannot_extend_the_deadline() {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("https://{}", listener.local_addr().unwrap());
+    let worker = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket.set_write_timeout(Some(Duration::from_millis(100))).unwrap();
+        // An incomplete TLS handshake record, trickling faster than the socket timeout.
+        if socket.write_all(&[22, 3, 3, 0, 100]).is_err() {
+            return;
+        }
+        for _ in 0..30 {
+            if socket.write_all(&[0]).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+    let began = std::time::Instant::now();
+    let result = Gateway::new(&url, None).unwrap().check_trust(Duration::from_millis(80));
+    assert!(matches!(result, Err(Error::Timeout)));
+    assert!(began.elapsed() < Duration::from_millis(400));
+    worker.join().unwrap();
+}

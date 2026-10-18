@@ -100,3 +100,12 @@ A URL override uses a distinct environment identity and cannot inherit a saved
 server's certificate pin or credential. `resolve_with` tests this without
 mutating process-global environment variables. Unsupported schema versions
 and empty/duplicate IDs fail deserialization; selection is normalized.
+
+## Certificate discovery deadline
+
+TLS certificate discovery has one absolute deadline spanning connection and
+handshake I/O. Socket timeouts alone renew on each received fragment; a peer
+sending an incomplete record slowly could otherwise hold a login worker.
+The `slow_certificate_discovery_cannot_extend_the_deadline` loopback regression
+trickles an incomplete TLS record and verifies bounded termination. All seven
+login/TLS tests pass, including this case.

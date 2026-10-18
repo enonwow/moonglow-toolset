@@ -203,7 +203,7 @@ fn secure_windows_directory(path: &Path) -> Result<(), StoreError> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     // Protected DACL containing only the current user's SID (the Windows 0600 equivalent).
-    // PowerShell uses LiteralPath; path is an argument, never interpolated into code.
+    // LiteralPath and an escaped single-quoted path prevent wildcard or shell expansion.
     let script = " $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $item=Get-Item -LiteralPath $p; $acl=if($item.PSIsContainer){New-Object System.Security.AccessControl.DirectorySecurity}else{New-Object System.Security.AccessControl.FileSecurity}; $acl.SetAccessRuleProtection($true,$false); $inherit=if((Get-Item -LiteralPath $p).PSIsContainer){[System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[System.Security.AccessControl.InheritanceFlags]::None}; $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl',$inherit,'None','Allow'); $acl.AddAccessRule($rule); $item.SetAccessControl($acl)";
     use base64::Engine;
     let path = path.to_str().ok_or(StoreError::Permissions)?.replace('\'', "''");
