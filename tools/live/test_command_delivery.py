@@ -57,6 +57,25 @@ def result_budget(p):
     return {"report_result_bytes": sizes, "all_deferred_results_delivered": sorted(seen)}
 
 
+def result_accounting(p):
+    p.command(op="run_chunk", wrap=False, code='''#include "mglive_receipt"
+    void main() {
+        json r=JsonObjectSet(JsonObject(),"id",JsonString("replace-result"));
+        r=JsonObjectSet(r,"ok",JsonBool(TRUE));MgLiveRetainResult(r);
+        r=JsonObjectSet(r,"value",JsonString("replacement payload"));MgLiveRetainResult(r);
+    }''')
+    expression = 'JsonArrayInsert(JsonArrayInsert(JsonArray(),JsonInt(GetLocalInt(GetModule(),"MGLIVE_RESULT_BYTES"))),JsonInt(GetStringLength(JsonDump(GetLocalJson(GetModule(),"MGLIVE_RESULTS")))))'
+    before = p.native(expression)
+    assert before[0] == before[1] + 1, before
+    rows = [r for r in p.state["results"] if r["id"] == "replace-result"]
+    assert len(rows) == 1 and rows[0]["value"] == "replacement payload"
+    publish(p, received=[rows[0]["receipt"]])
+    p.until(lambda: all(r["id"] != "replace-result" for r in p.state["results"]))
+    after = p.native(expression)
+    assert after[0] == after[1] + 1, after
+    return {"bytes_after_replacement": before, "bytes_after_receipt": after}
+
+
 def interrupted(p):
     commands = [
         {"id": "batch-first", "area": "events", "op": "run_chunk", "code":

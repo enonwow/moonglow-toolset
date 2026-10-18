@@ -3193,3 +3193,12 @@ The publisher's existing outbound check then suppresses idle PUBLISH calls.
 `receipt_idle` covers retries, clearing and stale replay. The private WSL
 `command_receipts` proof passes: only the exact receipt removes the result and
 its ACK from subsequent reports.
+
+## Retained-result byte accounting (2026-10-18)
+
+The game caches each result row's serialized size and maintains the retained
+array byte count across insert, replacement, eviction, receipt and expiry.
+Finishing a command no longer serializes the entire retained list. The count
+includes array brackets and a conservative final comma. The private WSL
+`command_accounting` proof passed, comparing the counter to actual JSON size
+after replacement and explicit receipt removal.
