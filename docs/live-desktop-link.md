@@ -3,7 +3,7 @@ type: Reference
 title: Live desktop connection and authentication
 description: Desktop authentication, gateway transport, shared books, AI management and verified resource downloads.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T15:34:45Z }
+generated: { by: codex, at: 2026-10-18T16:01:49Z }
 sources:
   - ../crates/mg-ui/src/live_resources.rs
   - ../crates/mg-ui/src/resource_plan.rs
@@ -800,3 +800,38 @@ existing blueprint-name UI test. An empty horizontal row reduced the local view
 height and clipped a tree item. Idle resource status now allocates no layout
 space; a unit regression checks the cursor is unchanged, and the existing UI
 regression is rerun unchanged.
+
+### P7 final verification
+
+At code commit `ab56008`, the exact workspace gate passed: **1831 passed, zero
+failed, 24 ignored**. Workspace all-target Clippy, all six manual UI Clippy targets,
+and workspace formatting passed. The final TLS resource UI target passed all four
+tests; the manual resource render passed and its PNGs were inspected. The new
+idle-layout regression and the unchanged blueprint-name test both passed in the
+full run. These results supersede the initial failed layout gate described above.
+
+With the same environment as the reproduction commands:
+
+```text
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf --test nui_perf -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+This proves the authored in-process TLS path, including visible geometry loaded
+from the cache with no local module or haks. It does not claim a test against a
+production gateway or a running game. The accepted baseline and five current P7
+PNGs remain for review; renderer fixtures and tests are the reproducible source.
+No additional backend API is required. Exact compressed transfer totals would
+require metadata beyond the current manifests; the distinct byte labels remain
+intentional.
+
+A compact local record preserves gate results, intermediate failure causes and
+artifact ownership. Superseded diagnostic logs and the completed one-off runner
+are removed; shared Cargo outputs and the final PNGs are retained. Application
+and agent histories are untouched.
+
+Cleanup removed 14 owned temporary files (670,985 logical bytes). No physical
+allocation or global free-space recovery is claimed; concurrent workspace activity
+can change those measurements.

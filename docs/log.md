@@ -1,5 +1,7 @@
 # Update log
 
+* **Desktop resource final verification (2026-10-18)**: exact workspace gate passes 1831 tests with 24 ignored; all-target and manual UI Clippy and formatting pass. Final TLS/UI captures inspected, and the local-layout regression is closed. [Results and limits](live-desktop-link.md#p7-final-verification).
+
 * **Preserve local view space (2026-10-18)**: idle resource status allocates no row; a layout unit regression and the unchanged blueprint-name UI test cover the fix. [Verification](live-desktop-link.md#gateway-resource-downloads-p7-gui).
 
 * **Readable resource progress (2026-10-18)**: compact status controls, manifest resource names, and authored tile geometry for generation-switch captures. [Tests and reproduction](live-desktop-link.md#gateway-resource-downloads-p7-gui).
