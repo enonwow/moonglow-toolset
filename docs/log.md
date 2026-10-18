@@ -1,5 +1,7 @@
 # Update log
 
+* **Owner queue revocation (2026-10-18)**: accepted unsent commands become forbidden atomically with transport hand-off; sent commands retain normal outcomes. [API and race regression](live-ops-wire.md#owner-revocation-before-hand-off).
+
 * **Module-only NWSync (2026-10-18)**: explicit bytecode exclusion and deterministic authored fixture. [Contract](live-gateway-prototypes.md#module-only-publishing).
 
 * **Revisioned gateway books in the desktop (2026-10-18)**: edit NPC/GM cards and object notes with CAS, refresh invalidations, and resolve conflicts without losing local text. [Editor and regressions](live-desktop-link.md#gateway-shared-editors-p3).

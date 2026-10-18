@@ -3560,3 +3560,22 @@ verification evidence, 19 task-owned editing helpers and superseded logs were
 removed (121,977 logical bytes). Shared build outputs remain in use by other
 work, so they were preserved. Concurrent disk activity prevents attributing the
 change in free space to this cleanup.
+
+
+## Owner revocation before hand-off
+
+`LiveStore::revoke_owner(owner, reason) -> usize` cancels accepted but unsent
+commands for exactly that owner and records final `forbidden` results through
+the normal retained-history/result-revision path. It shares the state mutex with
+acceptance and `commands()` hand-off. A publisher racing revocation therefore
+either receives the command and retains its normal result lifecycle, or sees no
+command and the owner receives a final refusal. Already-sent commands are never
+reported as definitely canceled.
+
+Hosts can call the hook without a new transport API:
+`core.with_store(move |store| store.revoke_owner(&owner, &reason)).await`.
+Revoke authentication/consent first to prevent new authorized requests; call once
+for each affected DM/AI owner identity. This hook cancels accepted queue entries,
+not pending approval drafts or authentication sessions. The store regression
+`owner_revocation_serializes_with_publish_handoff` races both operations 64 times
+and also verifies deterministic unsent refusal and repeated revocation.

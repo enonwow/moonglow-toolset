@@ -2092,6 +2092,33 @@ impl LiveStore {
         }
     }
 
+    /// Cancel this owner's accepted commands that have not crossed the transport
+    /// hand-off. The same state lock serializes acceptance, hand-off and revocation.
+    /// The host must revoke authentication first to prevent new authorized requests.
+    /// Sent commands keep their normal result/unknown lifecycle.
+    pub fn revoke_owner(&self, owner: &str, reason: &str) -> usize {
+        let mut s = self.lock();
+        let mut revoked = 0;
+        let reason: String = reason.chars().take(256).collect();
+        let mut i = 0;
+        while i < s.queue.len() {
+            let q = &s.queue[i];
+            if !q.sent && s.owners.get(&q.command.id).is_some_and(|by| by == owner) {
+                let q = s.queue.remove(i).expect("in range");
+                let result = failure(
+                    &q.command.id,
+                    ErrorCode::Forbidden,
+                    &format!("revoked before transport hand-off: {reason}"),
+                );
+                push_result(&mut s, q.command, result);
+                revoked += 1;
+            } else {
+                i += 1;
+            }
+        }
+        revoked
+    }
+
     pub fn set_kick(&self, kick: Sender<()>) {
         self.lock().kick = Some(kick);
     }
@@ -3570,6 +3597,40 @@ mod tests {
         assert!(store.lock().queue.is_empty());
         assert_eq!(store.poll_epoch(&scope).unwrap_err().code, ErrorCode::Forbidden);
         assert!(store.enqueue_scoped(spawn(), 0, &crate::access::Scope::default()).is_ok());
+    }
+
+    #[test]
+    fn owner_revocation_serializes_with_publish_handoff() {
+        for _ in 0..64 {
+            let store = LiveStore::default();
+            post(&store, report("boot", 1, true), 0);
+            let id = store.enqueue(spawn(), 0).unwrap();
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|threads| {
+                let publisher = threads.spawn(|| {
+                    barrier.wait();
+                    store.commands(1)
+                });
+                barrier.wait();
+                let revoked = store.revoke_owner("local", "role removed");
+                let wire = publisher.join().unwrap();
+                if revoked == 1 {
+                    assert!(wire["commands"].as_array().unwrap().is_empty());
+                    assert_eq!(store.result(&id).unwrap().code, Some(ErrorCode::Forbidden));
+                } else {
+                    assert_eq!(wire["commands"][0]["id"], id);
+                    assert!(store.lock().queue[0].sent);
+                    assert!(store.result(&id).is_none());
+                }
+            });
+        }
+        let store = LiveStore::default();
+        post(&store, report("boot", 1, true), 0);
+        let id = store.enqueue(spawn(), 0).unwrap();
+        assert_eq!(store.revoke_owner("local", "role removed"), 1);
+        assert!(store.commands(1)["commands"].as_array().unwrap().is_empty());
+        assert_eq!(store.result(&id).unwrap().code, Some(ErrorCode::Forbidden));
+        assert_eq!(store.revoke_owner("local", "again"), 0);
     }
 
     #[test]
