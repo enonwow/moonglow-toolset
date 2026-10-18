@@ -605,7 +605,7 @@ pub(crate) fn overlay(
     view: &mut AreaView,
     frame: Option<&LiveFrame>,
     pending: &[String],
-    presence: &std::collections::BTreeMap<String, Vec<String>>,
+    presence: &std::collections::BTreeMap<String, Vec<crate::live_backend::FocusActor>>,
 ) {
     #[cfg(feature = "measure")]
     let _measure = crate::measure::span("live.overlay");
@@ -749,19 +749,48 @@ pub(crate) fn overlay(
                 marker_rects.push(icon);
             }
             if let Some(actors) = presence.get(&o.id) {
-                let text = actors.join(" / ");
-                let galley = painter.layout_no_wrap(
-                    text.clone(),
-                    crate::live_backend::presence_font(ui),
-                    Color32::WHITE,
-                );
+                let text = actors.iter().map(|a| a.label.as_str()).collect::<Vec<_>>().join(" / ");
+                let pieces: Vec<_> = actors
+                    .iter()
+                    .enumerate()
+                    .map(|(i, actor)| {
+                        let suffix = if i + 1 == actors.len() { "" } else { " / " };
+                        let galley = painter.layout_no_wrap(
+                            format!("{}{suffix}", actor.label),
+                            crate::live_backend::presence_font(ui),
+                            Color32::WHITE,
+                        );
+                        (actor, galley)
+                    })
+                    .collect();
+                let width: f32 = pieces
+                    .iter()
+                    .map(|(actor, g)| g.size().x + if actor.avatar.is_some() { 22. } else { 0. })
+                    .sum();
+                let height = pieces
+                    .iter()
+                    .map(|(a, g)| g.size().y.max(if a.avatar.is_some() { 18. } else { 0. }))
+                    .fold(0., f32::max);
                 let chip = Rect::from_min_size(
                     at + egui::vec2(12., 10.),
-                    galley.size() + egui::vec2(8., 4.),
+                    egui::vec2(width + 8., height + 4.),
                 );
                 if view.rect.contains_rect(chip) {
                     painter.rect_filled(chip, 5., Color32::from_rgb(44, 67, 86));
-                    painter.galley(chip.min + egui::vec2(4., 2.), galley, Color32::WHITE);
+                    let mut x = chip.left() + 4.;
+                    for (actor, galley) in pieces {
+                        if actor.avatar.is_some() {
+                            let rect = Rect::from_center_size(
+                                egui::pos2(x + 9., chip.center().y),
+                                egui::Vec2::splat(18.),
+                            );
+                            crate::live_backend::avatar_chip(ui, rect, actor, &o.id);
+                            x += 22.;
+                        }
+                        let pos = egui::pos2(x, chip.center().y - galley.size().y / 2.);
+                        x += galley.size().x;
+                        painter.galley(pos, galley, Color32::WHITE);
+                    }
                     let response = ui.interact(
                         chip,
                         ui.id().with(("gateway-presence", &o.id)),

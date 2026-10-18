@@ -147,11 +147,11 @@ impl<'a> LiveBackend<'a> {
         // Gateway focus presence has its own actor identities, not local HTTP activity.
         self.app.live_service.as_ref().map_or_else(Vec::new, |s| s.agents(now))
     }
-    pub(crate) fn presence(&self, id: &str) -> Vec<String> {
+    pub(crate) fn presence(&self, id: &str) -> Vec<FocusActor> {
         let Some(link) = self.link() else { return Vec::new() };
         focus_names(&link.snapshot(), id)
     }
-    pub(crate) fn presence_map(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+    pub(crate) fn presence_map(&self) -> std::collections::BTreeMap<String, Vec<FocusActor>> {
         let Some(link) = self.link() else {
             return Default::default();
         };
@@ -172,7 +172,14 @@ impl<'a> LiveBackend<'a> {
     }
 }
 
-fn focus_names(snapshot: &mg_live_link::LinkSnapshot, object: &str) -> Vec<String> {
+#[derive(Clone, Debug)]
+pub(crate) struct FocusActor {
+    pub id: String,
+    pub label: String,
+    pub avatar: Option<String>,
+}
+
+fn focus_names(snapshot: &mg_live_link::LinkSnapshot, object: &str) -> Vec<FocusActor> {
     snapshot
         .focus
         .get(object)
@@ -188,7 +195,14 @@ fn focus_names(snapshot: &mg_live_link::LinkSnapshot, object: &str) -> Vec<Strin
             };
             let name: String =
                 actor["name"].as_str().unwrap_or("Participant").chars().take(80).collect();
-            Some(format!("{name} · {kind}"))
+            Some(FocusActor {
+                id: id.clone(),
+                label: format!("{name} · {kind}"),
+                avatar: actor["avatar"]
+                    .as_str()
+                    .filter(|url| crate::live_avatar::valid_url(url))
+                    .map(str::to_owned),
+            })
         })
         .collect()
 }
@@ -312,11 +326,37 @@ pub(crate) fn chips(app: &Moonglow, ui: &mut egui::Ui, id: &str) {
             .corner_radius(5.)
             .inner_margin(egui::Margin::symmetric(4, 2))
             .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(actor).font(presence_font(ui)).color(egui::Color32::WHITE),
-                )
-                .on_hover_text("Has this object in Focus. Presence does not lock the object.");
+                ui.horizontal(|ui| {
+                    if actor.avatar.is_some() {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::Vec2::splat(18.), egui::Sense::hover());
+                        avatar_chip(ui, rect, &actor, id);
+                    }
+                    ui.label(
+                        egui::RichText::new(&actor.label)
+                            .font(presence_font(ui))
+                            .color(egui::Color32::WHITE),
+                    )
+                    .on_hover_text("Has this object in Focus. Presence does not lock the object.");
+                });
             });
+    }
+}
+
+pub(crate) fn avatar_chip(ui: &egui::Ui, rect: egui::Rect, actor: &FocusActor, object: &str) {
+    if crate::live_avatar::paint(ui, rect, actor.avatar.as_deref()) {
+        ui.interact(
+            rect,
+            ui.id().with(("presence-avatar", object, &actor.id)),
+            egui::Sense::hover(),
+        )
+        .widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Image,
+                true,
+                format!("Avatar for {}", actor.label),
+            )
+        });
     }
 }
 
@@ -449,6 +489,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn presence_retains_only_valid_avatar_urls() {
+        let snapshot = mg_live_link::LinkSnapshot {
+            actors: vec![
+                json!({"id":"ai:a","kind":"ai","name":"Scribe","avatar":"https://example.invalid/a.png"}),
+                json!({"id":"dm:b","kind":"dm","name":"Guide","avatar":"file:///private.png"}),
+            ],
+            focus: std::collections::BTreeMap::from([(
+                "object".into(),
+                vec!["ai:a".into(), "dm:b".into()],
+            )]),
+            ..Default::default()
+        };
+        let actors = focus_names(&snapshot, "object");
+        assert_eq!(actors[0].avatar.as_deref(), Some("https://example.invalid/a.png"));
+        assert!(actors[1].avatar.is_none());
+    }
+
+    #[test]
     fn gateway_consent_is_off_and_sign_out_keeps_only_the_passive_snapshot() {
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         let id = app.settings.live_servers.add();
@@ -490,7 +548,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            focus_names(&snapshot, "object"),
+            focus_names(&snapshot, "object").into_iter().map(|a| a.label).collect::<Vec<_>>(),
             ["Guide · DM".into(), format!("{} · AI", "x".repeat(80))]
         );
         assert!(focus_names(&snapshot, "absent").is_empty());

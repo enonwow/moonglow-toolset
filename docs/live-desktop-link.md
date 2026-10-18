@@ -3,7 +3,7 @@ type: Reference
 title: Live desktop connection and authentication
 description: Desktop authentication, validated gateway transport and AI replies, shared books, AI management and verified resource downloads.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T16:01:49Z }
+generated: { by: codex, at: 2026-10-18T18:32:46Z }
 sources:
   - ../crates/mg-ui/src/live_resources.rs
   - ../crates/mg-ui/src/resource_plan.rs
@@ -27,6 +27,7 @@ sources:
   - ../crates/mg-ui/src/live_backend.rs
   - ../crates/mg-ui/src/live_book.rs
   - ../crates/mg-ui/src/live_ai.rs
+  - ../crates/mg-ui/src/live_avatar.rs
   - ../crates/mg-ui/src/live_drafts.rs
   - ../crates/mg-ui/tests/gateway_book.rs
   - ../crates/mg-ui/tests/gateway_ai.rs
@@ -883,7 +884,7 @@ updated dev host after the UI flow had completed.
 cargo +1.98.0 test -p mg-ui --lib -j 2 live_ai::tests
 ```
 
-### Verification scope and remaining GUI work
+### Verification scope
 
 M2 has two passing unit regressions; L1 has five. The failing pre-fix runs
 reproduced the reconnect error, numeric JSON panic and silently accepted invalid
@@ -891,15 +892,95 @@ list. No game server or engine is needed for these state and parser regressions.
 
 The exact workspace test gate stops at
 `api::tests::real_tls_status_command_and_stop`: the sandbox's system curl cannot
-acquire Schannel credentials (`SEC_E_NO_CREDENTIALS`). Before aborting, 465 tests
+acquire Schannel credentials (`SEC_E_NO_CREDENTIALS`). Before aborting, 466 tests
 passed, one failed and four were ignored. This is a failed exact gate, not a
 passing engine or TLS proof. Run the same exact workspace test command outside
 that sandbox to verify the system curl path; changing the Rust client TLS policy
 is not a fix for this environment failure.
 
-Per-AI LLM controls and avatar previews remain deferred: the required backend
-implementation was not committed when the audit fixes were ready. Existing
-controls and layout are preserved, and no new PNGs were generated for this
-parser/state-only correction. When wiring the controls, an explicit-id
-`llm.allow` reply must not overwrite the legacy all-owned consent snapshot;
-validate the response and refresh the matching AI row instead.
+### Per-AI consent and avatars
+
+The desktop now uses the identity contract supplied by gateway commit `05d5be9`.
+Each AI row submits `llm.allow {id,on}` and refreshes after acknowledgement. A
+validated `{ids}` response must identify exactly the requested AI; malformed
+responses reach the caller as a protocol error. Per-ID changes never overwrite
+the client's legacy all-owned consent snapshot. The host's global consent still
+overrides per-AI permission.
+
+The avatar field accepts a bounded HTTPS URL without credentials or an empty
+value. Save sends `ai.update` with the URL or null to clear it. Preview validates
+and decodes the image before drawing it; failed images show a fixed message and
+can be retried explicitly. Presence copies the advertised avatar into both Focus
+and map chips, keeping the participant's name and role visible.
+
+The shared in-memory avatar cache holds at most 64 thumbnails with four concurrent
+workers. It accepts PNG/JPEG, limits transfers to 512 KiB and images to 1024 by
+1024 pixels, then reduces large images to at most 64 by 64. Fetches have bounded
+timeouts, use WebPKI HTTPS, carry no gateway bearer/cookies/referrer and reject
+redirects. Self-signed avatar hosts are not supported; gateway certificate pins
+are not applied to unrelated avatar URLs. The cache writes no files.
+
+Before implementation, two worker regressions reproduced malformed consent
+acceptance and per-AI changes overwriting the all-owned value. The UI regression
+reproduced the disabled checkbox. The new UI flows check independent consent for
+two AIs, invalid URL feedback, preview, update, avatar presence and clearing.
+Avatar image tests use authored PNG bytes through egui's included-bytes loader,
+exercising the same asynchronous decoder/cache without contacting an external CDN.
+They do not prove a live avatar CDN deployment. Decoder tests cover malformed,
+truncated and excessive images and preservation of small image dimensions.
+
+```text
+cargo +1.98.0 test -p mg-live-link --lib -j 2 consent_
+cargo +1.98.0 test -p mg-ui --lib -j 2 live_
+cargo +1.98.0 test -p mg-ui --test gateway_ai -j 2
+cargo +1.98.0 test -p mg-ui --test screens -j 2 live_gateway_ai_identity -- --ignored
+```
+
+Before captures are `target/test-output/screens/live-m3-ai-before.png` and
+`live-m3-focus-before.png`; the earlier accepted map baseline is
+`live-gateway-markers.png`. Current captures use `live-m3-ai-after.png`,
+`live-m3-focus-after.png` and `live-m3-map-after.png` in the same directory.
+No credentials are displayed in these captures.
+
+### M3 final verification
+
+The final run used Rust 1.98.0, `NWN_ROOT=/nonexistent`,
+`CARGO_INCREMENTAL=0` and at most two build jobs. Source hashes stayed unchanged
+through the gate. Thirteen new unit regressions and two new UI flows were added;
+the focused run passed 71 Live UI units, all four consent-related link units,
+three AI UI flows (including the existing token flow) and the GPU screen test.
+All five new PNGs were inspected and are retained for user review; test success
+is not a claim of user acceptance.
+
+The exact workspace test command failed with 466 passed, one failed and four
+ignored: the system-curl Schannel case described above. A supplemental run with
+only `--skip api::tests::real_tls_status_command_and_stop` then reached 1859
+passed, two failed and 24 ignored. The remaining failures are outside the desktop
+changes, in `apps/moonglow-mcp/tests/protocol.rs`:
+
+- `a_shell_lists_and_calls_the_same_tools` (line 987): shell discovery did not
+  contain `invented_read`.
+- `pipes_discover_unknown_operations_cli_sessions_guards_and_bad_input`
+  (line 742): the expected CLI result was null instead of true.
+
+Both failures also reproduced in isolated runs below. Their root cause is not
+established here; the MCP owner must investigate, including comparison outside
+the sandbox. No MCP source or test was changed. These failures are not described
+as a passing workspace gate or assumed to be Schannel failures.
+
+```text
+cargo +1.98.0 test -p moonglow-mcp --test protocol -j 2 a_shell_lists_and_calls_the_same_tools -- --exact
+cargo +1.98.0 test -p moonglow-mcp --test protocol -j 2 pipes_discover_unknown_operations_cli_sessions_guards_and_bad_input -- --exact
+```
+
+Workspace all-target Clippy with `-D warnings`, Clippy for all six manual UI
+verification targets, and exact workspace `fmt --check` passed. No running game,
+WSL engine proof or external avatar CDN was used. The canonical document sources,
+three new update-log entries and five retained PNG paths were checked.
+
+Cleanup removed 21 owned temporary logs, runners and intermediate snapshots
+(522,910 logical bytes), plus the temporary source copies used to validate the
+sequential patches. Compact results, unresolved failure excerpts, patches and
+the five current PNGs remain. Shared Cargo outputs and existing accepted evidence
+were retained; no physical allocation or global free-space recovery is claimed.
+Application and agent histories are untouched.

@@ -13,6 +13,10 @@ struct AiInfo {
     name: String,
     #[serde(alias = "llm_allowed")]
     llm: bool,
+    #[serde(default)]
+    avatar: Option<String>,
+    #[serde(skip)]
+    preview: Option<String>,
 }
 impl AiInfo {
     fn valid(&self) -> bool {
@@ -28,6 +32,7 @@ impl AiInfo {
             && !self.name.trim().is_empty()
             && self.name.len() <= 256
             && !self.name.chars().any(char::is_control)
+            && self.avatar.as_deref().is_none_or(crate::live_avatar::valid_url)
     }
 }
 // No Debug/Serialize implementation: a creation reply contains a one-time secret.
@@ -59,10 +64,13 @@ enum AiListResponse {
 impl AiListResponse {
     fn parse(value: Value) -> Result<Vec<AiInfo>, ()> {
         let reply: Self = serde_json::from_value(value).map_err(|_| ())?;
-        let (Self::Current(items) | Self::Legacy { items }) = reply;
+        let (Self::Current(mut items) | Self::Legacy { mut items }) = reply;
         let mut ids = std::collections::BTreeSet::new();
         if items.len() > 256 || items.iter().any(|item| !item.valid() || !ids.insert(&item.id)) {
             return Err(());
+        }
+        for item in &mut items {
+            item.preview = item.avatar.clone();
         }
         Ok(items)
     }
@@ -205,11 +213,39 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             let label = ui.label("AI name");
                             ui.add(egui::TextEdit::singleline(&mut item.name).char_limit(256)).labelled_by(label.id);
                             let mut on = item.llm;
-                            ui.add_enabled(false, egui::Checkbox::new(&mut on, "Allow LLM for this AI"))
-                                .on_disabled_hover_text("This gateway does not advertise per-AI consent yet. Its older switch affects all your AIs.");
-                            ui.weak("Per-AI consent and avatars require an updated gateway.");
+                            if ui.checkbox(&mut on, "Allow LLM for this AI").changed() {
+                                action = Some(link.ai_allow_llm(Some(&id), on));
+                            }
+                            let label = ui.label("AI avatar URL");
+                            let avatar = item.avatar.get_or_insert_default();
+                            if ui.add(egui::TextEdit::singleline(avatar).desired_width(420.).char_limit(2048))
+                                .labelled_by(label.id).changed() { item.preview = None; }
+                            let valid = avatar.is_empty() || crate::live_avatar::valid_url(avatar);
+                            if !valid {
+                                ui.colored_label(ui.visuals().error_fg_color, "Use an HTTPS URL without credentials, or leave it empty.");
+                            }
                             ui.horizontal(|ui| {
-                                if ui.button("Save AI").clicked() { action = Some(link.ai_update(json!({"id":id,"name":item.name}))); }
+                                if ui.add_enabled(valid && !avatar.is_empty(), egui::Button::new("Preview avatar")).clicked() {
+                                    crate::live_avatar::retry(ui.ctx(), avatar);
+                                    item.preview = Some(avatar.clone());
+                                }
+                                ui.weak("PNG or JPEG. Empty removes the avatar.");
+                            });
+                            if let Some(url) = &item.preview {
+                                match crate::live_avatar::get(ui.ctx(), url) {
+                                    crate::live_avatar::Avatar::Ready(texture) => {
+                                        ui.add(egui::Image::new(&texture).max_size(egui::vec2(64.,64.)))
+                                            .widget_info(||egui::WidgetInfo::labeled(egui::WidgetType::Image,true,"Avatar preview"));
+                                    }
+                                    crate::live_avatar::Avatar::Loading => { ui.spinner(); }
+                                    crate::live_avatar::Avatar::Unavailable => { ui.weak("Avatar unavailable. Check the URL or try Preview again."); }
+                                }
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.add_enabled(valid && !item.name.trim().is_empty(), egui::Button::new("Save AI")).clicked() {
+                                    let avatar = if avatar.is_empty() { None } else { Some(avatar.as_str()) };
+                                    action = Some(link.ai_update(json!({"id":id,"name":item.name,"avatar":avatar})));
+                                }
                                 if ui.button("Revoke AI").clicked() { action = Some(link.ai_revoke(&id)); }
                             });
                         });
@@ -306,6 +342,8 @@ mod tests {
             ("name", json!("")),
             ("name", json!("x".repeat(257))),
             ("llm", json!("yes")),
+            ("avatar", json!("http://example.invalid/avatar.png")),
+            ("avatar", json!(7)),
         ] {
             let mut row = ai();
             row[field] = invalid;

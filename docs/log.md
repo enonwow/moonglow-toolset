@@ -1,5 +1,7 @@
 # Update log
 
+* **Per-AI consent and avatars (2026-10-18)**: validate consent acknowledgements, keep per-AI state separate, edit and preview bounded HTTPS avatars, and show them in Focus/map presence. [Desktop contract](live-desktop-link.md#per-ai-consent-and-avatars).
+
 * **Validate AI replies (2026-10-18)**: typed creation/list responses replace mutable JSON indexing; malformed replies show a fixed error and preserve drafts and prior list state. [M3 correction](live-desktop-link.md#validated-ai-replies-l1).
 
 * **Restarted gateway prefix (2026-10-18)**: validate welcome before mutation, settle old commands as Unknown, then switch prefix; regression reproduced the fatal reconnect error. [M3 correction](live-desktop-link.md#gateway-restart-with-pending-commands-m2).

@@ -68,7 +68,29 @@ impl Pending {
             }
         }
         if let Some(outgoing) = self.outgoing {
-            if outgoing.op == "llm.allow" && result.is_ok() {
+            let result = if outgoing.op == "llm.allow" {
+                result.and_then(|value| {
+                    let reply: crate::identities::ConsentReply =
+                        serde_json::from_value(value.clone()).map_err(|_| LinkError::Protocol)?;
+                    let mut seen = BTreeSet::new();
+                    if reply.ids.len() > 256
+                        || outgoing.a["on"].as_bool().is_none()
+                        || reply
+                            .ids
+                            .iter()
+                            .any(|id| !id.starts_with("ai:") || id.len() <= 3 || !seen.insert(id))
+                        || outgoing.a.get("id").is_some_and(|id| {
+                            reply.ids.len() != 1 || id.as_str() != Some(reply.ids[0].as_str())
+                        })
+                    {
+                        return Err(LinkError::Protocol);
+                    }
+                    Ok(value)
+                })
+            } else {
+                result
+            };
+            if outgoing.op == "llm.allow" && outgoing.a.get("id").is_none() && result.is_ok() {
                 shared.replica.lock().unwrap_or_else(|e| e.into_inner()).snapshot.llm_allowed =
                     outgoing.a["on"].as_bool();
             }
@@ -316,6 +338,45 @@ async fn connection(
 mod tests {
     use super::*;
     #[test]
+    fn per_ai_consent_does_not_overwrite_the_all_owned_snapshot() {
+        let (service, mut receiver) = crate::link::fixture();
+        service.shared.replica.lock().unwrap().snapshot.llm_allowed = Some(true);
+        let ticket = service.ai_allow_llm(Some("ai:scribe"), false).unwrap();
+        Pending {
+            at: Instant::now(),
+            outgoing: Some(receiver.try_recv().unwrap()),
+            commands: Vec::new(),
+            _permit: None,
+        }
+        .finish(Ok(json!({"ids":["ai:scribe"]})), &service.shared)
+        .unwrap();
+        assert!(ticket.try_recv().unwrap().is_some());
+        assert_eq!(service.allow_agents(), Some(true));
+    }
+    #[test]
+    fn malformed_consent_replies_do_not_change_state_and_reach_the_caller() {
+        for value in [
+            json!(1),
+            json!({}),
+            json!({"ids":[]}),
+            json!({"ids":["ai:other"]}),
+            json!({"ids":["ai:scribe","ai:scribe"]}),
+        ] {
+            let (service, mut receiver) = crate::link::fixture();
+            let ticket = service.ai_allow_llm(Some("ai:scribe"), true).unwrap();
+            Pending {
+                at: Instant::now(),
+                outgoing: Some(receiver.try_recv().unwrap()),
+                commands: Vec::new(),
+                _permit: None,
+            }
+            .finish(Ok(value), &service.shared)
+            .unwrap();
+            assert_eq!(ticket.try_recv(), Err(LinkError::Protocol));
+            assert_eq!(service.allow_agents(), None);
+        }
+    }
+    #[test]
     fn agent_consent_changes_only_after_successful_gateway_response() {
         let (service, mut receiver) = crate::link::fixture();
         let _ticket = service.set_allow_agents(true).unwrap();
@@ -326,7 +387,7 @@ mod tests {
             commands: Vec::new(),
             _permit: None,
         }
-        .finish(Ok(json!({})), &service.shared)
+        .finish(Ok(json!({"ids":[]})), &service.shared)
         .unwrap();
         assert_eq!(service.allow_agents(), Some(true));
         let _ticket = service.set_allow_agents(false).unwrap();

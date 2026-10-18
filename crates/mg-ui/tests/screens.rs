@@ -16,6 +16,60 @@ mod resource_host;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
+async fn live_gateway_ai_identity() {
+    mg_testkit::gpu::hold();
+    let data = tempfile::tempdir().unwrap();
+    let host = gateway_ops::host(data.path()).await;
+    let writer = gateway_ops::link(&host, gateway_ui::host::SECRET).await;
+    let created = gateway_ui::host::reply_async(writer.ai_create(serde_json::json!({"name":"Scribe","avatar":gateway_ops::AVATAR,"groups":["read","focus"]})).unwrap()).await.unwrap();
+    host.core.with_gateway(|g| g.set_llm_enabled(true)).await.unwrap();
+    gateway_ui::host::reply_async(
+        writer.ai_allow_llm(Some(created["ai"]["id"].as_str().unwrap()), true).unwrap(),
+    )
+    .await
+    .unwrap();
+    let ai = gateway_ops::link(&host, created["token"].as_str().unwrap()).await;
+    let mut app = gateway_ui::app(&host, data.path());
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280., 900.))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(gateway_ui::draw(), app);
+    h.ctx.include_bytes(gateway_ops::AVATAR, gateway_ops::avatar_bytes());
+    gateway_ui::connected(&mut h).await;
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    h.get_by_label("AI agents").click();
+    h.run_steps(3);
+    gateway_ui::label(&mut h, "AI name").await;
+    let stage = std::env::var("MOONGLOW_AI_SCREEN_STAGE").unwrap_or_else(|_| "after".into());
+    assert!(["before", "after"].contains(&stage.as_str()));
+    if stage == "after" {
+        gateway_ui::label(&mut h, "Avatar preview").await;
+    }
+    shoot(&mut h, &mg_testkit::output_dir("screens"), &format!("live-m3-ai-{stage}"));
+    h.get_by_label("Close window").click();
+    h.run_steps(3);
+    gateway_ui::focus(&mut h);
+    gateway_ui::host::reply_async(ai.set_focus(&[("square".into(), "a1".into())]).unwrap())
+        .await
+        .unwrap();
+    gateway_ui::label(&mut h, "Scribe \u{b7} AI").await;
+    shoot(&mut h, &mg_testkit::output_dir("screens"), &format!("live-m3-focus-{stage}"));
+    if stage == "after" {
+        h.get_by_label("Show on map").click();
+        h.run_steps(4);
+        h.get_by_label("Scribe \u{b7} AI / Test \u{b7} DM");
+        shoot(&mut h, &mg_testkit::output_dir("screens"), "live-m3-map-after");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
 async fn live_gateway_resource_downloads() {
     mg_testkit::gpu::hold();
     let data = resource_host::Scratch::new();

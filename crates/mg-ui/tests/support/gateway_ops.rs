@@ -7,6 +7,31 @@ use serde_json::json;
 use std::sync::Arc;
 use support::host::{Host, until};
 
+pub(crate) const AVATAR: &str = "https://example.invalid/scribe.png";
+pub(crate) fn avatar_bytes() -> Vec<u8> {
+    let mut pixels = Vec::new();
+    for y in 0i32..32 {
+        for x in 0i32..32 {
+            let inside = (x - 16).pow(2) + (y - 16).pow(2) < 225;
+            let star = (x - 16).abs() + (y - 16).abs() < 9;
+            pixels.extend_from_slice(if star {
+                &[230, 245, 255, 255]
+            } else if inside {
+                &[31, 137, 167, 255]
+            } else {
+                &[0, 0, 0, 0]
+            });
+        }
+    }
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 32, 32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.write_header().unwrap().write_image_data(&pixels).unwrap();
+    }
+    bytes
+}
+
 pub(crate) struct Credential(pub(crate) String);
 impl mg_live_link::credentials::Backend for Credential {
     fn get(
@@ -86,6 +111,10 @@ pub(crate) fn input(h: &mut Harness<'_, mg_ui::Moonglow>, label: &str, text: &st
     h.get_by_label(label).click();
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.get_by_label(label).type_text(text);
+    if text.is_empty() {
+        h.key_press(egui::Key::Backspace);
+    } else {
+        h.get_by_label(label).type_text(text);
+    }
     h.run_steps(2);
 }

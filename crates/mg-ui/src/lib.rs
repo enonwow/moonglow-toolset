@@ -38,6 +38,7 @@ mod live_animation;
 mod live_areas;
 pub mod live_assistant;
 mod live_atmosphere;
+mod live_avatar;
 pub mod live_backend;
 mod live_book;
 pub mod live_chat;
