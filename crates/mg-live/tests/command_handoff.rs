@@ -50,3 +50,20 @@ fn restart_preserves_uncertainty_only_for_sent_commands() {
     assert_eq!(store.result("sent").unwrap().code, Some(ErrorCode::Unknown));
     assert_eq!(store.result("unsent").unwrap().code, Some(ErrorCode::Expired));
 }
+
+#[test]
+fn policy_revocation_after_handoff_never_claims_the_command_was_disabled() {
+    use mg_live::store::Policy;
+    let store = LiveStore::default();
+    report(&store, "b", 1, json!([]), 0);
+    queued(&store, "sent");
+    let transport_copy = store.commands(0);
+    queued(&store, "unsent");
+    store.set_policy(Policy { scripts: false, chunks: false, players: false });
+    assert_eq!(transport_copy["commands"][0]["id"], "sent");
+    assert_eq!(store.result("sent").unwrap().code, Some(ErrorCode::Unknown));
+    assert_eq!(store.result("unsent").unwrap().code, Some(ErrorCode::Disabled));
+    assert!(store.commands(1)["commands"].as_array().unwrap().is_empty());
+    report(&store, "b", 2, json!([{"id":"sent","ok":true}]), 2);
+    assert!(store.result("sent").unwrap().ok);
+}

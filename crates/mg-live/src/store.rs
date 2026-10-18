@@ -1900,7 +1900,15 @@ impl LiveStore {
         while i < s.queue.len() {
             if let Some(error) = policy_error(policy, &s.queue[i].command.op) {
                 let q = s.queue.remove(i).expect("in range");
-                let result = failure(&q.command.id, ErrorCode::Disabled, error);
+                let result = if q.sent {
+                    failure(
+                        &q.command.id,
+                        ErrorCode::Unknown,
+                        "unknown: policy revoked after transport hand-off; command may have executed",
+                    )
+                } else {
+                    failure(&q.command.id, ErrorCode::Disabled, error)
+                };
                 push_result(&mut s, q.command, result);
             } else {
                 i += 1;

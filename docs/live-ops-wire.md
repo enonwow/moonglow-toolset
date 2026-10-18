@@ -3140,3 +3140,12 @@ endpoint change is `unknown` because the game may have executed the command.
 A late game result resolves an unknown result. Pending skill checks are also
 unknown if their final response is lost. `command_handoff` covers unsent/sent
 timeouts, restart and a late failure.
+
+## Policy revocation at hand-off (2026-10-18)
+
+Transport selection and `sent` marking happen under the same store lock used
+by policy changes. Revocation removes unsent work as `disabled`; work already
+handed to the publisher becomes `unknown`, with an explicit possible-execution
+message. It is removed from retransmission. A late result can still resolve it.
+The deterministic hand-off regression revokes policy after copying a transport
+batch and verifies both outcomes and late success.
