@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway book edits (2026-10-18)**: persist per-key revisions, reject stale edits and invalidate every session. [Contract and tests](live-library.md#gateway-shared-requests).
+
 * **Gateway presence (2026-10-18)**: revisioned actor/focus snapshots follow connects, disconnects and resumes. [Contract](live-library.md#gateway-shared-requests).
 
 * **Gateway-backed desktop UI (2026-10-18)**: one backend selects local service or authenticated gateway; passive mirror views, boot/TTL commands, change-driven subscriptions, DM/AI presence and connection/unknown status. Unit and in-process GUI regressions cover consent, sign-out, labels, replies and reconnect. [Design and reproduction](live-desktop-link.md#unified-gui-backend-p2b-part-2).

@@ -611,3 +611,35 @@ async fn presence_is_authoritative_across_focus_drop_and_reconnect() {
     core.shutdown().await.unwrap();
     task.abort();
 }
+
+#[tokio::test]
+async fn book_requests_conflict_and_invalidate_other_sessions() {
+    let root = std::env::temp_dir()
+        .join(format!("gateway-book-{}", mg_live::service::generate_token().unwrap()));
+    let (url, core, task) = server(Config::default()).await;
+    let data = root.clone();
+    core.with_store(move |s| {
+        s.assistant_context(data.clone(), data.join("fixture.mod"), "fixture".into()).unwrap()
+    })
+    .await
+    .unwrap();
+    let (mut one, _) = connect(&url, vec![], None, "test-credential").await;
+    let (mut two, _) = connect(&url, vec![], None, "test-reader").await;
+    let put = json!({"kind":"gm","key":"","value":{"house_rules":"Shared"},"if_rev":0});
+    assert_eq!(call(&mut one, 1, "book.put", put.clone()).await["r"]["rev"], 1);
+    loop {
+        let v = receive(&mut two).await;
+        if v["topic"] == "book" {
+            assert_eq!(v["body"]["rev"], 1);
+            break;
+        }
+    }
+    assert_eq!(call(&mut two, 1, "book.put", put).await["err"]["code"], "conflict");
+    assert_eq!(
+        call(&mut two, 2, "call", json!({"op":"gm_card"})).await["r"]["card"]["house_rules"],
+        "Shared"
+    );
+    core.shutdown().await.unwrap();
+    task.abort();
+    std::fs::remove_dir_all(root).unwrap();
+}

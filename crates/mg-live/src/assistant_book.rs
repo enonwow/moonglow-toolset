@@ -115,6 +115,34 @@ fn book_mut(s: &mut State) -> Result<&mut Knowledge, String> {
         .as_mut()
         .ok_or("Open and save a module to use assistant cards, notes and memory".into())
 }
+fn book_rev(k: &Knowledge, kind: &str, key: &str) -> Result<u64, String> {
+    match kind {
+        "gm" if key.is_empty() => {
+            Ok(k.cards.gm_rev.max(u64::from(k.cards.gm != GmCard::default())))
+        }
+        "npc"
+            if key.len() <= 260
+                && ["tag:", "resref:"].iter().any(|prefix| {
+                    key.strip_prefix(prefix)
+                        .is_some_and(|s| !s.is_empty() && !s.chars().any(char::is_control))
+                }) =>
+        {
+            Ok(k.cards
+                .npc_revs
+                .get(key)
+                .copied()
+                .unwrap_or(u64::from(k.cards.npcs.contains_key(key))))
+        }
+        "note" if !key.is_empty() && key.len() <= 512 && !key.chars().any(char::is_control) => {
+            Ok(k.notes
+                .revisions
+                .get(key)
+                .copied()
+                .unwrap_or(u64::from(k.notes.objects.contains_key(key))))
+        }
+        _ => Err("Invalid book kind or key".into()),
+    }
+}
 impl LiveStore {
     pub fn assistant_context(
         &self,
@@ -224,6 +252,7 @@ impl LiveStore {
         let mut s = self.lock();
         let k = book_mut(&mut s)?;
         let mut cards = k.cards.clone();
+        cards.gm_rev = cards.gm_rev.max(u64::from(cards.gm != GmCard::default())).saturating_add(1);
         cards.gm = card;
         let path = k.cards_path.clone();
         drop(s);
@@ -250,6 +279,9 @@ impl LiveStore {
             return Err("At most 1000 NPC cards are supported".into());
         }
         let mut cards = k.cards.clone();
+        let rev =
+            cards.npc_revs.get(&key).copied().unwrap_or(u64::from(cards.npcs.contains_key(&key)));
+        cards.npc_revs.insert(key.clone(), rev.saturating_add(1));
         cards.npcs.insert(key, card);
         let path = k.cards_path.clone();
         drop(s);
@@ -274,6 +306,12 @@ impl LiveStore {
             return Err("At most 4000 object notes are supported".into());
         }
         let mut notes = k.notes.clone();
+        let rev = notes
+            .revisions
+            .get(&key)
+            .copied()
+            .unwrap_or(u64::from(notes.objects.contains_key(&key)));
+        notes.revisions.insert(key.clone(), rev.saturating_add(1));
         if note.is_empty() {
             notes.objects.remove(&key);
         } else {
@@ -286,6 +324,88 @@ impl LiveStore {
         book_mut(&mut s)?.notes = notes;
         s.assistant.knowledge_revision += 1;
         Ok(())
+    }
+    /// Gateway CAS under the same writer lock as local edits and context switches.
+    pub fn gateway_book_put(
+        &self,
+        kind: &str,
+        key: &str,
+        value: serde_json::Value,
+        if_rev: u64,
+    ) -> Result<u64, crate::gateway_frames::FrameError> {
+        use crate::gateway_frames::FrameError;
+        let invalid = |e: String| FrameError::new("invalid", e);
+        let _writer = self.knowledge_io.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.lock();
+        let k = book_mut(&mut s).map_err(invalid)?;
+        let rev = book_rev(k, kind, key).map_err(invalid)?;
+        if rev != if_rev {
+            return Err(FrameError::new("conflict", "Book revision changed"));
+        }
+        let next = rev.checked_add(1).ok_or_else(|| invalid("Revision exhausted".into()))?;
+        let mut cards = k.cards.clone();
+        let mut notes = k.notes.clone();
+        let path = if kind == "note" { k.notes_path.clone() } else { k.cards_path.clone() };
+        match kind {
+            "gm" => {
+                let card: GmCard =
+                    serde_json::from_value(value).map_err(|e| invalid(e.to_string()))?;
+                card.check().map_err(invalid)?;
+                cards.gm = card;
+                cards.gm_rev = next;
+            }
+            "npc" => {
+                let mut card: NpcCard =
+                    serde_json::from_value(value).map_err(|e| invalid(e.to_string()))?;
+                card.check().map_err(invalid)?;
+                if cards.npcs.len() >= 1000 && !cards.npcs.contains_key(key) {
+                    return Err(invalid("NPC card capacity reached".into()));
+                }
+                card.id = key.into();
+                cards.npcs.insert(key.into(), card);
+                cards.npc_revs.insert(key.into(), next);
+            }
+            "note" => {
+                let note = value.as_str().ok_or_else(|| invalid("Expected note text".into()))?;
+                cards::bounded(&[note]).map_err(invalid)?;
+                if notes.revisions.len().max(notes.objects.len()) >= 4000
+                    && !notes.revisions.contains_key(key)
+                    && !notes.objects.contains_key(key)
+                {
+                    return Err(invalid("Note capacity reached".into()));
+                }
+                notes.objects.insert(key.into(), note.into());
+                notes.revisions.insert(key.into(), next);
+            }
+            _ => return Err(invalid("Invalid book kind".into())),
+        }
+        drop(s);
+        if kind == "note" { cards::write(&path, &notes) } else { cards::write(&path, &cards) }
+            .map_err(invalid)?;
+        let mut s = self.lock();
+        let k = book_mut(&mut s).map_err(invalid)?;
+        if kind == "note" {
+            k.notes = notes;
+        } else {
+            k.cards = cards;
+        }
+        s.assistant.knowledge_revision += 1;
+        Ok(next)
+    }
+    /// Atomic card/revision read used for gateway optimistic edits.
+    pub fn gateway_card(&self, kind: &str, id: &str) -> Result<serde_json::Value, String> {
+        let s = self.lock();
+        let k = book(&s)?;
+        if kind == "gm" {
+            return Ok(serde_json::json!({"card":k.cards.gm,"rev":book_rev(k,"gm","")?}));
+        }
+        let (key, name) = npc(&s, id)?;
+        let card = k.cards.npcs.get(&key).cloned().unwrap_or(NpcCard {
+            id: key.clone(),
+            name,
+            ..Default::default()
+        });
+        Ok(serde_json::json!({"card":card,"rev":book_rev(k,"npc",&key)?}))
     }
     pub fn npc_memory(
         &self,

@@ -336,6 +336,34 @@ impl Gateway {
                 .clone();
             let a = request.a;
             match request.op.as_str() {
+                "book.put" => {
+                    if !config.id.starts_with("dm:")
+                        || (!config.has("read") && !config.has("admin"))
+                    {
+                        return Err(FrameError::new("forbidden", "DM book permission required"));
+                    }
+                    let kind =
+                        a["kind"].as_str().ok_or_else(|| invalid("Missing book kind".into()))?;
+                    let key =
+                        a["key"].as_str().ok_or_else(|| invalid("Missing book key".into()))?;
+                    let if_rev = a["if_rev"]
+                        .as_u64()
+                        .ok_or_else(|| invalid("Missing book revision".into()))?;
+                    let value = a
+                        .get("value")
+                        .cloned()
+                        .ok_or_else(|| invalid("Missing book value".into()))?;
+                    let rev = self.store.gateway_book_put(kind, key, value, if_rev)?;
+                    let push = Push::Book { kind: kind.into(), key: key.into(), rev };
+                    let mut s = self.store.lock();
+                    for session in s.gateway.sessions.values_mut() {
+                        if session.auxiliary.len() >= 256 {
+                            session.auxiliary.pop_front();
+                        }
+                        session.auxiliary.push_back(push.clone());
+                    }
+                    Ok(json!({"rev":rev}))
+                }
                 "cmds" => {
                     let commands = a["commands"]
                         .as_array()
@@ -423,6 +451,15 @@ impl Gateway {
                     }
                     if !config.has("read") {
                         return Err(FrameError::new("forbidden", "Read permission required"));
+                    }
+                    if op == "npc_card" || op == "gm_card" {
+                        return self
+                            .store
+                            .gateway_card(
+                                if op == "npc_card" { "npc" } else { "gm" },
+                                input["npc"].as_str().unwrap_or_default(),
+                            )
+                            .map_err(invalid);
                     }
                     if op == "area_notes" {
                         let area =

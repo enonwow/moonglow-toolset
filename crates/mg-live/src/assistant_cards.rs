@@ -31,12 +31,15 @@ pub struct GmCard {
 #[serde(default, deny_unknown_fields)]
 pub(super) struct Cards {
     pub gm: GmCard,
+    pub gm_rev: u64,
+    pub npc_revs: BTreeMap<String, u64>,
     pub npcs: BTreeMap<String, NpcCard>,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct Notes {
     pub objects: BTreeMap<String, String>,
+    pub revisions: BTreeMap<String, u64>,
 }
 
 pub(super) fn bounded(fields: &[&str]) -> Result<(), String> {

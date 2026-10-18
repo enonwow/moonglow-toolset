@@ -438,3 +438,12 @@ A reconnect always gets a fresh snapshot; disconnected actors and stale focus ar
 removed while their result outbox remains resumable. Identity names are supplied by
 the authenticated host, never by `focus.set`. Core and loopback WebSocket regressions
 cover connect, focus, disconnect and reconnect.
+
+`book.put` uses canonical `npc` (`tag:`/`resref:`), `gm` (empty key), and
+`note` (store object-note key) identities. `if_rev: 0` creates; an existing or
+changed revision returns `conflict`. Values and revisions are saved together
+under the assistant writer lock, shared with local edits. Card reads include
+`rev`; successful writes invalidate the key for every session. Existing saved
+cards migrate to revision 1; an absent entry has revision 0. The dev host opens
+one stable assistant context under its data directory. Unit persistence/CAS and
+loopback two-session conflict tests require no game or Redis.

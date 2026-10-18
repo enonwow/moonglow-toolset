@@ -108,3 +108,41 @@ fn presence_tracks_focus_disconnect_and_reconnect_with_revisions() {
     assert_eq!(actors.len(), 2);
     assert!(focus.is_empty());
 }
+
+#[test]
+fn book_compare_and_swap_persists_revisions_and_notifies_every_session() {
+    use mg_live::gateway::Push;
+    let root = std::env::temp_dir()
+        .join(format!("gateway-book-{}", mg_live::service::generate_token().unwrap()));
+    let s = Arc::new(LiveStore::default());
+    s.assistant_context(root.clone(), root.join("fixture.mod"), "fixture".into()).unwrap();
+    let g = Gateway::new(s.clone()).unwrap();
+    session(&g, "dm:one", &["read"]);
+    session(&g, "dm:two", &["read"]);
+    let put = json!({"kind":"npc","key":"tag:guard","value":{"who":"Guard"},"if_rev":0});
+    assert_eq!(request(&g, "dm:one", "book.put", put.clone()).unwrap()["rev"], 1);
+    assert_eq!(request(&g, "dm:two", "book.put", put).unwrap_err().code, "conflict");
+    for id in ["dm:one", "dm:two"] {
+        assert!(g.pushes(id, 1000).unwrap().iter().any(
+            |p| matches!(p,Push::Book {kind,key,rev} if kind=="npc" && key=="tag:guard" && *rev==1)
+        ));
+    }
+    assert_eq!(
+        request(&g, "dm:two", "call", json!({"op":"npc_card","input":{"npc":"tag:guard"}}))
+            .unwrap()["rev"],
+        1
+    );
+    let reopened = LiveStore::default();
+    reopened.assistant_context(root.clone(), root.join("fixture.mod"), "fixture".into()).unwrap();
+    assert_eq!(reopened.gateway_card("npc", "tag:guard").unwrap()["rev"], 1);
+    assert_eq!(
+        reopened.gateway_book_put("npc", "tag:guard", json!({"who":"Captain"}), 1).unwrap(),
+        2
+    );
+    assert_eq!(reopened.gateway_book_put("gm", "", json!({"house_rules":"Rules"}), 0).unwrap(), 1);
+    assert_eq!(
+        reopened.gateway_book_put("note", "Creature:tag:guard", json!("Note"), 0).unwrap(),
+        1
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
