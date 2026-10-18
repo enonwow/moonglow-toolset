@@ -1,5 +1,7 @@
 # Update log
 
+* **Live ACK expiry (2026-10-18)**: expired/evicted results release their native acknowledgements; WSL proof passes. [Contract](live-ops-wire.md#expired-result-acknowledgements-2026-10-18).
+
 * **Live result byte accounting (2026-10-18)**: incremental retention accounting replaces repeated full-list serialization; native proof passes. [Contract](live-ops-wire.md#retained-result-byte-accounting-2026-10-18).
 
 * **Idle Live receipts (2026-10-18)**: receipt traffic follows current game batches rather than UI history. [Contract](live-ops-wire.md#idle-receipt-traffic-2026-10-18).

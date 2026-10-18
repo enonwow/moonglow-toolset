@@ -76,6 +76,16 @@ def result_accounting(p):
     return {"bytes_after_replacement": before, "bytes_after_receipt": after}
 
 
+def result_expiry(p):
+    failed = p.command(expect="compile_error", op="run_chunk", code="bad NWScript;")
+    ident = failed["id"]
+    p.command(op="run_chunk", code='SetLocalInt(GetModule(),"MGLIVE_SEQ",GetLocalInt(GetModule(),"MGLIVE_SEQ")+301);')
+    p.until(lambda: all(r["id"] != ident for r in p.state["results"]))
+    assert ident not in p.state["ack"]
+    assert p.native('JsonBool(JsonGetType(JsonFind(GetLocalJson(GetModule(),"MGLIVE_ACK"),JsonString("'+ident+'")))==JSON_TYPE_NULL)')
+    return {"expired_result_removed": True, "expired_ack_removed_from_native_buffer": True}
+
+
 def interrupted(p):
     commands = [
         {"id": "batch-first", "area": "events", "op": "run_chunk", "code":

@@ -3202,3 +3202,11 @@ Finishing a command no longer serializes the entire retained list. The count
 includes array brackets and a conservative final comma. The private WSL
 `command_accounting` proof passed, comparing the counter to actual JSON size
 after replacement and explicit receipt removal.
+
+## Expired result acknowledgements (2026-10-18)
+
+Result expiry and capacity eviction remove the corresponding native ACK as
+well as its result row. The store already treats a handed-off command without
+a final outcome as unknown. Private WSL `command_expiry` passes: advancing
+beyond the retention window removes both the failed result and its ID from
+the native ACK buffer, verified by a direct engine query.

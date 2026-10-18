@@ -49,11 +49,16 @@ void MgLiveRetainResult(json answer)
         { bytes-=MgLiveResultBytes(JsonArrayGet(results,i));results=JsonArrayDel(results,i); }
     results=JsonArrayInsert(results,answer);
     bytes+=MgLiveResultBytes(answer);
+    json ack=GetLocalJson(m,"MGLIVE_ACK");
     while(JsonGetLength(results)>MGLIVE_RESULT_LIMIT || bytes>2097152)
-    { bytes-=MgLiveResultBytes(JsonArrayGet(results,0));results=JsonArrayDel(results,0); }
+    {
+        json removed=JsonArrayGet(results,0);
+        json at=JsonFind(ack,JsonObjectGet(removed,"id"));
+        if(JsonGetType(at)!=JSON_TYPE_NULL) ack=JsonArrayDel(ack,JsonGetInt(at));
+        bytes-=MgLiveResultBytes(removed);results=JsonArrayDel(results,0);
+    }
     SetLocalInt(m,"MGLIVE_RESULT_BYTES",bytes);
     SetLocalJson(m,"MGLIVE_RESULTS",results);
-    json ack=GetLocalJson(m,"MGLIVE_ACK");
     if(JsonGetType(JsonFind(ack,JsonString(id)))==JSON_TYPE_NULL) ack=JsonArrayInsert(ack,JsonString(id));
     while(JsonGetLength(ack)>MGLIVE_RESULT_LIMIT) ack=JsonArrayDel(ack,0);
     SetLocalJson(m,"MGLIVE_ACK",ack);
@@ -73,12 +78,9 @@ void MgLiveReceiveResults(json receipts)
             JsonGetType(JsonFind(receipts,receipt))!=JSON_TYPE_NULL;
         if(received || JsonGetInt(JsonObjectGet(result,"expires"))<=GetLocalInt(m,"MGLIVE_SEQ"))
         {
-            // Expiry preserves the bounded ACK: a missing outcome stays unknown.
-            if(received)
-            {
-                json at=JsonFind(ack,JsonObjectGet(result,"id"));
-                if(JsonGetType(at)!=JSON_TYPE_NULL) ack=JsonArrayDel(ack,JsonGetInt(at));
-            }
+            // An expired outcome must not retain a permanent acknowledgement.
+            json at=JsonFind(ack,JsonObjectGet(result,"id"));
+            if(JsonGetType(at)!=JSON_TYPE_NULL) ack=JsonArrayDel(ack,JsonGetInt(at));
             bytes-=MgLiveResultBytes(result);results=JsonArrayDel(results,i);
         }
     }

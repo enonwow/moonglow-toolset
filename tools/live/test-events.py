@@ -350,6 +350,10 @@ class Proof:
         from test_command_delivery import result_accounting
         return result_accounting(self)
 
+    def command_expiry(self):
+        from test_command_delivery import result_expiry
+        return result_expiry(self)
+
     def watch_areas(self):
         from test_watch_areas import run
         return run(self)
@@ -2321,6 +2325,7 @@ def main():
     parser._option_string_actions["--phase"].choices.append("command_receipts")
     parser._option_string_actions["--phase"].choices.append("command_budget")
     parser._option_string_actions["--phase"].choices.append("command_accounting")
+    parser._option_string_actions["--phase"].choices.append("command_expiry")
     parser._option_string_actions["--phase"].choices.append("command_interrupt")
     parser._option_string_actions["--phase"].choices.append("command_boot")
     args = parser.parse_args()
