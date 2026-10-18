@@ -2674,16 +2674,24 @@ dependencies = [
 name = "mg-live-link"
 version = "1.33.0"
 dependencies = [
+ "axum",
  "base64 0.23.1",
  "getrandom 0.3.4",
+ "httparse",
  "keyring",
+ "log",
+ "mg-gateway",
+ "mg-live",
  "rcgen",
  "rustls",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
  "ureq",
  "url",
  "webpki-roots 1.0.9",
@@ -4989,6 +4997,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
+dependencies = [
+ "rustls",
+ "tokio",
 ]
 
 [[package]]

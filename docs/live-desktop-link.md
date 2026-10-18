@@ -1,13 +1,18 @@
 ---
 type: Reference
 title: Live desktop authentication and connection settings
-description: Desktop PKCE login, gateway TLS trust and per-server credentials.
+description: Desktop authentication, credentials, WebSocket transport and passive gateway mirror.
 tags: [live, gateway, authentication]
 generated: { by: codex, at: 2026-10-18T11:23:16Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-live-link/src/login.rs
   - ../crates/mg-live-link/src/credentials.rs
+  - ../crates/mg-live-link/src/link.rs
+  - ../crates/mg-live-link/src/state.rs
+  - ../crates/mg-live-link/src/websocket.rs
+  - ../crates/mg-live-link/src/worker.rs
+  - ../crates/mg-live-link/tests/link.rs
   - ../crates/mg-ui/src/options.rs
   - ../crates/mg-ui/src/settings.rs
   - ../crates/mg-ui/src/options_live.rs
@@ -253,3 +258,80 @@ claim a deployed Discord login, macOS Keychain, Linux Secret Service or a new
 full-workspace gate. Temporary logs and rejected history-repair metadata are
 summarized in the private task ledger and removed; the two PNGs remain as proof.
 The shared build cache remains in use by other tasks.
+
+## Desktop WebSocket transport (P2b part 1)
+
+`LinkService::start(LinkConfig, &TokenStore, wake)` owns one server's passive
+`LiveStore` and one background Tokio worker. Run startup on a worker too: the
+credential backend and first-use IP certificate discovery can block. The token
+comes from the entry identified by `server_id`; it is never a URL parameter or
+serialized configuration field. `store()` returns the shared mirror; `snapshot()`
+returns connection, account, drafts, presence, notices and book invalidations.
+`PendingCall::try_recv` and the wake callback support egui without blocking it.
+The GUI remains on `LiveService` until the separate P2b integration change.
+
+The normative [gateway protocol](live-gateway-protocol.md) distinguishes `u32`
+request IDs, unique on each connection, from game command IDs. The passive store
+creates the latter from the session prefix, eight random process hex digits and
+a monotonic counter. Commands retain their IDs across a dropped socket within
+the same gateway epoch. A fresh snapshot resets queued commands to `unknown`;
+unknown commands are never automatically resubmitted. Arbitrary RPCs are never
+replayed after losing their response. A response timeout closes the connection
+before releasing in-flight slots, because the peer might still be processing
+those IDs. It does not replace a result already delivered by a push.
+
+The client uses `/ws/v1?proto=1&mirror=1`, subprotocol `moonglow-gw.1`, an
+Authorization bearer and no Origin header. TLS uses exactly the login rustls
+configuration: WebPKI roots or a previously accepted leaf fingerprint, including
+signature verification. IP TOFU returns the existing login trust prompt before
+any HTTP data. Redirects and WebSocket extensions are refused. The bounded HTTP
+upgrade and RFC 6455 framing are local code: a generic WebSocket implementation
+was rejected because its trace logging includes raw Authorization bytes, even
+when the original header is marked sensitive. Binary, masked server, malformed,
+invalid UTF-8 and oversized frames fail without exposing remote error text.
+Fragments and interleaved ping/pong are supported; the assembled server message
+limit is 16 MiB. Client frames are at most 64 KiB, or 256 KiB for `book.put`,
+further restricted by welcome/session limits. Queued and outstanding requests
+share 64 permits; a negotiated smaller limit also bounds wire requests.
+
+The shared `mg_live::gateway_frames` decoder handles known JSON variants after
+redaction. Unknown variants are skipped with a static warning, avoiding its
+raw-value compatibility log. Incoming strings and map keys redact the current
+session token before entering snapshots, replies or notices; transport errors
+contain no HTTP bodies, remote messages or credentials. This also applies when
+all log levels are enabled.
+
+All eleven push topics are handled. Meta/area/area_gone/boot/events/result feed
+P1 mirror APIs; drafts/presence/book/session/notice update auxiliary GUI state.
+Area revisions, boot, gateway epoch and the server event `through` cursor form
+resume state. Duplicate area revisions are ignored; P1 keeps original event
+numbers and deduplicates replay. Result ACKs contain `(id, rev)` and the event
+cursor, sent once per second or after 32 received items. Notices retain the last
+128 entries; every book notification advances a local invalidation revision.
+Revoked/role_changed/upgrade/replaced stop the service for explicit user action;
+overload/shutdown/socket failures reconnect with 0.8-1.2 jitter around
+1/2/4/8 seconds, capped at ten seconds. A cancelled service drops its private
+socket and reader task; it never starts a local API, Redis or a game server.
+
+### Transport reproduction and limits
+
+Use Rust 1.98.0 with `CARGO_INCREMENTAL=0` and `NWN_ROOT=/nonexistent` (ensure the
+folder does not exist). Run:
+
+```text
+cargo +1.98.0 test -p mg-live-link -j 2
+cargo +1.98.0 clippy -p mg-live-link --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt -p mg-live-link --check
+```
+
+The integration fixture embeds `mg-gateway::router` and `CoreHandle` as a dev
+dependency, behind an ephemeral loopback TLS proxy with a generated certificate.
+It uses synthetic credentials and scripted reports, not Redis or a game engine.
+The proxy observes only post-upgrade client JSON (never Authorization headers)
+and can drop sockets or inject malformed server frames. Tests compare mirrored
+areas, factions and events with the authoritative store, verify resume cursors
+and no duplicate chat events, and observe result ACK revisions. Pin mismatch,
+frame limits, fragmentation, request admission, timeout and trace-level secret
+redaction have separate regressions. This proves interoperability with the
+in-process development host; production DNS certificates, deployed gateway auth
+and a real game session are outside this verification.

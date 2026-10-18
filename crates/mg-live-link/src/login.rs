@@ -61,8 +61,8 @@ impl SessionToken {
 
 #[derive(Debug, Clone)]
 pub struct Gateway {
-    origin: Url,
-    pin: Option<String>,
+    pub(crate) origin: Url,
+    pub(crate) pin: Option<String>,
 }
 
 impl Gateway {
