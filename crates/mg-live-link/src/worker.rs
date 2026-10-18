@@ -316,6 +316,31 @@ async fn connection(
 mod tests {
     use super::*;
     #[test]
+    fn agent_consent_changes_only_after_successful_gateway_response() {
+        let (service, mut receiver) = crate::link::fixture();
+        let _ticket = service.set_allow_agents(true).unwrap();
+        assert_eq!(service.allow_agents(), None);
+        Pending {
+            at: Instant::now(),
+            outgoing: Some(receiver.try_recv().unwrap()),
+            commands: Vec::new(),
+            _permit: None,
+        }
+        .finish(Ok(json!({})), &service.shared)
+        .unwrap();
+        assert_eq!(service.allow_agents(), Some(true));
+        let _ticket = service.set_allow_agents(false).unwrap();
+        Pending {
+            at: Instant::now(),
+            outgoing: Some(receiver.try_recv().unwrap()),
+            commands: Vec::new(),
+            _permit: None,
+        }
+        .finish(Err(LinkError::Forbidden), &service.shared)
+        .unwrap();
+        assert_eq!(service.allow_agents(), Some(true));
+    }
+    #[test]
     fn reconnect_jitter_stays_bounded_and_grows() {
         for _ in 0..100 {
             assert!(

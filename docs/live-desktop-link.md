@@ -1,6 +1,6 @@
 ---
 type: Reference
-title: Live desktop authentication and connection settings
+title: Live desktop connection and authentication
 description: Desktop authentication, credentials, WebSocket transport and passive gateway mirror.
 tags: [live, gateway, authentication]
 generated: { by: codex, at: 2026-10-18T11:23:16Z }
@@ -9,6 +9,7 @@ sources:
   - ../crates/mg-live-link/src/login.rs
   - ../crates/mg-live-link/src/credentials.rs
   - ../crates/mg-live-link/src/link.rs
+  - ../crates/mg-live-link/src/facade.rs
   - ../crates/mg-live-link/src/state.rs
   - ../crates/mg-live-link/src/websocket.rs
   - ../crates/mg-live-link/src/worker.rs
@@ -22,7 +23,7 @@ sources:
 
 # Live desktop link
 
-`mg-live-link` owns desktop authentication. It never opens a browser or starts
+`mg-live-link` owns desktop authentication, credentials and gateway connections. It never opens a browser or starts
 a game server. The GUI supplies the gateway origin and optional SHA-256 leaf
 certificate pin, starts `Login` on a worker, opens `browser_url`, then calls
 `finish` on that worker. The attempt closes its listener on success, timeout, the probe limit or drop.
@@ -335,3 +336,88 @@ frame limits, fragmentation, request admission, timeout and trace-level secret
 redaction have separate regressions. This proves interoperability with the
 in-process development host; production DNS certificates, deployed gateway auth
 and a real game session are outside this verification.
+
+## GUI facade and migration inventory
+
+`LinkService` supplies synchronous mirror/snapshot reads and asynchronous RPC
+handles. `set_watched_areas`, `set_focus`, `call`, `decide_draft`, the card/note
+save methods, `set_allow_agents` and AI management methods construct normative
+requests. Desired area watches also update while offline, so closing a view
+changes the next hello without touching global campaign data. Book writes require an explicit gateway key and `if_rev`; a conflict
+is a typed `LinkError::Conflict`. `allow_agents()` is unknown until a successful
+`llm.allow` response, and a failed request does not change the confirmed value.
+`drafts()` reconstructs the shared `Draft` type from pushes; malformed drafts
+return a protocol error. `agents()` preserves gateway actor records, rather than
+pretending they are observations of a local API. `take_notices()` drains the
+bounded notification queue into the future GUI log without inventing events.
+
+The current GUI has 23 direct `LiveService`/`live_service` references plus two
+startup operation blocks: the 25 migration sites below. Line numbers describe
+the unchanged GUI at this checkpoint; no GUI switch is included here.
+
+| Site under `crates/mg-ui/src/` | P2b part 2 mapping |
+|---|---|
+| `commands.rs:625` | Service lifetime controls the Stop Live label. |
+| `commands.rs:680` | Enable LLM action using connection/account state. |
+| `commands.rs:692` | LiveInArea uses connection state plus an open view. |
+| `commands.rs:887` | Start/stop the selected server's link. |
+| `lib.rs:602` | Replace the service field type with `LinkService`. |
+| `lib.rs:861` | Preserve the initially absent service. |
+| `live_agents.rs:57` | `agents_revision()` and pushed `agents()` snapshot. |
+| `live_agents.rs:72` | `set_allow_agents()` returns a polled request handle. |
+| `live_agents.rs:90` | Hint reads confirmed `allow_agents()`; unknown is not consent. |
+| `live_agents.rs:118` | Toolbar checks `is_connected()`. |
+| `live_assistant.rs:52` | Cache identity uses `server_id()`. |
+| `live_notes.rs:19` | Note editor cache uses `server_id()`. |
+| `live_targets.rs:19` | Enable targets from connection state. |
+| `live_view.rs:252` | Enable Live controls from connection state. |
+| `live_view.rs:991` | Offline state comes from the link snapshot. |
+| `live_view.rs:1255` | Offline state comes from the link snapshot. |
+| `live_view.rs:1347` | Gate controls using connection, groups and mirrored policy. |
+| `options.rs:305` | Dropping the old link stops only its own worker/socket. |
+| `options.rs:306` | Startup returns `Result<Option<LinkService>, StartError>`. |
+| `options.rs:317` | Worker calls `LinkService::start` with selected server and TokenStore. |
+| `options.rs:323` | Remove local API descriptor publication; gateway owns agent access. |
+| `options.rs:329,341` | Read selected-server config/status; no local API token generation or Redis log. |
+| `options.rs:346` | Install the new service and its own `store()` mirror. |
+| `options.rs:562` | `connection_status()` feeds diagnostics. |
+| `options.rs:563` | `config()` supplies non-secret link settings. |
+
+Additional direct-store operations must move with those sites; ordinary
+`area`, `find`, `locate`, `events`, `result`, reconciliation, queue and scene
+operations continue to use the passive `LiveStore` returned by `store()`.
+
+| Direct-store GUI sites | Facade replacement |
+|---|---|
+| `live_layout.rs:96` | `set_watched_areas` sends `watch.set`; never enqueue native watch commands. |
+| `live_drafts.rs:20,29,119` | `draft_revision`, typed `drafts`, async `decide_draft`. |
+| `live_assistant.rs:102,104,193` | Async `npc_card` / `gm_card`; consume the gateway response. |
+| `live_assistant.rs:116,118` | `save_npc_card` / `save_gm_card` with gateway key and fetched revision. |
+| `live_assistant.rs:201,204,215` | `assistant_revision` invalidates local views; async `npc_memory` carries persistence errors in its response. |
+| `live_notes.rs:12,28,31,57` | `object_note_key`, `book_revision`, async `object_note` (area note response), `save_object_note`. |
+| `live_view.rs:178,180` | Book revision plus async `area_notes` cache. |
+| `live_assistant.rs:65,67` | Remove local assistant context setup/clear. Closing a module only updates subscriptions; campaign data belongs to the gateway. |
+
+`assistant_revision()` combines local book invalidation and mirrored event
+cursor for GUI caching. It is not a server book revision for optimistic writes.
+The mirror's server policy is read-only from the desktop; no invented policy
+write operation or local campaign-directory API is exposed.
+
+### Open protocol/host dependencies for part 2
+
+The current development host implements `watch.set`, `focus.set`, `cmds`, read
+`call` and `events.since`. It explicitly returns `unsupported` for `book.put`,
+`draft.decide`, `ai.*` and `llm.allow`; an integration regression verifies that
+these refusals remain errors and never become local success. The facade's wire
+requests and snapshot handling are ready, but these server operations cannot be
+accepted end to end until their handlers exist.
+
+The public protocol also needs concrete read-response shapes for book keys and
+entry revisions, area/object notes and actor presence. Existing NPC/GM card
+reads return a card without the per-entry revision needed by `book.put`.
+`area_notes` is on the gateway read allowlist but has no shared operation
+implementation yet. The facade exposes raw response/actor values where this
+shape is still unspecified, and requires an explicit key/revision for writes;
+it does not guess a key or silently overwrite a stale entry. Initial LLM consent
+needs an authoritative read/push too; until confirmed it remains `None`.
+These are host/protocol follow-ups, not reasons to change local campaign data.

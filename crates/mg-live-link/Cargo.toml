@@ -1,6 +1,6 @@
 [package]
 name = "mg-live-link"
-description = "Desktop authentication and credentials for Live gateways"
+description = "Desktop gateway transport, authentication and passive Live views"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,8 @@
-//! Desktop gateway login. Browser opening belongs to the caller.
+//! Desktop gateway authentication, WebSocket link and passive views.
+//! Browser opening belongs to the caller.
 
 pub mod credentials;
+mod facade;
 mod link;
 mod login;
 mod state;
@@ -8,6 +10,7 @@ mod tls;
 mod websocket;
 mod worker;
 
+pub use facade::BookKind;
 pub use link::{LinkConfig, LinkService, PendingCall, StartError};
 pub use state::{LinkError, LinkSnapshot, LinkStatus};
 

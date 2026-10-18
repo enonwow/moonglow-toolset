@@ -1,5 +1,9 @@
 # Update log
 
+* **Desktop gateway facade (2026-10-18)**: asynchronous book/draft/LLM operations, passive snapshots and 25 GUI migration sites; host response-shape gaps remain explicit. [Facade and inventory](live-desktop-link.md#gui-facade-and-migration-inventory).
+
+* **Desktop gateway transport (2026-10-18)**: pinned/WebPKI WebSocket, bounded requests, passive mirror, resume cursors and versioned result ACKs; in-process TLS host regressions. [Transport and reproduction](live-desktop-link.md#desktop-websocket-transport-p2b-part-1).
+
 * **Consent at final command acceptance (2026-10-18)**: preserve the authorization epoch across command IO and revalidate atomically before enqueue; blocked/re-enabled agent requests are refused while local UI remains usable. [Contract and regressions](live-ops-wire.md#consent-at-command-acceptance-m2-h2).
 
 * **Gateway socket verification (2026-10-18)**: 23 gateway/dev regressions cover scoped commands, mirror/resume, ACK, overload, idle, agent privacy and abandoned-session cleanup. [Contracts, protocol decisions and reproduction](live-library.md#gateway-transport-verification-and-limits).

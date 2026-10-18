@@ -196,9 +196,10 @@ impl LinkService {
         let limit = self.shared.replica.lock().unwrap_or_else(|e| e.into_inner()).limits.watch;
         validate_watch(areas, limit)?;
         let areas: Vec<_> = areas.iter().map(|a| a.to_ascii_lowercase()).collect();
-        let reply = self.request("watch.set", json!({"areas":areas}))?;
-        *self.shared.watch.lock().unwrap_or_else(|e| e.into_inner()) = areas;
-        Ok(reply)
+        // A view can close while offline. The next hello must use the newest
+        // desired set even when this immediate request cannot be delivered.
+        *self.shared.watch.lock().unwrap_or_else(|e| e.into_inner()) = areas.clone();
+        self.request("watch.set", json!({"areas":areas}))
     }
     pub fn stop(mut self) {
         self.shutdown();
@@ -231,28 +232,6 @@ fn validate_watch(areas: &[String], limit: usize) -> Result<(), LinkError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn admission_bounds_queued_and_in_flight_together_and_releases_permits() {
-        let (service, mut receiver) = fixture();
-        let mut pending = Vec::new();
-        for _ in 0..64 {
-            pending.push(service.call("status", json!({})).unwrap());
-        }
-        assert_eq!(service.call("status", json!({})).unwrap_err(), LinkError::Busy);
-        let in_flight = receiver.try_recv().unwrap();
-        assert_eq!(service.call("status", json!({})).unwrap_err(), LinkError::Busy);
-        drop(in_flight);
-        assert!(service.call("status", json!({})).is_ok());
-        assert_eq!(
-            service.request("book.put", json!({"text":"x".repeat(262144)})).unwrap_err(),
-            LinkError::TooLarge
-        );
-    }
-}
-
-#[cfg(test)]
 pub(crate) fn fixture() -> (LinkService, tokio::sync::mpsc::Receiver<Outgoing>) {
     let mut replica = Replica::default();
     replica.snapshot.status = LinkStatus::Connected;
@@ -273,4 +252,26 @@ pub(crate) fn fixture() -> (LinkService, tokio::sync::mpsc::Receiver<Outgoing>) 
         worker: None,
     };
     (service, receiver)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn admission_bounds_queued_and_in_flight_together_and_releases_permits() {
+        let (service, mut receiver) = fixture();
+        let mut pending = Vec::new();
+        for _ in 0..64 {
+            pending.push(service.call("status", json!({})).unwrap());
+        }
+        assert_eq!(service.call("status", json!({})).unwrap_err(), LinkError::Busy);
+        let in_flight = receiver.try_recv().unwrap();
+        assert_eq!(service.call("status", json!({})).unwrap_err(), LinkError::Busy);
+        drop(in_flight);
+        assert!(service.call("status", json!({})).is_ok());
+        assert_eq!(
+            service.request("book.put", json!({"text":"x".repeat(262144)})).unwrap_err(),
+            LinkError::TooLarge
+        );
+    }
 }

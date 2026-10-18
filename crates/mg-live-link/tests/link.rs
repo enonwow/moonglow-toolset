@@ -172,3 +172,51 @@ async fn response_timeout_closes_the_socket_and_never_replays_the_call() {
     until(|| service.snapshot().connections >= 2).await;
     assert_eq!(host.frames().iter().filter(|f| f["t"] == "req" && f["op"] == "call").count(), 1);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn facade_reads_auxiliary_pushes_and_reports_unimplemented_host_operations() {
+    use mg_live::{gateway::Push, gateway_frames::Limits, store::Policy};
+    let host = Host::new().await;
+    host.report(1, json!([]), json!([])).await;
+    let service = LinkService::start(host.config(), &tokens(), Arc::new(|| {})).unwrap();
+    until(|| service.store().area("square").is_some()).await;
+    let draft = json!({"command":{"id":"draft","op":"npc_say","area":"square","target":"a1","text":"Hello"},
+        "client":"Helper","boot":"boot","created_ms":1,"reply_to":null,"name":"Guard","area":"square","notice":null});
+    for push in [
+        Push::Drafts { rev: 7, items: vec![draft] },
+        Push::Presence {
+            rev: 8,
+            actors: vec![json!({"id":"dm:test","name":"Test"})],
+            focus: Default::default(),
+        },
+        Push::Book { kind: "npc".into(), key: "tag:guard".into(), rev: 9 },
+        Push::Session {
+            groups: vec!["read".into()],
+            policy: Policy { scripts: false, ..Default::default() },
+            limits: serde_json::to_value(Limits::default()).unwrap(),
+        },
+        Push::Notice { level: "info".into(), text: "Ready".into() },
+    ] {
+        host.core.publish("dm:test".into(), push).await.unwrap();
+    }
+    until(|| service.snapshot().notices.len() == 1).await;
+    assert_eq!(service.drafts().unwrap()[0].text(), "Hello");
+    assert_eq!(service.draft_revision(), 7);
+    assert_eq!(service.agents_revision(), 8);
+    assert_eq!(service.agents()[0]["id"], "dm:test");
+    assert_eq!(service.book_revision(), 1);
+    assert!(!service.store().policy().scripts);
+    assert_eq!(service.take_notices(), vec![("info".into(), "Ready".into())]);
+    assert!(
+        reply_async(service.set_focus(&[("square".into(), "a1".into())]).unwrap()).await.is_ok()
+    );
+    assert_eq!(
+        reply_async(service.set_allow_agents(true).unwrap()).await.unwrap_err(),
+        LinkError::Unsupported
+    );
+    assert_eq!(service.allow_agents(), None);
+    assert_eq!(
+        reply_async(service.save_object_note("note-key", "Text", 0).unwrap()).await.unwrap_err(),
+        LinkError::Unsupported
+    );
+}

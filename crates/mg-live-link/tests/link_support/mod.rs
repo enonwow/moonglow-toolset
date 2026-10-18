@@ -39,7 +39,7 @@ impl Authenticator for Auth {
         (bearer == SECRET).then(|| Principal {
             id: "dm:test".into(),
             name: "Test".into(),
-            groups: vec!["read".into(), "read_chat".into(), "npc".into()],
+            groups: vec!["read".into(), "read_chat".into(), "npc".into(), "focus".into()],
         })
     }
 }
