@@ -1,5 +1,7 @@
 # Update log
 
+* **Bounded chat audience (2026-10-18)**: spatial/type filtering and a capped fallback replace the per-object loop; 4096-placeable/288-NPC regression needs WSL run. [Bounds](live-translations.md#bounded-audience-enumeration).
+
 * **Trusted translation configuration (2026-10-18)**: boot-bound, report-acknowledged settings reach game locals; native proof needs WSL run. [Host API](live-translations.md#trusted-game-configuration).
 
 * **Draft IDs after rotation (2026-10-18)**: approvals retain proposal/result links and use timestamped transport IDs; old legacy IDs remain expired. [Regression](live-ops-wire.md#draft-approval-ids-across-history-rotation).

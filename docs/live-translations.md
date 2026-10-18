@@ -13,6 +13,7 @@ sources:
   - ../tools/live/test_chat_translation.py
   - ../crates/mg-live/src/store_translation.rs
   - ../tools/live/test_translation_config.py
+  - ../tools/live/test_translation_budget.py
 ---
 
 # Live chat translation pipeline
@@ -260,3 +261,67 @@ python3 tools/live/test-events.py --phase translation_config
 This verifies default-off, a live prefix/enable update, wrong-boot/invalid-prefix
 rejection and disable without restart. The sandbox only checked Python syntax;
 no NWScript compilation or native success is claimed for this M3 change.
+
+## Bounded audience enumeration
+
+Tells inspect their target and speaker only. Other channels inspect at most 128
+clients, filtered by range, party or DM audience. Public speech adds listening
+NPCs through native spatial/creature filtering, using the server hearing radius
+for talk/whisper and the current area for shout. Placeables, items and unrelated
+object types no longer consume a NWScript loop iteration per chat line. Player
+hearing-distance overrides remain checked in the bounded client loop.
+
+At most 256 creatures are inspected. If the audience exceeds the cap, interception
+returns false before creating a pending slot or sending any manual line, leaving
+the entire line to normal game delivery. This bounds VM work without dropping
+listeners or partially delivering the line. Oversized client/audience lists have
+the same fallback. The native spatial query itself still depends on engine data
+structures; this bounds NWScript work, not necessarily native CPU cost.
+
+The authored stress proof compares native NWNX instruction counts before and
+after adding 4096 placeables, then adds 288 nearby NPCs and requires native
+fallback. Talk, whisper, shout, tell, party and DM channels are measured; tell,
+party and DM must remain independent of unrelated NPC density. Every capture
+must use less than half the configured VM instruction limit; the test never
+raises that limit. A failure preserves the helper report for diagnosis.
+
+Run on the private WSL helper with its scratch user/module directory:
+
+```sh
+python3 tools/live/test-events.py --phase chat_translation_budget
+python3 tools/live/test-events.py --phase chat_translation
+python3 tools/live/test-events.py --phase chat_translation_stress
+```
+
+All three **need WSL run** for this M3 change. No new p50/p95 or native instruction
+figures were collected in the sandbox. The earlier P8 measurements above are
+historical evidence for their recorded checkpoints, not acceptance of this edit.
+
+## M3 verification snapshot
+
+The shared working tree based on `328953c` was checked with Rust 1.98.0,
+`NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0`, and at most two jobs. The new
+closed-publish-gate regression, timestamped draft approval regression and both
+trusted-configuration tests passed, as did the existing publish/revocation race.
+The focused configuration rerun passed both ack/retry and endpoint/wakeup tests.
+
+```text
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+The full test command stopped after 465 passing tests, one failure and four
+ignored tests. In mg-live itself, 238 passed, one failed and four were ignored.
+The failure was `api::tests::real_tls_status_command_and_stop`: Windows curl's
+Schannel backend returned `SEC_E_NO_CREDENTIALS` in the sandbox. Later workspace
+test binaries were not executed, so this is not a full green workspace gate.
+Repeat the exact test command outside that restriction. No TLS test was skipped
+or weakened to obtain a passing result.
+
+Clippy initially identified three existing test calls still passing `&mut` to the
+now-read-only batch builder. Removing those redundant mutable references is part
+of the handoff fix. The final all-targets Clippy command and workspace format
+check both passed. The native configuration and instruction-budget phases above
+remain **needs WSL run**; these Rust checks do not prove NWScript compilation,
+real-client audiences, instruction counts or new latency measurements.

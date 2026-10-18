@@ -145,7 +145,16 @@ int MgXlCapture(int channel,string text,object speaker,object target)
     if(sequence<=0) sequence=1;
     int slot=sequence%128;string key="MGLIVE_XL_"+IntToString(slot);
     if(JsonGetType(GetLocalJson(m,key))==JSON_TYPE_OBJECT) return FALSE;
-    json clients=MgXlClients();
+    json clients;
+    if(channel==4 || channel==20)
+    {
+        // Tells have exactly two possible clients, regardless of module density.
+        if(!MgXlPlayer(target)) return FALSE;
+        clients=JsonArrayInsert(JsonArray(),JsonString(ObjectToString(target)));
+        if(speaker!=target && MgXlPlayer(speaker))
+            JsonArrayInsertInplace(clients,JsonString(ObjectToString(speaker)));
+    }
+    else clients=MgXlClients(); // capped at 128; party/DM/range filter below
     if(JsonGetLength(clients)>128) return FALSE;
     json immediate=JsonArray();json held=JsonArray();json languages=JsonObject();
     string source=MgXlLanguage(speaker);int i;
@@ -168,13 +177,25 @@ int MgXlCapture(int channel,string text,object speaker,object target)
     // Preserve listening NPCs for public speech. They hear original text, never translated commands.
     if(channel==1 || channel==2 || channel==3 || channel==17 || channel==18 || channel==19)
     {
-        object area=GetArea(speaker);object npc=GetFirstObjectInArea(area);
+        // Native spatial/type filtering avoids executing NWScript for every
+        // placeable/item in an area. Per-player range overrides remain handled
+        // by the bounded client loop above. NPCs use the server hearing range.
+        float radius=999999.0; // shout: every NPC in the current area
+        if(channel!=2 && channel!=18)
+            radius=NWNX_Chat_GetChatHearingDistance(OBJECT_INVALID,channel);
+        if(radius<0.0) return FALSE;
+        location origin=GetLocation(speaker);int scanned=0;
+        object npc=GetFirstObjectInShape(SHAPE_SPHERE,radius,origin,FALSE,OBJECT_TYPE_CREATURE);
         while(GetIsObjectValid(npc))
         {
+            // Fall back before sending anything or installing a pending slot.
+            // Crowded areas keep native delivery instead of risking an aborted VM.
+            if(scanned>=256) return FALSE;
+            scanned++;
             if(npc!=speaker && !MgXlPlayer(npc) && GetIsListening(npc) && MgXlHears(channel,speaker,target,npc))
                 JsonArrayInsertInplace(immediate,JsonString(ObjectToString(npc)));
             if(JsonGetLength(immediate)>256) return FALSE;
-            npc=GetNextObjectInArea(area);
+            npc=GetNextObjectInShape(SHAPE_SPHERE,radius,origin,FALSE,OBJECT_TYPE_CREATURE);
         }
     }
     string req=GetLocalString(m,"MGLIVE_BOOT")+":"+IntToString(sequence);

@@ -360,6 +360,10 @@ class Proof:
         from test_chat_translation import run
         return run(self)
 
+    def chat_translation_budget(self):
+        from test_translation_budget import run
+        return run(self)
+
     def chat_translation_stress(self):
         from test_chat_translation import run
         return run(self, stress=True)
@@ -2364,7 +2368,7 @@ def main():
     parser._option_string_actions["--phase"].choices.append("command_interrupt")
     parser._option_string_actions["--phase"].choices.append("command_boot")
     parser._option_string_actions["--phase"].choices.append("translation_config")
-    parser._option_string_actions["--phase"].choices.extend(["chat_translation", "chat_translation_stress"])
+    parser._option_string_actions["--phase"].choices.extend(["chat_translation", "chat_translation_stress", "chat_translation_budget"])
     args = parser.parse_args()
     if args.phase in ("stress", "chat_translation_stress"):
         os.environ["MGLIVE_STRESS_PREPARE"]="1"
@@ -2432,8 +2436,9 @@ def main():
     if args.phase.startswith("chat_translation"):
         report["helpers"]["tools/live/test_chat_translation.py"] = sha(REPO / "tools/live/test_chat_translation.py")
         report["fixture_xl_sha256"] = sha(OUT / "module/mglive_xl.nss")
-    if args.phase == "translation_config":
-        report["helpers"]["tools/live/test_translation_config.py"] = sha(REPO / "tools/live/test_translation_config.py")
+    if args.phase in ("translation_config", "chat_translation_budget"):
+        helper = "test_translation_config.py" if args.phase == "translation_config" else "test_translation_budget.py"
+        report["helpers"]["tools/live/" + helper] = sha(REPO / "tools/live" / helper)
     try:
         from stream_transport import redis_args
         redis = subprocess.Popen(redis_args(SCRATCH, RPORT),
