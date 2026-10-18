@@ -40,8 +40,9 @@ impl Drop for Scratch {
                 } else {
                     #[cfg(windows)]
                     {
-                        let mut perms = fs::metadata(&path).unwrap().permissions();
-                        perms.set_readonly(false);
+                        use std::os::windows::fs::{MetadataExt, PermissionsExt};
+                        let attrs = fs::metadata(&path).unwrap().file_attributes();
+                        let perms = fs::Permissions::from_attributes(attrs & !1);
                         fs::set_permissions(&path, perms).unwrap();
                     }
                 }

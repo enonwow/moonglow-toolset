@@ -1,5 +1,7 @@
 # Update log
 
+* **Clean-client NWSync prototype (2026-10-18)**: verified separate module/hak manifests, read-only module folder and NWSync resolution without local haks; authored acceptance and hostile-input cases pass. [Contract and results](live-gateway-prototypes.md#clean-client-nwsync).
+
 * **Windows credential path handling (2026-10-18)**: pass ACL paths as child-process environment data; a smart-quote directory regression covers fallback set/get/delete. [Cause and verification](live-desktop-link.md#windows-credential-path-handling).
 
 * **Loopback probe tolerance (2026-10-18)**: invalid callbacks no longer consume desktop login; per-connection deadlines and a 32-attempt limit bound probes. [Contract and tests](live-desktop-link.md#loopback-probe-tolerance).
