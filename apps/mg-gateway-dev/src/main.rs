@@ -202,24 +202,24 @@ async fn run() -> Result<(), String> {
         g.identity_file(&data.join("gateway-ai.json"))?;
         g.store().assistant_context(data.clone(), data.join("gateway.mod"), "gateway".into())?;
         for credential in &identities.tokens {
-            if let Some(owner) = &credential.owner {
-                if g.token_owner(&credential.token).as_ref() != Some(owner) {
-                    g.install_ai(
-                        mg_live::gateway::AiIdentity {
-                            id: credential.principal.id.clone(),
-                            owner: owner.clone(),
-                            name: credential.principal.name.clone(),
-                            groups: credential.principal.groups.clone(),
-                            expires_ms: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64
-                                + 30 * 86_400_000,
-                            llm_allowed: credential.llm_allowed,
-                        },
-                        &credential.token,
-                    )?;
-                }
+            if let Some(owner) = &credential.owner
+                && g.token_owner(&credential.token).as_ref() != Some(owner)
+            {
+                g.install_ai(
+                    mg_live::gateway::AiIdentity {
+                        id: credential.principal.id.clone(),
+                        owner: owner.clone(),
+                        name: credential.principal.name.clone(),
+                        groups: credential.principal.groups.clone(),
+                        expires_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64
+                            + 30 * 86_400_000,
+                        llm_allowed: credential.llm_allowed,
+                    },
+                    &credential.token,
+                )?;
             }
         }
         g.set_llm_enabled(enabled);

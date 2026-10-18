@@ -514,3 +514,23 @@ The shared command-log regression registers its AI reader with an owner and both
 consent levels. It verifies that authenticated readers see another principal's
 command events while result payloads remain private; an unregistered AI is not a
 valid reader fixture under managed identity enforcement.
+
+### Request-set verification
+
+The scoped suite passed 300 tests with four ignored during the gateway request
+completion. It covers ownership and revocation on both transports, draft review,
+book conflicts, presence reconnects, note snapshots, filtered event pages and
+timestamped mirror IDs. Clippy passed for all targets of the same three packages.
+Reproduce with Rust 1.98.0, a nonexistent `NWN_ROOT`, `CARGO_INCREMENTAL=0`, and:
+
+```sh
+cargo +1.98.0 test -p mg-live -p mg-gateway -p mg-gateway-dev --lib --bins --tests -j 2
+cargo +1.98.0 clippy -p mg-live -p mg-gateway -p mg-gateway-dev --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+The request transport tests use loopback sockets and synthetic store reports;
+they do not establish Redis or game-engine acceptance. The dev credential-import
+guard uses a single conditional, preserving owner binding and persisted registry
+precedence while satisfying the warning-free gate. Concurrent workspace edits
+are outside this scoped test result.

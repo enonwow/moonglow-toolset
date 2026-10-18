@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway request-set verification (2026-10-18)**: 300 scoped tests pass, four remain ignored, and all-target Clippy is clean after simplifying the dev credential-import guard. [Commands and limits](live-library.md#request-set-verification).
+
 * **Gateway outbox and retained outcomes (2026-10-18)**: assert the 64-result status ring separately from durable result lookup and the 256-entry session outbox. [Capacity regression](live-library.md#in-process-gateway-core).
 
 * **Timestamped mirror command IDs (2026-10-18)**: generated IDs use the shared timestamp marker and a monotonic process counter, remaining compatible with the bounded replay horizon. [Contract and regression](live-library.md#passive-mirror).
