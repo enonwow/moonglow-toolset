@@ -266,8 +266,7 @@ mod audit_tests {
     use super::*;
     #[test]
     fn audit_m4_request_history_is_bounded_and_evicted_ids_stay_invalid() {
-        let mut c = Connection::default();
-        c.hello = true;
+        let mut c = Connection { hello: true, ..Default::default() };
         for id in 0..10_000 {
             c.receive(&ClientFrame::Req(Request {
                 id,

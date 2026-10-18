@@ -929,21 +929,53 @@ impl Gateway {
             }
         });
         session.prune_completed(Some(now_ms));
-        let through = s.events.last();
-        if through > session.event_n {
-            let lost = lost_since(&s.events, session.event_n);
-            let rows = s
-                .events
-                .log_rows(session.event_n)
-                .into_iter()
-                .filter(|e| visible_event(e, &session.config))
-                .collect();
-            out.push(Push::Events(Events { rows, through, lost }));
-            session.event_n = through;
+        if s.events.last() > session.event_n {
+            let events = event_batch(&s.events, session.event_n, &session.config);
+            session.event_n = events.through;
+            out.push(Push::Events(events));
         }
         out.extend(session.auxiliary.drain(..));
         s.gateway.sessions.insert(id.into(), session);
         Ok(out)
+    }
+}
+fn event_batch(log: &crate::events::EventLog, since: u64, config: &SessionConfig) -> Events {
+    const BUDGET: usize = 1024 * 1024;
+    let mut rows = Vec::new();
+    let mut bytes = 128; // Envelope, cursor/lost digits and array punctuation.
+    let mut through = since;
+    let mut retained = 0;
+    let mut oversized = 0;
+    let mut complete = true;
+    for event in log.log_rows(since) {
+        let visible = visible_event(&event, config);
+        let size = if visible {
+            serde_json::to_vec(&event).expect("event serializes").len() + 1
+        } else {
+            0
+        };
+        if visible && !rows.is_empty() && (rows.len() >= 256 || bytes + size > BUDGET) {
+            complete = false;
+            break;
+        }
+        through = event.n;
+        retained += 1;
+        if visible {
+            if size + 128 > BUDGET {
+                oversized += 1;
+                continue;
+            }
+            bytes += size;
+            rows.push(event);
+        }
+    }
+    if complete {
+        through = log.last();
+    }
+    Events {
+        rows,
+        through,
+        lost: through.saturating_sub(since).saturating_sub(retained) + oversized,
     }
 }
 fn active_watch(s: &State) -> BTreeSet<String> {
@@ -1262,5 +1294,51 @@ mod audit_tests {
         let restarted = Gateway::new(g.store.clone()).unwrap();
         restarted.tick(101).unwrap();
         assert!(!g.store.lock().watch.owners.contains_key("gateway"));
+    }
+    #[test]
+    fn audit_e2_events_are_batched_without_skipping_hidden_or_large_rows() {
+        let g = setup();
+        let rows:Vec<_>=(1..=700).map(|n|json!({"seq":n,"kind":if n%5==0 {"chat"}else{"attack"},"area":format!("a{}",n/100),"text":"x".repeat(12_000)})).collect();
+        g.store.lock().events.game("boot", &rows, 0, 0);
+        let last = g.store.event_cursor();
+        let mut through = 0;
+        let mut visible = Vec::new();
+        while through < last {
+            let e = g
+                .pushes("dm:one", 0)
+                .unwrap()
+                .into_iter()
+                .find_map(|p| if let Push::Events(e) = p { Some(e) } else { None })
+                .unwrap();
+            assert!(e.rows.len() <= 256);
+            assert!(serde_json::to_vec(&Push::Events(e.clone())).unwrap().len() <= 1024 * 1024);
+            assert!(e.through > through);
+            through = e.through;
+            visible.extend(
+                e.rows
+                    .into_iter()
+                    .filter(|e| e.kind == "attack")
+                    .map(|e| e.data["game_seq"].as_u64().unwrap()),
+            );
+        }
+        assert_eq!(visible, (1..=700).filter(|n| n % 5 != 0).collect::<Vec<u64>>());
+        g.store.lock().events.game(
+            "boot",
+            &[
+                json!({"seq":701,"kind":"attack","area":"a","text":"x".repeat(1024*1024)}),
+                json!({"seq":702,"kind":"attack","area":"a"}),
+            ],
+            0,
+            0,
+        );
+        let batch = g
+            .pushes("dm:one", 0)
+            .unwrap()
+            .into_iter()
+            .find_map(|p| if let Push::Events(e) = p { Some(e) } else { None })
+            .unwrap();
+        assert_eq!(batch.lost, 1);
+        assert_eq!(batch.rows.len(), 1);
+        assert_eq!(batch.through, g.store.event_cursor());
     }
 }

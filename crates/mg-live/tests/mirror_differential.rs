@@ -52,26 +52,48 @@ impl Pair {
             self.equal();
         }
     }
+    fn forget_completed_results(&mut self) {
+        // Reset intentionally releases completed mirror history. Fresh result
+        // pushes below add retained outbox results back to the comparison set.
+        self.ids.retain(|id| {
+            self.mirror.result(id).is_none_or(|r| r.pending || r.code == Some(ErrorCode::Unknown))
+        });
+    }
     fn deliver(&mut self) {
-        for push in self.gateway.pushes("one", self.now).unwrap() {
-            // The mirror receives only serialized gateway pushes, never reports or store copies.
-            let bytes = serde_json::to_vec(&ServerFrame::Push(push)).unwrap();
-            let DecodedServer::Frame(frame) = decode_server(&bytes).unwrap() else {
-                panic!("Known push skipped")
-            };
-            let ServerFrame::Push(push) = *frame else { panic!("Expected push") };
-            match &push {
-                Push::Area(a) => {
-                    self.revs.insert(a.area.clone(), a.rev);
+        self.gateway.tick(self.now).unwrap();
+        for _ in 0..100 {
+            for push in self.gateway.pushes("one", self.now).unwrap() {
+                // The mirror receives only serialized gateway pushes, never reports or store copies.
+                let bytes = serde_json::to_vec(&ServerFrame::Push(push)).unwrap();
+                let DecodedServer::Frame(frame) = decode_server(&bytes).unwrap() else {
+                    panic!("Known push skipped")
+                };
+                let ServerFrame::Push(push) = *frame else { panic!("Expected push") };
+                match &push {
+                    Push::Area(a) => {
+                        self.revs.insert(a.area.clone(), a.rev);
+                    }
+                    Push::AreaGone { area, .. } => {
+                        self.revs.remove(area);
+                    }
+                    Push::Boot { .. } => {
+                        self.revs.clear();
+                        self.forget_completed_results();
+                    }
+                    Push::Result(r)
+                        if self.authority.result(&r.id).is_some() && !self.ids.contains(&r.id) =>
+                    {
+                        self.ids.push(r.id.clone());
+                    }
+                    _ => {}
                 }
-                Push::AreaGone { area, .. } => {
-                    self.revs.remove(area);
-                }
-                Push::Boot { .. } => self.revs.clear(),
-                _ => {}
+                push.apply(&self.mirror, self.now).unwrap();
             }
-            push.apply(&self.mirror, self.now).unwrap();
+            if self.mirror.event_cursor() >= self.authority.event_cursor() {
+                return;
+            }
         }
+        panic!("bounded event batches did not catch up");
     }
     fn equal(&self) {
         assert_eq!(self.authority.area("square"), self.mirror.area("square"));
@@ -114,6 +136,7 @@ impl Pair {
         let resumed =
             self.gateway.connect(config(), Some(&resume), &["square".into()], self.now).unwrap();
         if !resumed {
+            self.forget_completed_results();
             self.mirror.mirror_reset("resume refused").unwrap();
             self.revs.clear();
         }
@@ -139,6 +162,7 @@ impl Pair {
         assert!(
             !self.gateway.connect(config(), Some(&resume), &["square".into()], self.now).unwrap()
         );
+        self.forget_completed_results();
         self.mirror.mirror_reset("gateway epoch changed").unwrap();
         self.revs.clear();
         assert_eq!(self.mirror.result(&id).unwrap().code, Some(ErrorCode::Unknown));

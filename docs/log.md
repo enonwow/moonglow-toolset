@@ -1,5 +1,7 @@
 # Update log
 
+* **Bounded gateway event batches (2026-10-18)**: deliver at most 256 events / 1 MiB per pump with exact cursor/loss accounting; exercise reconnects with the differential mirror harness. [Contract and regressions](live-library.md#gateway-audit-invariants).
+
 * **Gateway host maintenance (2026-10-18)**: expire once per host tick and cache unchanged watch admission independently of viewer count. [Contract and regression](live-library.md#gateway-audit-invariants).
 
 * **Late unknown result correlation (2026-10-18)**: bounded boot-bound registry survives UI eviction, resolves late failures and advances the acknowledged gateway outbox revision; endpoint and capacity regressions pass. [Contract and reproduction](live-ops-wire.md#late-unknown-results-beyond-ui-history-m2-m3).

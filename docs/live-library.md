@@ -136,7 +136,8 @@ also make areas visible. The mirror applies store topics through `Push::apply`.
 Per-area revisions advance only when reports apply. `received_ms` is excluded
 from the area push's nested snapshot; `age_ms` reconstructs local receipt time.
 `full_ms` stays an authoritative baseline identity, not a local receipt clock.
-Events preserve `n`; filtered rows still advance `through`. Chat requires
+Event pushes contain at most 256 rows and 1 MiB of serialized JSON, continuing
+on later pumps. Events preserve `n`; filtered rows still advance `through`. Chat requires
 `read_chat`; tell channels 4 and 20 additionally require `read_tells`. Command
 and skill events are shared by Read-capable sessions; result pushes remain owner-scoped.
 
@@ -406,3 +407,17 @@ and other watch owners; unchanged ticks do not rebuild or reapply the union. A
 new gateway invalidates the cache and releases old session watches even when no
 new client connects. `audit_e1` checks expiry ownership, unchanged tick/pump work,
 watch changes and gateway restart. Direct core embedders must drive `tick`.
+
+Event delivery advances only through scanned rows in each bounded batch. Hidden
+rows still advance the cursor; gaps are counted only when crossed, not once per
+remaining batch. A single event larger than 1 MiB is skipped and counted in
+`lost`, allowing delivery to continue without an oversized frame or a stuck
+cursor. `audit_e2` tests several byte-limited batches, hidden rows and an
+oversized row. The differential harness drains these batches before comparing
+stores and models reset's completed-result eviction; pending/unknown results
+and newly replayed result revisions remain compared.
+
+Run the audit unit tests with `cargo +1.98.0 test -p mg-live --lib audit_ -j 2`,
+then `cargo +1.98.0 test -p mg-live --test gateway_core --test mirror_differential
+-j 2` and the workspace gates above. All regressions use authored reports or
+in-process sockets; no Redis or game server is needed.
