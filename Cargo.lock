@@ -2909,6 +2909,7 @@ dependencies = [
  "mg-gff",
  "mg-image",
  "mg-live",
+ "mg-live-link",
  "mg-mdl",
  "mg-module",
  "mg-nui",
@@ -2925,11 +2926,15 @@ dependencies = [
  "mg-tiles",
  "mg-tlk",
  "png",
+ "rcgen",
+ "ron",
  "rustls",
  "serde",
  "serde_json",
  "skrifa",
+ "tempfile",
  "toml",
+ "url",
  "wgpu",
 ]
 
