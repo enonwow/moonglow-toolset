@@ -47,7 +47,7 @@ fn notes_and_event_pages_require_read_and_preserve_filtered_cursor() {
     assert_eq!(
         request(&g, "dm:reader", "call", json!({"op":"area_notes","input":{"area":"square"}}))
             .unwrap(),
-        json!({"notes":{}})
+        json!({"notes":{},"keys":{},"revs":{}})
     );
     assert_eq!(
         request(&g, "dm:none", "call", json!({"op":"area_notes","input":{"area":"square"}}))
@@ -209,3 +209,34 @@ fn ai_registry_persists_only_hashes_and_restarts_with_global_consent_off() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn note_reads_include_canonical_keys_and_revisions_and_book_backlog_fails_closed() {
+    let root = std::env::temp_dir()
+        .join(format!("gateway-notes-{}", mg_live::service::generate_token().unwrap()));
+    let s = Arc::new(LiveStore::default());
+    s.assistant_context(root.clone(), root.join("fixture.mod"), "fixture".into()).unwrap();
+    s.sync(br#"{"v":1,"boot":"b","seq":1,"areas":[{"area":"square","full":true,"cre":[{"id":"a1","tag":"guard"}]}]}"#,1000).unwrap();
+    let g = Gateway::new(s).unwrap();
+    session(&g, "dm:one", &["read"]);
+    let first = request(&g, "dm:one", "call", json!({"op":"area_notes","input":{"area":"square"}}))
+        .unwrap();
+    assert_eq!(first["revs"]["a1"], 0);
+    let key = first["keys"]["a1"].as_str().unwrap();
+    request(&g, "dm:one", "book.put", json!({"kind":"note","key":key,"value":"Note","if_rev":0}))
+        .unwrap();
+    let next = request(&g, "dm:one", "call", json!({"op":"area_notes","input":{"area":"square"}}))
+        .unwrap();
+    assert_eq!(next["notes"]["a1"], "Note");
+    assert_eq!(next["revs"]["a1"], 1);
+    for n in 0..256 {
+        request(
+            &g,
+            "dm:one",
+            "book.put",
+            json!({"kind":"note","key":format!("Creature:tag:n{n}"),"value":"Note","if_rev":0}),
+        )
+        .unwrap();
+    }
+    assert_eq!(g.pushes("dm:one", 1000).unwrap_err(), "overloaded");
+    std::fs::remove_dir_all(root).unwrap();
+}

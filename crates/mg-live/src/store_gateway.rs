@@ -168,6 +168,7 @@ struct Session {
     actor: Value,
     presence_sent: u64,
     drafts_sent: Option<u64>,
+    overloaded: bool,
     generation: u64,
     config: SessionConfig,
     watch: BTreeSet<String>,
@@ -391,10 +392,15 @@ impl Gateway {
                     let push = Push::Book { kind: kind.into(), key: key.into(), rev };
                     let mut s = self.store.lock();
                     for session in s.gateway.sessions.values_mut() {
+                        session.auxiliary.retain(
+                            |p| !matches!(p,Push::Book{kind:k,key:v,..} if k==kind && v==key),
+                        );
                         if session.auxiliary.len() >= 256 {
-                            session.auxiliary.pop_front();
+                            session.overloaded = true;
+                            session.resume_valid = false;
+                        } else {
+                            session.auxiliary.push_back(push.clone());
                         }
-                        session.auxiliary.push_back(push.clone());
                     }
                     Ok(json!({"rev":rev}))
                 }
@@ -502,7 +508,7 @@ impl Gateway {
                         let area =
                             input["area"].as_str().ok_or_else(|| invalid("Missing area".into()))?;
                         validate_watch(&[area.into()], 1).map_err(invalid)?;
-                        return Ok(json!({"notes": self.store.area_notes(area)}));
+                        return Ok(self.store.gateway_area_notes(area));
                     }
                     // Route events through the gateway filter, including tell permission.
                     if op == "events" {
@@ -594,6 +600,7 @@ impl Gateway {
             actor: json!({"id": config.id, "kind": if config.id.starts_with("ai:") {"ai"} else {"dm"}, "name": config.id, "avatar":null,"owner":null,"area":null}),
             presence_sent: 0,
             drafts_sent: None,
+            overloaded: false,
             generation,
             config: config.clone(),
             watch: BTreeSet::new(),
@@ -612,6 +619,7 @@ impl Gateway {
         session.online = true;
         session.presence_sent = 0;
         session.drafts_sent = None;
+        session.overloaded = false;
         session.focus.clear();
         session.actor["area"] = Value::Null;
         s.gateway.presence_rev += 1;
@@ -950,6 +958,9 @@ impl Gateway {
         let drafts = self.store.drafts();
         let mut s = self.store.lock();
         let current = s.gateway.sessions.get(id).ok_or("revoked")?;
+        if current.overloaded {
+            return Err("overloaded".into());
+        }
         validate_ai_scope(&s, &current.config.scope()).map_err(|_| "revoked")?;
         let presence = presence(&s.gateway);
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;

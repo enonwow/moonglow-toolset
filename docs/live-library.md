@@ -425,7 +425,7 @@ in-process sockets; no Redis or game server is needed.
 ## Gateway shared requests
 
 `call` accepts read-only catalogue operations and `area_notes` (input `area`,
-result `{notes: {object_id: text}}`). Every read requires `read`.
+result `{notes: {object_id: text}, keys: {object_id: canonical_key}, revs: {object_id: u64}}`). Every read requires `read`.
 `events.since` accepts `n`, optional `limit` (1..500, default 100), and `kinds`.
 Pages preserve gateway event numbers, omit unauthorized chat/tells, and advance
 `through` across filtered rows. Responses stay within 1 MiB; oversized rows count
@@ -477,3 +477,9 @@ Ownership is checked under the draft lock, and approval revalidates the AI's
 current permissions, consent, game boot and target before native enqueue. Draft
 pushes are revisioned and filtered to the owner's sessions or admins. Local
 assistant approval retains its original Access-based validation.
+
+Note text, canonical keys and revisions come from one locked snapshot, so an edit
+can send the exact `if_rev` it read. Book invalidations coalesce by key. A viewer
+which falls behind more than 256 distinct auxiliary updates is closed as
+`overloaded` and cannot resume that incomplete view; invalidations are never
+silently discarded.

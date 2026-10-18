@@ -143,6 +143,39 @@ fn book_rev(k: &Knowledge, kind: &str, key: &str) -> Result<u64, String> {
         _ => Err("Invalid book kind or key".into()),
     }
 }
+fn area_notes(s: &State, area: &str) -> std::collections::HashMap<String, String> {
+    let Some(k) = s.assistant.knowledge.as_ref().filter(|k| !k.notes.objects.is_empty()) else {
+        return Default::default();
+    };
+    let Some(area) = s.areas.get(area) else { return Default::default() };
+    let mut tags = std::collections::HashMap::new();
+    let mut players = std::collections::HashMap::new();
+    for (kind, o) in s.areas.values().flat_map(|a| a.all()) {
+        *tags.entry((kind, o.tag.as_str())).or_insert(0usize) += 1;
+        if o.pc {
+            *players.entry((o.tag.as_str(), o.name.as_str())).or_insert(0usize) += 1;
+        }
+    }
+    area.all()
+        .filter_map(|(kind, o)| {
+            let key = if o.pc {
+                if players.get(&(o.tag.as_str(), o.name.as_str())) != Some(&1) {
+                    return None;
+                }
+                format!("pc:{}:{}", o.tag, o.name)
+            } else if !o.tag.is_empty() && tags.get(&(kind, o.tag.as_str())) == Some(&1) {
+                format!("{kind:?}:tag:{}", o.tag)
+            } else {
+                format!("{kind:?}:boot:{}:id:{}", s.boot, o.id)
+            };
+            k.notes
+                .objects
+                .get(&key)
+                .filter(|note| !note.is_empty())
+                .map(|note| (o.id.clone(), note.clone()))
+        })
+        .collect()
+}
 impl LiveStore {
     pub fn assistant_context(
         &self,
@@ -207,38 +240,22 @@ impl LiveStore {
     /// Snapshot only nonempty notes for an area. Called by the UI on report or
     /// note revision changes, never once per marker on every frame.
     pub fn area_notes(&self, area: &str) -> std::collections::HashMap<String, String> {
+        area_notes(&self.lock(), area)
+    }
+    pub fn gateway_area_notes(&self, area: &str) -> serde_json::Value {
         let s = self.lock();
-        let Some(k) = s.assistant.knowledge.as_ref().filter(|k| !k.notes.objects.is_empty()) else {
-            return Default::default();
-        };
-        let Some(area) = s.areas.get(area) else { return Default::default() };
-        let mut tags = std::collections::HashMap::new();
-        let mut players = std::collections::HashMap::new();
-        for (kind, o) in s.areas.values().flat_map(|a| a.all()) {
-            *tags.entry((kind, o.tag.as_str())).or_insert(0usize) += 1;
-            if o.pc {
-                *players.entry((o.tag.as_str(), o.name.as_str())).or_insert(0usize) += 1;
+        let notes = area_notes(&s, area);
+        let mut keys = std::collections::BTreeMap::new();
+        let mut revs = std::collections::BTreeMap::new();
+        if let (Some(live), Ok(book)) = (s.areas.get(area), book(&s)) {
+            for (_, object) in live.all() {
+                if let Ok(key) = object_key(&s, &object.id) {
+                    revs.insert(object.id.clone(), book_rev(book, "note", &key).unwrap_or(0));
+                    keys.insert(object.id.clone(), key);
+                }
             }
         }
-        area.all()
-            .filter_map(|(kind, o)| {
-                let key = if o.pc {
-                    if players.get(&(o.tag.as_str(), o.name.as_str())) != Some(&1) {
-                        return None;
-                    }
-                    format!("pc:{}:{}", o.tag, o.name)
-                } else if !o.tag.is_empty() && tags.get(&(kind, o.tag.as_str())) == Some(&1) {
-                    format!("{kind:?}:tag:{}", o.tag)
-                } else {
-                    format!("{kind:?}:boot:{}:id:{}", s.boot, o.id)
-                };
-                k.notes
-                    .objects
-                    .get(&key)
-                    .filter(|note| !note.is_empty())
-                    .map(|note| (o.id.clone(), note.clone()))
-            })
-            .collect()
+        serde_json::json!({"notes":notes,"keys":keys,"revs":revs})
     }
     pub fn assistant_error(&self) -> Option<String> {
         self.lock().assistant.knowledge.as_ref().and_then(|k| k.memory.error())

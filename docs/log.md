@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway note edit snapshots (2026-10-18)**: return note keys/revisions atomically and fail closed on invalidation overflow. [Contract and regression](live-library.md#gateway-shared-requests).
+
 * **Owned gateway draft review (2026-10-18)**: reuse store approval with atomic ownership checks, current AI scopes and owner-filtered draft pushes. [Contract and loopback regression](live-library.md#gateway-shared-requests).
 
 * **Owned gateway AI identities (2026-10-18)**: hashed credentials, current owner permissions, two consent levels and revocation on both transports. [Public API and tests](live-library.md#gateway-shared-requests).
