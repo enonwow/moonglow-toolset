@@ -2288,6 +2288,7 @@ impl LiveStore {
             scope,
             scope.agent_epoch.expect("authorized before command IO"),
         )?;
+        gateway::validate_accept(&s, scope)?;
         if reservation.is_none() {
             s.command_quota.charge(scope, now_ms)?;
         }

@@ -1,5 +1,9 @@
 # Update log
 
+* **Gateway final-acceptance integration (2026-10-18)**: check the captured gateway session and boot under the store lock before acceptance; blocked removal/replacement/restart regression passes. [Boundary](live-ops-wire.md#gateway-acceptance-under-the-store-lock-m2-h1-integration).
+
+* **Gateway acceptance race (2026-10-18)**: bind session generation and game boot at final acceptance; failed retries preserve the original outbox. [Contract and regression](live-library.md#gateway-audit-invariants).
+
 * **Shared game-command budgets (2026-10-18)**: owner/global store limits cover direct, HTTP and gateway enqueue, including read-only game queries; preserve HTTP 429 and reserve IDs only within budget. [Contract and regressions](live-ops-wire.md#shared-command-budgets-m2-m2).
 
 * **Desktop gateway facade (2026-10-18)**: asynchronous book/draft/LLM operations, passive snapshots and 25 GUI migration sites; host response-shape gaps remain explicit. [Facade and inventory](live-desktop-link.md#gui-facade-and-migration-inventory).

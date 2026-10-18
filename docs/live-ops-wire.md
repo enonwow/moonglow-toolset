@@ -3366,3 +3366,12 @@ identity rotation, atomic concurrent acceptance, window reset and local access.
 A durable-journal test proves a refusal burns no ID and post-IO revalidation does
 not double-charge. Existing HTTP tests cover both command routes and retry headers.
 Run `cargo +1.98.0 test -p mg-live --lib -j 2` with the environment described above.
+
+## Gateway acceptance under the store lock (M2 H1 integration)
+
+The final store acceptance lock also calls the gateway's session/boot validator,
+before quota, idempotent return or ID reservation. Its captured session generation
+cannot survive session removal, replacement or a boot change during command IO.
+The gateway implementation owns the binding and its regression; the store owns
+this integration point. The blocked-acceptance regression passes with the hook,
+alongside the consent-epoch regressions.
