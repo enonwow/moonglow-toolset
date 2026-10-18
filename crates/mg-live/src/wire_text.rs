@@ -124,6 +124,12 @@ pub(crate) fn server_log(message: &mut Value) {
     fields(message, &["line"], codepage(message));
 }
 
+/// Decode the immediate chat lane using the same boundary as event text.
+pub(crate) fn translation(message: &mut Value) {
+    let cp = codepage(message);
+    fields(message, &["text"], cp);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,10 +225,4 @@ mod tests {
         server_log(&mut malformed);
         assert_eq!(malformed["line"], "valid Unicode ą");
     }
-}
-
-/// Decode the immediate chat lane using the same boundary as event text.
-pub(crate) fn translation(message: &mut Value) {
-    let cp = codepage(message);
-    fields(message, &["text"], cp);
 }
