@@ -55,3 +55,11 @@ behavior. The `scope` integration tests exercise this API from outside the
 crate and check every subset of groups, both delivery modes and reserved-looking
 names. Run `cargo +1.98.0 test -p mg-live --test scope -j 2` and
 `cargo +1.98.0 test -p mg-live --doc -j 2`.
+
+## Event transport
+
+`events::Event` supports both Serde serialization and deserialization with its
+existing field names and types. `event_roundtrip` checks exact round trips with
+optional object identities, a global event, Unicode, maximum sequence values
+and nested arbitrary payloads. Run
+`cargo +1.98.0 test -p mg-live --test event_roundtrip -j 2`.

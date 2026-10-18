@@ -1,5 +1,7 @@
 # Update log
 
+* **Live event deserialization (2026-10-18)**: events retain the existing wire shape and now deserialize for external consumers, with exact JSON round trips. [Library contract](live-library.md#event-transport).
+
 * **Restricted Live library scopes (2026-10-18)**: external consumers can construct explicit scopes and call the scoped APIs; the local unrestricted constructor stays crate-private. [Contract and tests](live-library.md#restricted-external-scopes).
 
 * **Optional Live preparation (2026-10-18)**: gated module preparation and its four dependencies behind `build`; CLI, UI and fixture tests opt in. Both feature variants have a CI check. [Library contract](live-library.md#optional-module-preparation).

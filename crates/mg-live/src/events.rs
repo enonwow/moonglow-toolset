@@ -11,7 +11,7 @@
 //! the last it saw.
 
 use crate::store::LiveObject;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, BinaryHeap, HashMap, VecDeque};
 use std::sync::{Arc, Condvar};
@@ -20,7 +20,7 @@ pub const PER_AREA: usize = 1000;
 /// At most this many events answer one query.
 pub const MAX_QUERY: usize = 500;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     /// Moonglow's number for it.
     pub n: u64,
