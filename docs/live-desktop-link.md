@@ -7,6 +7,9 @@ generated: { by: codex, at: 2026-10-18T09:57:30Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-ui/src/settings.rs
+  - ../crates/mg-ui/src/options_live.rs
+  - ../crates/mg-ui/tests/live_connection.rs
+  - ../crates/mg-ui/tests/screens.rs
 ---
 
 # Live desktop link
@@ -109,3 +112,54 @@ sending an incomplete record slowly could otherwise hold a login worker.
 The `slow_certificate_discovery_cannot_extend_the_deadline` loopback regression
 trickles an incomplete TLS record and verifies bounded termination. All seven
 login/TLS tests pass, including this case.
+
+## Options and visual proof
+
+Options > Live opens the server list with Add, Remove and selection, name and
+URL editors, connection/account status and Discord sign-in/sign-out actions.
+Authentication and credential I/O run on a worker; the UI opens the returned
+browser URL through egui `open_url`. An IP gateway presents its origin and leaf
+fingerprint for an explicit Trust or Reject decision. Existing saved sessions
+are shown without exposing their token. Sign-out deletes the local credential;
+remote revocation is outside this endpoint contract. Account actions are
+immediate, while Apply saves the server list. A saved session locks the URL until
+sign-out. Environment overrides are displayed as development credentials and
+never saved by the account controls.
+
+`Local development (legacy)` retains the prior local tools during the P2
+transition. The default panel does not start Redis, a game server or a Live
+WebSocket. HAK/module cache and My AI are explicit placeholders. P2 must wire
+the authenticated link to the [gateway protocol](live-gateway-protocol.md);
+P7 supplies the cache implementation. Account names and roles will come from
+the gateway welcome message, rather than being guessed from token presence.
+
+The two `live_connection` kittest regressions use an injected memory credential
+backend and the same fake TLS gateway as the protocol tests. They click
+Add/Select/Remove, apply the model, capture egui's browser URL, deliver the
+callback, verify secure token persistence and click Sign out.
+
+Render with `cargo +1.98.0 test -p mg-ui --test screens -j 2
+live_gateway_options -- --ignored` (one command). The inspected image is
+`target/test-output/screens/live-gateway-options.png`: the actual Options
+window, isolated settings, no game install and no real account. The list,
+fields, buttons and placeholder lines fit without clipping. This is visual
+verification, separate from user acceptance.
+
+Focused verification: `cargo +1.98.0 test -p mg-live-link -p mg-ui --lib
+--test login --test credentials --test live_connection -j 2` passed 7 login,
+4 credential, 271 UI library and 2 UI integration tests (one existing ignored
+library test). The manual screen test passed. `cargo +1.98.0 fmt --check` passed.
+The final workspace gate passed 1690 tests with 24 ignored:
+`cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2`.
+`cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings` and the
+separate `cargo +1.98.0 clippy -p mg-ui --test screens -j 2 -- -D warnings`
+passed without warnings. An earlier shared-checkout gate stopped on three
+Live authorization/receipt regressions; their owning changes resolved them
+before this successful gate. No game runtime, deployed Discord integration,
+macOS Keychain or Linux Secret Service acceptance is claimed.
+
+The OKF executable was unavailable; the index was updated manually and local
+source/document links checked. Keep sources, the lockfile and the one PNG as
+reproduction inputs/evidence. Disposable verification logs are summarized in
+the private task ledger and removed at closure; shared Cargo outputs remain
+in use by concurrent work and are not deleted by this task.

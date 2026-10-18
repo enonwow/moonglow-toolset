@@ -23,6 +23,7 @@ mg-2da.workspace = true
 mg-core.workspace = true
 mg-area.workspace = true
 mg-live = { workspace = true, features = ["build"] }
+mg-live-link = { path = "../mg-live-link" }
 mg-audio.workspace = true
 mg-edit.workspace = true
 mg-image.workspace = true
@@ -51,12 +52,16 @@ toml.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
+ron = "0.12"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 eframe.workspace = true
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 mg-erf.workspace = true
 mg-testkit.workspace = true
 rustls.workspace = true
+rcgen.workspace = true
+url = "2.5"
+tempfile = "3"
 
 [lints]
 workspace = true

@@ -7461,6 +7461,8 @@ fn live_labels_toolbar_switches_modes_without_hiding_objects() {
         .insert(2, [12, 34, 56]);
     h.state_mut().actions.push(mg_ui::Action::LiveOptions);
     h.run_steps(3);
+    h.get_by_label("Local development (legacy)").click();
+    h.run_steps(3);
     h.get_by_label("Factions").click();
     h.run_steps(2);
     assert!(h.query_by_label("2: Commoner").is_some());
@@ -7969,6 +7971,8 @@ fn live_clients_draft_validates_rotates_applies_and_cancels() {
         .set_position(egui::pos2(50., 40.))
         .set_size(egui::vec2(1120., 900.));
     h.run_steps(3);
+    h.get_by_label("Local development (legacy)").click();
+    h.run_steps(3);
     #[cfg(windows)]
     {
         h.get_by_label("Keep WSL running").click();
@@ -8043,6 +8047,8 @@ fn live_options_apply_starts_restarts_stops_and_refuses_chunks_over_https() {
     h.run();
     h.get_all_by_label("Live").last().unwrap().click();
     h.run();
+    h.get_by_label("Local development (legacy)").click();
+    h.run_steps(3);
     h.get_by_label("Enable live mode").click();
     h.get_by_label("Apply").click();
     h.run_steps(3);
@@ -8053,9 +8059,14 @@ fn live_options_apply_starts_restarts_stops_and_refuses_chunks_over_https() {
     let token = service.config().token.clone();
     assert_eq!(h.state().settings.live.token, token);
     assert!(!format!("{:?}", h.state().settings).contains(&token), "Debug must redact the token");
-    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    // The session secret no longer round-trips through settings. Credential
+    // migration is covered with a mock backend in settings' unit tests.
+    let mut persisted = h.state().settings.clone();
+    persisted.live.token.clear();
+    let saved = serde_json::to_string(&persisted).unwrap();
+    assert!(!saved.contains(&token));
     let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
-    assert_eq!(back.live, h.state().settings.live);
+    assert_eq!(back.live, persisted.live);
     let store = h.state().live.as_ref().unwrap().clone();
     store
         .sync(
@@ -8151,7 +8162,7 @@ fn live_menu_starts_and_stops_live_and_opens_its_options() {
     h.run();
     h.get_by_label("Live Options…").click();
     h.run();
-    h.get_by_label("Enable live mode");
+    h.get_by_label("Live servers");
 }
 
 #[test]

@@ -12,6 +12,9 @@ use crate::script_view::Palette;
 use crate::settings::{SCRIPT_ELEMENTS, ScriptStyle};
 use crate::{Action, Moonglow, Settings};
 
+#[path = "options_live.rs"]
+mod live_connection;
+
 /// The Options window's pages.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OptionsPage {
@@ -33,6 +36,7 @@ pub enum OptionsPage {
 pub struct OptionsDraft {
     pub page: OptionsPage,
     pub live: mg_live::LiveConfig,
+    pub live_servers: crate::settings::LiveServers,
     pub live_nwnx: String,
     pub live_focus: bool,
     pub live_faction_colors: crate::live_colors::Overrides,
@@ -122,6 +126,7 @@ impl OptionsDraft {
         OptionsDraft {
             page: OptionsPage::default(),
             live: s.live.clone(),
+            live_servers: s.live_servers.clone(),
             live_nwnx: s.live_nwnx.clone(),
             live_focus: !s.no_live_focus,
             live_faction_colors: s.live_faction_colors.clone(),
@@ -195,6 +200,7 @@ impl OptionsDraft {
     pub fn apply(&self, s: &Settings) -> Settings {
         Settings {
             live: self.live.clone(),
+            live_servers: self.live_servers.clone(),
             live_nwnx: self.live_nwnx.clone(),
             no_live_focus: !self.live_focus,
             live_faction_colors: self.live_faction_colors.clone(),
@@ -387,7 +393,7 @@ fn live_page(
     {
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
-    ui.weak("The token is saved in plain text in Moonglow's settings. An empty token is generated on Apply.");
+    ui.weak("The token migrates to the OS credential store when settings are saved. An empty token is generated on Apply.");
     ui.horizontal_wrapped(|ui| {
         ui.label("curl -k … /live/v1/status");
         if ui.button("Copy curl command").clicked() {
@@ -623,6 +629,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 |ui| {
                     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| match draft.page {
                         OptionsPage::Live => {
+                            let legacy_id = egui::Id::new("show-legacy-live");
+                            let mut legacy = ui.data(|d| d.get_temp::<bool>(legacy_id)).unwrap_or(false);
+                            if ui.toggle_value(&mut legacy, "Local development (legacy)").changed() {
+                                ui.data_mut(|d| d.insert_temp(legacy_id, legacy));
+                            }
+                            ui.separator();
+                            if !legacy {
+                                draft.live_servers_ui(ui);
+                                return;
+                            }
                             crate::widgets::field_label(ui, "NWNX folder");
                             path_row(ui, &mut draft.live_nwnx, &mut browse, Browse::Nwnx);
                             ui.weak("Contains Binaries/NWScript.zip; used by Prepare Module for Live. WSL folders are accessible through the Windows network browser.");

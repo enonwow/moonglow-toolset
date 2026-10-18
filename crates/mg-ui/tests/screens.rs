@@ -26,6 +26,58 @@ fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
 
 #[test]
 #[ignore]
+fn live_gateway_options() {
+    mg_testkit::gpu::hold();
+    struct NoSession;
+    impl mg_live_link::credentials::Backend for NoSession {
+        fn get(
+            &self,
+            _: &str,
+        ) -> Result<Option<mg_live_link::SessionToken>, mg_live_link::credentials::StoreError>
+        {
+            Ok(None)
+        }
+        fn set(
+            &self,
+            _: &str,
+            _: &mg_live_link::SessionToken,
+        ) -> Result<(), mg_live_link::credentials::StoreError> {
+            Err(mg_live_link::credentials::StoreError::Denied)
+        }
+        fn delete(&self, _: &str) -> Result<(), mg_live_link::credentials::StoreError> {
+            Ok(())
+        }
+    }
+    let credentials = tempfile::tempdir().unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.live_servers.add();
+    app.settings.live_servers.servers[1].name = "Campaign server".into();
+    app.actions.push(mg_ui::Action::LiveOptions);
+    let mut h = Harness::builder().with_size(egui::vec2(1120., 760.)).wgpu().build_ui_state(
+        |ui, app: &mut Moonglow| {
+            mg_ui::OptionsDraft::set_live_credential_backend(
+                ui.ctx(),
+                Arc::new(NoSession),
+                credentials.path().into(),
+            );
+            app.ui(ui);
+        },
+        app,
+    );
+    h.run_steps(4);
+    let path = h.state().dock.find_tab(&mg_ui::Tab::Options).unwrap();
+    h.state_mut()
+        .dock
+        .get_window_state_mut(path.surface)
+        .unwrap()
+        .set_position(egui::pos2(40., 40.))
+        .set_size(egui::vec2(1000., 650.));
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    shoot(&mut h, &mg_testkit::output_dir("screens"), "live-gateway-options");
+}
+
+#[test]
+#[ignore]
 fn live_prepare_snapshot() {
     mg_testkit::gpu::hold();
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));

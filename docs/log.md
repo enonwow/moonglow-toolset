@@ -32,7 +32,9 @@
 
 * **Bounded Live result reports (2026-10-18)**: 512 KiB batches, deferred receipts and bounded parser headroom; private engine proof passes. [Contract](live-ops-wire.md#report-result-budget-2026-10-18).
 
+* **Live connection options (2026-10-18)**: server management, background Discord login, explicit certificate trust and isolated kittest/PNG proof. [Panel and verification](live-desktop-link.md#options-and-visual-proof).
 
+* **Live server settings (2026-10-18)**: versioned server choices, development migration and environment precedence; JSON/RON omit the legacy session secret. [Contract](live-desktop-link.md#settings-and-migration).
 
 * **Desktop session storage (2026-10-18)**: per-server OS keyring with private fallback only on unavailability, atomic replacement and recovery migration. [Contract](live-desktop-link.md#credential-storage).
 
