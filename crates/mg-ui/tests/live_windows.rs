@@ -28,6 +28,8 @@ fn hexxar_runtime_enabled_overrides_saved_option() {
     );
     // Complete desktop startup before issuing commands through the runtime service.
     app.live_service.as_mut().unwrap().publish_descriptor(&dir.join("data")).unwrap();
+    // Endpoint binding invalidates the pre-service fixture baseline.
+    support::report(&store, 1, vec![]);
     app.live_library.data_dir = Some(dir.join("data"));
     let mut h = support::harness(app, Tab::LiveVfx);
     assert!(
