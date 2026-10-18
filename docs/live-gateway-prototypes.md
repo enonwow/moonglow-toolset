@@ -180,6 +180,13 @@ Native server tests run separately through the guarded helper; their two passing
 acceptances are described above. Later concurrent gateway and desktop changes
 require their own final verification; the prototype sources stayed unchanged.
 
+At documentation closure, a newer shared-tree run failed to compile in-progress
+`mg-live-link` tests (unresolved modules/dependencies), and Clippy rejected three
+unreachable public methods in its new `state.rs`; formatting passed. Those
+concurrent changes are outside the prototype files. Thus the earlier passing
+run verifies the completed prototype sources, but does not establish a green
+gate for the latest shared tree.
+
 The reproducible sources and two compact native proof files are retained:
 `target/test-output/live-events/chat_translation.json` and
 `target/test-output/live-events/chat_translation_stress.json`. These ignored
