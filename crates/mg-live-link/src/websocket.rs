@@ -51,8 +51,9 @@ async fn upgrade(
     getrandom::fill(&mut nonce).map_err(|_| LinkError::Transport)?;
     let key = STANDARD.encode(nonce);
     let authority = gateway.origin[url::Position::BeforeHost..url::Position::AfterPort].to_owned();
+    let mirror = mg_live::MIRROR_VERSION;
     let request = format!(
-        "GET /ws/v1?proto=1&mirror=1 HTTP/1.1\r\nHost: {authority}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Protocol: moonglow-gw.1\r\nAuthorization: Bearer {}\r\n\r\n",
+        "GET /ws/v1?proto=1&mirror={mirror} HTTP/1.1\r\nHost: {authority}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Protocol: moonglow-gw.1\r\nAuthorization: Bearer {}\r\n\r\n",
         token.expose()
     );
     stream.write_all(request.as_bytes()).await.map_err(|_| LinkError::Transport)?;

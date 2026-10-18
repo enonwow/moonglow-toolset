@@ -250,7 +250,7 @@ budget. Authentication is rechecked on requests and every ping interval;
 revocation and role changes close the connection. Hosts must not log bearer
 credentials. `/health` is an unauthenticated liveness endpoint.
 
-HTTP cannot return 426 after WebSocket upgrade. Optional `?proto=1&mirror=1`
+HTTP cannot return 426 after WebSocket upgrade. Optional `?proto=1&mirror=2`
 parameters support a pre-upgrade 426 with `min_client`; actual hello versions
 are always checked, and a mismatch there sends `bye upgrade`. Missing the
 required subprotocol also returns 426. This resolves the draft protocol's

@@ -854,3 +854,5 @@
 * **Whisper budget coverage (2026-10-18)**: control the near-listener geometry and assert exact delivery recipients under load. [Diagnosis and native rerun](live-translations.md#stable-whisper-geometry-and-delivery-coverage).
 
 * **Page dense Live reports (2026-10-18)**: collect creatures first, converge static pages with explicit coverage, defer cold looks and recover interrupted reports without losing receipts. [Contract and native fault-injection proof](live-ops-wire.md#dense-area-reporting-stays-live).
+
+* **Negotiate the current mirror schema (2026-10-18)**: the desktop WebSocket upgrade uses the shared mirror version, including schema 2 coverage fields. [Transport contract](live-gateway-protocol.md#2-transport).

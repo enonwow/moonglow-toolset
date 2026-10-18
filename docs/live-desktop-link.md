@@ -303,7 +303,8 @@ replayed after losing their response. A response timeout closes the connection
 before releasing in-flight slots, because the peer might still be processing
 those IDs. It does not replace a result already delivered by a push.
 
-The client uses `/ws/v1?proto=1&mirror=1`, subprotocol `moonglow-gw.1`, an
+The upgrade query derives `mirror` from `mg_live::MIRROR_VERSION`, matching the
+subsequent hello. With schema 2 the client uses `/ws/v1?proto=1&mirror=2`, subprotocol `moonglow-gw.1`, an
 Authorization bearer and no Origin header. TLS uses exactly the login rustls
 configuration: WebPKI roots or a previously accepted leaf fingerprint, including
 signature verification. IP TOFU returns the existing login trust prompt before
