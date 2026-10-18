@@ -74,6 +74,13 @@ fn live_gateway_options() {
         .set_size(egui::vec2(1000., 650.));
     std::thread::sleep(std::time::Duration::from_millis(30));
     shoot(&mut h, &mg_testkit::output_dir("screens"), "live-gateway-options");
+    let draft = h.state_mut().options.as_mut().unwrap();
+    draft
+        .live
+        .clients
+        .push(mg_live::access::ClientToken { name: "Reader".into(), ..Default::default() });
+    draft.live_credential_error = Some("OS credential store refused access".into());
+    shoot(&mut h, &mg_testkit::output_dir("screens"), "live-gateway-credential-error");
 }
 
 #[test]

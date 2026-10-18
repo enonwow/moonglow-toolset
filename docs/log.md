@@ -1,5 +1,7 @@
 # Update log
 
+* **Editable Live credential references (2026-10-18)**: restore named-client secrets into the options draft, report store denial and retain secret-free settings; 750 scoped tests and two inspected renders. [Verification](live-desktop-link.md#m2-desktop-verification).
+
 * **Live menu frame scheduling (2026-10-18)**: the panel-opening regression tolerates background account repaint notifications. [Cause and proof](live-desktop-link.md#ui-menu-frame-scheduling).
 
 * **Opt-in game chat translation prototype (2026-10-18)**: speech-time listener snapshots, immediate Redis requests, guarded single delivery and native fallback. Private NPC acceptance and idle/stress latency measurements; connected-client limits remain explicit. [Results](live-gateway-prototypes.md#chat-interception).

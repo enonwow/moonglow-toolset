@@ -36,6 +36,7 @@ pub enum OptionsPage {
 pub struct OptionsDraft {
     pub page: OptionsPage,
     pub live: mg_live::LiveConfig,
+    pub live_credential_error: Option<String>,
     pub live_servers: crate::settings::LiveServers,
     pub live_nwnx: String,
     pub live_focus: bool,
@@ -123,9 +124,21 @@ fn path(s: &str) -> Option<PathBuf> {
 
 impl OptionsDraft {
     pub fn from_settings(s: &Settings) -> OptionsDraft {
+        Self::with_live_credentials(s, crate::settings::restore_live_clients)
+    }
+
+    fn with_live_credentials(
+        s: &Settings,
+        restore: impl FnOnce(
+            &mut mg_live::LiveConfig,
+        ) -> Result<(), mg_live_link::credentials::StoreError>,
+    ) -> OptionsDraft {
+        let mut live = s.live.clone();
+        let live_credential_error = restore(&mut live).err().map(|error| error.to_string());
         OptionsDraft {
             page: OptionsPage::default(),
-            live: s.live.clone(),
+            live,
+            live_credential_error,
             live_servers: s.live_servers.clone(),
             live_nwnx: s.live_nwnx.clone(),
             live_focus: !s.no_live_focus,
@@ -567,6 +580,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     // others now).
     let over = ui.rect_contains_pointer(ui.max_rect());
     let valid_clients = crate::live_clients::error(&draft.live).is_none();
+    if !valid_clients && let Some(error) = &draft.live_credential_error {
+        ui.colored_label(ui.visuals().error_fg_color, error);
+    }
     let mut apply = false;
     {
         {
@@ -1449,6 +1465,27 @@ fn keys_file_id() -> egui::Id {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_client_references_are_resolved_before_editing_options() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"live":{"clients":[{"name":"reader"}]}}"#).unwrap();
+        let draft = OptionsDraft::with_live_credentials(&settings, |live| {
+            live.clients[0].token = "r".repeat(32);
+            Ok(())
+        });
+        assert_eq!(draft.live.clients[0].token, "r".repeat(32));
+        assert!(crate::live_clients::error(&draft.live).is_none());
+        assert!(settings.live.clients[0].token.is_empty());
+        let denied = OptionsDraft::with_live_credentials(&settings, |_| {
+            Err(mg_live_link::credentials::StoreError::Denied)
+        });
+        assert_eq!(
+            denied.live_credential_error.as_deref(),
+            Some("OS credential store refused access")
+        );
+        assert!(crate::live_clients::error(&denied.live).is_some());
+    }
 
     #[test]
     fn looks_alone_do_not_reload_the_game() {

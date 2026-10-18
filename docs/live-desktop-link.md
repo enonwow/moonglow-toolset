@@ -6,6 +6,9 @@ tags: [live, gateway, authentication]
 generated: { by: codex, at: 2026-10-18T09:57:30Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
+  - ../crates/mg-live-link/src/login.rs
+  - ../crates/mg-live-link/src/credentials.rs
+  - ../crates/mg-ui/src/options.rs
   - ../crates/mg-ui/src/settings.rs
   - ../crates/mg-ui/src/options_live.rs
   - ../crates/mg-ui/tests/live_connection.rs
@@ -110,6 +113,15 @@ failed because JSON contained the client secret. It covers two separate client
 entries, secret-free JSON, RON references and restoring credentials for runtime
 use with an injected memory backend.
 
+Opening Options resolves named-client references into the editable draft as
+well. This is necessary even while the legacy service is disabled: otherwise
+empty tokens would fail client validation and disable Apply after a restart.
+The original settings remain unchanged until Apply. A storage error is shown
+and leaves incomplete clients invalid. A loader-injected unit regression covers
+successful restoration and denial without accessing the system credential store.
+
+The existing client UI round-trip test now serializes only public configuration;
+the mock-backed migration test owns secret persistence coverage. 
 `LiveServers::resolve` takes `MOONGLOW_GATEWAY_URL` and
 `MOONGLOW_GATEWAY_TOKEN` over saved settings, without persisting either.
 A URL override uses a distinct environment identity and cannot inherit a saved
@@ -207,3 +219,37 @@ list. Background account loading can request an additional frame, so this test
 uses three explicit harness steps instead of requiring repaint quiescence within
 `Harness::run`'s four-step limit. The gate reproduced that limit before the fix;
 the corrected menu regression passes in the 750-test scoped suite.
+
+## M2 desktop verification
+
+With Rust 1.98.0, `CARGO_INCREMENTAL=0` and `NWN_ROOT=/nonexistent`, the final
+scoped gate passes 750 tests, with 19 ignored and no failures:
+
+```sh
+cargo +1.98.0 test -p mg-live-link -p mg-ui --lib --bins --tests -j 2
+cargo +1.98.0 clippy -p mg-live-link -p mg-ui --all-targets -j 2 -- -D warnings
+cargo +1.98.0 clippy -p mg-ui --test screens -j 2 -- -D warnings
+cargo +1.98.0 fmt -p mg-live-link -p mg-ui --check
+cargo +1.98.0 test -p mg-ui --test screens -j 2 live_gateway_options -- --ignored
+```
+
+Both clippy commands and the formatting check pass. The manual screen test
+passes and both output images were inspected: `target/test-output/screens/`
+contains `live-gateway-options.png` and `live-gateway-credential-error.png`.
+The latter shows the denied-store message and disabled OK/Apply controls without
+clipping. Six new M2 regressions cover named-client migration, draft restoration,
+garbage and idle callback probes, the attempt cap and Windows smart-quote paths.
+The three audit reproductions and the draft-restoration test failed before their
+fixes. Existing wrong-state and UI round-trip/menu tests match the new contract.
+
+The first scoped gate exposed the old UI expectation that a client secret
+round-trips through settings. Its generated, namespaced fixture credential was
+removed after checking its exact identity and write time; the revised test
+never writes that credential to the OS store. A second gate exposed the menu's
+repaint-quiescence assumption. Both are resolved in the final gate above.
+
+This verifies local fake-gateway behavior and Windows fallback ACLs. It does not
+claim a deployed Discord login, macOS Keychain, Linux Secret Service or a new
+full-workspace gate. Temporary logs and rejected history-repair metadata are
+summarized in the private task ledger and removed; the two PNGs remain as proof.
+The shared build cache remains in use by other tasks.

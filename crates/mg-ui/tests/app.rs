@@ -8015,9 +8015,17 @@ fn live_clients_draft_validates_rotates_applies_and_cancels() {
     assert!(config.clients[0].groups.contains(&ClientGroup::Npc));
     #[cfg(windows)]
     assert_eq!(config.keep_wsl, Some(false));
-    let restored: mg_ui::Settings =
-        serde_json::from_str(&serde_json::to_string(&h.state().settings).unwrap()).unwrap();
-    assert!(restored.live == *config);
+    // This UI test round-trips public configuration only. Secret migration and
+    // runtime restoration are covered by settings tests with an injected store.
+    let mut public_settings = h.state().settings.clone();
+    public_settings.live.token.clear();
+    for client in &mut public_settings.live.clients {
+        client.token.clear();
+    }
+    let json = serde_json::to_string(&public_settings).unwrap();
+    assert!(!json.contains("\"token\""));
+    let restored: mg_ui::Settings = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.live, public_settings.live);
     h.get_by_label("Remove client").click();
     h.run_steps(2);
     h.get_by_label("Cancel").click();
