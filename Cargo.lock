@@ -3037,11 +3037,17 @@ dependencies = [
 name = "moonglow-mcp"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "mg-gateway",
+ "mg-live",
+ "mg-live-link",
  "rcgen",
  "ring",
  "rustls",
  "serde",
  "serde_json",
+ "tokio",
+ "tower",
 ]
 
 [[package]]
