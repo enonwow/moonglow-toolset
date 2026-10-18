@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
 pub(super) struct Watches {
-    owners: BTreeMap<String, BTreeSet<String>>,
+    pub(super) owners: BTreeMap<String, BTreeSet<String>>,
     pub(super) desired: Option<BTreeSet<String>>,
     managed: BTreeSet<String>,
     pub reported: Option<Vec<String>>,

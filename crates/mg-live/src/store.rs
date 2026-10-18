@@ -2759,7 +2759,7 @@ impl LiveStore {
     pub fn status_scoped(&self, now_ms: u64, scope: &crate::access::Scope) -> Value {
         let mut s = self.lock();
         expire(&mut s, now_ms);
-        json!({
+        let mut status = json!({
             "connected": s.mirror.as_ref().map_or(!s.boot.is_empty(), |m| m.game.connected),
             "redis": s.redis.as_ref().map(|state| crate::bridge::status(state)),
             "boot": s.boot,
@@ -2787,7 +2787,30 @@ impl LiveStore {
             })).collect::<Vec<_>>(),
             "queued": s.queue.iter().filter(|q| scope.unrestricted() || s.owners.get(&q.command.id) == Some(&scope.name)).map(|q| attributed_command(&s,&q.command)).collect::<Vec<_>>(),
             "results": s.results.iter().rev().filter(|(c, _)| scope.unrestricted() || s.owners.get(&c.id) == Some(&scope.name)).map(|(c, r)| json!({"command": attributed_command(&s,c), "result": r})).collect::<Vec<_>>(),
-        })
+        });
+        if let Some(mirror) = &s.mirror {
+            status["queued"] = json!(
+                mirror
+                    .queue
+                    .iter()
+                    .filter(|q| scope.unrestricted()
+                        || s.owners.get(&q.command.id).is_some_and(|owner| owner == scope.name()))
+                    .map(|q| &q.command)
+                    .collect::<Vec<_>>()
+            );
+            status["results"] = json!(
+                mirror
+                    .results
+                    .values()
+                    .filter(|r| scope.unrestricted()
+                        || s.owners.get(&r.id).is_some_and(|owner| owner == scope.name()))
+                    .filter_map(|r| r.result.as_ref().map(
+                        |result| json!({"command":mirror.accepted.get(&r.id),"result":result})
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
+        status
     }
 
     /// An area's report for a client, with its age.

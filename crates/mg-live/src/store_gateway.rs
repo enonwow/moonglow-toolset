@@ -162,6 +162,7 @@ struct Session {
     event_n: u64,
     event_ack: u64,
     outbox: BTreeMap<String, Outbox>,
+    completed: BTreeSet<String>,
     meta: Option<Meta>,
     resume_valid: bool,
     auxiliary: VecDeque<Push>,
@@ -169,6 +170,7 @@ struct Session {
 #[derive(Debug, Default)]
 pub(super) struct GatewayState {
     pub area_revs: BTreeMap<String, u64>,
+    meta: Option<Meta>,
     sessions: BTreeMap<String, Session>,
 }
 pub(super) fn command_binding<'a>(g: &'a GatewayState, id: &str) -> Option<(&'a str, u64)> {
@@ -442,6 +444,7 @@ impl Gateway {
             event_n: 0,
             event_ack: 0,
             outbox: BTreeMap::new(),
+            completed: BTreeSet::new(),
             meta: None,
             resume_valid: true,
             auxiliary: VecDeque::new(),
@@ -481,42 +484,20 @@ impl Gateway {
         self.update_watch(now_ms)
     }
     fn update_watch(&self, now_ms: u64) -> Result<(), String> {
-        let union: BTreeSet<_> = self
-            .store
-            .lock()
-            .gateway
-            .sessions
-            .values()
-            .flat_map(|s| {
-                s.watch
-                    .iter()
-                    .cloned()
-                    .chain(s.focus.iter().map(|(area, _)| area.to_ascii_lowercase()))
-            })
-            .collect();
+        let active = active_watch(&self.store.lock());
         self.store.set_watched_areas_owned(
             "gateway",
-            &union.into_iter().take(MAX_AREAS).collect::<Vec<_>>(),
+            &active.iter().cloned().collect::<Vec<_>>(),
             now_ms,
-        )
+        )?;
+        Ok(())
     }
     pub fn watch_set(&self, id: &str, areas: &[String], now_ms: u64) -> Result<WatchReply, String> {
         let mut s = self.store.lock();
         let session = s.gateway.sessions.get_mut(id).ok_or("Unknown session")?;
         session.watch = validate_watch(areas, session.config.watch_limit)?;
         let desired = session.watch.clone();
-        let union: BTreeSet<_> = s
-            .gateway
-            .sessions
-            .values()
-            .flat_map(|s| {
-                s.watch
-                    .iter()
-                    .cloned()
-                    .chain(s.focus.iter().map(|(area, _)| area.to_ascii_lowercase()))
-            })
-            .collect();
-        let active: BTreeSet<_> = union.into_iter().take(MAX_AREAS).collect();
+        let active = active_watch(&s);
         drop(s);
         self.update_watch(now_ms)?;
         Ok(WatchReply {
@@ -527,6 +508,12 @@ impl Gateway {
     pub fn focus_set(&self, id: &str, objects: Vec<(String, String)>) -> Result<(), String> {
         if objects.len() > 256 {
             return Err("Too many focus objects".into());
+        }
+        validate_watch(&objects.iter().map(|(area, _)| area.clone()).collect::<Vec<_>>(), 256)?;
+        if objects.iter().any(|(_, id)| {
+            id.is_empty() || id.len() > 16 || !id.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
+            return Err("Invalid focus object ID".into());
         }
         let mut s = self.store.lock();
         let session = s.gateway.sessions.get_mut(id).ok_or("Unknown session")?;
@@ -594,15 +581,17 @@ impl Gateway {
             return Err(reject("expired", "Game boot changed"));
         }
         if let Some(old) = s.accepted.get(&command_id) {
-            let parsed: Command = serde_json::from_value(envelope.clone())
+            let mut parsed: Command = serde_json::from_value(envelope.clone())
                 .map_err(|e| reject("invalid", &e.to_string()))?;
+            parsed.area.make_ascii_lowercase();
             if old != &command_fingerprint(&parsed) {
                 return Err(reject("conflict", "ID belongs to another command"));
             }
         }
         let session =
             s.gateway.sessions.get_mut(id).ok_or_else(|| reject("invalid", "Unknown session"))?;
-        let inserted = !session.outbox.contains_key(&command_id);
+        let inserted =
+            !session.outbox.contains_key(&command_id) && !session.completed.contains(&command_id);
         if inserted {
             if session.outbox.len() >= RESULT_CAPACITY {
                 return Err(reject("rate_limited", "Result outbox is full; acknowledge results"));
@@ -677,13 +666,18 @@ impl Gateway {
                 out.acked = *rev;
             }
         }
-        session
-            .outbox
-            .retain(|_, o| !(o.acked == o.row.rev && o.row.state != ResultState::Pending));
+        session.outbox.retain(|id, o| {
+            let complete = o.acked == o.row.rev && o.row.state != ResultState::Pending;
+            if complete {
+                session.completed.insert(id.clone());
+            }
+            !complete
+        });
         Ok(())
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
         self.store.expire(now_ms);
+        self.update_watch(now_ms)?;
         let mut s = self.store.lock();
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;
         let mut out = Vec::new();
@@ -696,7 +690,7 @@ impl Gateway {
         }
         let mut meta = Meta {
             boot: s.boot.clone(),
-            rev: session.meta.as_ref().map_or(1, |m| m.rev),
+            rev: s.gateway.meta.as_ref().map_or(0, |m| m.rev),
             factions: s.factions.clone(),
             watched: Watched {
                 desired: s.watch.desired.clone().unwrap_or_default().into_iter().collect(),
@@ -709,8 +703,11 @@ impl Gateway {
             },
             redis: s.redis.as_ref().map(|r| crate::bridge::status(r)).unwrap_or(Value::Null),
         };
-        if session.meta.as_ref() != Some(&meta) {
+        if s.gateway.meta.as_ref() != Some(&meta) {
             meta.rev += 1;
+            s.gateway.meta = Some(meta.clone());
+        }
+        if session.meta.as_ref() != Some(&meta) {
             session.meta = Some(meta.clone());
             out.push(Push::Meta(meta));
         }
@@ -755,6 +752,7 @@ impl Gateway {
         session.outbox.retain(|_, item| {
             if now_ms.saturating_sub(item.created_ms) >= RESULT_RETENTION_MS {
                 session.resume_valid = false;
+                session.completed.insert(item.row.id.clone());
                 if item.row.state != ResultState::Final {
                     let mut row = item.row.clone();
                     row.rev += 1;
@@ -791,6 +789,41 @@ impl Gateway {
         s.gateway.sessions.insert(id.into(), session);
         Ok(out)
     }
+}
+fn active_watch(s: &State) -> BTreeSet<String> {
+    let wanted: BTreeSet<_> = s
+        .gateway
+        .sessions
+        .values()
+        .flat_map(|session| {
+            session
+                .watch
+                .iter()
+                .cloned()
+                .chain(session.focus.iter().map(|(area, _)| area.to_ascii_lowercase()))
+        })
+        .collect();
+    let mut reserved: BTreeSet<_> = s
+        .areas
+        .iter()
+        .filter(|(_, a)| a.creatures.iter().any(|o| o.pc))
+        .map(|(name, _)| name.clone())
+        .collect();
+    reserved.extend(
+        s.watch
+            .owners
+            .iter()
+            .filter(|(owner, _)| owner.as_str() != "gateway")
+            .flat_map(|(_, areas)| areas.iter().cloned()),
+    );
+    let mut active = BTreeSet::new();
+    for area in wanted {
+        if reserved.contains(&area) || reserved.len() < MAX_AREAS {
+            reserved.insert(area.clone());
+            active.insert(area);
+        }
+    }
+    active
 }
 fn validate_watch(areas: &[String], limit: usize) -> Result<BTreeSet<String>, String> {
     if areas.len() > limit

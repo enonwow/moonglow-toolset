@@ -45,3 +45,6 @@ required-features = ["build"]
 [[test]]
 name = "private_fixture"
 required-features = ["build"]
+
+[dev-dependencies]
+proptest.workspace = true

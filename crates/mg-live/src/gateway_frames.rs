@@ -100,10 +100,15 @@ pub struct Response {
 struct RawResponse {
     id: u32,
     ok: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present_json")]
     r: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     err: Option<FrameError>,
+}
+fn present_json<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }
 impl TryFrom<RawResponse> for Response {
     type Error = String;

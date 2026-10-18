@@ -4,7 +4,7 @@ title: Live library for headless consumers
 description: Dependency boundary and public API contracts for embedding the Live store.
 tags: [live, library, gateway]
 generated: { by: codex, at: 2026-10-18T12:00:00Z }
-sources: [../crates/mg-live/src/lib.rs, ../crates/mg-core/src/object_kind.rs]
+sources: [../crates/mg-live/src/lib.rs, ../crates/mg-core/src/object_kind.rs, ../crates/mg-live/src/store_mirror.rs, ../crates/mg-live/src/store_gateway.rs, ../crates/mg-live/src/gateway_frames.rs, ../crates/mg-live/tests/mirror_differential.rs]
 ---
 
 # Live library for headless consumers
@@ -172,3 +172,45 @@ requests. The frame limit exception applies only to `req` with `op=book.put`.
 Run `cargo +1.98.0 test -p mg-live --test gateway_frames -j 2` for all 18 golden
 frame examples, every truncated prefix, malformed/deep/oversized input and
 connection accounting.
+
+## Differential replication proof
+
+`mirror_differential` sends each authoritative push through the JSON frame
+encoder/decoder before applying it to a passive mirror. It compares `area`,
+`find`, `locate`, `events`, `result` and the shared GIT `reconcile` helper.
+Proptest 1.11 uses ChaCha seeds 7, 19, 43 and 91 (each repeated to 32 bytes),
+48 cases per seed, with 1..63 actions: full/delta reports, stale frames, gaps,
+link drops/resume, game boot changes, gateway epoch changes and command results.
+`fixtures/mirror-reports.json` records deterministic report shapes from the
+existing store and `sync_tapped` regressions, including recovery and restart;
+it is a public test corpus, not a native-server recording. No native server
+or external data is required for these P1 checks.
+
+Additional regressions exercise event-retention gaps, results arriving during
+a link drop, arbitrary decoder bytes, explicit-null replies, scoped mirror
+status and malformed focus requests. Shared meta revisions are identical for
+sessions at the same snapshot; an acknowledged terminal command retry does
+not recreate its outbox. Overlapping watch owners retain their own capacity.
+Other regressions keep command result revisions independent of the UI
+revision across boot reset, and reserve the shared 64-area capacity for PCs
+and other watch owners before admitting gateway watches. Pending gateway
+results can resolve a local reset's unknown outcome; local reset does not
+invent a higher gateway result revision. Mirror status exposes the same
+queued/result envelopes used by its read APIs, respecting local scopes.
+
+Run `cargo +1.98.0 test -p mg-live --test mirror_differential -j 2`. Use Rust
+1.98.0, `CARGO_INCREMENTAL=0`, a nonexistent `NWN_ROOT`, at most two jobs and
+one workspace test runner at a time (shared UI fixtures are not concurrent).
+Final gates are `cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib
+--bins --tests -j 2`, `cargo +1.98.0 clippy --workspace --all-targets -j 2 --
+-D warnings`, and `cargo +1.98.0 fmt --check`. Source and golden fixtures are
+the retained reproduction artifacts; temporary gate output is local only.
+
+The host must initialize the authoritative store's durable command identity
+storage through the existing service before production use. The in-process
+core's tests use memory-only stores; they do not prove persistence across a
+new process, network authentication, WebSocket behavior or GUI acceptance.
+
+P1 adds 27 passing unit/store regressions across schema, mirror, gateway,
+frames and differential suites (including 192 fixed-seed report scenarios).
+These checks establish the library contract, not owner or native-game acceptance.

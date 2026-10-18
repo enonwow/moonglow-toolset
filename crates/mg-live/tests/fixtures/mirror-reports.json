@@ -1,0 +1,196 @@
+[
+  {
+    "v": 1,
+    "boot": "boot",
+    "seq": 1,
+    "areas": [
+      {
+        "area": "square",
+        "full": true,
+        "cre": [
+          {
+            "id": "a1",
+            "r": "guard",
+            "name": "Guard",
+            "x": 1,
+            "hp": [
+              5,
+              9
+            ]
+          }
+        ],
+        "plc": [
+          {
+            "id": "a2",
+            "r": "barrel",
+            "x": 10,
+            "y": 10.05,
+            "open": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "v": 1,
+    "boot": "boot",
+    "seq": 2,
+    "areas": [
+      {
+        "area": "square",
+        "full": false,
+        "cre": [
+          {
+            "id": "a1",
+            "r": "guard",
+            "name": "Guard",
+            "x": 2,
+            "hp": [
+              5,
+              9
+            ]
+          }
+        ],
+        "plc": [
+          {
+            "id": "a2",
+            "r": "barrel",
+            "x": 10,
+            "y": 10.05,
+            "open": false
+          }
+        ]
+      }
+    ],
+    "base_seq": 1
+  },
+  {
+    "v": 1,
+    "boot": "boot",
+    "seq": 4,
+    "areas": [
+      {
+        "area": "square",
+        "full": false,
+        "cre": [
+          {
+            "id": "a1",
+            "r": "guard",
+            "name": "Guard",
+            "x": 4,
+            "hp": [
+              5,
+              9
+            ]
+          }
+        ],
+        "plc": [
+          {
+            "id": "a2",
+            "r": "barrel",
+            "x": 10,
+            "y": 10.05,
+            "open": false
+          }
+        ]
+      }
+    ],
+    "base_seq": 2
+  },
+  {
+    "v": 1,
+    "boot": "boot",
+    "seq": 5,
+    "areas": [
+      {
+        "area": "square",
+        "full": true,
+        "cre": [
+          {
+            "id": "a1",
+            "r": "guard",
+            "name": "Guard",
+            "x": 5,
+            "hp": [
+              5,
+              9
+            ]
+          }
+        ],
+        "plc": [
+          {
+            "id": "a2",
+            "r": "barrel",
+            "x": 10,
+            "y": 10.05,
+            "open": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "v": 1,
+    "boot": "boot",
+    "seq": 4,
+    "areas": [
+      {
+        "area": "square",
+        "full": true,
+        "cre": [
+          {
+            "id": "a1",
+            "r": "guard",
+            "name": "Guard",
+            "x": 4,
+            "hp": [
+              5,
+              9
+            ]
+          }
+        ],
+        "plc": [
+          {
+            "id": "a2",
+            "r": "barrel",
+            "x": 10,
+            "y": 10.05,
+            "open": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "v": 1,
+    "boot": "new",
+    "seq": 1,
+    "areas": [
+      {
+        "area": "square",
+        "full": true,
+        "cre": [
+          {
+            "id": "a1",
+            "r": "guard",
+            "name": "Guard",
+            "x": 1,
+            "hp": [
+              5,
+              9
+            ]
+          }
+        ],
+        "plc": [
+          {
+            "id": "a2",
+            "r": "barrel",
+            "x": 10,
+            "y": 10.05,
+            "open": false
+          }
+        ]
+      }
+    ]
+  }
+]

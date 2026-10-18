@@ -50,8 +50,8 @@ pub struct MirrorCommand {
 pub(super) struct Mirror {
     pub revision: u64,
     pub queue: VecDeque<MirrorCommand>,
-    results: BTreeMap<String, MirroredResult>,
-    accepted: HashMap<String, Command>,
+    pub(super) results: BTreeMap<String, MirroredResult>,
+    pub(super) accepted: HashMap<String, Command>,
     prefix: String,
     watched: Watched,
     pub game: GameStatus,
@@ -94,7 +94,7 @@ pub(super) fn enqueue(
     s: &mut State,
     mut command: Command,
     now_ms: u64,
-    _scope: &crate::access::Scope,
+    scope: &crate::access::Scope,
 ) -> Result<String, CommandError> {
     if let Some(error) = policy_error(s.policy, &command.op) {
         return Err(CommandError::new(ErrorCode::Disabled, error));
@@ -131,6 +131,7 @@ pub(super) fn enqueue(
     }
     let id = command.id.clone();
     mirror.accepted.insert(id.clone(), command.clone());
+    s.owners.insert(id.clone(), scope.name().into());
     mirror.queue.push_back(MirrorCommand {
         command,
         boot: s.boot.clone(),
@@ -258,7 +259,11 @@ impl LiveStore {
                 .map(|r| r.id.clone()),
         );
         for id in ids {
+            let gateway_rev = mirror.results.get(&id).map_or(0, |r| r.rev);
             mirror.reject(&id, ErrorCode::Unknown, &format!("unknown: {reason}"));
+            // Local reset does not invent a gateway revision. A later boot-bound
+            // terminal result must still be able to resolve this unknown outcome.
+            mirror.results.get_mut(&id).unwrap().rev = gateway_rev;
         }
         mirror.revision += 1;
         mirror.watched = Watched::default();
