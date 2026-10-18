@@ -3596,3 +3596,19 @@ for each affected DM/AI owner identity. This hook cancels accepted queue entries
 not pending approval drafts or authentication sessions. The store regression
 `owner_revocation_serializes_with_publish_handoff` races both operations 64 times
 and also verifies deterministic unsent refusal and repeated revocation.
+
+## Draft approval IDs across history rotation
+
+An approval has its own timestamped transport ID, generated with the shared
+`command_counter` clock and a random draft component. The proposal keeps its
+original ID and its `Sending` link to that transport command; completion still
+resolves the proposal. Approval time is clamped to the history clock so a wall
+clock rollback cannot produce an already-expired transport ID. Legacy IDs remain
+closed after horizon rotation; approving a draft does not reopen them.
+
+`approval_after_history_rotation_uses_timed_id_and_preserves_draft_link` first
+failed with `Expired` using the old `draft-...` format. It rotates the history,
+approves a current proposal, checks the native ID timestamp and result link, and
+verifies replay of the old legacy ID is refused. Run it with
+`cargo +1.98.0 test -p mg-live --lib approval_after_history_rotation -j 2`,
+`NWN_ROOT=/nonexistent`, and `CARGO_INCREMENTAL=0`.

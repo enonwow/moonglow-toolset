@@ -308,7 +308,9 @@ impl LiveStore {
             set_text(&mut draft.command.op, text);
             draft.command.validate()?;
             let mut native = draft.command.clone();
-            native.id = format!("draft-{}", &crate::service::generate_token()?[..32]);
+            let counter = crate::command_counter(now_ms.max(s.history.boundary.clock), 0)
+                .ok_or("Command clock exceeds ID range")?;
+            native.id = format!("draft.{}.{counter}", &crate::service::generate_token()?[..32]);
             // Install the link before enqueue can wake the publisher.
             s.assistant.drafts.remove(id);
             s.assistant.sending.insert(native.id.clone(), Sending { draft, edited, access });

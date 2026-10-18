@@ -59,6 +59,38 @@ fn speech_drafts_are_not_published_and_rejections_are_scoped_results() {
     );
 }
 #[test]
+fn approval_after_history_rotation_uses_timed_id_and_preserves_draft_link() {
+    let (store, access) = fixture();
+    let scope = access.scope_named("Storyteller").unwrap();
+    store.enqueue_scoped(say("old-proposal"), 200, &scope).unwrap();
+    store.decide_draft("old-proposal", None, 201).unwrap();
+    let now = crate::command_history::HORIZON_MS + 1000;
+    store.expire(now);
+    store
+        .sync(br#"{"v":1,"boot":"one","seq":2,"areas":[{"area":"room","cre":[{"id":"1"}]}]}"#, now)
+        .unwrap();
+    let id = format!("proposal.{}", crate::command_counter(now, 0).unwrap());
+    store.enqueue_scoped(say(&id), now, &scope).unwrap();
+    assert!(store.lock().history.boundary.legacy_closed);
+    let native = store.decide_draft(&id, Some("Approved"), now + 1).unwrap();
+    assert_eq!(crate::command_issued_ms(&native), Some(now + 1));
+    store
+        .sync(
+            json!({"v":1,"boot":"one","seq":3,"results":[{"id":native,"ok":true}]})
+                .to_string()
+                .as_bytes(),
+            now + 2,
+        )
+        .unwrap();
+    let result = store.result(&id).unwrap();
+    assert!(result.ok && !result.pending);
+    assert_eq!(
+        store.enqueue_scoped(say("old-proposal"), now + 3, &scope).unwrap_err().code,
+        ErrorCode::Expired
+    );
+}
+
+#[test]
 fn approval_edits_once_and_retains_the_agent_result_identity() {
     let (store, access) = fixture();
     let scope = access.scope_named("Storyteller").unwrap();

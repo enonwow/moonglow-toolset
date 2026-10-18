@@ -1,5 +1,7 @@
 # Update log
 
+* **Draft IDs after rotation (2026-10-18)**: approvals retain proposal/result links and use timestamped transport IDs; old legacy IDs remain expired. [Regression](live-ops-wire.md#draft-approval-ids-across-history-rotation).
+
 * **Revocation before Redis handoff (2026-10-18)**: report processing and closed publication gates no longer mark commands sent; final batch selection and transport handoff share the acceptance lock. [Regression and contract](live-ops-wire.md#transport-handoff-after-reconnect).
 
 * **Desktop resource final verification (2026-10-18)**: exact workspace gate passes 1831 tests with 24 ignored; all-target and manual UI Clippy and formatting pass. Final TLS/UI captures inspected, and the local-layout regression is closed. [Results and limits](live-desktop-link.md#p7-final-verification).
