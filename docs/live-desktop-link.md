@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Live desktop connection and authentication
-description: Desktop authentication, gateway transport, shared books, AI management and verified resource downloads.
+description: Desktop authentication, validated gateway transport and AI replies, shared books, AI management and verified resource downloads.
 tags: [live, gateway, authentication]
 generated: { by: codex, at: 2026-10-18T16:01:49Z }
 sources:
@@ -860,3 +860,46 @@ cargo +1.98.0 test -p mg-live-link --lib -j 2 restart_
 ```
 
 Use `NWN_ROOT=/nonexistent` and `CARGO_INCREMENTAL=0` as in the resource workflow.
+
+### Validated AI replies (L1)
+
+The AI window decodes `AiCreateResponse` and a typed list before updating state.
+It accepts the current direct-array list and the legacy `{items: [...]}` envelope,
+with `llm` and legacy `llm_allowed` boolean fields. Displayed identities and names,
+list size, duplicate ids, and the bounded one-time credential are validated.
+Malformed replies show a fixed error without reflecting remote text or credentials.
+An invalid list leaves the previous complete list intact; an invalid create keeps
+the draft name and waits for an explicit retry. No raw JSON mutation is used.
+
+Before the fix, the numeric create reply panicked on mutable token indexing and
+the malformed-list regression failed because no error was shown. Unit tests also
+cover valid replies, atomic refresh, malformed identities/tokens and both list
+formats. The creation DTO deliberately has neither Debug nor Serialize.
+The existing UI create/update/revoke test also accepts either list envelope in
+its final independent revoke check; its legacy-only assertion failed against the
+updated dev host after the UI flow had completed.
+
+```text
+cargo +1.98.0 test -p mg-ui --lib -j 2 live_ai::tests
+```
+
+### Verification scope and remaining GUI work
+
+M2 has two passing unit regressions; L1 has five. The failing pre-fix runs
+reproduced the reconnect error, numeric JSON panic and silently accepted invalid
+list. No game server or engine is needed for these state and parser regressions.
+
+The exact workspace test gate stops at
+`api::tests::real_tls_status_command_and_stop`: the sandbox's system curl cannot
+acquire Schannel credentials (`SEC_E_NO_CREDENTIALS`). Before aborting, 465 tests
+passed, one failed and four were ignored. This is a failed exact gate, not a
+passing engine or TLS proof. Run the same exact workspace test command outside
+that sandbox to verify the system curl path; changing the Rust client TLS policy
+is not a fix for this environment failure.
+
+Per-AI LLM controls and avatar previews remain deferred: the required backend
+implementation was not committed when the audit fixes were ready. Existing
+controls and layout are preserved, and no new PNGs were generated for this
+parser/state-only correction. When wiring the controls, an explicit-id
+`llm.allow` reply must not overwrite the legacy all-owned consent snapshot;
+validate the response and refresh the matching AI row instead.

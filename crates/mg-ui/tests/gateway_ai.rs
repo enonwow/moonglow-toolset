@@ -68,6 +68,7 @@ async fn ai_token_is_shown_once_update_and_revoke_round_trip() {
         LinkService::start(host.config(), &support::host::tokens(), Arc::new(|| {})).unwrap();
     until(|| reader.is_connected()).await;
     let list = reply_async(reader.ai_list().unwrap()).await.unwrap();
-    assert!(list["items"].as_array().unwrap().is_empty());
+    let items = list.get("items").unwrap_or(&list).as_array().expect("AI list response");
+    assert!(items.is_empty());
     assert!(h.state().log.entries.iter().all(|(_, s)| !s.contains("mgai_")));
 }
