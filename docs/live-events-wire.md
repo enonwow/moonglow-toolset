@@ -5,6 +5,9 @@ description: Game-side event wire contract, tested private-server transport, exa
 tags: [live, events, nwnx, vfx, protocol]
 generated: { by: codex/astra2, at: 2026-10-14T00:00:00Z }
 sources:
+  - ../crates/mg-live/src/assistant.rs
+  - ../crates/mg-live/src/assistant_tests.rs
+  - ../crates/mg-live/src/store.rs
   - https://nwnxee.github.io/unified/nwnx__events_8nss.html
   - https://github.com/nwnxee/unified/blob/3f504d0f1463e49d405639bd3d454ae7416b1a98/Plugins/Events/Events/EffectEvents.cpp
 ---
@@ -1166,3 +1169,40 @@ server's `MGLIVE_WATCHED` areas, including on deltas and empty-area reports.
 `live_status` preserves this optional field (`null` for older scripts).
 Player-occupied areas and explicit launcher extras can report without being in
 this list. See [area subscription control](live-ops-wire.md#area-subscriptions-2026-10-16).
+
+## Action metadata for draft and completion events
+
+Both a pending assistant proposal and a store command result now enter the event
+log through `EventLog::command_action`. This retains the command's operation,
+area and target object when the result itself has no object. Empty native `obj`
+strings are normalized to null only in the event payload, allowing the existing
+metadata helper to fall back to the command target; API results are unchanged.
+The shared action
+log can describe the action using its existing projection; it does not receive
+an entire command payload. Uncorrelated native results still use the plain result
+path because the store has no command to describe.
+
+Regression: `cargo +1.98.0 test -p mg-live draft_and_completion_events_describe_the_action -j 2`.
+It checks operation, target and area for both pending and rejected draft events,
+covering the assistant entry point and the common `push_result` completion path.
+The test failed with a missing operation before these two calls were connected.
+Use `NWN_ROOT=/nonexistent` and `CARGO_INCREMENTAL=0`.
+
+Follow-up verification on the shared tree based on `05d5be9`: the regression
+passed after both call sites and empty-object normalization were connected.
+The exact workspace gate was run with Rust 1.98.0 and the environment above:
+
+```sh
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+Clippy and format passed. Tests reached **466 passed, one failed, four ignored**
+(in `mg-live`: 239 passed, one failed, four ignored). The only failure was
+`api::tests::real_tls_status_command_and_stop`: Windows curl/Schannel returned
+`SEC_E_NO_CREDENTIALS` in the sandbox. Later workspace binaries were not executed;
+repeat the full test command outside that restriction. No TLS test was weakened.
+The three reported redundant mutable batch references were already absent on
+HEAD; `store_ops_tests.rs` needed no change. This Rust gate does not replace the
+[compiled budget probe's native WSL run](live-translations.md#compiled-instruction-budget-measurement).

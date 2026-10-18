@@ -252,3 +252,24 @@ fn every_draft_wakes_ui_even_when_client_and_operation_do_not_change() {
     assert_eq!(store.drafts().len(), 2);
     assert!(store.commands(crate::now_ms())["commands"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn draft_and_completion_events_describe_the_action() {
+    let (store, access) = fixture();
+    let scope = access.scope_named("Storyteller").unwrap();
+    store.enqueue_scoped(say("action-proposal"), 200, &scope).unwrap();
+    for pending in [true, false] {
+        if !pending {
+            store.decide_draft("action-proposal", None, 201).unwrap();
+        }
+        let events = store.events(&crate::events::Query::default()).0;
+        let event = events.iter().rev().find(|e| e.data["id"] == "action-proposal").unwrap();
+        assert_eq!(event.data["op"], "npc_say", "action metadata for pending={pending}");
+        assert_eq!(event.id.as_deref(), Some("1"));
+        assert_eq!(event.area, "room");
+        assert!(
+            store.result("action-proposal").unwrap().obj.is_empty(),
+            "API result stays unchanged"
+        );
+    }
+}

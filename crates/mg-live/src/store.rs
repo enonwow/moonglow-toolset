@@ -281,6 +281,18 @@ pub struct CommandResult {
     pub object_json: Option<Value>,
 }
 
+impl CommandResult {
+    /// Event-only normalization: an empty native object is absent, so the action
+    /// log can fall back to the command target. Keep the API result unchanged.
+    fn event_value(&self) -> Value {
+        let mut value = serde_json::to_value(self).unwrap_or_default();
+        if self.obj.is_empty() {
+            value["obj"] = Value::Null;
+        }
+        value
+    }
+}
+
 fn present_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
     Value::deserialize(d).map(Some)
 }
@@ -3475,8 +3487,8 @@ fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
         );
     }
     gateway::record_result(&mut s.gateway, &result);
-    let answer = serde_json::to_value(&result).unwrap_or_default();
-    s.events.command(&command.area, &answer, crate::now_ms());
+    let answer = result.event_value();
+    s.events.command_action(&command, &answer, crate::now_ms());
     s.results.retain(|(_, old)| old.id != result.id);
     s.results.push_back((command, result));
     while s.results.len() > MAX_RESULTS {

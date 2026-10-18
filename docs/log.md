@@ -840,3 +840,5 @@
 - 2026-10-18: Limit shared gateway logs to action metadata, apply host quotas to both transports and approvals, bound active downloads and AI retention; add per-AI consent/avatar wire and post-unlock host callbacks. [Audited contract](live-gateway-protocol.md#audited-gateway-boundaries-and-identity-wire).
 
 * **Compiled budget probe (2026-10-18)**: measure NWNX counters in a compiled fixture, reject missing/stale samples, and pin the WSL shell helper to LF. [Cause, regression and native rerun](live-translations.md#compiled-instruction-budget-measurement).
+
+* **Describe command actions (2026-10-18)**: draft and completion event producers supply operation and target metadata to the shared action log. [Contract and regression](live-events-wire.md#action-metadata-for-draft-and-completion-events).

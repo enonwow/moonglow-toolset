@@ -148,7 +148,7 @@ pub(super) fn stage(
     };
     let result =
         answer(&draft, "pending", true, true, "Waiting for the DM to Send, Edit or Reject");
-    s.events.command(&command.area, &serde_json::to_value(result).unwrap_or_default(), now_ms);
+    s.events.command_action(command, &result.event_value(), now_ms);
     s.assistant.drafts.insert(command.id.clone(), draft);
     s.assistant.revision += 1;
     Ok(true)
