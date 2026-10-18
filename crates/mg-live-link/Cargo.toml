@@ -1,0 +1,26 @@
+[package]
+name = "mg-live-link"
+description = "Desktop authentication and credentials for Live gateways"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+getrandom = "0.3"
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+url = "2.5"
+webpki-roots = "1"
+
+[dev-dependencies]
+rcgen.workspace = true
+
+[lints]
+workspace = true

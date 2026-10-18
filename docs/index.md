@@ -27,6 +27,8 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Reference
 
+* [Live desktop authentication and connection settings](live-desktop-link.md) - Desktop PKCE, TLS trust, per-server credentials and UI verification.
+
 * [Running a live campaign with an LLM](live-campaign.md) - Checked MCP/shell operation inputs for narration, player Roll prompts, encounters, movement, rewards, effects and animations; session freshness, waits and human approval; explicit scene-API gaps.
 
 * [Hexxar Live windows: effects, library, skills and inventory](live-windows.md) - Atmosphere area tabs, world palette aiming (encounter-removal limitation), saved macro hotkeys, private object notes/search and conversation-client attribution. Saved GM/NPC cards, per-player NPC memory and DM review of named-client speech in Chat/Focus, with scoped pending/outcome results and current-permission checks. VFX browser, appearance confirmation and original-row restore, NPC library, player skill checks and live inventory paperdoll/backpack with automatic loading, item context menus, searchable module/standard Give Item picker, native item icons and confirmed mutations, interactive player Roll prompts with DM bonus, partial results and timeouts, runtime freshness guards, menu handoff, fake-store tests and inspected pictures. Fourth-acceptance menu structure, Scenes workflow, kind colours and per-window polish/capture checks are recorded here too. Sixth acceptance removes VFX colour and Live Shaders; native effect transforms remain.
