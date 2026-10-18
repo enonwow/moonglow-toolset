@@ -73,6 +73,32 @@ fn text(v: &Value) -> Option<String> {
 }
 
 impl EventLog {
+    /// Import finished gateway events without deriving or renumbering anything.
+    pub(crate) fn mirror_batch(&mut self, rows: Vec<Event>, through: u64) -> Result<(), String> {
+        if rows.windows(2).any(|pair| pair[0].n >= pair[1].n)
+            || rows.iter().any(|row| row.n == 0 || row.n > through)
+        {
+            return Err("Invalid mirror event cursor order".into());
+        }
+        for row in rows.into_iter().filter(|row| row.n > self.next) {
+            let ring = self.areas.entry(row.area.clone()).or_default();
+            if ring.len() >= PER_AREA
+                && let Some(old) = ring.pop_front()
+            {
+                self.evicted.insert(row.area.clone(), old.n);
+            }
+            ring.push_back(row);
+        }
+        self.next = self.next.max(through);
+        self.changed.notify_all();
+        Ok(())
+    }
+    pub(crate) fn mirror_clear(&mut self) {
+        let changed = self.changed.clone();
+        *self = Self { changed, ..Self::default() };
+        self.changed.notify_all();
+    }
+
     pub(crate) fn transport_notice(&mut self, kind: &str, line: &str, lost: u64, now_ms: u64) {
         self.push(Event {
             n: 0,

@@ -21,6 +21,8 @@ pub(crate) mod event_store;
 #[cfg(test)]
 #[path = "measure.rs"]
 mod measurement;
+#[path = "store_mirror.rs"]
+pub mod mirror;
 #[path = "store_report.rs"]
 mod report;
 #[path = "store_watch.rs"]
@@ -1739,6 +1741,7 @@ struct Queued {
 
 #[derive(Debug, Default)]
 struct State {
+    mirror: Option<mirror::Mirror>,
     assistant: assistant::AssistantState,
     command_ids: Option<crate::command_ids::Journal>,
     command_ids_required: bool,
@@ -1817,6 +1820,9 @@ impl LiveStore {
         server: &str,
     ) -> Result<(), String> {
         let mut s = self.lock();
+        if s.mirror.is_some() {
+            return Err("Mirrors do not journal command IDs".into());
+        }
         let root = crate::command_ids::Journal::path(data, server);
         if s.command_ids.as_ref().is_some_and(|j| j.is_at(&root)) {
             return Ok(());
@@ -1844,6 +1850,9 @@ impl LiveStore {
     /// Reusing a store for another endpoint must not reuse its validated objects.
     pub(crate) fn bind_server(&self, config: &crate::bridge::RedisConfig) {
         let mut s = self.lock();
+        if s.mirror.is_some() {
+            return;
+        }
         if s.server.as_ref() == Some(config) {
             return;
         }
@@ -1879,6 +1888,10 @@ impl LiveStore {
     pub fn set_policy(&self, policy: Policy) {
         let mut s = self.lock();
         s.policy = policy;
+        if let Some(mirror) = &mut s.mirror {
+            mirror.revision += 1;
+            return;
+        }
         let mut i = 0;
         while i < s.queue.len() {
             if let Some(error) = policy_error(policy, &s.queue[i].command.op) {
@@ -1933,6 +1946,9 @@ impl LiveStore {
 
     /// A message of the server log's channel.
     pub fn server_log(&self, message: &Value, now_ms: u64) {
+        if self.is_mirror() {
+            return;
+        }
         let mut message = message.clone();
         crate::wire_text::server_log(&mut message);
         self.lock().events.server_log(&message, now_ms);
@@ -1946,6 +1962,9 @@ impl LiveStore {
     pub fn commands(&self, now_ms: u64) -> Value {
         let mut s = self.lock();
         expire(&mut s, now_ms);
+        if let Some(mirror) = &s.mirror {
+            return json!({"commands": mirror.queue});
+        }
         game_commands(&s)
     }
 
@@ -1958,6 +1977,9 @@ impl LiveStore {
     /// Applies the game's report and exposes the exact state-acceptance decision.
     /// Parsing, receipts, events, queue processing and reply semantics match [`Self::sync`].
     pub fn sync_tapped(&self, body: &[u8], now_ms: u64) -> Result<Synced, String> {
+        if self.is_mirror() {
+            return Err("A mirror cannot ingest game reports".into());
+        }
         let request = SyncRequest::parse(body)?;
         let mut s = self.lock();
         let boot_changed = s.boot != request.boot;
@@ -2134,6 +2156,9 @@ impl LiveStore {
         }
         let mut s = self.lock();
         expire(&mut s, now_ms);
+        if s.mirror.is_some() {
+            return mirror::enqueue(&mut s, command, now_ms, scope);
+        }
         if s.command_ids_required && s.command_ids.is_none() {
             return Err(CommandError::new(
                 ErrorCode::Disabled,
@@ -2580,6 +2605,9 @@ impl LiveStore {
 
     pub fn result(&self, id: &str) -> Option<CommandResult> {
         let s = self.lock();
+        if let Some(mirror) = &s.mirror {
+            return mirror.result(id);
+        }
         s.results
             .iter()
             .find(|(_, r)| r.id == id)
@@ -2603,7 +2631,7 @@ impl LiveStore {
     /// callers that previously relied on `status` for expiry still call `expire`.
     pub fn revision(&self) -> (String, u64) {
         let state = self.lock();
-        (state.boot.clone(), state.seq)
+        (state.boot.clone(), state.mirror.as_ref().map_or(state.seq, |m| m.revision))
     }
 
     /// Latest event revision, including log lines received between game reports.
@@ -2632,7 +2660,15 @@ impl LiveStore {
 
     /// Ids of objects that queued commands act on.
     pub fn pending_targets(&self) -> Vec<String> {
-        self.lock().queue.iter().filter_map(|q| q.command.target().map(str::to_owned)).collect()
+        let s = self.lock();
+        if let Some(mirror) = &s.mirror {
+            return mirror
+                .queue
+                .iter()
+                .filter_map(|q| q.command.target().map(str::to_owned))
+                .collect();
+        }
+        s.queue.iter().filter_map(|q| q.command.target().map(str::to_owned)).collect()
     }
 
     pub fn status(&self, now_ms: u64) -> Value {
@@ -2643,7 +2679,7 @@ impl LiveStore {
         let mut s = self.lock();
         expire(&mut s, now_ms);
         json!({
-            "connected": !s.boot.is_empty(),
+            "connected": s.mirror.as_ref().map_or(!s.boot.is_empty(), |m| m.game.connected),
             "redis": s.redis.as_ref().map(|state| crate::bridge::status(state)),
             "boot": s.boot,
             "seq": s.seq,
@@ -2653,7 +2689,7 @@ impl LiveStore {
             "watch_error": s.watch.error,
             "resyncPending": s.resync.is_some(),
             "resyncs": s.resyncs,
-            "ageMs": (!s.boot.is_empty()).then(|| now_ms.saturating_sub(s.received_ms)),
+            "ageMs": s.mirror.as_ref().map(|m| m.game.age_ms).or_else(|| (!s.boot.is_empty()).then(|| now_ms.saturating_sub(s.received_ms))),
             "areas": s.areas.iter().map(|(name, a)| json!({
                 "area": name,
                 "ageMs": now_ms.saturating_sub(a.received_ms),
@@ -2773,6 +2809,10 @@ fn receive_results(
 }
 
 fn expire(s: &mut State, now_ms: u64) {
+    if let Some(mirror) = &mut s.mirror {
+        mirror.expire(now_ms);
+        return;
+    }
     let timed_out: Vec<_> = s
         .skill_waiting
         .iter()

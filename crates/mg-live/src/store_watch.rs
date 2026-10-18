@@ -45,6 +45,9 @@ impl LiveStore {
     /// Union of the areas currently used by local views. Empty releases our watches.
     /// May be called before the first report. No area row or player consent is needed.
     pub fn set_watched_areas(&self, areas: &[String], now_ms: u64) -> Result<(), String> {
+        if self.is_mirror() {
+            return Err("Use gateway watch.set for a mirror".into());
+        }
         if !areas.is_empty() {
             validate(areas)?;
         }

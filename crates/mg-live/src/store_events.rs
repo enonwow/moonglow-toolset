@@ -70,6 +70,9 @@ impl LiveStore {
         entry: &crate::bridge::event_stream::Entry,
         now_ms: u64,
     ) -> Result<(), String> {
+        if self.is_mirror() {
+            return Err("A mirror cannot ingest game events".into());
+        }
         if entry.lost_before > 0 {
             self.stream_overflow(entry.lost_before, now_ms);
         }
@@ -100,6 +103,9 @@ impl LiveStore {
     }
 
     pub(crate) fn stream_overflow(&self, lost: u64, now_ms: u64) {
+        if self.is_mirror() {
+            return;
+        }
         self.lock().events.transport_notice(
             "queue_overflow",
             &format!("{lost} events lost: queue overflow"),
@@ -108,6 +114,9 @@ impl LiveStore {
         );
     }
     pub(crate) fn stream_reset(&self, now_ms: u64) {
+        if self.is_mirror() {
+            return;
+        }
         self.lock().events.transport_notice("queue_reset", "Event queue was reset: Redis persistence was lost; an unknown number of events may be missing", 0, now_ms);
     }
     pub fn events(&self, q: &Query) -> (Vec<Event>, u64) {
@@ -147,6 +156,9 @@ impl LiveStore {
 
     /// Fast events never refresh state age, advance report seq or acknowledge commands.
     pub(crate) fn event_packet(&self, body: &[u8], now_ms: u64) -> Result<bool, String> {
+        if self.is_mirror() {
+            return Err("A mirror cannot ingest game events".into());
+        }
         if body.len() > 65536 {
             return Err("Event packet too large".into());
         }

@@ -103,3 +103,21 @@ value would omit. Any schema change requires a version bump and a new fixture;
 retain old fixtures as compatibility evidence. Comments and formatting are ignored.
 Run `cargo +1.98.0 test -p mg-live --test mirror_schema -j 2`.
 Pending progress, final receipts, unknown outcomes and explicit null values round trip.
+
+## Passive mirror
+
+`LiveStore::new_mirror()` accepts only finished state through `mirror_area`,
+`mirror_area_gone`, `mirror_meta`, `mirror_events`, `mirror_result` and
+`mirror_reject`. Game reports and event ingestion are refused. Mirror events
+retain gateway numbers, advance through filtered rows, deduplicate replay and
+notify once per batch. Reset preserves the waiter signal, kick and policy.
+No derived events, drafts, ID journal or sent-command timeout runs in this mode.
+
+Set the welcome prefix with `set_id_prefix`. Generated IDs append eight random
+hex digits shared by the process and a process-wide counter. Queue envelopes
+carry boot, TTL and a local sent flag; only unsent commands expire. A reset
+ends queued/pending commands as unknown and never requeues them. Every applied
+mirror change increments `revision()`, including metadata, results and events.
+`mirror_commands`, `mirror_mark_sent` and `mirror_set_ttl` support the transport.
+Run `cargo +1.98.0 test -p mg-live --test passive_mirror -j 2` and the library
+unit test `reset_keeps_waiters_signal_and_cannot_open_a_journal`.
