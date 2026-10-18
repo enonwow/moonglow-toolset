@@ -330,6 +330,10 @@ class Proof:
             self.poll(min(1, max(0, end - time.monotonic())))
         raise AssertionError("Timed out awaiting engine observation")
 
+    def command_interrupt(self):
+        from test_command_delivery import interrupted
+        return interrupted(self)
+
     def command_receipts(self):
         from test_command_delivery import receipts
         return receipts(self)
@@ -2303,6 +2307,7 @@ def main():
     parser._option_string_actions["--phase"].choices.append("redis_restart")
     parser._option_string_actions["--phase"].choices.append("stress")
     parser._option_string_actions["--phase"].choices.append("command_receipts")
+    parser._option_string_actions["--phase"].choices.append("command_interrupt")
     args = parser.parse_args()
     if args.phase=="stress":
         os.environ["MGLIVE_STRESS_PREPARE"]="1"

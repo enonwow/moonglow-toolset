@@ -23,3 +23,25 @@ def receipts(p):
     assert ident not in p.state["ack"]
     return {"failed_result_retained_with_subscriber": True,
             "wrong_receipt_retained": True, "explicit_receipt_cleared": True}
+
+
+def interrupted(p):
+    commands = [
+        {"id": "batch-first", "area": "events", "op": "run_chunk", "code":
+         'SetLocalInt(GetModule(),"MGET_FIRST",GetLocalInt(GetModule(),"MGET_FIRST")+1);'},
+        {"id": "batch-interrupted", "area": "events", "op": "run_chunk", "code":
+         'SetLocalInt(GetModule(),"MGET_SECOND",GetLocalInt(GetModule(),"MGET_SECOND")+1); int i=0; while(TRUE) i++;'},
+    ]
+    publish(p, commands)
+    p.until(lambda: any(r.get("code") == "ambiguous" and r["id"] == "batch-interrupted"
+                        for r in p.state["results"]))
+    first = next(r for r in p.state["results"] if r["id"] == "batch-first")
+    assert first["ok"]
+    publish(p, commands)
+    p.until(lambda: p.state["seq"] >= 3)
+    counts = p.native('JsonArrayInsert(JsonArrayInsert(JsonArray(),JsonInt(GetLocalInt(GetModule(),"MGET_FIRST"))),JsonInt(GetLocalInt(GetModule(),"MGET_SECOND")))')
+    assert counts == [1, 1], counts
+    answer = next(r for r in p.state["results"] if r["id"] == "batch-interrupted")
+    assert not answer["ok"] and answer["code"] == "ambiguous", answer
+    return {"counts_after_retransmission": counts, "interrupted": answer,
+            "first_result_persisted": True}

@@ -193,6 +193,7 @@ pub enum ErrorCode {
     Forbidden,
     /// Execution was acknowledged, but its outcome is not known.
     Unknown,
+    Ambiguous,
     UnknownScript,
     CompileError,
     Expired,
@@ -3194,6 +3195,8 @@ mod tests {
             "protected",
             "invalid",
             "disabled",
+            "unknown",
+            "ambiguous",
             "unknown_script",
             "compile_error",
             "expired",

@@ -14,6 +14,7 @@ void MgLiveReportPublish()
         if(i) rows+=",";rows+=JsonDump(GetLocalJson(m,key));DeleteLocalJson(m,key);DeleteLocalObject(m,key);
     }
     json areas=JsonParse("["+rows+"]");
+    MgLiveRecoverCommand();
     MgLiveReceiveResults(JsonArray());
     json ack = GetLocalJson(m, "MGLIVE_ACK");
     json results = GetLocalJson(m, "MGLIVE_RESULTS");

@@ -719,6 +719,31 @@ void MgLiveFailure(string reason)
 // Defined in mglive_exec; only the pub/sub entry point reaches this handler.
 json MgLiveRun(json j);
 
+// Persist at command boundaries, before another command can consume the VM budget.
+void MgLiveFinishCommand(string id, json result)
+{
+    object m=GetModule();json done=GetLocalJson(m,"MGLIVE_DONE");
+    if(!MgLiveContains(done,id)) done=JsonArrayInsert(done,JsonString(id));
+    while(JsonGetLength(done)>MGLIVE_MAX_DONE) done=JsonArrayDel(done,0);
+    SetLocalJson(m,"MGLIVE_DONE",done);
+    MgLiveRetainResult(result);
+    DeleteLocalString(m,"MGLIVE_INFLIGHT");DeleteLocalString(m,"MGLIVE_INFLIGHT_BY");
+}
+
+// A new VM entry cannot know how far an interrupted operation progressed.
+void MgLiveRecoverCommand()
+{
+    object m=GetModule();string id=GetLocalString(m,"MGLIVE_INFLIGHT");
+    if(id=="") return;
+    json result=JsonObjectSet(JsonObject(),"id",JsonString(id));
+    result=JsonObjectSet(result,"ok",JsonBool(FALSE));
+    result=JsonObjectSet(result,"code",JsonString("ambiguous"));
+    result=JsonObjectSet(result,"err",JsonString("ambiguous: command interrupted; not retried"));
+    string by=GetLocalString(m,"MGLIVE_INFLIGHT_BY");
+    if(by!="") result=MgLiveTextField(result,"by",by);
+    MgLiveFinishCommand(id,result);
+}
+
 void MgLiveHandleReply(string message)
 {
     object m = GetModule();
@@ -730,38 +755,33 @@ void MgLiveHandleReply(string message)
         MgLiveFailure("invalid command message; acknowledgements retained");
         return;
     }
+    MgLiveRecoverCommand();
     MgLiveReceiveResults(JsonObjectGet(response, "received"));
-    json ack = GetLocalJson(m, "MGLIVE_ACK");
-    json results = GetLocalJson(m, "MGLIVE_RESULTS");
-    json done = GetLocalJson(m, "MGLIVE_DONE");
     int i;
     for (i = 0; i < JsonGetLength(commands); i++)
     {
         json command = JsonArrayGet(commands, i);
         string id = JsonGetString(JsonObjectGet(command, "id"));
         if (GetStringLength(id) < 1 || GetStringLength(id) > 64) continue;
-        if (!MgLiveContains(done, id))
+        if (!MgLiveContains(GetLocalJson(m,"MGLIVE_DONE"), id))
         {
             // Leave a large capture unacknowledged until pending results drain.
             if (JsonGetString(JsonObjectGet(command, "op")) == "capture_object" &&
-                GetStringLength(JsonDump(results)) > 786432) continue;
+                GetStringLength(JsonDump(GetLocalJson(m,"MGLIVE_RESULTS"))) > 786432) continue;
+            string by=JsonGetString(JsonObjectGet(command,"by"));if(GetStringLength(by)>64) by="";
+            SetLocalString(m,"MGLIVE_INFLIGHT",id);SetLocalString(m,"MGLIVE_INFLIGHT_BY",by);
             string previousId=GetLocalString(m,"MGLIVE_COMMAND_ID");string previousBy=GetLocalString(m,"MGLIVE_COMMAND_BY");
             SetLocalString(m,"MGLIVE_COMMAND_ID",id);
             DelayCommand(0.0,MgLiveClearCommandContext(id));
-            string by=JsonGetString(JsonObjectGet(command,"by"));if(GetStringLength(by)>64) by="";
             SetLocalString(m,"MGLIVE_COMMAND_BY",by);
             json result = MgLiveRun(command);
             if(by!="") result=MgLiveTextField(result,"by",by);
             SetLocalString(m,"MGLIVE_COMMAND_ID",previousId);SetLocalString(m,"MGLIVE_COMMAND_BY",previousBy);
-            done = JsonArrayInsert(done, JsonString(id));
-            if (JsonGetLength(done) > MGLIVE_MAX_DONE) done = JsonArrayDel(done, 0);
-            MgLiveRetainResult(result);
-            results = GetLocalJson(m, "MGLIVE_RESULTS");
-            ack = GetLocalJson(m, "MGLIVE_ACK");
+            MgLiveFinishCommand(id,result);
         }
+        json ack=GetLocalJson(m,"MGLIVE_ACK");
         if (!MgLiveContains(ack, id)) ack = JsonArrayInsert(ack, JsonString(id));
+        while(JsonGetLength(ack)>MGLIVE_MAX_DONE) ack=JsonArrayDel(ack,0);
+        SetLocalJson(m,"MGLIVE_ACK",ack);
     }
-    SetLocalJson(m, "MGLIVE_DONE", done);
-    SetLocalJson(m, "MGLIVE_ACK", ack);
-    SetLocalJson(m, "MGLIVE_RESULTS", results);
 }

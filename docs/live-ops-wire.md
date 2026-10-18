@@ -3007,3 +3007,21 @@ The harness can use an existing debug or release CLI via `MGLIVE_FIXTURE_MG`;
 older CLI standalone-include diagnostics are allowed only for sources with no
 executable entry point. Native executable scripts must compile. Use the generic
 fixture helper and its owned-process cleanup, never a normal user directory.
+
+## Interrupted command batches (2026-10-18)
+
+The game persists the in-flight command ID before calling its implementation,
+and persists done/result/ACK after each command. The next report or command VM
+entry converts an unfinished marker into `ok:false`, `code:"ambiguous"`, with
+text explaining it was interrupted and will not be retried. The bounded done
+history still contains the completed and ambiguous IDs; retransmitting the batch
+does not reapply their side effects. This is uncertainty reporting, not rollback
+of side effects already performed before TMI.
+
+`tools/live/test-events.py --phase command_interrupt` passed on the private WSL
+engine: the first chunk increments a module local, the second increments another
+then deliberately exhausts the instruction budget. Its result becomes ambiguous.
+After replaying both commands, native readback is exactly `[1,1]` and the first
+success remains recorded. The existing Rust error-code round trip also covers
+`unknown` and `ambiguous`. Done history is bounded to 256 IDs; this does not claim
+unlimited game-side deduplication of arbitrarily old external messages.
