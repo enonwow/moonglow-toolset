@@ -11,14 +11,7 @@ const MAX_ENTRIES: usize = 64;
 const MAX_JOBS: usize = 4;
 
 pub(crate) fn valid_url(text: &str) -> bool {
-    text.len() <= 2048
-        && !text.chars().any(char::is_whitespace)
-        && url::Url::parse(text).is_ok_and(|u| {
-            u.scheme() == "https"
-                && u.host_str().is_some()
-                && u.username().is_empty()
-                && u.password().is_none()
-        })
+    mg_live::avatar::avatar_url(text).is_some()
 }
 
 #[derive(Clone)]
@@ -116,6 +109,18 @@ fn fetch(url: &str) -> Result<Vec<u8>, ()> {
     // No gateway bearer, cookies, referrer or redirect to another URL.
     let agent = ureq::AgentBuilder::new()
         .redirects(0)
+        // Resolved addresses are checked at connect time, so DNS cannot point into the viewer's network.
+        .resolver(|addr: &str| {
+            use std::net::ToSocketAddrs;
+            let found: Vec<_> = addr
+                .to_socket_addrs()?
+                .filter(|a| mg_live::avatar::public_address(a.ip()))
+                .collect();
+            if found.is_empty() {
+                return Err(std::io::Error::other("avatar host is not public"));
+            }
+            Ok(found)
+        })
         .timeout(Duration::from_secs(10))
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(5))

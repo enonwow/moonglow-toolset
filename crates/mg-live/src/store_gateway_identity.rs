@@ -59,18 +59,9 @@ fn avatar(value: Option<&Value>) -> Result<Option<String>, FrameError> {
     let Some(value) = value.filter(|v| !v.is_null()) else {
         return Ok(None);
     };
-    let text = value
-        .as_str()
-        .filter(|s| s.len() <= 2048 && !s.chars().any(char::is_whitespace))
-        .ok_or_else(|| invalid("Invalid avatar URL"))?;
-    let url = url::Url::parse(text).map_err(|_| invalid("Invalid avatar URL"))?;
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err(invalid("Avatar must be an HTTPS URL without credentials"));
-    }
+    let url = value.as_str().and_then(crate::avatar::avatar_url).ok_or_else(|| {
+        invalid("Avatar must be a public HTTPS URL with a domain name, without credentials")
+    })?;
     Ok(Some(url.to_string()))
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]

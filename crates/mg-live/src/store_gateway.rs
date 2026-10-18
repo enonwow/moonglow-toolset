@@ -692,8 +692,7 @@ impl Gateway {
         avatar: Option<&str>,
         owner: Option<&str>,
     ) -> Result<(), String> {
-        if name.len() > 256 || avatar.is_some_and(|a| !a.starts_with("https://") || a.len() > 2048)
-        {
+        if name.len() > 256 || avatar.is_some_and(|a| crate::avatar::avatar_url(a).is_none()) {
             return Err("Invalid identity metadata".into());
         }
         let mut s = self.store.lock();

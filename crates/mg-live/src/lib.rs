@@ -34,6 +34,9 @@ pub const MIRROR_VERSION: u32 = 1;
 /// In-process gateway core; transport and authentication are supplied by the host.
 pub use store::gateway;
 
+/// Avatar URL and address rules shared by the gateway and the desktop.
+pub mod avatar;
+
 /// JSON envelopes and bounded decoding for moonglow-gw/1.
 pub mod gateway_frames;
 
