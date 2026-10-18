@@ -6,8 +6,72 @@
 #[path = "support/live_timing.rs"]
 mod live_timing;
 
+#[path = "support/gateway_ops.rs"]
+mod gateway_ops;
 #[path = "support/gateway_ui.rs"]
 mod gateway_ui;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
+async fn live_gateway_shared_books_and_ai() {
+    mg_testkit::gpu::hold();
+    let data = tempfile::tempdir().unwrap();
+    let host = gateway_ops::host(data.path()).await;
+    let mut app = gateway_ui::app(&host, data.path());
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280., 1000.))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(gateway_ui::draw(), app);
+    gateway_ui::connected(&mut h).await;
+    h.state_mut().area_views.get_mut(&"square".parse().unwrap()).unwrap().live.on = true;
+    h.state_mut()
+        .actions
+        .push(mg_ui::Action::CloseTab(mg_ui::Tab::LiveChatArea("square".parse().unwrap())));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::LiveGmCard));
+    h.run_steps(3);
+    gateway_ui::label(&mut h, "Campaign tone").await;
+    gateway_ops::input(&mut h, "Campaign tone", "My campaign: hope and discovery.");
+    let writer = gateway_ops::link(&host, "fixture-other").await;
+    let current = gateway_ui::host::reply_async(writer.gm_card().unwrap()).await.unwrap();
+    let mut newer = current["card"].clone();
+    newer["campaign_tone"] = serde_json::json!("A fellow DM saved: mystery and intrigue.");
+    gateway_ui::host::reply_async(
+        writer
+            .book_put(mg_live_link::BookKind::Gm, "", newer, current["rev"].as_u64().unwrap())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    gateway_ui::label(&mut h, "Take newer").await;
+    let dir = mg_testkit::output_dir("screens");
+    shoot(&mut h, &dir, "live-p3-book-conflict");
+    h.get_by_label("Take newer").click();
+    h.run_steps(3);
+    assert!(
+        h.query_by_label("Take newer").is_none(),
+        "the conflict must be resolved before capture"
+    );
+    shoot(&mut h, &dir, "live-p3-book-resolved");
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    h.get_by_label("AI agents").click();
+    h.run_steps(3);
+    gateway_ui::label(&mut h, "New AI name").await;
+    gateway_ops::input(&mut h, "New AI name", "Scribe");
+    h.get_by_label("Create AI").click();
+    h.run_steps(2);
+    gateway_ui::label(&mut h, "I saved the token").await;
+    h.get_by_label("I saved the token").click();
+    h.run_steps(3);
+    gateway_ui::label(&mut h, "AI name").await;
+    shoot(&mut h, &dir, "live-p3-ai-agents");
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]

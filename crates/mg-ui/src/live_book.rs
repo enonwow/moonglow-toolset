@@ -254,22 +254,18 @@ fn fields(ui: &mut egui::Ui, target: &Target, value: &mut Value, editable: bool)
         let field = if key.is_empty() { &mut *value } else { &mut value[*key] };
         let mut text = field.as_str().unwrap_or_default().to_owned();
         let label = ui.label(*label);
-        if editable {
-            if ui
-                .add(
-                    egui::TextEdit::multiline(&mut text)
-                        .char_limit(4000)
-                        .desired_rows(2)
-                        .desired_width(f32::INFINITY),
-                )
-                .labelled_by(label.id)
-                .changed()
-            {
-                *field = json!(text);
-                changed = true;
-            }
-        } else {
-            ui.label(text);
+        let response = ui
+            .add(
+                egui::TextEdit::multiline(&mut text)
+                    .char_limit(4000)
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY)
+                    .interactive(editable),
+            )
+            .labelled_by(label.id);
+        if editable && response.changed() {
+            *field = json!(text);
+            changed = true;
         }
     }
     changed

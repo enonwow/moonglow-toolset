@@ -43,8 +43,10 @@ async fn ai_token_is_shown_once_update_and_revoke_round_trip() {
     );
     h.get_by_label("Close window").click();
     h.run_steps(3);
-    h.get_by_label("Live").click(); h.run_steps(2);
-    h.get_by_label("AI agents").click(); h.run_steps(3);
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    h.get_by_label("AI agents").click();
+    h.run_steps(3);
     support::label(&mut h, "AI name").await;
     assert!(h.query_by_label("Copy AI token").is_none(), "reopening cannot reveal the token again");
     input(&mut h, "AI name", "Guide");

@@ -1,9 +1,9 @@
 ---
 type: Reference
 title: Live desktop connection and authentication
-description: Desktop authentication, credentials, gateway transport and unified local/gateway GUI backend.
+description: Desktop authentication, gateway transport, shared books, owned draft review and AI credential management.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T13:31:58Z }
+generated: { by: codex, at: 2026-10-18T14:30:21Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-live-link/src/login.rs
@@ -24,6 +24,7 @@ sources:
   - ../crates/mg-ui/tests/gateway_drafts.rs
   - ../crates/mg-ui/tests/gateway_backend.rs
   - ../crates/mg-ui/tests/support/gateway_ui.rs
+  - ../crates/mg-ui/tests/support/gateway_ops.rs
   - ../crates/mg-ui/tests/screens.rs
   - live-gateway-protocol.md
   - ../crates/mg-ui/src/options.rs
@@ -565,7 +566,8 @@ The new GUI unit tests cover isolated gateway consent, sign-out retaining only a
 passive mirror, stable server Focus identity, unchanged local panel defaults and
 bounded actor labels. The in-process UI test covers mirror equality, the real
 Focus composer, boot/TTL command requests, result delivery, reconnect/recovery,
-DM/AI chips, persistent unknown outcomes and disabled shared controls. The screen
+DM/AI chips and persistent unknown outcomes. P3 enables the shared-card entry and
+verifies revisioned editing separately below. The screen
 harness also asserts the marker's accessible presence label before capture.
 
 Inspected after-images under `target/test-output/screens/`:
@@ -663,3 +665,46 @@ outstanding. Local draft decisions retain their existing store path.
 owner-only versus admin visibility, edited approval, admin rejection and owner
 rejection. The in-process TLS host regression passes. No real AI account, game
 server or credential store is needed.
+
+## P3 verification and limits
+
+Run with Rust 1.98.0, `NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0` and at most
+two Cargo build jobs. The tests use the workspace development host, temporary
+book directories, injected credentials and pinned loopback TLS; no game install,
+Discord account or production gateway is required.
+
+```text
+cargo +1.98.0 test -p mg-ui --lib --tests --no-fail-fast -j 2
+cargo +1.98.0 test -p mg-live-link --lib --test credentials --test link --test login --test tls_config -j 2
+cargo +1.98.0 clippy -p mg-ui --all-targets -j 2 -- -D warnings
+cargo +1.98.0 clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf --test nui_perf -j 2 -- -D warnings
+cargo +1.98.0 test -p mg-ui --test screens -j 2 live_gateway -- --ignored --test-threads=1
+cargo +1.98.0 fmt -p mg-ui --check
+```
+
+The before proofs reuse the accepted P2b Focus/unknown images, copied to
+`target/test-output/screens/live-p3-focus-before.png` and
+`target/test-output/screens/live-p3-unknown-before.png`. Current outputs use
+`live-gateway-focus.png`, `live-gateway-unknown.png`, `live-p3-book-conflict.png`,
+`live-p3-book-resolved.png` and `live-p3-ai-agents.png` in the same directory.
+The AI capture follows dismissal of the one-time credential. The conflict view
+uses read-only fields for the saved version, preserving ordinary field spacing;
+an accessibility-rectangle assertion checks corresponding rows. A shared wait
+helper uses a non-panicking multi-result query while async controls are absent.
+The stale-write regression checks CAS refusal directly: a book invalidation may
+legitimately arrive before the UI save click, so the test does not require a
+redundant stale request to appear in the frame trace.
+
+The exact workspace test and Clippy commands were attempted during concurrent
+host work. Test compilation stopped on an unfinished translation-test delimiter;
+Clippy stopped on a missing JSON type annotation in the bridge. Their owners
+subsequently corrected those transient source errors. Workspace formatting
+passed. These snapshots do not establish a clean final workspace gate; the host
+owners coordinate its next run after their sources freeze. The P3 scope is
+verified separately. Per-AI consent and avatar editing/presence remain blocked
+on the explicit host contracts described above, and have no passing UI claim.
+
+The retained evidence is the before/after PNG set and a compact local verification
+record. Superseded diagnostic logs and the one-off gate runner were removed
+after their failure causes were recorded. Shared build outputs remain available
+to the other workspace tasks. No application or agent history was removed.

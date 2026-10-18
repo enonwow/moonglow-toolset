@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway book comparison proof (2026-10-18)**: saved and edited fields align, asynchronous UI waits handle absent controls, and rendered P3 flows document verification limits. [Reproduction and proof](live-desktop-link.md#p3-verification-and-limits).
+
 * **Authenticated module publisher (2026-10-18)**: DM-only files routes, immutable module publication, boot-bound discovery and welcome/files agreement. [Host API](live-resource-generations.md#publisher-host-api).
 
 * **Resource generation downloads (2026-10-18)**: cancellable four-worker HTTPS, verified-file resume and atomic activation. [API and protocol](live-resource-generations.md).

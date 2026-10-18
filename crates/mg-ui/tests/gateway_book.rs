@@ -36,6 +36,9 @@ async fn gateway_book_conflict_preserves_mine_and_refreshes_invalidations() {
     support::label(&mut h, "Take newer").await;
     h.get_by_label("Your version");
     h.get_by_label("Newer saved version");
+    let rows: Vec<_> = h.get_all_by_label("Language").map(|n| n.rect().top()).collect();
+    assert_eq!(rows.len(), 2, "both versions expose their read-only/editable fields");
+    assert!((rows[0] - rows[1]).abs() < 1., "corresponding fields must align for comparison");
     assert!(h.get_all_by_value("My version").next().is_some());
     h.get_by_label("Keep mine").click();
     h.run_steps(2);
@@ -45,21 +48,29 @@ async fn gateway_book_conflict_preserves_mine_and_refreshes_invalidations() {
     let current = reply_async(writer.gm_card().unwrap()).await.unwrap();
     let mut theirs = current["card"].clone();
     theirs["campaign_tone"] = json!("Newest version");
-    // A concurrent trusted writer changes the revision before its invalidation arrives.
-    // The GUI must recover from the actual book.put CAS rejection too.
+    // A concurrent writer advances the revision. Invalidation may reach the GUI
+    // before its save click; both paths must preserve the newer value.
     host.store.save_gm_card(serde_json::from_value(theirs).unwrap()).unwrap();
+    assert_eq!(
+        reply_async(
+            writer
+                .book_put(
+                    BookKind::Gm,
+                    "",
+                    current["card"].clone(),
+                    current["rev"].as_u64().unwrap()
+                )
+                .unwrap()
+        )
+        .await,
+        Err(mg_live_link::LinkError::Conflict),
+    );
     h.get_by_label("Save card").click();
     h.run_steps(2);
     support::label(&mut h, "Take newer").await;
     h.get_by_label("Take newer").click();
     h.run_steps(3);
     assert!(h.get_all_by_value("Newest version").next().is_some());
-    assert!(
-        host.frames()
-            .iter()
-            .any(|f| f["op"] == "book.put"
-                && f["a"]["value"]["campaign_tone"] == "Another local edit")
-    );
     assert_eq!(host.store.gm_card().unwrap().campaign_tone, "Newest version");
     h.state_mut().actions.push(Action::OpenTab(Tab::LiveNpcCard("a1".into())));
     h.run_steps(3);

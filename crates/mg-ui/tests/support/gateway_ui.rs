@@ -138,7 +138,7 @@ pub(crate) async fn label(h: &mut Harness<'_, Moonglow>, label: &str) {
     tokio::time::timeout(Duration::from_secs(12), async {
         loop {
             h.run_steps(2);
-            if h.query_by_label(label).is_some_and(|node| !node.accesskit_node().is_disabled()) {
+            if h.query_all_by_label(label).any(|node| !node.accesskit_node().is_disabled()) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(15)).await;
