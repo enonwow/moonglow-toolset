@@ -23,6 +23,7 @@ impl SyncRequest {
             return Err("boot is required".into());
         }
         short("boot", &request.boot, 64)?;
+        short("translation config", &request.translation_config, 32)?;
         if let Some(areas) = &request.watched_areas {
             if areas.len() > 4096 {
                 return Err("Too many watched areas".into());

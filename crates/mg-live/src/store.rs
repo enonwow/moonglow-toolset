@@ -30,6 +30,8 @@ mod measurement;
 pub mod mirror;
 #[path = "store_report.rs"]
 mod report;
+#[path = "store_translation.rs"]
+mod translation_config;
 #[path = "store_watch.rs"]
 mod watch;
 pub use atmosphere::{AudioAction, DayNight, DayNightBoth, MusicSlot, Weather};
@@ -162,6 +164,8 @@ struct AreaReport {
 #[derive(Debug, Clone, Deserialize)]
 struct SyncRequest {
     v: u32,
+    #[serde(default)]
+    translation_config: String,
     boot: String,
     #[serde(default)]
     seq: u64,
@@ -1863,6 +1867,7 @@ impl CommandQuota {
 
 #[derive(Debug, Default)]
 struct State {
+    game_translation: Option<translation_config::GameTranslation>,
     mirror: Option<mirror::Mirror>,
     gateway: gateway::GatewayState,
     assistant: assistant::AssistantState,
@@ -2031,6 +2036,9 @@ impl LiveStore {
         }
         if s.server.as_ref() == Some(config) {
             return;
+        }
+        if let Some(config) = &mut s.game_translation {
+            config.acknowledged_boot = None;
         }
         s.results.clear();
         assistant::cancel(&mut s, "expired: server endpoint changed");
@@ -2321,6 +2329,12 @@ impl LiveStore {
             now_ms,
         );
         s.events.game(&request.boot, &enriched, request.dropped, now_ms);
+        if fresh
+            && let Some(config) = &mut s.game_translation
+            && config.id == request.translation_config
+        {
+            config.acknowledged_boot = Some(request.boot.clone());
+        }
         receive_results(&mut s, request.results, request.ack, request.seq, now_ms);
         expire(&mut s, now_ms);
         if request.seq >= s.seq {
@@ -3433,7 +3447,11 @@ fn game_commands(s: &State) -> Value {
         commands.insert(0, json!({"id":id,"op":"resync"}));
     }
     commands.extend(s.watch.pending.iter().cloned());
-    json!({"v":1,"script_version":2,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":s.receipts})
+    let mut reply = json!({"v":1,"script_version":2,"boot":s.boot,"prefix":s.server.as_ref().map(|c| c.prefix.as_str()).unwrap_or_default(),"commands":commands,"received":s.receipts});
+    if let Some(config) = s.game_translation.as_ref().and_then(|c| c.wire(&s.boot)) {
+        reply["translation"] = config;
+    }
+    reply
 }
 
 fn push_result(s: &mut State, command: Command, mut result: CommandResult) {

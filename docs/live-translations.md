@@ -11,6 +11,8 @@ sources:
   - ../tools/live/nwn/mglive_xl.nss
   - ../tools/live/nwn/mglive_xllang.nss
   - ../tools/live/test_chat_translation.py
+  - ../crates/mg-live/src/store_translation.rs
+  - ../tools/live/test_translation_config.py
 ---
 
 # Live chat translation pipeline
@@ -19,8 +21,8 @@ This is the public P8 implementation of the [interception prototype](live-gatewa
 Rebuild the prepared module with `mg live-build` to include the new language
 entry/NUI scripts; the generated server configuration already subscribes to
 `<prefix>.xl`. Keep `MGLIVE_XL` off until the host pipeline is attached.
-`MGLIVE_XL` remains off by default. Enabling the gateway configuration alone does
-not change that module switch. The game chooses listeners at speech time, delivers
+`MGLIVE_XL` remains off by default. The trusted host explicitly synchronizes the
+module switch and command prefixes through `LiveStore::configure_translation`. The game chooses listeners at speech time, delivers
 same-language speech immediately, and owns the 0.9-second original-text fallback.
 Its one-use request record prevents duplicate or late responses from delivering a
 second line. Delivery retains the NWNX hook re-entry guard.
@@ -43,10 +45,10 @@ The existing `CoreHandle` API needs no new transport method. Setting the hook to
 minute, command prefixes and the overall switch. Default configuration is off;
 the default limit is 60 requests per player per minute. `/` and `!` always remain
 protected, alongside configured prefixes. For modules with additional native
-command prefixes, set their initial characters in `MGLIVE_XL_COMMANDS` before
-enabling interception, and use matching gateway prefixes. This module-local
-setting keeps those commands out of capture altogether; gateway configuration
-alone only rejects their translation. Disabling a channel rejects queued and
+command prefixes, the host calls `store.configure_translation(enabled, prefixes)`
+after installing/configuring its pipeline. `prefixes` contains at most 32 ASCII
+graphic initial characters. This is a trusted Rust API, not an HTTP/agent game
+operation; reserved `MGLIVE_*` writes remain forbidden. Disabling a channel rejects queued and
 in-flight results before delivery.
 
 ## Transport and bounds
@@ -229,3 +231,32 @@ preserving these results (31,393,053 logical bytes). The current native fixture,
 its reports, per-listener observations and compact verification records remain
 for review/reproduction. Shared build caches were preserved. Concurrent compiler activity prevents attributing changes in free
 disk space to this cleanup.
+
+## Trusted game configuration
+
+`configure_translation` stores desired settings, wakes the publisher, and emits
+`translation:{id,enabled,prefixes}` on the existing boot/prefix-bound `.cmd`
+envelope. The revision is 32 lowercase hex characters; enabled is 0 or 1. The
+fresh-report/reconnect gate applies to this envelope as it does to commands.
+The game validates the whole configuration before setting `MGLIVE_XL`,
+`MGLIVE_XL_COMMANDS` and its revision local. Reports echo `translation_config`;
+the host retries until a fresh report acknowledges the current revision, then
+stops sending it. Changed settings, a new boot or endpoint invalidate the ack.
+Identical panel settings retain the revision. There is no agent-visible operation
+that can change this state, and mirror stores refuse the host API.
+
+Rebuild prepared modules with `mg live-build`. This additive protocol retains
+script version 2; older scripts cannot acknowledge the control field. The module
+is still off when no host configuration was supplied. The store regression
+`trusted_translation_configuration_retries_until_reported_and_reapplies_on_boot`
+covers retry, revision matching, boot changes, disable and invalid prefixes.
+
+Native configuration proof (private scratch WSL helper, **needs WSL run**):
+
+```sh
+python3 tools/live/test-events.py --phase translation_config
+```
+
+This verifies default-off, a live prefix/enable update, wrong-boot/invalid-prefix
+rejection and disable without restart. The sandbox only checked Python syntax;
+no NWScript compilation or native success is claimed for this M3 change.

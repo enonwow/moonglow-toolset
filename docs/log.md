@@ -1,5 +1,7 @@
 # Update log
 
+* **Trusted translation configuration (2026-10-18)**: boot-bound, report-acknowledged settings reach game locals; native proof needs WSL run. [Host API](live-translations.md#trusted-game-configuration).
+
 * **Draft IDs after rotation (2026-10-18)**: approvals retain proposal/result links and use timestamped transport IDs; old legacy IDs remain expired. [Regression](live-ops-wire.md#draft-approval-ids-across-history-rotation).
 
 * **Revocation before Redis handoff (2026-10-18)**: report processing and closed publication gates no longer mark commands sent; final batch selection and transport handoff share the acceptance lock. [Regression and contract](live-ops-wire.md#transport-handoff-after-reconnect).

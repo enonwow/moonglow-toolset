@@ -352,6 +352,10 @@ class Proof:
         from test_command_delivery import interrupted
         return interrupted(self)
 
+    def translation_config(self):
+        from test_translation_config import run
+        return run(self)
+
     def chat_translation(self):
         from test_chat_translation import run
         return run(self)
@@ -2359,6 +2363,7 @@ def main():
     parser._option_string_actions["--phase"].choices.append("command_version")
     parser._option_string_actions["--phase"].choices.append("command_interrupt")
     parser._option_string_actions["--phase"].choices.append("command_boot")
+    parser._option_string_actions["--phase"].choices.append("translation_config")
     parser._option_string_actions["--phase"].choices.extend(["chat_translation", "chat_translation_stress"])
     args = parser.parse_args()
     if args.phase in ("stress", "chat_translation_stress"):
@@ -2427,6 +2432,8 @@ def main():
     if args.phase.startswith("chat_translation"):
         report["helpers"]["tools/live/test_chat_translation.py"] = sha(REPO / "tools/live/test_chat_translation.py")
         report["fixture_xl_sha256"] = sha(OUT / "module/mglive_xl.nss")
+    if args.phase == "translation_config":
+        report["helpers"]["tools/live/test_translation_config.py"] = sha(REPO / "tools/live/test_translation_config.py")
     try:
         from stream_transport import redis_args
         redis = subprocess.Popen(redis_args(SCRATCH, RPORT),

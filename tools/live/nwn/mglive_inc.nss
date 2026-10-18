@@ -744,6 +744,31 @@ void MgLiveRecoverCommand()
     MgLiveFinishCommand(id,result);
 }
 
+int MgLiveTranslationConfig(json config)
+{
+    if(JsonGetType(config)==JSON_TYPE_NULL) return TRUE;
+    if(JsonGetType(config)!=JSON_TYPE_OBJECT) return FALSE;
+    json ident=JsonObjectGet(config,"id");json enabled=JsonObjectGet(config,"enabled");
+    json prefixes=JsonObjectGet(config,"prefixes");
+    if(JsonGetType(ident)!=JSON_TYPE_STRING || JsonGetType(prefixes)!=JSON_TYPE_STRING ||
+       JsonGetType(enabled)!=JSON_TYPE_INTEGER) return FALSE;
+    string id=JsonGetString(ident);string text=JsonGetString(prefixes);int on=JsonGetInt(enabled);
+    if(GetStringLength(id)!=32 || GetStringLength(text)>32 || (on!=0 && on!=1)) return FALSE;
+    int i;for(i=0;i<32;i++)
+        if(FindSubString("0123456789abcdef",GetSubString(id,i,1))<0) return FALSE;
+    string ascii=NWNX_Util_GetAsciiTableString();
+    for(i=0;i<GetStringLength(text);i++)
+    {
+        int n=FindSubString(ascii,GetSubString(text,i,1));
+        if(n<33 || n>126) return FALSE;
+    }
+    object m=GetModule();
+    SetLocalString(m,"MGLIVE_XL_COMMANDS",text);
+    SetLocalInt(m,"MGLIVE_XL",on);
+    SetLocalString(m,"MGLIVE_XL_CONFIG",id);
+    return TRUE;
+}
+
 void MgLiveHandleReply(string message)
 {
     object m = GetModule();
@@ -766,6 +791,10 @@ void MgLiveHandleReply(string message)
     {
         MgLiveFailure("command server boot or prefix mismatch");
         return;
+    }
+    if(!MgLiveTranslationConfig(JsonObjectGet(response,"translation")))
+    {
+        MgLiveFailure("invalid translation configuration");return;
     }
     MgLiveRecoverCommand();
     MgLiveReceiveResults(JsonObjectGet(response, "received"));

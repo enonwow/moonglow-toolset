@@ -27,6 +27,7 @@ void MgLiveReportPublish()
     body = JsonObjectSet(body, "prefix", JsonString(GetLocalString(m,"MGLIVE_PREFIX")));
     body = JsonObjectSet(body, "boot", JsonString(GetLocalString(m, "MGLIVE_BOOT")));
     body = JsonObjectSet(body, "seq", JsonInt(seq));
+    body = JsonObjectSet(body, "translation_config", JsonString(GetLocalString(m,"MGLIVE_XL_CONFIG")));
     body = JsonObjectSet(body, "watched_areas", GetLocalJson(m,"MGLIVE_WATCHED_AREAS"));
     body = JsonObjectSet(body, "factions", GetLocalJson(m, "MGLIVE_FACTIONS"));
     body = JsonObjectSet(body, "ack", ack);

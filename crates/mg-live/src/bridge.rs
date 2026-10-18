@@ -114,7 +114,10 @@ fn check_module(body: &[u8], prefix: &str) -> Result<(), String> {
 }
 
 fn has_outbound(value: &Value) -> bool {
-    ["commands", "received"].iter().any(|key| value[key].as_array().is_some_and(|a| !a.is_empty()))
+    value["translation"].is_object()
+        || ["commands", "received"]
+            .iter()
+            .any(|key| value[key].as_array().is_some_and(|a| !a.is_empty()))
 }
 
 /// Lifetime is owned by LiveService; its shared stop flag cancels both workers.
