@@ -1,5 +1,7 @@
 # Update log
 
+* **Authenticated module publisher (2026-10-18)**: DM-only files routes, immutable module publication, boot-bound discovery and welcome/files agreement. [Host API](live-resource-generations.md#publisher-host-api).
+
 * **Resource generation downloads (2026-10-18)**: cancellable four-worker HTTPS, verified-file resume and atomic activation. [API and protocol](live-resource-generations.md).
 
 * **Owner queue revocation (2026-10-18)**: accepted unsent commands become forbidden atomically with transport hand-off; sent commands retain normal outcomes. [API and race regression](live-ops-wire.md#owner-revocation-before-hand-off).

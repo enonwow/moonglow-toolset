@@ -169,6 +169,19 @@ impl CoreHandle {
             )?;
             let owner = core.gateway.ai_owner(&principal.id);
             core.gateway.set_identity(&principal.id, &principal.name, None, owner.as_deref())?;
+            let resources = if crate::files::allowed(&principal) {
+                config.publisher.as_ref().and_then(|p| p.current(&core.gateway.store().boot()))
+            } else {
+                None
+            };
+            let nwsync = resources
+                .map(|g| mg_live::gateway_frames::Nwsync {
+                    haks_url: g.haks_url.clone(),
+                    haks_manifest: g.haks_manifest.clone(),
+                    module_manifest: g.module_manifest.clone(),
+                    generation: Some(g),
+                })
+                .or_else(|| if crate::files::allowed(&principal) { config.nwsync } else { None });
             let welcome = Welcome {
                 proto: PROTOCOL_VERSION,
                 mirror: MIRROR_VERSION,
@@ -186,7 +199,7 @@ impl CoreHandle {
                 id_prefix: session.prefix.clone(),
                 limits: Limits { watch: config.watch_limit, ..Limits::default() },
                 features: config.features,
-                nwsync: config.nwsync,
+                nwsync,
                 resumed,
             };
             Ok((session.generation, welcome))

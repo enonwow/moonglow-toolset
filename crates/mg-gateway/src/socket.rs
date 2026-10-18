@@ -164,9 +164,38 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
                                 return Err("overloaded".into());
                             }
                             let request_id = req.id;
+                            let publisher = app.config.publisher.clone();
+                            let files_allowed = crate::files::allowed(&principal);
                             let response = app
                                 .core
                                 .session(id, generation, move |g, id| {
+                                    if req.op == "files" {
+                                        use mg_live::gateway_frames::{FrameError, Response};
+                                        let result = if !files_allowed {
+                                            Err(FrameError::new(
+                                                "forbidden",
+                                                "Files require a DM with read access",
+                                            ))
+                                        } else {
+                                            publisher
+                                                .and_then(|p| p.current(&g.store().boot()))
+                                                .ok_or_else(|| {
+                                                    FrameError::new(
+                                                        "unavailable",
+                                                        "Resources are not published",
+                                                    )
+                                                })
+                                                .and_then(|v| {
+                                                    serde_json::to_value(v).map_err(|_| {
+                                                        FrameError::new(
+                                                            "unavailable",
+                                                            "Resource descriptor unavailable",
+                                                        )
+                                                    })
+                                                })
+                                        };
+                                        return Ok(Response { id: req.id, result });
+                                    }
                                     Ok(g.handle(id, req, crate::now()))
                                 })
                                 .await?;

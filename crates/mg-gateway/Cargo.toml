@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 mg-live.workspace = true
+mg-module.workspace = true
+mg-core.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 futures-util = "0.3"
@@ -16,6 +18,9 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+tempfile = "3"
+mg-gff.workspace = true
+mg-resman.workspace = true
 tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }
 
