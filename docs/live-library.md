@@ -214,3 +214,36 @@ new process, network authentication, WebSocket behavior or GUI acceptance.
 P1 adds 27 passing unit/store regressions across schema, mirror, gateway,
 frames and differential suites (including 192 fixed-seed report scenarios).
 These checks establish the library contract, not owner or native-game acceptance.
+
+## Gateway transport
+
+`mg-gateway` embeds the P1 session core behind `CoreHandle`. All store work,
+policy resolution and authentication execute on blocking workers. `/ws/v1`
+requires bearer authentication and `moonglow-gw.1`; Origin requests are refused.
+Principal identifiers must be `dm:<id>` or `ai:<id>`; `default` and `local`
+are reserved, including after the colon. Display names never become scopes.
+`Authenticator`, `PolicyResolver` and `Extensions` separate host integration
+from the public transport. Merge the host's `Extensions::router(core)` with
+`mg_gateway::router(...)`; conflicting routes are a host configuration error.
+
+The transport uses one resumable session per principal in v1; a second connection
+replaces the first. Prefixes survive reconnects within one gateway epoch. The
+session core limits area publication to four times per second. The bounded
+output queue replaces older pending copies of the same area and boot. Its
+default bounds are 256 frames and 32 MiB; overflow sends `bye overloaded`.
+Individual output frames are limited to 16 MiB. Input is limited to 64 KiB,
+with the protocol's 256 KiB exception for `book.put`. Oversize closes with 1009.
+Ping is every 15 seconds, idle timeout 45 seconds, writes have a five-second
+budget. Authentication is rechecked on requests and every ping interval;
+revocation and role changes close the connection. Hosts must not log bearer
+credentials. `/health` is an unauthenticated liveness endpoint.
+
+HTTP cannot return 426 after WebSocket upgrade. Optional `?proto=1&mirror=1`
+parameters support a pre-upgrade 426 with `min_client`; actual hello versions
+are always checked, and a mismatch there sends `bye upgrade`. Missing the
+required subprotocol also returns 426. This resolves the draft protocol's
+otherwise impossible sequencing without changing its JSON frames.
+
+Transport regression tests run with `cargo +1.98.0 test -p mg-gateway -j 2`,
+`CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`. They bind ephemeral
+loopback ports and require neither Redis nor game data.

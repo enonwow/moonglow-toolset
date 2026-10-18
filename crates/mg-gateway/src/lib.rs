@@ -1,0 +1,182 @@
+//! Public transport for the authoritative Live core. Host authentication stays pluggable.
+mod core;
+mod socket;
+
+use axum::{
+    Json, Router,
+    extract::{Query, State, WebSocketUpgrade},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+};
+pub use core::CoreHandle;
+use mg_live::{
+    MIRROR_VERSION,
+    access::{ClientGroup, DeliveryMode, Scope},
+    gateway_frames::{PROTOCOL_VERSION, ServerIdentity},
+    store::Policy,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::{fmt::Debug, sync::Arc};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Principal {
+    pub id: String,
+    pub name: String,
+    pub groups: Vec<String>,
+}
+impl Principal {
+    pub fn validate(&self) -> Result<(), String> {
+        let (kind, id) = self.id.split_once(':').ok_or("Invalid principal")?;
+        if !matches!(kind, "dm" | "ai")
+            || id.is_empty()
+            || id.len() > 128
+            || matches!(id, "default" | "local")
+            || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+        {
+            return Err("Invalid or reserved principal".into());
+        }
+        Ok(())
+    }
+    pub fn scope(&self, delivery: DeliveryMode) -> Result<Scope, String> {
+        self.validate()?;
+        let groups = self
+            .groups
+            .iter()
+            .filter_map(|g| serde_json::from_value::<ClientGroup>(json!(g)).ok())
+            .collect();
+        Ok(Scope::restricted(&self.id, groups, delivery))
+    }
+}
+/// Called on blocking workers, on upgrade and again while the connection is alive.
+/// Never include a credential in an error or Debug output.
+pub trait Authenticator: Debug + Send + Sync + 'static {
+    fn authenticate(&self, bearer: &str) -> Option<Principal>;
+}
+pub trait PolicyResolver: Debug + Send + Sync + 'static {
+    fn policy(&self) -> Policy;
+}
+impl PolicyResolver for Policy {
+    fn policy(&self) -> Policy {
+        *self
+    }
+}
+/// Host routes (authentication, files, panel) are composed outside the core routes.
+pub trait Extensions {
+    fn router(&self, core: CoreHandle) -> Router;
+}
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub server: ServerIdentity,
+    pub queue_frames: usize,
+    pub queue_bytes: usize,
+    pub watch_limit: usize,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            server: ServerIdentity { id: "main".into(), name: "Live server".into() },
+            queue_frames: 256,
+            queue_bytes: 32 * 1024 * 1024,
+            watch_limit: 16,
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub(crate) struct App {
+    core: CoreHandle,
+    auth: Arc<dyn Authenticator>,
+    policy: Arc<dyn PolicyResolver>,
+    config: Config,
+}
+pub fn router(
+    core: CoreHandle,
+    auth: Arc<dyn Authenticator>,
+    policy: Arc<dyn PolicyResolver>,
+    config: Config,
+) -> Router {
+    Router::new()
+        .route("/health", get(|| async { Json(json!({"ok":true})) }))
+        .route("/ws/v1", get(upgrade))
+        .with_state(App { core, auth, policy, config })
+}
+#[derive(Debug, Default, Deserialize)]
+struct Versions {
+    proto: Option<u32>,
+    mirror: Option<u32>,
+}
+async fn authenticate(app: &App, headers: &HeaderMap) -> Result<(String, Principal), Response> {
+    if headers.contains_key("origin") {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"ok":false,"error":"Origin is not allowed"})),
+        )
+            .into_response());
+    }
+    let mut values = headers.get_all("authorization").iter();
+    let bearer =
+        values.next().and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
+    let Some(bearer) =
+        bearer.filter(|b| !b.is_empty() && b.len() <= 4096 && values.next().is_none())
+    else {
+        return Err(unauthorized());
+    };
+    let bearer = bearer.to_owned();
+    let auth = app.auth.clone();
+    let token = bearer.clone();
+    let principal =
+        tokio::task::spawn_blocking(move || auth.authenticate(&token)).await.ok().flatten();
+    match principal {
+        Some(p) if p.validate().is_ok() => Ok((bearer, p)),
+        _ => Err(unauthorized()),
+    }
+}
+fn unauthorized() -> Response {
+    (StatusCode::UNAUTHORIZED, Json(json!({"ok":false,"error":"Unauthorized"}))).into_response()
+}
+async fn upgrade(
+    State(app): State<App>,
+    Query(versions): Query<Versions>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let (token, principal) = match authenticate(&app, &headers).await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if versions.proto.is_some_and(|v| v != PROTOCOL_VERSION)
+        || versions.mirror.is_some_and(|v| v != MIRROR_VERSION)
+    {
+        return (
+            StatusCode::UPGRADE_REQUIRED,
+            Json(json!({"min_client":env!("CARGO_PKG_VERSION")})),
+        )
+            .into_response();
+    }
+    if !headers
+        .get_all("sec-websocket-protocol")
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|h| h.split(','))
+        .any(|p| p.trim() == "moonglow-gw.1")
+    {
+        return (
+            StatusCode::UPGRADE_REQUIRED,
+            Json(json!({"min_client":env!("CARGO_PKG_VERSION")})),
+        )
+            .into_response();
+    }
+    ws.protocols(["moonglow-gw.1"])
+        .max_message_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
+        .max_frame_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
+        .on_upgrade(move |ws| socket::run(ws, app, token, principal))
+        .into_response()
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
