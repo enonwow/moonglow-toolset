@@ -3400,3 +3400,57 @@ command event and final outbox revision; a duplicate cannot change it again.
 Additional store tests cover endpoint isolation and both registry capacity limits.
 Run `cargo +1.98.0 test -p mg-live --lib store::accept_tests -j 2` with the environment
 specified above; no game server or external data is required.
+
+## M2 acceptance audit verification (2026-10-18)
+
+The store/API audit is implemented in `85d1aef` (consent epoch), `566ec16`
+(shared quota), `d863fd7` (gateway final-acceptance hook) and `20ee97b`
+(bounded late-result correlation). Gateway ACK integration is supplied by
+`a6c389d`: an acknowledged Unknown remains eligible for a final revision.
+The existing gateway owner is the stable authenticated principal ID, so no extra
+rate-limit hook is required in `store_gateway.rs`. No gateway wiring remains for
+these three findings.
+
+Each finding was reproduced with failing tests before its fix. The final eight
+shared quota/correlation acceptance tests pass; consent regressions also pass.
+The exact workspace run executes all 18 mg-live suites successfully: 263 passed,
+zero failed, four manually enabled tests ignored (real TLS, Redis, WSL lifecycle
+and an engine snapshot). No game-side code changed in this audit.
+
+Final gates used Rust 1.98.0, `NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0` and
+at most two build jobs. At the tested shared-tree checkpoint `3f682ac`, concurrent
+GUI integration was still uncommitted:
+
+| Check | Observed result |
+| --- | --- |
+| Workspace tests | Stopped on one new GUI integration failure: 1681 passed, 1 failed, 23 ignored before stopping. |
+| Requested mg-live + mg-ui fallback tests | Same GUI failure: 938 passed, 1 failed, 22 ignored before stopping. |
+| Workspace Clippy, all targets, warnings denied | Passed. |
+| mg-live + mg-ui Clippy, all targets, warnings denied | Passed. |
+| Workspace formatting check, both runs | Passed. |
+
+The blocking test is `gateway_gui_mirror_command_presence_reconnect_and_unknown`
+in `crates/mg-ui/tests/gateway_backend.rs`: the tested GUI build had an incorrectly
+encoded presence-label separator. Its owner corrected that separate change;
+the following targeted GUI run then reached a Focus wait timeout. These results
+are not a green workspace gate or acceptance of the unfinished GUI integration.
+The GUI owner retains that diagnosis and must run its final gate after completion.
+No UI source or lockfile was committed as part of this audit.
+
+Reproduce from the repository root in PowerShell:
+
+```powershell
+$env:NWN_ROOT = '/nonexistent'
+$env:CARGO_INCREMENTAL = '0'
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+cargo +1.98.0 test -p mg-live -p mg-ui --lib --bins --tests -j 2
+cargo +1.98.0 clippy -p mg-live -p mg-ui --all-targets -j 2 -- -D warnings
+```
+
+Regression sources and this contract are retained. Eight owned intermediate
+red/green logs were replaced by compact exact assertion/count evidence and
+removed (124840 logical bytes); shared build outputs were left in use by their
+owners. No free-space change is attributed to this cleanup while other builds
+and cleanup tasks are active.
