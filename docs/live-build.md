@@ -8,7 +8,10 @@ generated: { by: codex, at: 2026-10-16T12:00:00Z }
 
 # Prepare a module for Live
 
-The canonical implementation is `mg_live::build::prepare(Request, GameInstall)`.
+The canonical implementation is `mg_live::build::prepare(Request, GameInstall)`,
+enabled by the `mg-live/build` Cargo feature. The CLI and UI opt in explicitly;
+headless runtime consumers use the empty default feature set. See the
+[library feature checks](live-library.md#optional-module-preparation).
 It belongs in mg-live because Live owns the generated content and this layer may
 depend on mg-module, mg-resman and the built-in compiler (PLAN §4). Neither the
 module layer nor the CLI depends on the GUI. `mg live-build` and `Tab::LivePrepare`

@@ -3,6 +3,7 @@ pub mod access;
 pub mod agents;
 pub mod api;
 pub mod bridge;
+#[cfg(feature = "build")]
 pub mod build;
 mod command_ids;
 mod descriptor;

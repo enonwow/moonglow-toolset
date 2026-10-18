@@ -24,3 +24,18 @@ Run the mapping regression with
 `cargo +1.98.0 test -p mg-area --lib object_kind_lists_match_module_instances -j 2`.
 Use a nonexistent `NWN_ROOT` and `CARGO_INCREMENTAL=0` for these checks; no game
 server is required. Passing tests establish library behavior, not game or owner acceptance.
+
+## Optional module preparation
+
+The default feature set is empty. `build` enables `mg_live::build` and its
+optional `mg-module`, `mg-resman`, `mg-tlk` and `zip` dependencies. The CLI and
+UI explicitly enable it. Fixture preparation tests (`live_build`,
+`measure_fixture`, `private_fixture`) require the feature; ordinary runtime
+integration tests remain available without it. Run the build unit tests with
+`cargo +1.98.0 test -p mg-live --features build -j 2`.
+
+`python tools/live/check-library.py --check-features` checks all targets both
+without features and with `build`, and checks both normal dependency trees.
+The feature-free tree additionally rejects the four preparation dependencies.
+This must run separately from workspace checks, whose feature unification
+would otherwise hide a missing dependency in the runtime-only variant.

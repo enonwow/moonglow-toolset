@@ -22,7 +22,7 @@ fastrand.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
 mg-area.workspace = true
-mg-live.workspace = true
+mg-live = { workspace = true, features = ["build"] }
 mg-audio.workspace = true
 mg-edit.workspace = true
 mg-image.workspace = true

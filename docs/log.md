@@ -1,5 +1,7 @@
 # Update log
 
+* **Optional Live preparation (2026-10-18)**: gated module preparation and its four dependencies behind `build`; CLI, UI and fixture tests opt in. Both feature variants have a CI check. [Library contract](live-library.md#optional-module-preparation).
+
 * **Headless Live object kinds (2026-10-18)**: moved the shared kind to core with an area re-export, a nine-row mapping regression and a renderer dependency guard. [Library contract](live-library.md).
 
 * **Discoverable NPC guidance (2026-10-16)**: first-level Live NPC context actions open the stable NPC card and Focus Memory, with player/DM exclusions and the Focus setting respected. [Click proof and pictures](live-mode-next.md#npc-card-and-memory-menu-2026-10-16).
