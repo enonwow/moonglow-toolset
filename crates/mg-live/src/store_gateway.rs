@@ -357,7 +357,7 @@ impl Gateway {
                         .log_rows(n)
                         .into_iter()
                         .filter(|e| {
-                            visible_event(e, &config, &s.owners)
+                            visible_event(e, &config)
                                 && (kinds.is_empty() || kinds.contains(&e.kind))
                         })
                         .collect();
@@ -416,7 +416,7 @@ impl Gateway {
                             limit: input["limit"].as_u64().unwrap_or(100).min(500) as usize,
                         };
                         return Ok(
-                            json!({"events":s.events.query_filtered(&q,|e|visible_event(e,&config,&s.owners)),"last":s.events.last(),"boot":s.boot}),
+                            json!({"events":s.events.query_filtered(&q,|e|visible_event(e,&config)),"last":s.events.last(),"boot":s.boot}),
                         );
                     }
                     crate::operations::call_scoped(
@@ -867,7 +867,7 @@ impl Gateway {
                 .events
                 .log_rows(session.event_n)
                 .into_iter()
-                .filter(|e| visible_event(e, &session.config, &s.owners))
+                .filter(|e| visible_event(e, &session.config))
                 .collect();
             out.push(Push::Events(Events { rows, through, lost }));
             session.event_n = through;
@@ -937,7 +937,7 @@ fn valid_id(id: &str, prefix: &str) -> bool {
 fn lost_since(log: &crate::events::EventLog, since: u64) -> u64 {
     log.last().saturating_sub(since).saturating_sub(log.log_rows(since).len() as u64)
 }
-fn visible_event(e: &Event, config: &SessionConfig, owners: &HashMap<String, String>) -> bool {
+fn visible_event(e: &Event, config: &SessionConfig) -> bool {
     if !config.has("read") {
         return false;
     }
@@ -949,12 +949,6 @@ fn visible_event(e: &Event, config: &SessionConfig, owners: &HashMap<String, Str
         && !config.has("read_tells")
     {
         return false;
-    }
-    if e.kind == "command" {
-        return e.data["id"].as_str().is_some_and(|id| owners.get(id) == Some(&config.id));
-    }
-    if e.kind == "skill_roll" {
-        return e.data["request"].as_str().is_some_and(|id| owners.get(id) == Some(&config.id));
     }
     true
 }
@@ -1127,4 +1121,36 @@ mod audit_tests {
         g.pushes("dm:one", RESULT_RETENTION_MS).unwrap();
         assert!(g.store.lock().gateway.sessions["dm:one"].completed.is_empty());
     }
+    #[test]
+    fn audit_m5_readers_share_command_log_but_results_remain_private() {
+        let g = setup();
+        let mut other = config();
+        other.id = "ai:two".into();
+        other.id_prefix = "two.".into();
+        other.groups = vec!["read".into()];
+        g.connect(other, None, &[], 0).unwrap();
+        assert_eq!(g.commands("dm:one", &[command(1)], 0).unwrap().accepted.len(), 1);
+        g.store
+            .sync(
+                serde_json::to_vec(&json!({"v":1,"boot":"boot","seq":2,
+            "events":[{"seq":1,"kind":"skill_roll","area":"a","request":"one.1234abcd.1"}],
+            "results":[{"id":"one.1234abcd.1","ok":true}]}))
+                .unwrap()
+                .as_slice(),
+                1,
+            )
+            .unwrap();
+        for id in ["dm:one", "ai:two"] {
+            let pushes = g.pushes(id, 1).unwrap();
+            let rows: Vec<_> = pushes
+                .iter()
+                .filter_map(|p| if let Push::Events(e) = p { Some(&e.rows) } else { None })
+                .flatten()
+                .collect();
+            assert!(rows.iter().any(|e| e.kind == "command"), "{id} misses shared command log");
+            assert!(rows.iter().any(|e| e.kind == "skill_roll"), "{id} misses shared roll");
+            assert_eq!(pushes.iter().any(|p| matches!(p, Push::Result(_))), id == "dm:one");
+        }
+    }
+
 }

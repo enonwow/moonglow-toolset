@@ -1,5 +1,7 @@
 # Update log
 
+* **Shared gateway command log (2026-10-18)**: Read sessions see command and skill-roll events from other principals; results stay owner-scoped. [Two-session regression](live-library.md#gateway-audit-invariants).
+
 * **Bounded gateway histories (2026-10-18)**: sliding request replay window, bounded completed IDs and fingerprinted mirror history with byte/time budgets. [Limits and regressions](live-library.md#gateway-audit-invariants).
 
 * **Desktop gateway verification (2026-10-18)**: 33 scoped tests pass; Clippy and formatting are clean. Retained reproduction covers TLS, mirror/resume, ACKs, hostile input and GUI facade contracts. [Results and limits](live-desktop-link.md#p2b-desktop-verification-2026-10-18).

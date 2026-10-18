@@ -386,3 +386,8 @@ Per-process counter high-water marks prevent retired IDs from becoming runnable
 again, including across a reset; at most 64 processes share an ID prefix. A new
 prefix requires pending work to be reset first. `audit_m4` tests exercise count,
 byte and time limits, reset cleanup, owner-map cleanup and replay refusal.
+
+Read-capable DM and AI sessions share command and skill-roll events, including
+other principals' actions. Result delivery remains scoped to its owning session;
+chat/tell capabilities remain separate. `audit_m5` checks both audiences with
+two sessions and a terminal command result.
