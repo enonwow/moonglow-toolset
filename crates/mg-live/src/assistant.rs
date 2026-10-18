@@ -236,7 +236,7 @@ impl LiveStore {
         text: Option<&str>,
         now_ms: u64,
     ) -> Result<String, CommandError> {
-        let (native, scope) = {
+        let (native, scope, original_command) = {
             let mut s = self.lock();
             let mut draft =
                 s.assistant.drafts.get(id).cloned().ok_or("Draft is no longer awaiting review")?;
@@ -279,8 +279,11 @@ impl LiveStore {
             s.assistant.sending.insert(native.id.clone(), Sending { draft, edited, access });
             s.assistant.revision += 1;
             // Keep the original submitted command for identical client retries.
-            debug_assert_eq!(s.accepted.get(id), Some(&original.command));
-            (native, scope)
+            debug_assert_eq!(
+                s.accepted.get(id),
+                Some(&super::command_fingerprint(&original.command))
+            );
+            (native, scope, original.command)
         };
         match self.enqueue_scoped(native.clone(), now_ms, &scope) {
             Ok(queued) => Ok(queued),
@@ -301,8 +304,7 @@ impl LiveStore {
                         return Err(error);
                     }
                     // A failed send remains editable/rejectable, but never silently retried.
-                    sending.draft.command =
-                        s.accepted.get(id).cloned().unwrap_or(sending.draft.command);
+                    sending.draft.command = original_command;
                     sending.draft.notice = Some(error.to_string());
                     s.assistant.drafts.insert(id.into(), sending.draft);
                     s.assistant.revision += 1;

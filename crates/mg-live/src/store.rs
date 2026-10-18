@@ -1767,7 +1767,7 @@ struct State {
     skill_waiting: HashMap<String, (Command, u64)>,
     next: u64,
     /// Retain operation identities independently of the short result history.
-    accepted: HashMap<String, Command>,
+    accepted: HashMap<String, [u8; 32]>,
     owners: HashMap<String, String>,
     audit: Option<Arc<crate::access::Audit>>,
     prefix: String,
@@ -2211,7 +2211,7 @@ impl LiveStore {
                     "Command id belongs to another client",
                 ));
             }
-            return if previous == &command {
+            return if previous == &command_fingerprint(&command) {
                 Ok(command.id)
             } else {
                 Err("Command id already belongs to a different operation".into())
@@ -2611,7 +2611,7 @@ impl LiveStore {
             }
         }
         let drafted = assistant::stage(&mut s, &command, scope, now_ms)?;
-        s.accepted.insert(id.clone(), command.clone());
+        s.accepted.insert(id.clone(), command_fingerprint(&command));
         s.owners.insert(id.clone(), scope.name.clone());
         if drafted {
             return Ok(id);
@@ -2751,6 +2751,22 @@ impl LiveStore {
 
         }))
     }
+}
+
+fn command_fingerprint(command: &Command) -> [u8; 32] {
+    fn canonical(value: Value) -> Value {
+        match value {
+            Value::Object(map) => {
+                let sorted: std::collections::BTreeMap<_, _> = map.into_iter().collect();
+                Value::Object(sorted.into_iter().map(|(k, v)| (k, canonical(v))).collect())
+            }
+            Value::Array(values) => Value::Array(values.into_iter().map(canonical).collect()),
+            value => value,
+        }
+    }
+    let value = canonical(serde_json::to_value(command).expect("command serializes"));
+    let bytes = serde_json::to_vec(&value).expect("canonical command serializes");
+    ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref().try_into().unwrap()
 }
 
 fn find_target<'a>(
@@ -3038,6 +3054,24 @@ mod ops_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepted_identity_is_fixed_size_and_payload_sensitive() {
+        let mut first: Command = serde_json::from_value(json!({"id":"large","area":"market",
+            "op":"spawn_json","x":1,"y":2,"z":0,"f":0,
+            "json":{"b":"x".repeat(200_000),"a":{"y":2,"x":1}}}))
+        .unwrap();
+        let mut reordered = serde_json::to_value(&first).unwrap();
+        reordered["json"]["a"] = serde_json::from_str(r#"{"x":1,"y":2}"#).unwrap();
+        let second: Command = serde_json::from_value(reordered).unwrap();
+        let hash = command_fingerprint(&first);
+        assert_eq!(hash, command_fingerprint(&second));
+        let mut state = State::default();
+        state.accepted.insert(first.id.clone(), hash);
+        assert_eq!(std::mem::size_of_val(state.accepted.get("large").unwrap()), 32);
+        first.area = "elsewhere".into();
+        assert_ne!(hash, command_fingerprint(&first));
+    }
 
     fn post(store: &LiveStore, body: Value, now: u64) -> Value {
         store.sync(body.to_string().as_bytes(), now).unwrap()

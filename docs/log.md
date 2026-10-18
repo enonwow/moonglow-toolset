@@ -1,5 +1,7 @@
 # Update log
 
+* **Compact Live identities (2026-10-18)**: canonical SHA-256 replaces retained command payloads in the accepted-ID table. [Contract](live-ops-wire.md#compact-accepted-command-identities-2026-10-18).
+
 * **Live game-read quotas (2026-10-18)**: asynchronous game queries now consume client quota on both HTTP routes. [Contract](live-ops-wire.md#game-read-quotas-2026-10-18).
 
 * **Bounded Live result reports (2026-10-18)**: 512 KiB batches, deferred receipts and bounded parser headroom; private engine proof passes. [Contract](live-ops-wire.md#report-result-budget-2026-10-18).

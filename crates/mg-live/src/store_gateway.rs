@@ -596,7 +596,7 @@ impl Gateway {
         if let Some(old) = s.accepted.get(&command_id) {
             let parsed: Command = serde_json::from_value(envelope.clone())
                 .map_err(|e| reject("invalid", &e.to_string()))?;
-            if old != &parsed {
+            if old != &command_fingerprint(&parsed) {
                 return Err(reject("conflict", "ID belongs to another command"));
             }
         }

@@ -3172,3 +3172,14 @@ client's quota, including get_variable, dump_locals and capture_object. Store
 status, event reads and waits remain unmetered. The API regression checks all
 three queries through both HTTP routes and confirms status remains available
 after exhaustion.
+
+## Compact accepted-command identities (2026-10-18)
+
+The authoritative accepted-ID table stores a 32-byte SHA-256 fingerprint,
+computed from recursively key-sorted command JSON. Client ownership stays
+in the owner table; lifecycle state stays in the bounded queue/result/draft
+collections. Large spawn payloads no longer remain in all 65,536 accepted
+entries. The active draft approval keeps its original command locally only
+for rollback on enqueue failure. A unit regression covers reordered JSON,
+payload sensitivity and the fixed-size retained value. Existing idempotency
+and assistant regressions verify retries and edited-draft behavior.
