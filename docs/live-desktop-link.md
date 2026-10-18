@@ -695,6 +695,14 @@ The stale-write regression checks CAS refusal directly: a book invalidation may
 legitimately arrive before the UI save click, so the test does not require a
 redundant stale request to appear in the frame trace.
 
+Scoped results: 745 UI tests passed, with 19 ignored. This combines 741 passing
+tests from the broad run with successful reruns of the four gateway UI targets
+after fixing their asynchronous wait helper and the book timing assumption.
+The selected existing link targets passed all 34 tests. All-target UI Clippy,
+the six manual UI targets and package formatting passed. The three gateway
+render tests passed; the final aligned book/AI capture was rerun and inspected.
+These are scoped results, not a claim that the entire workspace passed.
+
 The exact workspace test and Clippy commands were attempted during concurrent
 host work. Test compilation stopped on an unfinished translation-test delimiter;
 Clippy stopped on a missing JSON type annotation in the bridge. Their owners

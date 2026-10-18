@@ -1,5 +1,7 @@
 # Update log
 
+* **Desktop P3 scoped verification (2026-10-18)**: 745 UI tests and 34 link tests pass across the broad run and corrected target reruns; inspected PNGs and workspace limitations are recorded. [Results](live-desktop-link.md#p3-verification-and-limits).
+
 * **Gateway chat translation (2026-10-18)**: bounded priority/deadline pipeline, immediate Redis bridge, private engine interface and durable NUI language preferences. Nine focused Rust tests and both native WSL proofs pass; measurements and connected-client limits are explicit. [API, proof and reproduction](live-translations.md).
 
 * **Gateway book comparison proof (2026-10-18)**: saved and edited fields align, asynchronous UI waits handle absent controls, and rendered P3 flows document verification limits. [Reproduction and proof](live-desktop-link.md#p3-verification-and-limits).
