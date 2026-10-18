@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway GUI visual verification (2026-10-18)**: rendered and inspected Options, Focus, map presence, reconnect and unknown states; 738 UI tests pass, desktop transport/TLS regressions pass, scoped Clippy and formatting are clean. Full workspace snapshot limitations remain explicit. [Evidence and reproduction](live-desktop-link.md#gui-verification-2026-10-18).
+
 * **Gateway refusal regression (2026-10-18)**: the desktop facade test follows the implemented host operations and distinguishes permission denial, invalid book writes and unknown operations. Six transport/facade tests pass. [Current contract](live-desktop-link.md#protocol-contracts-and-pending-host-operations).
 
 * **Shared gateway TLS configuration (2026-10-18)**: export the pinned/WebPKI client configuration for workspace consumers; IP origins require explicit trust before credentials can be sent. Real TLS handshake regression passes. [API and test](live-desktop-link.md#reusing-gateway-tls).

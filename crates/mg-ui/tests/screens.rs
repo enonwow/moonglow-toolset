@@ -6,6 +6,81 @@
 #[path = "support/live_timing.rs"]
 mod live_timing;
 
+#[path = "support/gateway_ui.rs"]
+mod gateway_ui;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
+async fn live_gateway_connected() {
+    mg_testkit::gpu::hold();
+    let host = gateway_ui::host::Host::new().await;
+    gateway_ui::report(&host, 1, serde_json::json!([])).await;
+    let data = tempfile::tempdir().unwrap();
+    let mut app = gateway_ui::app(&host, data.path());
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280., 900.))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(gateway_ui::draw(), app);
+    gateway_ui::connected(&mut h).await;
+    gateway_ui::focus(&mut h);
+    gateway_ui::pump(&mut h, |_| {
+        host.frames().iter().any(|f| {
+            f["op"] == "focus.set" && f["a"]["objects"].as_array().is_some_and(|v| !v.is_empty())
+        })
+    })
+    .await;
+    gateway_ui::presence(&host, &mut h).await;
+    h.get_by_label("Guide · DM");
+    let dir = mg_testkit::output_dir("screens");
+    shoot(&mut h, &dir, "live-gateway-focus");
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "live-gateway-connected");
+    h.key_press(egui::Key::Escape);
+    host.drop_sockets();
+    gateway_ui::pump(&mut h, |app| {
+        app.live_backend().connection_status()["state"] == "reconnecting"
+    })
+    .await;
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "live-gateway-reconnecting");
+    h.key_press(egui::Key::Escape);
+    gateway_ui::connected(&mut h).await;
+    h.state_mut().live_focus.text = "Test reply".into();
+    h.run_steps(2);
+    h.get_by_label("Send reply").click();
+    gateway_ui::pump(&mut h, |_| {
+        host.store.commands(mg_live::now_ms())["commands"].as_array().is_some_and(|c| !c.is_empty())
+    })
+    .await;
+    let id = host.store.commands(mg_live::now_ms())["commands"][0]["id"].clone();
+    gateway_ui::report(
+        &host,
+        2,
+        serde_json::json!([{"id":id,"ok":false,"code":"unknown","err":"Outcome unknown"}]),
+    )
+    .await;
+    gateway_ui::pump(&mut h, |app| {
+        app.live.as_ref().unwrap().result(id.as_str().unwrap()).is_some()
+    })
+    .await;
+    h.get_by_label("Live").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "live-gateway-unknown");
+    h.key_press(egui::Key::Escape);
+    gateway_ui::presence(&host, &mut h).await;
+    h.get_by_label("Show on map").click();
+    h.run_steps(4);
+    h.get_by_label("Guide · DM / Scribe · AI");
+    shoot(&mut h, &dir, "live-gateway-markers");
+}
+
 use std::sync::Arc;
 
 use egui_kittest::Harness;

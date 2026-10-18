@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::sync::{Arc, mpsc};
 
 pub(crate) const SHARED_REASON: &str =
-    "This gateway does not yet support shared books, drafts or AI controls.";
+    "Shared books, drafts and AI controls are not available in this gateway UI yet.";
 
 pub(crate) struct GatewayRuntime {
     pub pending: Option<mpsc::Receiver<Result<LinkService, String>>>,

@@ -3,7 +3,7 @@ type: Reference
 title: Live desktop connection and authentication
 description: Desktop authentication, credentials, gateway transport and unified local/gateway GUI backend.
 tags: [live, gateway, authentication]
-generated: { by: codex, at: 2026-10-18T12:07:26Z }
+generated: { by: codex, at: 2026-10-18T13:31:58Z }
 sources:
   - ../crates/mg-live-link/src/lib.rs
   - ../crates/mg-live-link/src/login.rs
@@ -533,3 +533,58 @@ a mismatched pin and rejection of a self-signed certificate by public roots:
 ```sh
 cargo +1.98.0 test -p mg-live-link --test tls_config -j 2
 ```
+
+### GUI verification (2026-10-18)
+
+Rust 1.98.0 on Windows, `NWN_ROOT=/nonexistent`, `CARGO_INCREMENTAL=0`, at most
+`-j 2`:
+
+| Check | Result |
+| --- | --- |
+| `mg-ui --lib --tests` | 738 passed, 0 failed, 19 ignored; existing local UI tests unchanged |
+| `mg-live-link --lib --tests` | 34 final passing cases; the six transport tests were rerun after updating the obsolete unsupported-operation expectation |
+| `screens live_gateway -- --ignored` | 2 passed; all generated states visually inspected |
+| Clippy for both crates, all targets, `-D warnings` | Passed |
+| Clippy for manually named UI screen/performance tests | Passed |
+| Workspace `fmt --check` and scoped format checks | Passed |
+
+The exact workspace test command was also run. Its concurrent source snapshot
+stopped in `mg-live`: 427 passed, 3 failed, 4 ignored. The failing tests were
+`restart_rejects_reserved_ids_and_scopes_them_to_server_and_boot`,
+`ai_registry_is_checked_before_poll` and
+`audit_m5_readers_share_command_log_but_results_remain_private`. Workspace Clippy
+stopped on precedence in `store_history_tests.rs` and unused `Journal::contains`.
+The owners were notified and the subsequent full-workspace gate belongs to their
+ongoing changes; this record does not claim final workspace acceptance.
+
+The new GUI unit tests cover isolated gateway consent, sign-out retaining only a
+passive mirror, stable server Focus identity, unchanged local panel defaults and
+bounded actor labels. The in-process UI test covers mirror equality, the real
+Focus composer, boot/TTL command requests, result delivery, reconnect/recovery,
+DM/AI chips, persistent unknown outcomes and disabled shared controls. The screen
+harness also asserts the marker's accessible presence label before capture.
+
+Inspected after-images under `target/test-output/screens/`:
+`live-gateway-options.png`, `live-gateway-credential-error.png`,
+`live-gateway-focus.png`, `live-gateway-connected.png`,
+`live-gateway-reconnecting.png`, `live-gateway-unknown.png`, and
+`live-gateway-markers.png`. The wider gateway pane keeps the composer visible;
+connection/unknown text fits the menu and the map chip identifies both actors.
+The authored area intentionally has no game tiles or models, so these pictures
+prove GUI/mirror behavior, not game-asset rendering or a deployed server.
+No real Discord account or game server was used.
+
+Reproduce the final scoped checks with the environment above:
+
+```sh
+cargo +1.98.0 test -p mg-live-link -p mg-ui --lib --tests -j 2
+cargo +1.98.0 clippy -p mg-live-link -p mg-ui --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt -p mg-live-link -p mg-ui --check
+```
+
+Source fixtures, the before/after PNGs and compact verification records are
+retained for review. Superseded owned diagnostic logs are disposable after this
+record; the shared build cache and shared failed-gate evidence remain in use.
+No private data or rendered artifacts are committed. Frontmatter source paths
+and Markdown targets were checked; the OKF executable was unavailable, so no
+OKF CLI validation is claimed.

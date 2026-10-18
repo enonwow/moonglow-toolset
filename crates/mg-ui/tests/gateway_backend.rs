@@ -96,5 +96,7 @@ async fn gateway_gui_mirror_command_presence_reconnect_and_unknown() {
     h.key_press(egui::Key::Escape);
     h.state_mut().actions.push(Action::OpenTab(Tab::LiveGmCard));
     h.run_steps(3);
-    h.get_by_label("This gateway does not yet support shared books, drafts or AI controls.");
+    h.get_by_label(
+        "Shared books, drafts and AI controls are not available in this gateway UI yet.",
+    );
 }
