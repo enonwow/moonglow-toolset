@@ -16,8 +16,12 @@ sources:
   - ../crates/mg-live-link/tests/link.rs
   - ../crates/mg-live-link/tests/tls_config.rs
   - ../crates/mg-ui/src/live_backend.rs
+  - ../crates/mg-ui/src/live_book.rs
   - ../crates/mg-ui/src/live_ai.rs
+  - ../crates/mg-ui/src/live_drafts.rs
+  - ../crates/mg-ui/tests/gateway_book.rs
   - ../crates/mg-ui/tests/gateway_ai.rs
+  - ../crates/mg-ui/tests/gateway_drafts.rs
   - ../crates/mg-ui/tests/gateway_backend.rs
   - ../crates/mg-ui/tests/support/gateway_ui.rs
   - ../crates/mg-ui/tests/screens.rs
@@ -277,7 +281,7 @@ comes from the entry identified by `server_id`; it is never a URL parameter or
 serialized configuration field. `store()` returns the shared mirror; `snapshot()`
 returns connection, account, drafts, presence, notices and book invalidations.
 `PendingCall::try_recv` and the wake callback support egui without blocking it.
-The GUI remains on `LiveService` until the separate P2b integration change.
+The GUI uses the unified backend described below; local servers retain `LiveService`.
 
 The normative [gateway protocol](live-gateway-protocol.md) distinguishes `u32`
 request IDs, unique on each connection, from game command IDs. The passive store
@@ -421,16 +425,14 @@ for shared writes and AI controls. Newer host handlers now exist (see
 [live-library.md](live-library.md#gateway-shared-requests)). The facade regression
 therefore checks explicit refusals: `Forbidden` for consent without permission,
 `Rejected` for a write without a configured book, and `Unsupported` for an
-unknown operation. These refusals never become local success. GUI shared
-controls remain disabled pending their complete revision-aware integration;
-adding a host handler alone does not enable an unfinished desktop workflow.
+unknown operation. These refusals never become local success. The P3 desktop integration below adds revision-aware shared books and draft decisions.
+Adding a host handler alone never enables an unfinished desktop workflow.
 
 Book identities are now defined: NPC keys are the store's `tag:`/`resref:` ids,
 the GM key is empty, and note keys are derived per object. Actors carry `id`,
 `kind` (`dm`/`ai`), `name`, nullable `avatar`, `owner` and `area`. Focus maps object
-ids to actor ids. LLM consent starts off. The GUI keeps book, draft-decision and
-AI/consent controls disabled with an explicit reason until host handlers and
-revision-bearing reads are available. No action silently writes a local book
+ids to actor ids. LLM consent starts off. The P3 GUI uses the revision-bearing reads and asynchronous decisions described
+below. Missing per-AI consent/avatar hooks remain explicit. No action silently writes a local book
 while displaying a gateway mirror.
 
 ### P2b desktop verification (2026-10-18)
@@ -479,9 +481,9 @@ the message explains that the command may have run. Presence chips show names
 and DM/AI roles in Focus and on map markers. They fetch no external avatars and
 never represent locks. Gateway tools open a wider default right pane so Focus
 keeps its two columns and composer visible; the local split is unchanged.
-The global AI switch starts off and remains disabled
-until the shared operations have a complete GUI integration, even if a newer
-host has already added handlers.
+The local global AI switch is disabled in gateway mode. Live > AI agents owns
+remote AI management; per-AI consent requires an explicit host capability so an
+older owner-wide endpoint cannot silently grant access to every AI.
 
 The integration test uses `mg-gateway` in-process behind an ephemeral loopback
 TLS proxy, sharing the authored `mg-live-link` fixture. A temporary authored
@@ -600,6 +602,48 @@ or failure. Regression tests exercise both values of `ok`:
 `cargo +1.98.0 test -p mg-ui --lib -j 2 unknown_` (with `NWN_ROOT=/nonexistent`
 and `CARGO_INCREMENTAL=0`) passes four matching tests, including both new cases.
 
+## Gateway shared editors (P3)
+
+`live_book.rs` keeps server-scoped editor state separately from the passive game
+mirror. NPC and GM reads return a card and revision; area notes return text plus
+canonical per-object keys and revisions. An absent note text is empty, not a
+missing key. All saves use `book.put` with the last read `if_rev`. No gateway
+editor writes the local assistant directory.
+
+A book push or a new connection invalidates the read cache. Clean editors reload;
+dirty editors keep their text and show both versions if the key or revision has
+changed. A CAS rejection also fetches the newer version. **Keep mine** submits
+against that newer revision (and can conflict again); **Take newer** discards
+only the current unsaved edit. Save errors are displayed and never automatically
+retried. **Reload to verify** permits an explicit read after an uncertain result.
+
+The `gateway_book` UI regression passes against the in-process TLS host. It
+covers push invalidation, keeping the local edit, an actual stale-revision CAS
+rejection, taking the newer version, canonical NPC keys and saving an initially
+empty note from Focus. Two unit cases cover dirty-version preservation and note
+response validation. The fixture keeps the Live area watched and closes its
+floating chat before editing; otherwise that unrelated window occludes card
+buttons. Render assertions also require the conflict to disappear after resolution.
+
+Draft decisions use the [gateway review flow](#gateway-draft-review).
+
+## Gateway AI management
+
+Live > AI agents (also the gateway toolbar and Options > My AI) lists authorized
+AIs, creates them, updates names and revokes credentials. Creation displays the
+credential once with Copy and an explicit reminder; acknowledging or closing
+the window drops the in-memory display. List/refresh cannot retrieve it. No
+credential is written to settings or application logs. New AIs start with consent
+off. The current host's `llm.allow {on}` affects every AI of the owner, so the
+per-AI checkbox stays disabled until the host explicitly advertises an id-scoped
+operation. The current identity schema also lacks an avatar update field; this
+requires a host contract before the desktop can safely expose it.
+
+The `gateway_ai` in-process UI regression passes: create, copy, close/reopen
+without redisplaying the token, update and revoke. The initial test caught an
+automatic list refresh clearing the saved-status message; refresh now preserves
+that message. Credentials never enter the application log.
+
 ## Readable Focus presence
 
 Focus chips now use the same font policy as map chips (the normal small font,
@@ -619,20 +663,3 @@ outstanding. Local draft decisions retain their existing store path.
 owner-only versus admin visibility, edited approval, admin rejection and owner
 rejection. The in-process TLS host regression passes. No real AI account, game
 server or credential store is needed.
-
-## Gateway AI management
-
-Live > AI agents (also the gateway toolbar and Options > My AI) lists authorized
-AIs, creates them, updates names and revokes credentials. Creation displays the
-credential once with Copy and an explicit reminder; acknowledging or closing
-the window drops the in-memory display. List/refresh cannot retrieve it. No
-credential is written to settings or application logs. New AIs start with consent
-off. The current host's `llm.allow {on}` affects every AI of the owner, so the
-per-AI checkbox stays disabled until the host explicitly advertises an id-scoped
-operation. The current identity schema also lacks an avatar update field; this
-requires a host contract before the desktop can safely expose it.
-
-The `gateway_ai` in-process UI regression passes: create, copy, close/reopen
-without redisplaying the token, update and revoke. The initial test caught an
-automatic list refresh clearing the saved-status message; refresh now preserves
-that message. Credentials never enter the application log.

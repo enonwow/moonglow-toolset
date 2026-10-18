@@ -34,9 +34,9 @@ async fn gateway_gui_mirror_command_presence_reconnect_and_unknown() {
     .await;
     presence(&host, &mut h).await;
     h.get_by_label("Guide · DM");
-    assert!(h.get_by_label("Guide · DM").rect().height() >= 11.);
     h.get_by_label("Scribe · AI");
-    assert!(h.get_by_label("NPC card").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("NPC card").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Guide · DM").rect().height() >= 11.);
     h.state_mut().live_focus.text = "A test greeting".into();
     h.run_steps(2);
     assert!(!h.get_by_label("Send reply").accesskit_node().is_disabled());
@@ -97,7 +97,5 @@ async fn gateway_gui_mirror_command_presence_reconnect_and_unknown() {
     h.key_press(egui::Key::Escape);
     h.state_mut().actions.push(Action::OpenTab(Tab::LiveGmCard));
     h.run_steps(3);
-    h.get_by_label(
-        "Shared books, drafts and AI controls are not available in this gateway UI yet.",
-    );
+    h.get_by_label("Shared with authorized DMs on this server. Changes are checked against the saved revision.");
 }

@@ -39,6 +39,7 @@ mod live_areas;
 pub mod live_assistant;
 mod live_atmosphere;
 pub mod live_backend;
+mod live_book;
 pub mod live_chat;
 mod live_clients;
 pub mod live_clipboard;
@@ -610,6 +611,7 @@ pub struct Moonglow {
     pub live_chat: live_chat::LiveChat,
     pub live_drafts: live_drafts::LiveDrafts,
     pub live_assistant: live_assistant::LiveAssistant,
+    live_books: live_book::Books,
     live_ai: live_ai::Agents,
     pub live_focus: live_focus::LiveFocus,
     pub live_scene: live_scene::LiveScene,
@@ -871,6 +873,7 @@ impl Moonglow {
             live_chat: Default::default(),
             live_drafts: Default::default(),
             live_assistant: Default::default(),
+            live_books: Default::default(),
             live_ai: Default::default(),
             live_focus: Default::default(),
             live_scene: Default::default(),

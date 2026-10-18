@@ -8,9 +8,8 @@ struct Editor {
     notice: Option<String>,
 }
 pub(crate) fn editor(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
-    if let Some(reason) = app.live_backend().shared_reason() {
-        ui.add_enabled(false, egui::Button::new("Shared book")).on_disabled_hover_text(reason);
-        ui.weak(reason);
+    if app.live_backend().is_gateway() {
+        crate::live_book::ui(app, ui, crate::live_book::Target::Note(id.into()));
         return;
     }
     let Some(store) = app.live.clone() else { return };

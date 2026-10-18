@@ -84,9 +84,14 @@ fn field(ui: &mut egui::Ui, label: &str, text: &mut String, rows: usize) -> bool
     .changed()
 }
 pub(crate) fn card(app: &mut Moonglow, ui: &mut egui::Ui, target: Option<&str>) {
-    if let Some(reason) = app.live_backend().shared_reason() {
-        ui.add_enabled(false, egui::Button::new("Shared book")).on_disabled_hover_text(reason);
-        ui.weak(reason);
+    if app.live_backend().is_gateway() {
+        crate::live_book::ui(
+            app,
+            ui,
+            target.map_or(crate::live_book::Target::Gm, |id| {
+                crate::live_book::Target::Npc(id.into())
+            }),
+        );
         return;
     }
     ui.heading(if target.is_some() { "NPC card" } else { "GM card" });
@@ -187,10 +192,7 @@ pub(crate) fn npc_button(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
     });
     if allowed
         && ui
-            .add_enabled(
-                app.live_backend().shared_reason().is_none(),
-                egui::Button::new("NPC card").small(),
-            )
+            .add_enabled(true, egui::Button::new("NPC card").small())
             .on_disabled_hover_text(crate::live_backend::SHARED_REASON)
             .on_hover_text(
                 "Edit this NPC's identity, knowledge, secrets and voice for the assistant.",
@@ -201,7 +203,8 @@ pub(crate) fn npc_button(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
     }
 }
 pub(crate) fn open_npc_card(app: &mut Moonglow, id: &str) {
-    if app.live_backend().shared_reason().is_some() {
+    if app.live_backend().is_gateway() {
+        app.actions.push(Action::OpenTab(Tab::LiveNpcCard(id.into())));
         return;
     }
     let Some(store) = &app.live else { return };
@@ -211,9 +214,8 @@ pub(crate) fn open_npc_card(app: &mut Moonglow, id: &str) {
     }
 }
 pub(crate) fn memory(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
-    if let Some(reason) = app.live_backend().shared_reason() {
-        ui.add_enabled(false, egui::Button::new("Shared book")).on_disabled_hover_text(reason);
-        ui.weak(reason);
+    if app.live_backend().is_gateway() {
+        ui.weak("Gateway conversation history is not available in this view yet.");
         return;
     }
     ui.weak("Saved NPC/player history. Nearby lines use reported positions; they do not prove who heard them.");
