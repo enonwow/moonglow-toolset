@@ -125,7 +125,7 @@ fn managed_ai_tokens_are_owned_hashed_and_require_both_consents() {
     let id = created["ai"]["id"].as_str().unwrap();
     assert!(token.starts_with("mgai_"));
     assert_eq!(created["ai"]["owner"], "dm:one");
-    assert_eq!(created["ai"]["llm_allowed"], false);
+    assert_eq!(created["ai"]["llm"], false);
     assert!(g.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
     g.set_llm_enabled(true);
     assert!(g.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
@@ -138,7 +138,7 @@ fn managed_ai_tokens_are_owned_hashed_and_require_both_consents() {
     assert!(request(&g, "dm:two", "ai.revoke", json!({"id":id})).is_err());
     let list = request(&g, "dm:one", "ai.list", json!({})).unwrap();
     assert!(!list.to_string().contains(token));
-    assert_eq!(request(&g, "dm:two", "ai.list", json!({})).unwrap()["items"], json!([]));
+    assert_eq!(request(&g, "dm:two", "ai.list", json!({})).unwrap(), json!([]));
     request(&g, "dm:one", "ai.update", json!({"id":id,"name":"Renamed","groups":["read"]}))
         .unwrap();
     assert_eq!(g.authenticate_ai(token, Some(owner.clone()), 1000).unwrap().name, "Renamed");

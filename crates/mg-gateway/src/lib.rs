@@ -24,7 +24,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{fmt::Debug, sync::Arc};
 
-pub use mg_live::gateway::Principal;
+pub use mg_live::gateway::{IdentityDisabled, IdentityObserver, Principal};
 /// Called on blocking workers, on upgrade and again while the connection is alive.
 /// Never include a credential in an error or Debug output.
 pub trait Authenticator: Debug + Send + Sync + 'static {

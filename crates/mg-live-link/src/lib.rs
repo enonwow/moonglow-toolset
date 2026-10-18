@@ -19,3 +19,6 @@ pub use tls::{TrustPrompt, fingerprint};
 
 /// Blocking, cancellable NWSync download API for GUI job workers.
 pub mod resources;
+
+/// Typed identity response decoding for the gateway owner controls.
+pub mod identities;

@@ -9,6 +9,17 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Debug)]
+struct CancelUnpublished(Arc<LiveStore>);
+impl mg_gateway::IdentityObserver for CancelUnpublished {
+    fn disabled(&self, id: &str, reason: mg_gateway::IdentityDisabled) {
+        let reason = match reason {
+            mg_gateway::IdentityDisabled::Revoked => "AI revoked",
+            mg_gateway::IdentityDisabled::ConsentWithdrawn => "AI consent withdrawn",
+        };
+        self.0.revoke_owner(id, reason);
+    }
+}
 #[derive(Debug, Parser)]
 #[command(
     about = "Loopback-only Live gateway; credentials come from a private JSON file or MOONGLOW_GATEWAY_TOKEN"
@@ -60,6 +71,8 @@ struct Credential {
     owner: Option<String>,
     #[serde(default)]
     llm_allowed: bool,
+    #[serde(default)]
+    avatar: Option<String>,
 }
 #[derive(Default)]
 struct StaticAuth {
@@ -136,6 +149,7 @@ impl Config {
                 token: std::mem::take(&mut self.token),
                 owner: None,
                 llm_allowed: false,
+                avatar: None,
                 principal: Principal {
                     id: "dm:dev".into(),
                     name: "Developer".into(),
@@ -220,8 +234,10 @@ async fn run() -> Result<(), String> {
                     },
                     &credential.token,
                 )?;
+                g.set_ai_avatar(&credential.principal.id, credential.avatar.as_deref())?;
             }
         }
+        g.set_identity_observer(Arc::new(CancelUnpublished(g.store().clone())));
         g.set_llm_enabled(enabled);
         Ok(())
     })

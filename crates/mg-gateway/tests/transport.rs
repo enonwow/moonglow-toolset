@@ -696,7 +696,7 @@ async fn managed_ai_requests_enforce_ownership_consent_and_revoke_both_transport
     let (mut ai, welcome) = connect(&url, vec![], None, &token).await;
     assert_eq!(welcome["user"]["id"], id);
     assert_eq!(call(&mut dm, 4, "ai.update", json!({"id":id,"name":"Updated"})).await["ok"], true);
-    assert_eq!(call(&mut dm, 5, "ai.list", json!({})).await["r"]["items"][0]["name"], "Updated");
+    assert_eq!(call(&mut dm, 5, "ai.list", json!({})).await["r"][0]["name"], "Updated");
     assert_eq!(call(&mut dm, 6, "ai.revoke", json!({"id":id})).await["ok"], true);
     assert_eq!(http(&app, &token).await, 401);
     let mut r = request(&url);

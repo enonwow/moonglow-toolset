@@ -191,8 +191,8 @@ accepted ──► pending ──► final
 | `call` | `{"op","input"}` | operation result | read-only operations only (allow-list from the catalogue: `find`, `status`, `npc_card`, `gm_card`, `npc_memory`, `area_notes`, `events` without waiting, …) |
 | `book.put` | `{"kind","key","value","if_rev"}` | `{"rev"}` | stale `if_rev` → `conflict` |
 | `draft.decide` | `{"id","text"\|null}` | `{"result"}` | only drafts of the caller's own AIs, or admin |
-| `ai.list` / `ai.create` / `ai.update` / `ai.revoke` | | | `ai.create` returns the `mgai_` token once |
-| `llm.allow` | `{"on":bool}` | `{}` | the caller's own AIs; the global switch is the panel's |
+| `ai.list` / `ai.create` / `ai.update` / `ai.revoke` | create/update: `{"name","avatar"?}` (+id for update/revoke) | list: `[{id,name,owner,avatar,llm}]` | HTTPS avatar or null; create returns `{ai,token}` once |
+| `llm.allow` | `{"id"?,"on":bool}` | `{"ids":[...]}` | one/all owned AIs; admin may select another owner's AI; global switch belongs to the host |
 | `events.since` | `{"n","limit","kinds"}` | `{"rows","through","lost"}` | paging older events |
 
 ## 8. Resume and restarts
@@ -241,3 +241,76 @@ manifest/blobs are available under `/files/v1/manifests/<sha1>` and
 The complete field definitions, identity calculation, download limits and atomic
 activation rules are in [Live resource generations](live-resource-generations.md#descriptor-and-wire-extension).
 This additive optional field does not change protocol/mirror versions or the game wire.
+
+
+## Audited gateway boundaries and identity wire
+
+The shared command/skill action log is an allowlist of `actor`, `op`, `target`,
+`area`, `time` and `outcome`. Other readers receive no result value, error text,
+draft text or nested payload. Full events remain available to their issuer,
+the owning DM with `approve_drafts`, and admins. Pushes, `events.since`, scoped
+HTTP event reads and `call/events` use the same projection. Text matching happens
+**after** projection, so searching private text cannot reveal that it exists.
+Events without action metadata use null for unavailable fields. Command result
+and draft producers should call `EventLog::command_action` with the accepted
+command to preserve its operation and target without copying command text.
+The game's result wire and owner-scoped result outbox are unchanged.
+
+`PolicyResolver::command_limit` is copied into the store's scoped acceptance
+path for HTTP, WebSocket commands and draft approvals. Host authentication
+refreshes it; the approval path refreshes the proposing AI's limit. This does
+not replace the shared game-operation budget or reset counters on reconnect.
+
+File downloads reserve global and per-principal slots until the response body
+finishes or is dropped. Defaults are 16 global, four per principal and 64 MiB
+of outstanding payload bytes. A saturated budget returns HTTP 429. Bodies use
+32 KiB asynchronous reads with transport backpressure and a fixed file length;
+no complete 17 MiB blob is buffered per request. Hosts may configure
+`Publisher::with_download_limits` with positive `DownloadLimits`.
+
+AI capacity counts active credentials: at most 16 per owner and 256 globally.
+Revoked records are retained for at most one day and at most 64 records; expired
+records are removed. Deleted token digests are unknown and cannot authenticate.
+Static `install_ai` import is a bootstrap operation: an existing persisted
+registry or any owner API mutation seals it. This prevents a configured old token
+from being reimported after its revoked record has been pruned; new credentials
+then come from `ai.create`. Operators must remove obsolete static credentials
+from host configuration rather than reset the registry to bypass revocation.
+
+The identity request contract is:
+
+- `ai.list` returns the array `[{id,name,owner,avatar,llm}]` directly.
+- `ai.create` and `ai.update` accept optional `avatar`: an HTTPS URL or null.
+  Omitting it on update preserves the previous value; null clears it.
+  `ai.create` returns `{ai,token}` once; only the token digest is persisted.
+- `llm.allow {id?,on}` returns `{ids}` for the affected active identities.
+  With no id it selects the caller's own AIs. An admin can select another
+  owner's AI explicitly. A new AI starts off; the host global switch still
+  overrides per-AI consent.
+- Presence and welcome copy the managed AI avatar; updates invalidate presence.
+
+Hosts register `Gateway::set_identity_observer(Arc<dyn IdentityObserver>)`
+through `CoreHandle::with_gateway`. `IdentityObserver::disabled(principal, reason)`
+receives `IdentityDisabled::Revoked` or `IdentityDisabled::ConsentWithdrawn` after
+a successful registry save and after the store lock is released. Implementations
+may call `LiveStore::revoke_owner` directly to cancel unpublished work; they must
+not retain credentials or log private draft text. The callback runs on the
+blocking request worker. The dev host supplies this cancellation observer.
+
+Regression commands use Rust 1.98.0, `CARGO_INCREMENTAL=0`, a nonexistent
+`NWN_ROOT` and at most two jobs:
+
+```text
+cargo +1.98.0 test -p mg-live -p mg-gateway -p mg-live-link -p mg-gateway-dev --lib --bins --tests -j 2
+cargo +1.98.0 clippy -p mg-live -p mg-gateway -p mg-live-link -p mg-gateway-dev --all-targets -j 2 -- -D warnings
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+On restricted Windows runners, the curl/Schannel integration may fail with
+`SEC_E_NO_CREDENTIALS`. Record this as a failed gate, separately from a diagnostic
+rerun using `-- --skip api::tests::real_tls_status_command_and_stop`; that rerun
+is not a substitute for the full test on a runner with working credentials.
+These changes require no game server. Native transport handoff verification is
+owned separately and **needs WSL run**; it is not claimed by these in-process tests.

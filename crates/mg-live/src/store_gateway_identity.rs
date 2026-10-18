@@ -37,6 +37,42 @@ impl Principal {
         Ok(scope)
     }
 }
+/// Wire identity summary. Credential digests and internal capabilities never enter this DTO.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiSummary {
+    pub id: String,
+    pub name: String,
+    pub owner: String,
+    pub avatar: Option<String>,
+    pub llm: bool,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityDisabled {
+    Revoked,
+    ConsentWithdrawn,
+}
+/// Called after durable registry mutation, with no store lock held.
+pub trait IdentityObserver: std::fmt::Debug + Send + Sync + 'static {
+    fn disabled(&self, principal: &str, reason: IdentityDisabled);
+}
+fn avatar(value: Option<&Value>) -> Result<Option<String>, FrameError> {
+    let Some(value) = value.filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let text = value
+        .as_str()
+        .filter(|s| s.len() <= 2048 && !s.chars().any(char::is_whitespace))
+        .ok_or_else(|| invalid("Invalid avatar URL"))?;
+    let url = url::Url::parse(text).map_err(|_| invalid("Invalid avatar URL"))?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(invalid("Avatar must be an HTTPS URL without credentials"));
+    }
+    Ok(Some(url.to_string()))
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiIdentity {
     pub id: String,
@@ -52,8 +88,21 @@ struct AiRecord {
     revoked: bool,
     #[serde(default)]
     retired_ms: u64,
+    #[serde(default)]
+    avatar: Option<String>,
     identity: AiIdentity,
     hash: [u8; 32],
+}
+impl AiRecord {
+    fn summary(&self) -> AiSummary {
+        AiSummary {
+            id: self.identity.id.clone(),
+            name: self.identity.name.clone(),
+            owner: self.identity.owner.clone(),
+            avatar: self.avatar.clone(),
+            llm: self.identity.llm_allowed,
+        }
+    }
 }
 #[derive(Debug, Default)]
 pub(super) struct Identities {
@@ -161,6 +210,23 @@ impl Identities {
     }
 }
 impl Gateway {
+    pub fn set_identity_observer(&self, observer: Arc<dyn IdentityObserver>) {
+        *self.identity_observer.lock().unwrap_or_else(|e| e.into_inner()) = Some(observer);
+    }
+    pub fn ai_avatar(&self, id: &str) -> Option<String> {
+        self.store.lock().gateway.identities.ais.get(id).and_then(|a| a.avatar.clone())
+    }
+    /// Bootstrap display metadata for a trusted imported identity.
+    pub fn set_ai_avatar(&self, id: &str, value: Option<&str>) -> Result<(), String> {
+        let value = avatar(Some(&json!(value))).map_err(|e| e.to_string())?;
+        let mut s = self.store.lock();
+        let mut ais = s.gateway.identities.ais.clone();
+        let ai = ais.get_mut(id).filter(|a| !a.revoked).ok_or("Unknown AI")?;
+        ai.avatar = value;
+        s.gateway.identities.save(&ais).map_err(|e| e.to_string())?;
+        s.gateway.identities.ais = ais;
+        Ok(())
+    }
     /// Trusted host quota. Kept separately from request data and checked at final acceptance.
     pub fn set_command_limit(&self, principal: &str, limit: u32) -> Result<(), String> {
         Scope::restricted(principal, vec![], DeliveryMode::Auto).with_command_limit(limit)?;
@@ -207,6 +273,8 @@ impl Gateway {
         if ais.len() > ACTIVE_AI_GLOBAL + RETIRED_AI
             || ais.iter().any(|(id, a)| {
                 id != &a.identity.id
+                    || !id.starts_with("ai:")
+                    || avatar(Some(&json!(a.avatar))).is_err()
                     || !a.identity.owner.starts_with("dm:")
                     || Principal {
                         id: id.clone(),
@@ -270,7 +338,9 @@ impl Gateway {
         }
         let mut s = self.store.lock();
         if s.gateway.identities.imports_sealed {
-            return Err("Static AI import is sealed; create credentials through the owner API".into());
+            return Err(
+                "Static AI import is sealed; create credentials through the owner API".into()
+            );
         }
         let mut ais = s.gateway.identities.ais.clone();
         prune(&mut ais, crate::now_ms());
@@ -282,7 +352,7 @@ impl Gateway {
         }
         ais.insert(
             identity.id.clone(),
-            AiRecord { retired_ms: 0, revoked: false, identity, hash: digest(token) },
+            AiRecord { retired_ms: 0, avatar: None, revoked: false, identity, hash: digest(token) },
         );
         s.gateway.identities.save(&ais).map_err(|e| e.to_string())?;
         s.gateway.identities.ais = ais;
@@ -332,13 +402,20 @@ impl Gateway {
         let mut s = self.store.lock();
         let identities = &mut s.gateway.identities;
         if op == "ai.list" {
-            return Ok(
-                json!({"items":identities.ais.values().filter(|v|!v.revoked && (v.identity.owner==config.id || config.has("admin"))).map(|v|&v.identity).collect::<Vec<_>>() }),
-            );
+            return Ok(json!(
+                identities
+                    .ais
+                    .values()
+                    .filter(|v| !v.revoked
+                        && v.identity.expires_ms > now
+                        && (v.identity.owner == config.id || config.has("admin")))
+                    .map(AiRecord::summary)
+                    .collect::<Vec<_>>()
+            ));
         }
         let mut ais = identities.ais.clone();
         prune(&mut ais, now);
-        let mut revoked = None;
+        let mut disabled = Vec::new();
         let result = match op {
             "ai.create" => {
                 if !capacity(&ais, &config.id) {
@@ -378,19 +455,46 @@ impl Gateway {
                     id,
                     AiRecord {
                         retired_ms: 0,
+                        avatar: None,
                         revoked: false,
                         identity: identity.clone(),
                         hash: digest(&token),
                     },
                 );
-                json!({"ai":identity,"token":token})
+                let ai = ais.get_mut(&identity.id).expect("inserted identity");
+                ai.avatar = avatar(a.get("avatar"))?;
+                json!({"ai":ai.summary(),"token":token})
             }
             "llm.allow" => {
                 let on = a["on"].as_bool().ok_or_else(|| invalid("Expected boolean on"))?;
-                for ai in ais.values_mut().filter(|ai| ai.identity.owner == config.id) {
-                    ai.identity.llm_allowed = on;
+                let selected = match a.get("id") {
+                    None => None,
+                    Some(v) => Some(
+                        v.as_str()
+                            .filter(|s| !s.is_empty())
+                            .ok_or_else(|| invalid("Invalid AI id"))?,
+                    ),
+                };
+                if let Some(id) = selected {
+                    let ai = ais.get(id).filter(|a| !a.revoked).ok_or_else(forbidden)?;
+                    if ai.identity.owner != config.id && !config.has("admin") {
+                        return Err(forbidden());
+                    }
                 }
-                json!({})
+                let mut ids = Vec::new();
+                for (id, ai) in ais.iter_mut().filter(|(id, ai)| {
+                    !ai.revoked
+                        && selected.map_or(ai.identity.owner == config.id, |selected| {
+                            selected == id.as_str()
+                        })
+                }) {
+                    ai.identity.llm_allowed = on;
+                    ids.push(id.clone());
+                    if !on {
+                        disabled.push((id.clone(), IdentityDisabled::ConsentWithdrawn));
+                    }
+                }
+                json!({"ids":ids})
             }
             "ai.update" | "ai.revoke" => {
                 let id = a["id"].as_str().ok_or_else(|| invalid("Missing AI id"))?;
@@ -402,7 +506,7 @@ impl Gateway {
                     ai.revoked = true;
                     ai.retired_ms = now;
                     ai.identity.llm_allowed = false;
-                    revoked = Some(id.to_owned());
+                    disabled.push((id.to_owned(), IdentityDisabled::Revoked));
                     json!({})
                 } else {
                     if ai.revoked {
@@ -415,6 +519,9 @@ impl Gateway {
                             .ok_or_else(|| invalid("Invalid AI name"))?
                             .into();
                     }
+                    if a.get("avatar").is_some() {
+                        ai.avatar = avatar(a.get("avatar"))?;
+                    }
                     if a.get("groups").is_some() {
                         ai.identity.groups = groups(a.get("groups"))?;
                     }
@@ -425,7 +532,7 @@ impl Gateway {
                             .ok_or_else(|| invalid("Invalid expiry"))?;
                         ai.identity.expires_ms = expiry;
                     }
-                    json!({"ai":ai.identity})
+                    json!({"ai":ai.summary()})
                 }
             }
             _ => return Err(invalid("Unknown identity operation")),
@@ -435,10 +542,32 @@ impl Gateway {
         identities.ais = ais;
         identities.imports_sealed = true;
         s.agent_epoch += 1;
-        if let Some(id) = revoked {
-            s.gateway.sessions.remove(&id);
+        // Update online display metadata immediately, independently of focus changes.
+        let display: Vec<_> = s.gateway.identities.ais.values().map(AiRecord::summary).collect();
+        let mut presence_changed = false;
+        for ai in display {
+            if let Some(session) = s.gateway.sessions.get_mut(&ai.id)
+                && (session.actor["name"] != ai.name || session.actor["avatar"] != json!(ai.avatar))
+            {
+                session.actor["name"] = json!(ai.name);
+                session.actor["avatar"] = json!(ai.avatar);
+                presence_changed = true;
+            }
+        }
+        for (id, _) in &disabled {
+            presence_changed |= s.gateway.sessions.remove(id).is_some();
             s.gateway.generation += 1;
+        }
+        if presence_changed {
             s.gateway.presence_rev += 1;
+        }
+        s.events.changed.notify_all();
+        drop(s);
+        let observer = self.identity_observer.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(observer) = observer {
+            for (id, reason) in disabled {
+                observer.disabled(&id, reason);
+            }
         }
         Ok(result)
     }
@@ -555,5 +684,148 @@ mod retention_audit_tests {
         );
         let other = SessionConfig { id: "dm:other".into(), ..c };
         assert!(g.identity_request(&other, "ai.create", &json!({"name":"Writer"}), 0).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod consent_wire_tests {
+    use super::*;
+    #[test]
+    fn per_ai_consent_avatar_and_list_wire_are_isolated_and_validated() {
+        let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+        let c = SessionConfig {
+            id: "dm:owner".into(),
+            id_prefix: "owner.".into(),
+            groups: vec!["read".into(), "manage_ai".into(), "allow_llm".into()],
+            watch_limit: 16,
+        };
+        let a = g
+            .identity_request(
+                &c,
+                "ai.create",
+                &json!({"name":"A","avatar":"HTTPS://EXAMPLE.INVALID/a.png"}),
+                0,
+            )
+            .unwrap();
+        let b = g.identity_request(&c, "ai.create", &json!({"name":"B"}), 0).unwrap();
+        let id = &a["ai"]["id"];
+        assert_eq!(a["ai"]["avatar"], "https://example.invalid/a.png");
+        assert_eq!(a["ai"]["llm"], false);
+        assert_eq!(
+            g.identity_request(&c, "llm.allow", &json!({"id":id,"on":true}), 0).unwrap(),
+            json!({"ids":[id]})
+        );
+        let rows = g.identity_request(&c, "ai.list", &json!({}), 0).unwrap();
+        let rows = rows.as_array().unwrap();
+        assert_eq!(rows.iter().find(|r| r["id"] == *id).unwrap()["llm"], true);
+        assert_eq!(rows.iter().find(|r| r["id"] == b["ai"]["id"]).unwrap()["llm"], false);
+        for bad in [
+            json!("http://example.invalid/a.png"),
+            json!("https://"),
+            json!(7),
+            json!("https://user:pass@example.invalid/a"),
+        ] {
+            assert_eq!(
+                g.identity_request(&c, "ai.update", &json!({"id":id,"avatar":bad}), 0)
+                    .unwrap_err()
+                    .code,
+                "invalid"
+            );
+        }
+        let cleared =
+            g.identity_request(&c, "ai.update", &json!({"id":id,"avatar":null}), 0).unwrap();
+        assert!(cleared["ai"]["avatar"].is_null());
+        let other = SessionConfig { id: "dm:other".into(), ..c.clone() };
+        assert_eq!(
+            g.identity_request(&other, "llm.allow", &json!({"id":id,"on":false}), 0)
+                .unwrap_err()
+                .code,
+            "forbidden"
+        );
+        let admin = SessionConfig { groups: vec!["admin".into()], ..other };
+        assert_eq!(
+            g.identity_request(&admin, "llm.allow", &json!({"id":id,"on":false}), 0).unwrap(),
+            json!({"ids":[id]})
+        );
+    }
+}
+
+#[cfg(test)]
+mod observer_tests {
+    use super::*;
+    #[derive(Debug)]
+    struct Observer {
+        store: Arc<LiveStore>,
+        rows: Arc<Mutex<Vec<(String, IdentityDisabled)>>>,
+    }
+    impl IdentityObserver for Observer {
+        fn disabled(&self, id: &str, reason: IdentityDisabled) {
+            // Re-enter the store: observers must never run under its lock.
+            let _ = self.store.boot();
+            self.rows.lock().unwrap().push((id.into(), reason));
+        }
+    }
+    #[test]
+    fn consent_and_revoke_notify_host_after_unlock_and_presence_copies_avatar() {
+        let store = Arc::new(LiveStore::default());
+        let g = Gateway::new(store.clone()).unwrap();
+        let c = SessionConfig {
+            id: "dm:owner".into(),
+            id_prefix: "owner.".into(),
+            groups: vec!["read".into(), "manage_ai".into(), "allow_llm".into()],
+            watch_limit: 16,
+        };
+        g.refresh_principal(Principal {
+            id: c.id.clone(),
+            name: "Owner".into(),
+            groups: c.groups.clone(),
+        })
+        .unwrap();
+        g.connect(c.clone(), None, &[], 0).unwrap();
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        g.set_identity_observer(Arc::new(Observer { store, rows: rows.clone() }));
+        let now = crate::now_ms();
+        let created = g
+            .identity_request(
+                &c,
+                "ai.create",
+                &json!({"name":"A","avatar":"https://example.invalid/a.png"}),
+                now,
+            )
+            .unwrap();
+        let id = created["ai"]["id"].as_str().unwrap();
+        g.identity_request(&c, "llm.allow", &json!({"id":id,"on":true}), now).unwrap();
+        g.set_llm_enabled(true);
+        g.connect(
+            SessionConfig {
+                id: id.into(),
+                id_prefix: "ai.".into(),
+                groups: vec!["read".into()],
+                watch_limit: 16,
+            },
+            None,
+            &[],
+            now,
+        )
+        .unwrap();
+        g.set_identity(id, "A", g.ai_avatar(id).as_deref(), Some(&c.id)).unwrap();
+        g.identity_request(
+            &c,
+            "ai.update",
+            &json!({"id":id,"avatar":"https://example.invalid/b.png"}),
+            now,
+        )
+        .unwrap();
+        assert!(g.pushes(&c.id,now).unwrap().iter().any(|p|matches!(p,Push::Presence{actors,..} if actors.iter().any(|a|a["id"]==id && a["avatar"]=="https://example.invalid/b.png"))));
+        g.identity_request(&c, "llm.allow", &json!({"id":id,"on":false}), now).unwrap();
+        assert!(g.pushes(id, now).is_err());
+        g.identity_request(&c, "ai.revoke", &json!({"id":id}), now).unwrap();
+        assert_eq!(
+            *rows.lock().unwrap(),
+            vec![
+                (id.into(), IdentityDisabled::ConsentWithdrawn),
+                (id.into(), IdentityDisabled::Revoked)
+            ]
+        );
     }
 }

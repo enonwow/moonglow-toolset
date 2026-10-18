@@ -168,7 +168,13 @@ impl CoreHandle {
                 crate::now(),
             )?;
             let owner = core.gateway.ai_owner(&principal.id);
-            core.gateway.set_identity(&principal.id, &principal.name, None, owner.as_deref())?;
+            let avatar = core.gateway.ai_avatar(&principal.id);
+            core.gateway.set_identity(
+                &principal.id,
+                &principal.name,
+                avatar.as_deref(),
+                owner.as_deref(),
+            )?;
             let resources = if crate::files::allowed(&principal) {
                 config.publisher.as_ref().and_then(|p| p.current(&core.gateway.store().boot()))
             } else {
@@ -192,7 +198,7 @@ impl CoreHandle {
                     kind: principal.id.split(':').next().unwrap_or("dm").into(),
                     id: principal.id,
                     name: principal.name,
-                    avatar: None,
+                    avatar,
                 },
                 groups: principal.groups,
                 policy: core.gateway.store().policy(),

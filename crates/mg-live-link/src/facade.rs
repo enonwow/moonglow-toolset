@@ -182,6 +182,14 @@ impl LinkService {
             .drain(..)
             .collect()
     }
+    /// One owned AI, or all owned AIs when id is absent. The result decodes as ConsentReply.
+    pub fn ai_allow_llm(&self, id: Option<&str>, on: bool) -> Result<PendingCall, LinkError> {
+        let mut a = json!({"on":on});
+        if let Some(id) = id {
+            a["id"] = json!(id);
+        }
+        self.request("llm.allow", a)
+    }
     pub fn ai_list(&self) -> Result<PendingCall, LinkError> {
         self.request("ai.list", json!({}))
     }

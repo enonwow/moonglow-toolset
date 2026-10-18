@@ -836,3 +836,5 @@
 - 2026-10-18: Bound aggregate HTTPS generation traffic as well as decoded resource sizes; padded valid blobs cannot evade the transfer budget. [Contract and regression](live-resource-generations.md).
 
 - 2026-10-18: Record P7 backend acceptance: 489 scoped tests, all-target Clippy and workspace formatting pass; distinguish concurrent GUI/full-workspace and real-server limitations. [Reproduction and API](live-resource-generations.md#backend-acceptance-checkpoint).
+
+- 2026-10-18: Limit shared gateway logs to action metadata, apply host quotas to both transports and approvals, bound active downloads and AI retention; add per-AI consent/avatar wire and post-unlock host callbacks. [Audited contract](live-gateway-protocol.md#audited-gateway-boundaries-and-identity-wire).

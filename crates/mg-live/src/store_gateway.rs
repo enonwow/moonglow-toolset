@@ -12,7 +12,7 @@ mod event_view;
 #[path = "store_gateway_identity.rs"]
 mod identity;
 pub(super) use event_view::project_event;
-pub use identity::{AiIdentity, Principal};
+pub use identity::{AiIdentity, AiSummary, IdentityDisabled, IdentityObserver, Principal};
 pub(super) use identity::{draft_scope, validate_ai_scope};
 
 pub const RESULT_RETENTION_MS: u64 = 600_000;
@@ -328,6 +328,7 @@ pub struct Gateway {
     epoch: String,
     watch_update: Mutex<()>,
     tick_at: Mutex<Option<u64>>,
+    identity_observer: Mutex<Option<Arc<dyn IdentityObserver>>>,
 }
 impl Gateway {
     pub fn new(store: Arc<LiveStore>) -> Result<Self, String> {
@@ -342,7 +343,13 @@ impl Gateway {
             s.gateway.generation += 1;
             s.gateway.watch_stamp = None;
         }
-        Ok(Self { store, epoch, watch_update: Mutex::new(()), tick_at: Mutex::new(None) })
+        Ok(Self {
+            store,
+            epoch,
+            watch_update: Mutex::new(()),
+            tick_at: Mutex::new(None),
+            identity_observer: Mutex::new(None),
+        })
     }
     /// Dispatch public core requests. Host-owned book/AI operations return unsupported.
     pub fn handle(
