@@ -119,3 +119,27 @@ Gateway tests check live DM authorization, AI/player refusal, hash allowlisting,
 module refresh, boot binding and welcome/files agreement. No installed game, Redis,
 external server or container is needed. The GUI and real-server acceptance remain
 separate; passing backend tests does not establish renderer invalidation or visuals.
+
+### Backend acceptance checkpoint
+
+The final owned-package test gate covers `mg-module`, `mg-live`, `mg-live-link`
+and `mg-gateway`: 489 passed, zero failed, four ignored. Their all-target Clippy
+with `-D warnings` and the exact workspace `fmt --check` also pass. The ten new public tests
+cover authored module filtering, descriptor identity, five HTTPS scenarios and
+three publisher/router scenarios. The aggregate padded-body regression first
+failed with a complete generation incorrectly accepted, then passed with the
+shared wire budget enforced.
+
+An earlier exact workspace test completed with 1,817 passed and 24 ignored.
+The subsequent exact retry stopped during concurrent GUI development with E0583
+for the then-missing `mg-ui::live_resources`; this is not a final combined GUI
+acceptance result. Exact workspace Clippy passed before the final transfer-budget
+follow-up. The private publisher checkpoint passed 50 tests, Clippy, formatting
+and Compose configuration validation. Later concurrent work in either checkout
+requires its own combined gate.
+
+Real module publication, an external NWSync repository, deployment and GUI
+geometry/cache invalidation have not been accepted by these backend fixtures.
+The GUI must provide its job worker, marshal progress to the UI and select only
+the current descriptor. Progress counts transferred bytes; NSYM decoded sizes
+cannot provide an exact compressed transfer total in advance.

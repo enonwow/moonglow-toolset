@@ -820,3 +820,5 @@
 - 2026-10-18: Prefer the current boot outcome over a colliding ID in the UI result ring; a two-boot replay regression prevents returning another boot answer. [Horizon contract](live-ops-wire.md#bounded-idempotency-horizon-p4).
 
 - 2026-10-18: Bound aggregate HTTPS generation traffic as well as decoded resource sizes; padded valid blobs cannot evade the transfer budget. [Contract and regression](live-resource-generations.md).
+
+- 2026-10-18: Record P7 backend acceptance: 489 scoped tests, all-target Clippy and workspace formatting pass; distinguish concurrent GUI/full-workspace and real-server limitations. [Reproduction and API](live-resource-generations.md#backend-acceptance-checkpoint).
