@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway reads and paging (2026-10-18)**: authorize area notes and bounded event pages in the public core. [Contract and regression](live-library.md#gateway-shared-requests).
+
 * **M2 store audit verification (2026-10-18)**: consent epochs, shared quotas and late-result correlation are committed; 263 mg-live tests pass. Both Clippy/format gates pass; full and fallback test gates stop on concurrent GUI integration. [Exact results, reproduction and cleanup](live-ops-wire.md#m2-acceptance-audit-verification-2026-10-18).
 
 * **Bounded gateway event batches (2026-10-18)**: deliver at most 256 events / 1 MiB per pump with exact cursor/loss accounting; exercise reconnects with the differential mirror harness. [Contract and regressions](live-library.md#gateway-audit-invariants).

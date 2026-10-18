@@ -378,6 +378,9 @@ impl Gateway {
                     Ok(json!({}))
                 }
                 "events.since" => {
+                    if !config.has("read") {
+                        return Err(FrameError::new("forbidden", "Read permission required"));
+                    }
                     let n =
                         a["n"].as_u64().ok_or_else(|| invalid("Invalid event cursor".into()))?;
                     let limit = a["limit"].as_u64().unwrap_or(100).clamp(1, 500) as usize;
@@ -385,27 +388,8 @@ impl Gateway {
                         serde_json::from_value(a.get("kinds").cloned().unwrap_or(json!([])))
                             .map_err(|e| invalid(e.to_string()))?;
                     let s = self.store.lock();
-                    let mut rows: Vec<_> = s
-                        .events
-                        .log_rows(n)
-                        .into_iter()
-                        .filter(|e| {
-                            visible_event(e, &config)
-                                && (kinds.is_empty() || kinds.contains(&e.kind))
-                        })
-                        .collect();
-                    let through = if rows.len() > limit {
-                        rows.truncate(limit);
-                        rows.last().unwrap().n
-                    } else {
-                        s.events.last()
-                    };
-                    Ok(serde_json::to_value(Events {
-                        rows,
-                        through,
-                        lost: lost_since(&s.events, n),
-                    })
-                    .unwrap())
+                    Ok(serde_json::to_value(event_page(&s.events, n, &config, limit, &kinds))
+                        .unwrap())
                 }
                 "call" => {
                     let op = a["op"]
@@ -432,6 +416,15 @@ impl Gateway {
                     let input = a.get("input").cloned().unwrap_or(json!({}));
                     if input.get("wait_ms").is_some_and(|v| v.as_u64() != Some(0)) {
                         return Err(invalid("Waiting calls are not supported".into()));
+                    }
+                    if !config.has("read") {
+                        return Err(FrameError::new("forbidden", "Read permission required"));
+                    }
+                    if op == "area_notes" {
+                        let area =
+                            input["area"].as_str().ok_or_else(|| invalid("Missing area".into()))?;
+                        validate_watch(&[area.into()], 1).map_err(invalid)?;
+                        return Ok(json!({"notes": self.store.area_notes(area)}));
                     }
                     // Route events through the gateway filter, including tell permission.
                     if op == "events" {
@@ -940,6 +933,15 @@ impl Gateway {
     }
 }
 fn event_batch(log: &crate::events::EventLog, since: u64, config: &SessionConfig) -> Events {
+    event_page(log, since, config, 256, &[])
+}
+fn event_page(
+    log: &crate::events::EventLog,
+    since: u64,
+    config: &SessionConfig,
+    limit: usize,
+    kinds: &[String],
+) -> Events {
     const BUDGET: usize = 1024 * 1024;
     let mut rows = Vec::new();
     let mut bytes = 128; // Envelope, cursor/lost digits and array punctuation.
@@ -948,13 +950,14 @@ fn event_batch(log: &crate::events::EventLog, since: u64, config: &SessionConfig
     let mut oversized = 0;
     let mut complete = true;
     for event in log.log_rows(since) {
-        let visible = visible_event(&event, config);
+        let visible =
+            visible_event(&event, config) && (kinds.is_empty() || kinds.contains(&event.kind));
         let size = if visible {
             serde_json::to_vec(&event).expect("event serializes").len() + 1
         } else {
             0
         };
-        if visible && !rows.is_empty() && (rows.len() >= 256 || bytes + size > BUDGET) {
+        if visible && !rows.is_empty() && (rows.len() >= limit || bytes + size > BUDGET) {
             complete = false;
             break;
         }

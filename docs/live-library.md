@@ -421,3 +421,14 @@ Run the audit unit tests with `cargo +1.98.0 test -p mg-live --lib audit_ -j 2`,
 then `cargo +1.98.0 test -p mg-live --test gateway_core --test mirror_differential
 -j 2` and the workspace gates above. All regressions use authored reports or
 in-process sockets; no Redis or game server is needed.
+
+## Gateway shared requests
+
+`call` accepts read-only catalogue operations and `area_notes` (input `area`,
+result `{notes: {object_id: text}}`). Every read requires `read`.
+`events.since` accepts `n`, optional `limit` (1..500, default 100), and `kinds`.
+Pages preserve gateway event numbers, omit unauthorized chat/tells, and advance
+`through` across filtered rows. Responses stay within 1 MiB; oversized rows count
+as lost. Fetch the next page using `through`, never the last visible event alone.
+Run `cargo +1.98.0 test -p mg-live --test gateway_requests -j 2` with
+`CARGO_INCREMENTAL=0` and a nonexistent `NWN_ROOT`.
