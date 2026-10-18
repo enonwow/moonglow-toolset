@@ -3179,6 +3179,34 @@ mod tests {
     }
 
     #[test]
+    fn restart_during_unlocked_reservation_never_enqueues_for_the_new_boot() {
+        let root = std::env::temp_dir()
+            .join(format!("mg-reserve-restart-{}", crate::service::generate_token().unwrap()));
+        let store = LiveStore::default();
+        post(&store, report("old", 1, true), 0);
+        let mut journal = crate::command_ids::Journal::new(root.clone()).unwrap();
+        journal.select_boot("old").unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        journal.before_write = Some(barrier.clone());
+        store.lock().command_ids = Some(journal);
+        std::thread::scope(|threads| {
+            let worker = threads.spawn(|| store.enqueue(spawn(), 0));
+            barrier.wait();
+            let unlocked = store.state.try_lock().is_ok();
+            if unlocked {
+                post(&store, report("new", 1, true), 1);
+            }
+            barrier.wait();
+            let result = worker.join().unwrap();
+            assert!(unlocked);
+            assert_eq!(result.unwrap_err().code, ErrorCode::Expired);
+        });
+        assert!(store.commands(2)["commands"].as_array().unwrap().is_empty());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn accepted_identity_is_fixed_size_and_payload_sensitive() {
         let mut first: Command = serde_json::from_value(json!({"id":"large","area":"market",
             "op":"spawn_json","x":1,"y":2,"z":0,"f":0,
