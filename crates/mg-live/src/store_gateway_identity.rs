@@ -48,6 +48,8 @@ pub struct AiIdentity {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AiRecord {
+    #[serde(default)]
+    revoked: bool,
     identity: AiIdentity,
     hash: [u8; 32],
 }
@@ -118,7 +120,7 @@ impl Identities {
     }
     fn effective(&self, ai: &AiRecord, now: u64) -> Option<Principal> {
         let owner = self.owners.get(&ai.identity.owner)?;
-        if !self.global || !ai.identity.llm_allowed || ai.identity.expires_ms <= now {
+        if ai.revoked || !self.global || !ai.identity.llm_allowed || ai.identity.expires_ms <= now {
             return None;
         }
         Some(Principal {
@@ -219,7 +221,7 @@ impl Gateway {
             return Err("AI identity already exists or capacity reached".into());
         }
         let mut ais = s.gateway.identities.ais.clone();
-        ais.insert(identity.id.clone(), AiRecord { identity, hash: digest(token) });
+        ais.insert(identity.id.clone(), AiRecord { revoked: false, identity, hash: digest(token) });
         s.gateway.identities.save(&ais).map_err(|e| e.to_string())?;
         s.gateway.identities.ais = ais;
         Ok(())
@@ -269,7 +271,7 @@ impl Gateway {
         let identities = &mut s.gateway.identities;
         if op == "ai.list" {
             return Ok(
-                json!({"items":identities.ais.values().filter(|v|v.identity.owner==config.id || config.has("admin")).map(|v|&v.identity).collect::<Vec<_>>() }),
+                json!({"items":identities.ais.values().filter(|v|!v.revoked && (v.identity.owner==config.id || config.has("admin"))).map(|v|&v.identity).collect::<Vec<_>>() }),
             );
         }
         let mut ais = identities.ais.clone();
@@ -309,7 +311,10 @@ impl Gateway {
                     expires_ms: expiry,
                     llm_allowed: false,
                 };
-                ais.insert(id, AiRecord { identity: identity.clone(), hash: digest(&token) });
+                ais.insert(
+                    id,
+                    AiRecord { revoked: false, identity: identity.clone(), hash: digest(&token) },
+                );
                 json!({"ai":identity,"token":token})
             }
             "llm.allow" => {
@@ -326,10 +331,14 @@ impl Gateway {
                     return Err(forbidden());
                 }
                 if op == "ai.revoke" {
-                    ais.remove(id);
+                    ai.revoked = true;
+                    ai.identity.llm_allowed = false;
                     revoked = Some(id.to_owned());
                     json!({})
                 } else {
+                    if ai.revoked {
+                        return Err(forbidden());
+                    }
                     if let Some(name) = a.get("name") {
                         ai.identity.name = name
                             .as_str()

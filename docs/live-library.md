@@ -460,13 +460,13 @@ speech drafts and focus; other writes require typed proposals before delegation.
 Tokens use `mgai_` plus OS randomness; only SHA-256 digests are persisted.
 `Authenticator::principal(owner_id)` supplies the current DM groups on each AI
 authentication. Missing owners fail closed; effective AI groups are intersected
-with those groups. Revocation removes the credential and closes its sessions;
+with those groups. Revocation marks the credential permanently revoked and closes its sessions;
 unknown managed tokens never fall through to host credentials. Both `/ws/v1`
 and `/agent/v1` use this same path. The core rechecks consent and groups at final
 command acceptance. `llm.allow {on}` needs `allow_llm` and changes only the caller's
 existing AIs. The host's `set_llm_enabled` switch starts off and overrides it.
 `identity_file` configures bounded persistence before serving connections (256 AIs,
-1 MiB input). Imported host credentials also require an explicit owner and consent.
+1 MiB input, including retained revocation records). Imported host credentials also require an explicit owner and consent.
 Tests cover permissions, current owner lookup, one-time token disclosure, persisted
 digests, restart consent and rejection on both transports after revocation.
 
@@ -495,3 +495,9 @@ registry is authoritative. No generated token or token digest is logged.
 Run `cargo +1.98.0 test -p mg-gateway-dev -j 2` for configuration checks and
 `cargo +1.98.0 test -p mg-gateway --test transport --test agent -j 2` for the
 in-process request and legacy HTTP parity tests.
+
+Revocation digests remain in the bounded registry across restarts, so a configured
+static credential cannot be imported again after being revoked. Revoked entries
+are omitted from `ai.list`; restoring a removed token requires a new identity,
+not toggling consent. The retained metadata also lets the owner reject an obsolete
+pending draft. Note revision tombstones share the 4000-key note capacity.

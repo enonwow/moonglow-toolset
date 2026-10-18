@@ -206,6 +206,21 @@ fn ai_registry_persists_only_hashes_and_restarts_with_global_consent_off() {
     assert!(restarted.authenticate_ai(token, Some(owner.clone()), 1000).is_none());
     restarted.set_llm_enabled(true);
     assert!(restarted.authenticate_ai(token, Some(owner), 1000).is_some());
+    request(&g, "dm:one", "ai.revoke", json!({"id":created["ai"]["id"]})).unwrap();
+    let revoked = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+    revoked.identity_file(&file).unwrap();
+    revoked.set_llm_enabled(true);
+    let owner = mg_live::gateway::Principal {
+        id: "dm:one".into(),
+        name: "One".into(),
+        groups: vec!["read".into()],
+    };
+    assert_eq!(
+        revoked.token_owner(token),
+        Some("dm:one".into()),
+        "retained digest prevents config re-import"
+    );
+    assert!(revoked.authenticate_ai(token, Some(owner), 1000).is_none());
     std::fs::remove_dir_all(root).unwrap();
 }
 
