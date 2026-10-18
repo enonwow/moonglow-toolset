@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway refusal regression (2026-10-18)**: the desktop facade test follows the implemented host operations and distinguishes permission denial, invalid book writes and unknown operations. Six transport/facade tests pass. [Current contract](live-desktop-link.md#protocol-contracts-and-pending-host-operations).
+
 * **Shared gateway TLS configuration (2026-10-18)**: export the pinned/WebPKI client configuration for workspace consumers; IP origins require explicit trust before credentials can be sent. Real TLS handshake regression passes. [API and test](live-desktop-link.md#reusing-gateway-tls).
 
 * **Gateway read transport coverage (2026-10-18)**: loopback WebSocket tests cover note keys/revisions and event pagination with hidden tells. [Request contract](live-library.md#gateway-shared-requests).

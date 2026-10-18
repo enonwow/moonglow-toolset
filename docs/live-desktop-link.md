@@ -414,11 +414,14 @@ write operation or local campaign-directory API is exposed.
 ### Protocol contracts and pending host operations
 
 At the P2b transport boundary the development host implemented `watch.set`,
-`focus.set`, `cmds`, read `call` and `events.since`, and returned `unsupported` for `book.put`,
-`draft.decide`, `ai.*` and `llm.allow`; an integration regression verifies that
-refusals remain errors and never become local success. The facade's wire
-requests and snapshot handling are ready, but these server operations cannot be
-accepted end to end until their handlers exist.
+`focus.set`, `cmds`, read `call` and `events.since`, and returned `unsupported`
+for shared writes and AI controls. Newer host handlers now exist (see
+[live-library.md](live-library.md#gateway-shared-requests)). The facade regression
+therefore checks explicit refusals: `Forbidden` for consent without permission,
+`Rejected` for a write without a configured book, and `Unsupported` for an
+unknown operation. These refusals never become local success. GUI shared
+controls remain disabled pending their complete revision-aware integration;
+adding a host handler alone does not enable an unfinished desktop workflow.
 
 Book identities are now defined: NPC keys are the store's `tag:`/`resref:` ids,
 the GM key is empty, and note keys are derived per object. Actors carry `id`,

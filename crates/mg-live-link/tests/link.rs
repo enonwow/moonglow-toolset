@@ -174,7 +174,7 @@ async fn response_timeout_closes_the_socket_and_never_replays_the_call() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn facade_reads_auxiliary_pushes_and_reports_unimplemented_host_operations() {
+async fn facade_reads_auxiliary_pushes_and_preserves_host_refusals() {
     use mg_live::{gateway::Push, gateway_frames::Limits, store::Policy};
     let host = Host::new().await;
     host.report(1, json!([]), json!([])).await;
@@ -212,11 +212,17 @@ async fn facade_reads_auxiliary_pushes_and_reports_unimplemented_host_operations
     );
     assert_eq!(
         reply_async(service.set_allow_agents(true).unwrap()).await.unwrap_err(),
-        LinkError::Unsupported
+        LinkError::Forbidden
     );
     assert_eq!(service.allow_agents(), None);
+    // The fixture has no campaign book configured; a failed write stays a
+    // failure even now that the development host implements book.put.
     assert_eq!(
         reply_async(service.save_object_note("note-key", "Text", 0).unwrap()).await.unwrap_err(),
+        LinkError::Rejected
+    );
+    assert_eq!(
+        reply_async(service.request("fixture.unsupported", json!({})).unwrap()).await.unwrap_err(),
         LinkError::Unsupported
     );
 }
