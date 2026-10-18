@@ -92,3 +92,14 @@ Run `cargo +1.98.0 test -p mg-live --test sync_tapped -j 2`. The tests check eve
 outcome, equal/older sequences, initial zero, restart, resync recovery, unknown
 partial areas, reply equality and unchanged validation errors. Run the existing
 store regressions with `cargo +1.98.0 test -p mg-live --lib -j 2`.
+
+## Versioned finished state
+
+`AreaLive`, `LiveObject`, `CommandResult` and `Event` serialize and deserialize
+without changing the existing game keys. `MIRROR_VERSION` starts at 1.
+The versioned fixture in `crates/mg-live/tests/fixtures/mirror-v1.json` captures
+the declarations, including Serde attributes and optional fields that a default
+value would omit. Any schema change requires a version bump and a new fixture;
+retain old fixtures as compatibility evidence. Comments and formatting are ignored.
+Run `cargo +1.98.0 test -p mg-live --test mirror_schema -j 2`.
+Pending progress, final receipts, unknown outcomes and explicit null values round trip.

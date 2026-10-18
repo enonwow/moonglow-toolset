@@ -1684,7 +1684,7 @@ impl Command {
 }
 
 /// The last report of one area.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AreaLive {
     /// Native area width/height in metres; absent from older reports.
     pub size: Option<[u32; 2]>,

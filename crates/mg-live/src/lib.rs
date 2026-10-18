@@ -27,3 +27,6 @@ pub fn now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+/// Version of the finished-state mirror schema (independent of the game wire).
+pub const MIRROR_VERSION: u32 = 1;

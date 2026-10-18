@@ -1,5 +1,7 @@
 # Update log
 
+* **Versioned Live mirror schema (2026-10-18)**: finished state Serde and version-bound schema fixtures preserve the game wire. [Contract](live-library.md#versioned-finished-state).
+
 * **Live delivery audit gate (2026-10-18)**: mandatory findings 1?4 closed with native receipt/TMI/boot proofs, 1626 passing workspace tests, warning-free clippy and fmt. [Reproduction, fixture prerequisites and remaining scope](live-ops-wire.md#audit-closure-and-final-gates-2026-10-18).
 
 * **Server-bound Live commands (2026-10-18)**: bind command envelopes to boot/prefix, invalidate reused endpoint state, and wait for a fresh report after reconnect. [Contract and regressions](live-ops-wire.md#server-bound-commands-2026-10-18).
