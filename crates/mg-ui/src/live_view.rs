@@ -249,7 +249,7 @@ pub(crate) struct LiveDrawn {
 pub(crate) use mg_live::now_ms;
 
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
-    ui.add_enabled_ui(app.live_service.is_some(), |ui| {
+    ui.add_enabled_ui(app.live_backend().active(), |ui| {
         ui.toggle_value(&mut view.live.on, "📡 Live")
             .on_disabled_hover_text("Turn on live mode in Options › Live")
             .on_hover_text("Show the running game; actions send commands to the server");
@@ -605,6 +605,7 @@ pub(crate) fn overlay(
     view: &mut AreaView,
     frame: Option<&LiveFrame>,
     pending: &[String],
+    presence: &std::collections::BTreeMap<String, Vec<String>>,
 ) {
     #[cfg(feature = "measure")]
     let _measure = crate::measure::span("live.overlay");
@@ -746,6 +747,34 @@ pub(crate) fn overlay(
                 ui.interact(icon, ui.id().with(("dm-note", &o.id)), egui::Sense::hover())
                     .on_hover_text(format!("DM note: {note}"));
                 marker_rects.push(icon);
+            }
+            if let Some(actors) = presence.get(&o.id) {
+                let text = actors.join(" / ");
+                let galley = painter.layout_no_wrap(
+                    text.clone(),
+                    egui::FontId::proportional(11.),
+                    Color32::WHITE,
+                );
+                let chip = Rect::from_min_size(
+                    at + egui::vec2(12., 10.),
+                    galley.size() + egui::vec2(8., 4.),
+                );
+                if view.rect.contains_rect(chip) {
+                    painter.rect_filled(chip, 5., Color32::from_rgb(44, 67, 86));
+                    painter.galley(chip.min + egui::vec2(4., 2.), galley, Color32::WHITE);
+                    let response = ui.interact(
+                        chip,
+                        ui.id().with(("gateway-presence", &o.id)),
+                        egui::Sense::hover(),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &text)
+                    });
+                    response.on_hover_text(
+                        "Has this object in Focus. Presence does not lock the object.",
+                    );
+                    marker_rects.push(chip);
+                }
             }
             if o.dead {
                 dead_marker(&painter, at);
@@ -988,7 +1017,7 @@ pub(crate) fn queue_in_area(
     area: String,
     op: Op,
 ) -> Option<String> {
-    if app.live_service.is_none() {
+    if !app.live_backend().active() {
         view.notice = Some("Turn on live mode in Options › Live".into());
         return None;
     }
@@ -1252,7 +1281,7 @@ pub(crate) fn input(
 }
 
 fn menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui, live: Option<&AreaLive>) {
-    if app.live_service.is_none() {
+    if !app.live_backend().active() {
         ui.label("Turn on live mode in Options › Live");
         return;
     }
@@ -1344,7 +1373,7 @@ fn script_window(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     let mut open = true;
     let mut send = false;
     let mut cancel = false;
-    let allowed = app.live_service.is_some()
+    let allowed = app.live_backend().active()
         && app.live.as_ref().is_some_and(|store| {
             if draft.chunk { store.policy().chunks } else { store.policy().scripts }
         });

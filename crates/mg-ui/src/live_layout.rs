@@ -19,12 +19,13 @@ pub(crate) fn open(app: &mut Moonglow, tab: &Tab) -> bool {
     let pane = egui_dock::NodePath { surface: right.surface, node: right.node };
     app.dock.set_focused_node_and_surface(pane);
     app.dock.push_to_focused_leaf(tab.clone());
+    let fraction = app.live_backend().panel_fraction();
     if right.surface.is_main()
         && let Some(parent) = right.node.parent()
         && let egui_dock::Node::Horizontal(split) = &mut app.dock.main_surface_mut()[parent]
         && right.node == parent.right()
     {
-        split.fraction = 0.62;
+        split.fraction = fraction;
     }
     app.tab_places.remove(tab);
     true
@@ -52,7 +53,9 @@ pub(crate) fn activate(app: &mut Moonglow) {
 /// Open views own subscriptions; cached closed area views and chat history do not.
 /// This union also keeps an area's watch while a second window still needs it.
 pub(crate) fn watch_areas(app: &mut Moonglow) {
-    let Some(store) = &app.live else { return };
+    if app.live.is_none() {
+        return;
+    }
     let mut areas = std::collections::BTreeSet::new();
     for (_, tab) in app.dock.iter_all_tabs() {
         match tab {
@@ -93,7 +96,7 @@ pub(crate) fn watch_areas(app: &mut Moonglow) {
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
-    if let Err(error) = store.set_watched_areas(&areas, crate::live_view::now_ms()) {
+    if let Err(error) = crate::live_backend::watch(app, &areas) {
         app.live_panel.notice = Some(format!("Live area watches: {error}"));
     }
 }

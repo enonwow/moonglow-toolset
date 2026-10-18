@@ -426,8 +426,7 @@ impl LiveScene {
 /// calls mg-live directly and must not record itself.
 pub fn enqueue(app: &mut Moonglow, command: Command) -> Result<String, CommandError> {
     let now = mg_live::now_ms();
-    let live = app.live.as_ref().ok_or("Live is unavailable")?;
-    let id = live.enqueue(command.clone(), now)?;
+    let id = app.live_backend().enqueue(command.clone())?;
     app.live_scene.record_command(&command, now);
     app.live_commands.insert(id.clone());
     Ok(id)

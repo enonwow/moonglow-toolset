@@ -8,6 +8,11 @@ struct Editor {
     notice: Option<String>,
 }
 pub(crate) fn editor(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
+    if let Some(reason) = app.live_backend().shared_reason() {
+        ui.add_enabled(false, egui::Button::new("Shared book")).on_disabled_hover_text(reason);
+        ui.weak(reason);
+        return;
+    }
     let Some(store) = app.live.clone() else { return };
     let key = match store.object_note_key(id) {
         Ok(k) => k,
@@ -16,7 +21,7 @@ pub(crate) fn editor(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
             return;
         }
     };
-    let config = app.live_service.as_ref().map(|s| s.config()).unwrap_or(&app.settings.live);
+    let config = app.live_backend().config();
     let cache = egui::Id::new((
         "live-note-editor",
         app.module_path(),

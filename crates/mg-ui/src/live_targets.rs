@@ -16,7 +16,7 @@ pub(crate) struct Selection {
 /// The running service has already applied environment overrides (demo launcher).
 /// Saved options can remain disabled for an enabled runtime service.
 pub(crate) fn enabled(app: &Moonglow) -> bool {
-    app.live_service.as_ref().map_or(app.settings.live.enabled, |s| s.config().enabled)
+    app.live_backend().config().enabled
 }
 
 pub(crate) fn selection(app: &Moonglow) -> Result<Selection, String> {

@@ -37,6 +37,7 @@ mod live_animation;
 mod live_areas;
 pub mod live_assistant;
 mod live_atmosphere;
+pub mod live_backend;
 pub mod live_chat;
 mod live_clients;
 pub mod live_clipboard;
@@ -600,6 +601,7 @@ pub struct Moonglow {
     /// Reports and commands shared with the optional live HTTPS listener.
     pub live: Option<std::sync::Arc<live::LiveStore>>,
     pub live_service: Option<mg_live::LiveService>,
+    live_gateway: Option<live_backend::GatewayRuntime>,
     live_agents: live_agents::LiveAgents,
     pub live_error: Option<String>,
     pub live_panel: live_panel::LivePanel,
@@ -859,6 +861,7 @@ impl Moonglow {
             var_set_dir: None,
             live: None,
             live_service: None,
+            live_gateway: None,
             live_agents: Default::default(),
             live_error: None,
             live_panel: Default::default(),
@@ -995,6 +998,7 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        live_backend::update(self, ui.ctx());
         live_agents::update(self, ui.ctx());
         live_assistant::update(self);
         live_focus::update(self);

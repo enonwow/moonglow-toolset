@@ -622,9 +622,9 @@ impl Id {
                 format!("{tick}{}", self.text().1)
             }
             Id::HidePanels if app.panels_hidden() => "Show All Panels".into(),
-            Id::LiveToggle if app.live_service.is_some() => "Stop Live".into(),
+            Id::LiveToggle if app.live_backend().active() => "Stop Live".into(),
             Id::LiveAllowAgents => {
-                let tick = if app.settings.live.allow_agents { "✔ " } else { "    " };
+                let tick = if app.live_backend().allow_agents() { "✔ " } else { "    " };
                 let status =
                     if app.live_agents.connected() { "connected" } else { "no LLM connected" };
                 format!("{tick}Allow LLM · {status}")
@@ -677,7 +677,9 @@ impl Id {
             Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
             Id::LiveToggle | Id::LiveOptions | Id::LiveHelp | Id::LiveLog => true,
-            Id::LiveAllowAgents => app.live_service.is_some(),
+            Id::LiveAllowAgents => {
+                app.live_backend().active() && app.live_backend().shared_reason().is_none()
+            }
             Id::LiveLegend
             | Id::LiveAtmosphere
             | Id::LiveGmCard
@@ -689,7 +691,7 @@ impl Id {
             | Id::LivePrepare
             | Id::LiveSkill => true,
             // (As the view's own Live button.)
-            Id::LiveInArea => app.live_service.is_some() && live_view(app).is_some(),
+            Id::LiveInArea => app.live_backend().active() && live_view(app).is_some(),
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
@@ -884,7 +886,7 @@ impl Id {
             }
             Id::ResetLayout => return app.reset_layout(ctx),
             Id::LiveToggle => {
-                app.settings.live.enabled = app.live_service.is_none();
+                app.settings.live.enabled = !app.live_backend().active();
                 app.live_needs_apply = true;
                 return;
             }
@@ -1227,6 +1229,9 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
             let (response, _) = egui::containers::menu::MenuButton::new(job).ui(ui, |ui| {
                 app.menu_row = [0, 0];
                 menu(app, ui, items, 0);
+                if name == "Live" {
+                    crate::live_backend::menu_status(app, ui);
+                }
             });
             tops.push((Popup::default_response_id(&response), response));
         }
@@ -1473,9 +1478,9 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
         r = r.on_hover_text(hint);
     }
     if id == Id::LiveAllowAgents {
-        r = r
-            .on_hover_text(crate::live_agents::hint(app))
-            .on_disabled_hover_text(crate::live_agents::OFF_REASON);
+        r = r.on_hover_text(crate::live_agents::hint(app)).on_disabled_hover_text(
+            app.live_backend().shared_reason().unwrap_or(crate::live_agents::OFF_REASON),
+        );
     }
     if r.clicked() || chosen {
         id.run(app, ui.ctx());

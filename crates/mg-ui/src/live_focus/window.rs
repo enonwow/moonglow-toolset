@@ -112,6 +112,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                                 if reported == 0 {
                                     ui.weak("Not reported");
                                 } else if entry.members.len() == 1 {
+                                    crate::live_backend::chips(app, ui, &m.id);
                                     ui.small(m.hp.map_or_else(
                                         || "HP unknown".into(),
                                         |[a, b]| format!("HP {a}/{b}"),
@@ -186,6 +187,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             ui.collapsing("Members",|ui| {
                 for m in &entry.members {
                     ui.horizontal(|ui| {
+                        crate::live_backend::chips(app, ui, &m.id);
                         let portrait=crate::live_selection::portrait(app,ui,m.portrait.as_deref(),m.appearance,m.gender,&m.name);
                         if ui.button(&m.name).on_hover_text(format!("{} · {}",m.area,if m.reported {"reported"}else{"not reported"})).clicked() || portrait.clicked() {
                         focus.member=Some(m.id.clone());focus.area=None;focus.text.clear();

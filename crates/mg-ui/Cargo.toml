@@ -52,6 +52,10 @@ toml.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
+mg-gateway = { path = "../mg-gateway" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+axum = { version = "0.8", features = ["ws"] }
 ron = "0.12"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 eframe.workspace = true

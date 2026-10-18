@@ -2897,6 +2897,7 @@ dependencies = [
 name = "mg-ui"
 version = "1.33.0"
 dependencies = [
+ "axum",
  "eframe",
  "egui",
  "egui-wgpu",
@@ -2914,6 +2915,7 @@ dependencies = [
  "mg-core",
  "mg-edit",
  "mg-erf",
+ "mg-gateway",
  "mg-gff",
  "mg-image",
  "mg-live",
@@ -2941,6 +2943,8 @@ dependencies = [
  "serde_json",
  "skrifa",
  "tempfile",
+ "tokio",
+ "tokio-rustls",
  "toml",
  "url",
  "wgpu",

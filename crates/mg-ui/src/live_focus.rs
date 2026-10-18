@@ -527,7 +527,7 @@ pub(crate) fn update(app: &mut Moonglow) {
     if app.settings.no_live_focus {
         return;
     }
-    let module = app.module_path();
+    let module = app.live_backend().context();
     app.live_focus.context(module);
     let Some(store) = app.live.clone() else {
         for e in &mut app.live_focus.entries {
@@ -574,7 +574,7 @@ pub(crate) fn update(app: &mut Moonglow) {
 
 pub(crate) fn add(app: &mut Moonglow, ids: &[String]) {
     if let Some(store) = app.live.clone() {
-        app.live_focus.context(app.module_path());
+        app.live_focus.context(app.live_backend().context());
         if let Err(e) = app.live_focus.add(&store, ids) {
             app.live_focus.notice = Some(e);
         }

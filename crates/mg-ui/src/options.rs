@@ -14,6 +14,7 @@ use crate::{Action, Moonglow, Settings};
 
 #[path = "options_live.rs"]
 mod live_connection;
+pub(crate) use live_connection::start_gateway;
 
 /// The Options window's pages.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -296,68 +297,6 @@ impl OptionsDraft {
 /// Options › General › Interface size: the sizes offered, per cent.
 pub(crate) const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
 
-impl Moonglow {
-    /// Apply saved Live options, with explicit environment overrides, on the UI thread.
-    pub fn apply_live(&mut self, ctx: &egui::Context) {
-        self.live_needs_apply = false;
-        self.live_agents = Default::default();
-        self.live_error = None;
-        let was_running = self.live_service.take().is_some(); // Drop stops and joins workers.
-        let mut start = || -> Result<Option<mg_live::LiveService>, String> {
-            let mut config = self.settings.live.clone().from_env()?;
-            // The environment turns Live on when Moonglow starts (no store yet); after
-            // that Live › Stop Live and Options decide.
-            config.enabled &= self.settings.live.enabled || self.live.is_none();
-            if !config.enabled {
-                return Ok(None);
-            }
-            crate::settings::restore_live_clients(&mut config).map_err(|e| e.to_string())?;
-            let store = self.live.get_or_insert_with(Default::default).clone();
-            let ctx = ctx.clone();
-            let mut service = mg_live::LiveService::start(
-                config,
-                store,
-                std::sync::Arc::new(move || crate::live_repaint::wake(&ctx)),
-            )?;
-            if let Some(data_dir) = self.recovery_dir.as_deref().and_then(std::path::Path::parent) {
-                service.publish_descriptor(data_dir)?;
-            }
-            Ok(Some(service))
-        };
-        match start() {
-            Ok(Some(service)) => {
-                let config = service.config();
-                // Save a newly generated credential, but never persist an env override.
-                if self.settings.live.token.is_empty()
-                    && std::env::var_os("MOONGLOW_LIVE_TOKEN").is_none()
-                {
-                    self.settings.live.token = config.token.clone();
-                    if let Some(draft) = &mut self.options {
-                        draft.live.token = config.token.clone();
-                    }
-                }
-                self.log.info(format!(
-                    "Live: API on {}, Redis {}:{} ({})",
-                    service.status()["api"].as_str().unwrap_or_default(),
-                    config.redis_host,
-                    config.redis_port,
-                    config.prefix,
-                ));
-                self.live_service = Some(service);
-            }
-            Ok(None) => {
-                if was_running {
-                    self.log.info("Live: stopped");
-                }
-            }
-            Err(error) => {
-                self.log.error(format!("Live: {error}"));
-                self.live_error = Some(error);
-            }
-        }
-    }
-}
-
 fn live_page(
     ui: &mut Ui,
     draft: &mut mg_live::LiveConfig,
@@ -559,10 +498,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     } else {
         None
     };
-    let live_status = app.live_service.as_ref().map(mg_live::LiveService::connection_status);
-    let live_config = app.live_service.as_ref().map(|s| s.config().clone());
+    let live_status = app.live_backend().active().then(|| app.live_backend().connection_status());
+    let live_config = app.live_backend().active().then(|| app.live_backend().config().clone());
     let live_error = app.live_error.clone();
-    let mut allow_agents = app.settings.live.allow_agents;
+    let live_server_id = app.live_backend().server_id().map(str::to_owned);
+    let mut allow_agents = app.live_backend().allow_agents();
+    let allow_agents_enabled =
+        app.live_backend().active() && app.live_backend().shared_reason().is_none();
+    let allow_agents_reason =
+        app.live_backend().shared_reason().unwrap_or(crate::live_agents::OFF_REASON);
     let mut change_agents = false;
     let mut agents_help = false;
     let agents_connected = app.live_agents.connected();
@@ -616,7 +560,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
                 } else {
                     // Only looks: no reload; Live restarts only when its options changed.
-                    app.live_needs_apply |= draft.live != app.settings.live;
+                    app.live_needs_apply |= draft.live != app.settings.live
+                        || draft.live_servers != app.settings.live_servers;
                     app.settings = draft.apply(&app.settings);
                 }
             }
@@ -653,7 +598,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                             ui.separator();
                             if !legacy {
-                                draft.live_servers_ui(ui);
+                                draft.live_servers_ui_status(ui, live_server_id.as_deref().zip(live_status.as_ref().and_then(|s| s["state"].as_str())));
+                                if let Some(error) = &live_error { ui.colored_label(ui.visuals().error_fg_color, error); }
                                 return;
                             }
                             crate::widgets::field_label(ui, "NWNX folder");
@@ -662,10 +608,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.separator();
                             ui.horizontal_wrapped(|ui| {
                                 change_agents = ui.add_enabled(
-                                    live_config.is_some(),
+                                    allow_agents_enabled,
                                     egui::Checkbox::new(&mut allow_agents, "Allow LLM connections (MCP / agent API)"),
                                 ).on_hover_text(&agents_hint)
-                                    .on_disabled_hover_text(crate::live_agents::OFF_REASON).changed();
+                                    .on_disabled_hover_text(allow_agents_reason).changed();
                                 crate::live_agents::dot(ui, agents_connected, &agents_hint);
                             });
                             ui.weak("Applies immediately and is saved, independently of Apply / Cancel.");

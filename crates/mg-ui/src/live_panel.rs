@@ -292,6 +292,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     #[cfg(feature = "measure")]
     let _measure = crate::measure::span("window.panel");
     ui.heading("Live Panel");
+    crate::live_backend::status_ui(app, ui);
     ui.separator();
     // The dock is moved out of `app` while tab contents are drawn.
     let Some(area) = app

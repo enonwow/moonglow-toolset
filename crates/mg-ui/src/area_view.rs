@@ -2380,7 +2380,13 @@ fn viewport(
         sound_range_overlay(app, ui, view, &shown);
     }
     let pending = app.live.as_ref().map(|s| s.pending_targets()).unwrap_or_default();
-    crate::live_view::overlay(ui, view, live.as_ref(), &pending);
+    crate::live_view::overlay(
+        ui,
+        view,
+        live.as_ref(),
+        &pending,
+        &app.live_backend().presence_map(),
+    );
     crate::live_tiles::paint(ui, view);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
     view.pointer = ui

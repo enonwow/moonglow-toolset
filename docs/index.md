@@ -27,7 +27,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Reference
 
-* [Live desktop authentication and connection settings](live-desktop-link.md) - Desktop PKCE, TLS trust, per-server credentials and UI verification.
+* [Live desktop authentication and gateway GUI](live-desktop-link.md) - PKCE, TLS trust, secure credentials, unified Live backend and UI verification.
 
 * [Live gateway protocol](live-gateway-protocol.md) - moonglow-gw/1 frames, passive mirrors and session delivery.
 

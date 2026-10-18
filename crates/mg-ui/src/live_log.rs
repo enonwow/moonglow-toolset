@@ -307,6 +307,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     #[cfg(feature = "measure")]
     let _measure = crate::measure::span("window.log");
     ui.heading("Live Log");
+    crate::live_backend::status_ui(app, ui);
     ui.separator();
     let Some(store) = app.live.clone() else {
         ui.label("Live mode is off: Live › Start Live.");

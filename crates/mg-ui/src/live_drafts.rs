@@ -16,8 +16,12 @@ impl LiveDrafts {
     pub(crate) fn measure_cache(&self) -> serde_json::Value {
         serde_json::json!({"rows":self.rows.len(),"editing":self.editing.len()})
     }
-    fn update(&mut self, store: &std::sync::Arc<LiveStore>) {
-        let revision = store.draft_revision();
+    fn update(
+        &mut self,
+        store: &std::sync::Arc<LiveStore>,
+        revision: u64,
+        read: impl FnOnce() -> Vec<Draft>,
+    ) {
         let same = self.source.upgrade().is_some_and(|old| std::sync::Arc::ptr_eq(&old, store));
         if same && self.revision == Some(revision) {
             return;
@@ -26,7 +30,7 @@ impl LiveDrafts {
             self.editing.clear();
             self.notice = None;
         }
-        self.rows = store.drafts();
+        self.rows = read();
         self.editing.retain(|id, _| self.rows.iter().any(|r| &r.command.id == id));
         self.revision = Some(revision);
         self.source = std::sync::Arc::downgrade(store);
@@ -50,9 +54,12 @@ pub(crate) fn reserved(
     targets: Option<&[String]>,
     dm: bool,
 ) -> f32 {
-    let Some(store) = app.live.as_ref() else { return 0. };
-    app.live_drafts.update(store);
-    if app.live_drafts.rows.iter().any(|d| matches(d, area, targets, dm)) { 280. } else { 0. }
+    let Some(store) = app.live.clone() else { return 0. };
+    let mut state = std::mem::take(&mut app.live_drafts);
+    state.update(&store, app.live_backend().draft_revision(), || app.live_backend().drafts());
+    let height = if state.rows.iter().any(|d| matches(d, area, targets, dm)) { 280. } else { 0. };
+    app.live_drafts = state;
+    height
 }
 
 pub(crate) fn ui(
@@ -64,14 +71,17 @@ pub(crate) fn ui(
 ) {
     let Some(store) = app.live.clone() else { return };
     let mut state = std::mem::take(&mut app.live_drafts);
-    state.update(&store);
+    state.update(&store, app.live_backend().draft_revision(), || app.live_backend().drafts());
     let rows: Vec<_> = state.rows.iter().filter(|d| matches(d, area, targets, dm)).collect();
     if rows.is_empty() {
         app.live_drafts = state;
         return;
     }
     let mut actions = Vec::new();
+    let reason = app.live_backend().shared_reason();
     ui.group(|ui| {
+        if let Some(reason) = reason { ui.weak(reason); }
+        ui.add_enabled_ui(reason.is_none(), |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.strong(format!("LLM drafts ({})",rows.len()));
             if ui.button("Send all drafts").on_hover_text("Approve every draft shown in this conversation, including your edits.").clicked() {
@@ -81,7 +91,7 @@ pub(crate) fn ui(
         ui.weak("Nothing is sent until you approve. Enter sends the top draft while pointing at this panel.");
         // Only the hovered conversation handles an unfocused Enter; text fields and
         // ordinary buttons retain their own keyboard behavior.
-        if ui.ui_contains_pointer() && !ui.ctx().egui_wants_keyboard_input()
+        if reason.is_none() && ui.ui_contains_pointer() && !ui.ctx().egui_wants_keyboard_input()
             && ui.input_mut(|i|i.consume_key(egui::Modifiers::NONE,egui::Key::Enter)) {
             let d=rows[0];
             actions.push((d.command.id.clone(),Some(state.editing.get(&d.command.id).cloned().unwrap_or_else(||d.text().into()))));
@@ -114,6 +124,7 @@ pub(crate) fn ui(
             }
         });
         if let Some(error)=&state.notice {ui.colored_label(ui.visuals().error_fg_color,error);}
+        });
     });
     for (id, text) in actions {
         match store.decide_draft(&id, text.as_deref(), mg_live::now_ms()) {

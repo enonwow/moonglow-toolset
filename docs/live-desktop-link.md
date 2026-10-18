@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Live desktop connection and authentication
-description: Desktop authentication, credentials, WebSocket transport and passive gateway mirror.
+description: Desktop authentication, credentials, gateway transport and unified local/gateway GUI backend.
 tags: [live, gateway, authentication]
 generated: { by: codex, at: 2026-10-18T12:07:26Z }
 sources:
@@ -14,6 +14,10 @@ sources:
   - ../crates/mg-live-link/src/websocket.rs
   - ../crates/mg-live-link/src/worker.rs
   - ../crates/mg-live-link/tests/link.rs
+  - ../crates/mg-ui/src/live_backend.rs
+  - ../crates/mg-ui/tests/gateway_backend.rs
+  - ../crates/mg-ui/tests/support/gateway_ui.rs
+  - live-gateway-protocol.md
   - ../crates/mg-ui/src/options.rs
   - ../crates/mg-ui/src/settings.rs
   - ../crates/mg-ui/src/options_live.rs
@@ -351,9 +355,11 @@ return a protocol error. `agents()` preserves gateway actor records, rather than
 pretending they are observations of a local API. `take_notices()` drains the
 bounded notification queue into the future GUI log without inventing events.
 
-The current GUI has 23 direct `LiveService`/`live_service` references plus two
-startup operation blocks: the 25 migration sites below. Line numbers describe
-the unchanged GUI at this checkpoint; no GUI switch is included here.
+The part 1 checkpoint had 23 direct `LiveService`/`live_service` references plus
+two startup operation blocks: the 25 historical migration sites below. Part 2
+now routes GUI callers through `Moonglow::live_backend()`. The public local
+service field remains an embedding/test injection point; widgets do not branch
+on both service types.
 
 | Site under `crates/mg-ui/src/` | P2b part 2 mapping |
 |---|---|
@@ -361,7 +367,7 @@ the unchanged GUI at this checkpoint; no GUI switch is included here.
 | `commands.rs:680` | Enable LLM action using connection/account state. |
 | `commands.rs:692` | LiveInArea uses connection state plus an open view. |
 | `commands.rs:887` | Start/stop the selected server's link. |
-| `lib.rs:602` | Replace the service field type with `LinkService`. |
+| `lib.rs:602` | Keep local injection compatibility; the backend also owns a gateway runtime. |
 | `lib.rs:861` | Preserve the initially absent service. |
 | `live_agents.rs:57` | `agents_revision()` and pushed `agents()` snapshot. |
 | `live_agents.rs:72` | `set_allow_agents()` returns a polled request handle. |
@@ -403,7 +409,7 @@ cursor for GUI caching. It is not a server book revision for optimistic writes.
 The mirror's server policy is read-only from the desktop; no invented policy
 write operation or local campaign-directory API is exposed.
 
-### Open protocol/host dependencies for part 2
+### Protocol contracts and pending host operations
 
 The current development host implements `watch.set`, `focus.set`, `cmds`, read
 `call` and `events.since`. It explicitly returns `unsupported` for `book.put`,
@@ -412,15 +418,13 @@ these refusals remain errors and never become local success. The facade's wire
 requests and snapshot handling are ready, but these server operations cannot be
 accepted end to end until their handlers exist.
 
-The public protocol also needs concrete read-response shapes for book keys and
-entry revisions, area/object notes and actor presence. Existing NPC/GM card
-reads return a card without the per-entry revision needed by `book.put`.
-`area_notes` is on the gateway read allowlist but has no shared operation
-implementation yet. The facade exposes raw response/actor values where this
-shape is still unspecified, and requires an explicit key/revision for writes;
-it does not guess a key or silently overwrite a stale entry. Initial LLM consent
-needs an authoritative read/push too; until confirmed it remains `None`.
-These are host/protocol follow-ups, not reasons to change local campaign data.
+Book identities are now defined: NPC keys are the store's `tag:`/`resref:` ids,
+the GM key is empty, and note keys are derived per object. Actors carry `id`,
+`kind` (`dm`/`ai`), `name`, nullable `avatar`, `owner` and `area`. Focus maps object
+ids to actor ids. LLM consent starts off. The GUI keeps book, draft-decision and
+AI/consent controls disabled with an explicit reason until host handlers and
+revision-bearing reads are available. No action silently writes a local book
+while displaying a gateway mirror.
 
 ### P2b desktop verification (2026-10-18)
 
@@ -443,3 +447,54 @@ exist. The OKF executable was unavailable, so no OKF CLI validation is claimed.
 The reproduction needs only the committed sources and Cargo.lock; ephemeral
 listeners/certificates and temporary credential directories are test-owned.
 The shared Cargo build cache remains in place for other workspace consumers.
+
+## Unified GUI backend (P2b part 2)
+
+Select a saved server in Options > Live, sign in, enable Live, and Apply. The
+`local-dev` identity keeps existing local service, descriptor and Redis behavior.
+Other entries start `LinkService` on a background thread using the same
+injected/system `TokenStore` as sign-in. Environment URL/token resolution keeps
+precedence; environment credentials are never persisted. Changing server settings
+restarts only that backend. Startup completion installs its own passive mirror;
+a stale startup receiver cannot install a previous server's link.
+
+`LiveBackend` centralizes runtime selection, configuration/status, commands,
+presence and draft snapshots. `app.live` remains the shared `LiveStore` read
+surface for areas, Panel, Log, Chat, Focus and results. Commands pass through
+the existing scene recorder and link `cmds` requests with stable ids, boot and
+bounded TTL. Absolute area/Focus subscriptions change only when needed and are
+republished after reconnect. Focus persistence uses server identity rather than
+the current module's local campaign book. Sign-out stops the matching runtime.
+
+Connection state appears in the Live menu, Panel, Log and Options. Unknown
+outcomes remain visible in mirror result history after per-frame logging drains;
+the message explains that the command may have run. Presence chips show names
+and DM/AI roles in Focus and on map markers. They fetch no external avatars and
+never represent locks. Gateway tools open a wider default right pane so Focus
+keeps its two columns and composer visible; the local split is unchanged.
+The global AI switch starts off and remains disabled
+while the dev host lacks its handler.
+
+The integration test uses `mg-gateway` in-process behind an ephemeral loopback
+TLS proxy, sharing the authored `mg-live-link` fixture. A temporary authored
+module and mock credentials require no game process, installed assets, Discord
+account or real credentials. Reproduce with Rust 1.98.0,
+`NWN_ROOT=/nonexistent` and `CARGO_INCREMENTAL=0`:
+
+```sh
+cargo +1.98.0 test -p mg-ui --test gateway_backend -j 2
+cargo +1.98.0 test -p mg-ui --test screens -j 2 live_gateway -- --ignored
+cargo +1.98.0 test --workspace --exclude mg-corpus-tests --lib --bins --tests -j 2
+cargo +1.98.0 clippy --workspace --all-targets -j 2 -- -D warnings
+cargo +1.98.0 clippy -p mg-ui --test screens -j 2 -- -D warnings
+cargo +1.98.0 fmt --check
+```
+
+The before images are `target/test-output/screens/live-gateway-before.png`
+and `live-gateway-focus-before.png` (the clipped narrow composer).
+The screen harness writes Options, Focus, map-presence, connected, reconnecting
+and unknown-result PNGs in
+that same directory. Source fixtures/tests are reproduction inputs; PNGs are
+local visual evidence. Shared Cargo outputs remain in use by concurrent work;
+only owned disposable logs and temporary fixtures are removed after recording
+final verification results.

@@ -47,9 +47,12 @@ impl LiveAssistant {
     }
 }
 pub(crate) fn update(app: &mut Moonglow) {
+    if app.live_backend().shared_reason().is_some() {
+        return;
+    }
     let module = app.module_path();
     let Some(store) = app.live.clone() else { return };
-    let config = app.live_service.as_ref().map(|s| s.config()).unwrap_or(&app.settings.live);
+    let config = app.live_backend().config();
     let server = format!("{}:{}:{}", config.redis_host, config.redis_port, config.prefix);
     let context = module.map(|m| (m, server));
     let same =
@@ -81,6 +84,11 @@ fn field(ui: &mut egui::Ui, label: &str, text: &mut String, rows: usize) -> bool
     .changed()
 }
 pub(crate) fn card(app: &mut Moonglow, ui: &mut egui::Ui, target: Option<&str>) {
+    if let Some(reason) = app.live_backend().shared_reason() {
+        ui.add_enabled(false, egui::Button::new("Shared book")).on_disabled_hover_text(reason);
+        ui.weak(reason);
+        return;
+    }
     ui.heading(if target.is_some() { "NPC card" } else { "GM card" });
     ui.weak(if target.is_some(){"Tell the assistant who this NPC is and how to speak as them. Saved with this module."}else{"Private campaign guidance. The assistant reads this first; it must not quote secrets to players."});
     let Some(store) = app.live.clone() else {
@@ -179,7 +187,11 @@ pub(crate) fn npc_button(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
     });
     if allowed
         && ui
-            .small_button("NPC card")
+            .add_enabled(
+                app.live_backend().shared_reason().is_none(),
+                egui::Button::new("NPC card").small(),
+            )
+            .on_disabled_hover_text(crate::live_backend::SHARED_REASON)
             .on_hover_text(
                 "Edit this NPC's identity, knowledge, secrets and voice for the assistant.",
             )
@@ -189,6 +201,9 @@ pub(crate) fn npc_button(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
     }
 }
 pub(crate) fn open_npc_card(app: &mut Moonglow, id: &str) {
+    if app.live_backend().shared_reason().is_some() {
+        return;
+    }
     let Some(store) = &app.live else { return };
     match store.npc_card(id) {
         Ok(card) => app.actions.push(Action::OpenTab(Tab::LiveNpcCard(card.id))),
@@ -196,6 +211,11 @@ pub(crate) fn open_npc_card(app: &mut Moonglow, id: &str) {
     }
 }
 pub(crate) fn memory(app: &mut Moonglow, ui: &mut egui::Ui, id: &str) {
+    if let Some(reason) = app.live_backend().shared_reason() {
+        ui.add_enabled(false, egui::Button::new("Shared book")).on_disabled_hover_text(reason);
+        ui.weak(reason);
+        return;
+    }
     ui.weak("Saved NPC/player history. Nearby lines use reported positions; they do not prove who heard them.");
     let Some(store) = app.live.clone() else { return };
     let revision = store.assistant_revision();

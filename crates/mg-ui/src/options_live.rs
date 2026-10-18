@@ -37,6 +37,7 @@ enum Event {
     Trust(TrustPrompt),
     Failed(String),
     Removed,
+    SignedOut,
 }
 
 #[derive(Default)]
@@ -68,6 +69,14 @@ impl OptionsDraft {
 
     /// Draw the gateway connection panel independently of the legacy local controls.
     pub fn live_servers_ui(&mut self, ui: &mut egui::Ui) {
+        self.live_servers_ui_status(ui, None);
+    }
+
+    pub(crate) fn live_servers_ui_status(
+        &mut self,
+        ui: &mut egui::Ui,
+        runtime: Option<(&str, &str)>,
+    ) {
         let shared = ui
             .ctx()
             .data_mut(|d| d.get_temp_mut_or_default::<Arc<Mutex<Account>>>(state_id()).clone());
@@ -90,12 +99,27 @@ impl OptionsDraft {
                         account.status = "Disconnected".into();
                         account.pending = None;
                     }
+                    Event::SignedOut => {
+                        if let Some(server) = &account.server {
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(egui::Id::new("live-signed-out"), server.id.clone())
+                            });
+                        }
+                        account.signed_in = false;
+                        account.status = "Disconnected".into();
+                        account.pending = None;
+                    }
                     Event::Trust(prompt) => {
                         account.trust = Some(prompt);
                         account.pending = None;
                         account.status = "Certificate needs your approval".into();
                     }
                     Event::Removed => {
+                        if let Some(server) = &account.server {
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(egui::Id::new("live-signed-out"), server.id.clone())
+                            });
+                        }
                         account.removed = true;
                         account.pending = None;
                     }
@@ -108,6 +132,7 @@ impl OptionsDraft {
         }
         let busy = account.pending.is_some();
         ui.heading("Live servers");
+        ui.checkbox(&mut self.live.enabled, "Enable live mode");
         let overridden = self
             .live_servers
             .resolve()
@@ -162,7 +187,9 @@ impl OptionsDraft {
                     let changed = ui.add_enabled(!busy && !account.signed_in, egui::TextEdit::singleline(&mut server.url).desired_width(280.)).labelled_by(label.id).changed();
                     if changed { server.cert_pin = None; }
                     ui.end_row();
-                    ui.label("Status"); ui.label(&account.status); ui.end_row();
+                    let status = runtime.filter(|(id,_)| *id == server.id && !busy && account.status == "Disconnected")
+                        .map_or(account.status.as_str(), |(_,status)| status);
+                    ui.label("Status"); ui.label(status); ui.end_row();
                     ui.label("Account");
                     ui.vertical(|ui| {
                         ui.label(if let Some(resolved) = &overridden {
@@ -179,7 +206,8 @@ impl OptionsDraft {
                     });
                     ui.end_row();
                     ui.label("HAK / module cache"); ui.weak("0 B · downloads not available yet"); ui.end_row();
-                    ui.label("My AI"); ui.weak("Available after connecting to a gateway"); ui.end_row();
+                    ui.label("My AI"); ui.add_enabled(false, egui::Button::new("Manage AI"))
+                        .on_disabled_hover_text(crate::live_backend::SHARED_REASON); ui.end_row();
                 });
                 if let Some(prompt) = account.trust.clone() {
                     ui.separator();
@@ -198,7 +226,7 @@ impl OptionsDraft {
                     });
                 }
                 ui.add_space(10.);
-                ui.weak("Sign-in saves a session on this device. Live data connection is not available yet.");
+                ui.weak("Sign-in saves a session on this device. Enable live mode and Apply to connect.");
                 ui.weak("Account actions take effect immediately. Apply saves the server list.");
             });
         });
@@ -212,6 +240,62 @@ impl OptionsDraft {
             account.status.clear();
         }
     }
+}
+
+/// Shares Options' isolated credential backend. The environment token is read-only
+/// and never written to the OS store or fallback file.
+pub(crate) fn start_gateway(
+    ctx: &egui::Context,
+    resolved: crate::settings::ResolvedGateway,
+) -> mpsc::Receiver<Result<mg_live_link::LinkService, String>> {
+    struct ReadBackend {
+        inner: Arc<dyn Backend>,
+        token: Option<SessionToken>,
+    }
+    impl Backend for ReadBackend {
+        fn get(&self, id: &str) -> Result<Option<SessionToken>, StoreError> {
+            if self.token.is_some() { Ok(self.token.clone()) } else { self.inner.get(id) }
+        }
+        fn set(&self, _: &str, _: &SessionToken) -> Result<(), StoreError> {
+            Err(StoreError::Denied)
+        }
+        fn delete(&self, _: &str) -> Result<(), StoreError> {
+            Err(StoreError::Denied)
+        }
+    }
+    let environment = ctx.data(|d| d.get_temp::<Environment>(environment_id())).or_else(|| {
+        crate::recovery::data_dir()
+            .map(|data_dir| Environment { backend: Arc::new(OsKeyring), data_dir })
+    });
+    let (tx, rx) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let result = (|| {
+            let environment = environment.ok_or("Credential storage unavailable")?;
+            let gateway = Gateway::new(&resolved.server.url, resolved.server.cert_pin.as_deref())
+                .map_err(|e| e.to_string())?;
+            let config = mg_live_link::LinkConfig::new(resolved.server.id, gateway);
+            let tokens = TokenStore::new(
+                ReadBackend { inner: environment.backend, token: resolved.token },
+                &environment.data_dir,
+            );
+            let wake = ctx.clone();
+            mg_live_link::LinkService::start(
+                config,
+                &tokens,
+                Arc::new(move || crate::live_repaint::wake(&wake)),
+            )
+            .map_err(|error| match error {
+                mg_live_link::StartError::Trust(Error::TrustRequired(_)) => {
+                    "Certificate approval required: sign in from Options > Live first.".into()
+                }
+                error => error.to_string(),
+            })
+        })();
+        let _ = tx.send(result);
+        crate::live_repaint::wake(&ctx);
+    });
+    rx
 }
 
 #[derive(Clone, Copy)]
@@ -272,6 +356,7 @@ fn start(
         };
         let event = match result {
             Ok(_) if matches!(op, Operation::Remove) => Event::Removed,
+            Ok(_) if matches!(op, Operation::Logout) => Event::SignedOut,
             Ok(signed_in) => Event::Account(signed_in),
             Err(error) => Event::Failed(error),
         };

@@ -54,25 +54,33 @@ impl LiveAgents {
 }
 
 pub(crate) fn update(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(service) = &app.live_service else {
+    if !app.live_backend().active() {
         app.live_agents = LiveAgents::default();
         return;
     };
-    if !service.config().allow_agents {
+    if !app.live_backend().allow_agents() {
         app.live_agents = LiveAgents::default();
         return;
     }
     let now = mg_live::now_ms();
-    app.live_agents.refresh(service.agents_revision(), now, || service.agents(now));
+    let revision = app.live_backend().agents_revision();
+    if app.live_agents.revision != Some(revision)
+        || app.live_agents.expires().is_some_and(|at| now >= at)
+    {
+        let agents = app.live_backend().agents(now);
+        app.live_agents.refresh(revision, now, || agents);
+    }
     app.live_agents.schedule(ctx, now);
 }
 
 /// Only this path mutates consent: no service/Redis restart and no stale Options draft.
 pub(crate) fn set_allowed(app: &mut Moonglow, ctx: &egui::Context, allowed: bool) {
-    let Some(service) = &mut app.live_service else { return };
-    let result = service.set_allow_agents(allowed);
+    if !app.live_backend().active() {
+        return;
+    }
+    let result = crate::live_backend::set_allowed(app, allowed);
     // A failed descriptor publication must leave the UI at the actual gate state.
-    app.settings.live.allow_agents = service.config().allow_agents;
+    app.settings.live.allow_agents = app.live_backend().allow_agents();
     if let Some(draft) = &mut app.options {
         draft.live.allow_agents = app.settings.live.allow_agents;
     }
@@ -87,7 +95,7 @@ pub(crate) fn set_allowed(app: &mut Moonglow, ctx: &egui::Context, allowed: bool
 
 pub(crate) fn hint(app: &Moonglow) -> String {
     app.live_agents
-        .hint(app.live_service.as_ref().is_some_and(|s| s.config().allow_agents), mg_live::now_ms())
+        .hint(app.live_backend().active() && app.live_backend().allow_agents(), mg_live::now_ms())
 }
 
 pub(crate) fn dot(ui: &mut egui::Ui, connected: bool, hint: &str) {
@@ -112,15 +120,20 @@ pub(crate) fn dot(ui: &mut egui::Ui, connected: bool, hint: &str) {
 }
 
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui) {
-    let mut allowed = app.settings.live.allow_agents;
+    let mut allowed = app.live_backend().allow_agents();
     let hint = hint(app);
     let changed = ui
-        .add_enabled_ui(app.live_service.is_some(), |ui| {
-            ui.toggle_value(&mut allowed, "⚡ LLM")
-                .on_hover_text(&hint)
-                .on_disabled_hover_text(OFF_REASON)
-                .changed()
-        })
+        .add_enabled_ui(
+            app.live_backend().active() && app.live_backend().shared_reason().is_none(),
+            |ui| {
+                ui.toggle_value(&mut allowed, "⚡ LLM")
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(
+                        app.live_backend().shared_reason().unwrap_or(OFF_REASON),
+                    )
+                    .changed()
+            },
+        )
         .inner;
     if changed {
         set_allowed(app, ui.ctx(), allowed);
