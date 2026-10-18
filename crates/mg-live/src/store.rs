@@ -1863,10 +1863,8 @@ impl LiveStore {
         if s.server.as_ref() == Some(config) {
             return;
         }
+        s.results.clear();
         assistant::cancel(&mut s, "expired: server endpoint changed");
-        for (_, result) in &mut s.results {
-            result.receipt = None;
-        }
         s.receipts.clear();
         let mut commands: Vec<_> = s.queue.drain(..).map(|q| (q.command, q.sent)).collect();
         commands.extend(s.skill_waiting.drain().map(|(_, (command, _))| (command, true)));
@@ -1874,6 +1872,10 @@ impl LiveStore {
             let result = undelivered(&command.id, sent, "server endpoint changed");
             push_result(&mut s, command, result);
         }
+        s.accepted.clear();
+        let retained: HashSet<_> = s.results.iter().map(|(c, _)| c.id.clone()).collect();
+        s.owners.retain(|id, _| retained.contains(id));
+        s.events.reset_endpoint();
         s.server = Some(config.clone());
         s.boot.clear();
         s.areas.clear();
@@ -2614,6 +2616,11 @@ impl LiveStore {
             }
         }
         let drafted = assistant::stage(&mut s, &command, scope, now_ms)?;
+        // A caller may reuse an ID after switching endpoint. Its old endpoint
+        // cancellation must not be returned as this newly queued operation.
+        if !drafted {
+            s.results.retain(|(old, _)| old.id != id);
+        }
         s.accepted.insert(id.clone(), command_fingerprint(&command));
         s.owners.insert(id.clone(), scope.name.clone());
         if drafted {

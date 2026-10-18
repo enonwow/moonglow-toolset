@@ -691,6 +691,37 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_change_resets_history_and_identities_but_keeps_sent_outcome_unknown() {
+        let store = LiveStore::default();
+        let mut config = RedisConfig { host: "localhost".into(), port: 1, prefix: "one".into() };
+        store.bind_server(&config);
+        store.sync(&serde_json::to_vec(&report(1)).unwrap(), 0).unwrap();
+        store.server_log(
+            &json!({"kind":"server_log","stream":"old","seq":1,"line":"old endpoint"}),
+            0,
+        );
+        let command = || {
+            serde_json::from_value(json!({"id":"reuse","area":"a","op":"destroy","target":"ab"}))
+                .unwrap()
+        };
+        store.enqueue(command(), 0).unwrap();
+        store.commands(0);
+        config.prefix = "two".into();
+        store.bind_server(&config);
+        assert_eq!(store.result("reuse").unwrap().code, Some(crate::store::ErrorCode::Unknown));
+        assert!(
+            store
+                .events_scoped(&crate::events::Query::default(), &crate::access::Scope::default())
+                .0
+                .is_empty()
+        );
+        store.sync(&serde_json::to_vec(&report(1)).unwrap(), 1).unwrap();
+        store.enqueue(command(), 1).unwrap();
+        assert!(store.result("reuse").is_none());
+        assert_eq!(store.commands(1)["commands"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn bridge_reports_kicks_retries_and_reconnects() {
         let fake = Fake::start();
         let store = Arc::new(LiveStore::default());

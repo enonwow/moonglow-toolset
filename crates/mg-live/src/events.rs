@@ -73,6 +73,16 @@ fn text(v: &Value) -> Option<String> {
 }
 
 impl EventLog {
+    pub(crate) fn reset_endpoint(&mut self) {
+        // Preserve local cursor monotonicity and wake the same waiters, while
+        // discarding the previous server's history and deduplication state.
+        let next = self.next;
+        let changed = self.changed.clone();
+        *self = Self::default();
+        self.next = next;
+        self.changed = changed;
+        self.changed.notify_all();
+    }
     /// Import finished gateway events without deriving or renumbering anything.
     pub(crate) fn mirror_batch(&mut self, rows: Vec<Event>, through: u64) -> Result<(), String> {
         if rows.windows(2).any(|pair| pair[0].n >= pair[1].n)

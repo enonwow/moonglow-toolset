@@ -1,5 +1,7 @@
 # Update log
 
+* **Endpoint-local Live state (2026-10-18)**: reset history and accepted IDs on endpoint changes while preserving uncertain pending outcomes. [Contract](live-ops-wire.md#endpoint-local-history-and-identities-2026-10-18).
+
 * **Live module compatibility (2026-10-18)**: versioned script envelopes and an actionable visible rebuild message; native guard proof passes. [Contract](live-ops-wire.md#prepared-module-compatibility-2026-10-18).
 
 * **Live ACK expiry (2026-10-18)**: expired/evicted results release their native acknowledgements; WSL proof passes. [Contract](live-ops-wire.md#expired-result-acknowledgements-2026-10-18).

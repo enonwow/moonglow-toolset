@@ -3221,3 +3221,13 @@ A current report clears the compatibility message. The game likewise rejects
 missing, older or newer script versions before any side effect. Bridge unit
 coverage checks legacy status; private WSL `command_version` proves the report
 version and rejection, then one execution with the current envelope.
+
+## Endpoint-local history and identities (2026-10-18)
+
+Changing endpoint clears accepted command fingerprints, old result history
+and event/log history with its deduplication state. Local event cursors remain
+monotonic so existing log writers do not skip new-server rows. Pending work
+gets its explicit expired/unknown cancellation, preserving the sent distinction.
+A newly accepted command may reuse an old endpoint's ID without inheriting
+its prior result. The bridge/store regression covers history isolation, sent
+uncertainty and actual re-enqueue after an endpoint change.
