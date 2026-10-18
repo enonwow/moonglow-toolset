@@ -742,8 +742,10 @@ class Proof:
 
 
     def combat(self):
-        spawn = lambda r, x, f: self.command(op="spawn", kind="creature", r=r, x=x, y=10, z=0, f=f)["obj"]
-        bandit, victim = spawn("nw_bandit001", 8, 0), spawn("nw_bartender", 10, 180)
+        spawn = lambda r, x, f: self.command(op="spawn", kind="creature", r=r, x=x, y=5, z=0, f=f)["obj"]
+        # y=5, clear of the fixture door at the area centre (10,10): fighters near or
+        # across it never started an attack round (moving the door fixed that too).
+        bandit, victim = spawn("nw_bandit001", 3, 0), spawn("nw_bartender", 6, 180)
         self.command(op="npc_attack", target=bandit, victim=victim)
         self.until(lambda: any(e["id"] == bandit and e["target"] == victim for e in self.matching("attack")), 30)
         self.until(lambda: any(e["target"] == victim and e["amount"] > 0 for e in self.matching("damage")), 60)
@@ -761,7 +763,7 @@ class Proof:
                 "spell": spell, "limitation": "player_join/leave need a client join; not exercised here."}
 
     def spell(self, projectile=False):
-        spawn = lambda r, x, f: self.command(op="spawn", kind="creature", r=r, x=x, y=10, z=0, f=f)["obj"]
+        spawn = lambda r, x, f: self.command(op="spawn", kind="creature", r=r, x=x, y=5, z=0, f=f)["obj"]
         caster, mark = spawn("nw_bandit001", 6, 0), spawn("nw_bartender", 14, 180)
         self.chunk(f'SetLocalObject(GetModule(), "MGET_TARGET", StringToObject("{mark}")); '
                    f'SetLocalInt(GetModule(), "MGET_CAST_PROJECTILE", {int(projectile)}); '
