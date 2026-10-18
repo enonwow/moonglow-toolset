@@ -36,6 +36,7 @@ impl Authenticator for Auth {
             ),
             "test-reader" => ("dm:reader", vec!["read", "approve_drafts"]),
             "test-admin" => ("dm:admin", vec!["read", "admin"]),
+            "test-chat" => ("dm:chat", vec!["read", "read_chat"]),
             "test-agent-credential-for-local-fixtures" => ("ai:test", vec!["read"]),
             _ => return None,
         };
@@ -781,4 +782,44 @@ async fn only_the_owning_dm_can_decide_an_ai_draft() {
     assert!(core.with_store(|s| s.drafts().is_empty()).await.unwrap());
     core.shutdown().await.unwrap();
     task.abort();
+}
+
+#[tokio::test]
+async fn note_reads_and_filtered_event_pages_cross_the_websocket() {
+    let root = std::env::temp_dir()
+        .join(format!("gateway-read-{}", mg_live::service::generate_token().unwrap()));
+    let (url, core, task) = server(Config::default()).await;
+    let mut state = report(1);
+    state["events"] = json!([
+        {"seq":1,"kind":"chat","area":"square","channel":1,"text":"one"},
+        {"seq":2,"kind":"chat","area":"square","channel":4,"text":"private"},
+        {"seq":3,"kind":"chat","area":"square","channel":1,"text":"two"}
+    ]);
+    feed(&core, state).await;
+    let data = root.clone();
+    core.with_store(move |s| {
+        s.assistant_context(data.clone(), data.join("fixture.mod"), "fixture".into()).unwrap();
+        s.save_object_note("a1", "Remote note").unwrap();
+    })
+    .await
+    .unwrap();
+    let (mut ws, _) = connect(&url, vec![], None, "test-chat").await;
+    let notes =
+        call(&mut ws, 1, "call", json!({"op":"area_notes","input":{"area":"square"}})).await;
+    assert_eq!(notes["r"]["notes"]["a1"], "Remote note");
+    assert_eq!(notes["r"]["revs"]["a1"], 1);
+    let first = call(&mut ws, 2, "events.since", json!({"n":0,"limit":1,"kinds":["chat"]})).await;
+    let second = call(
+        &mut ws,
+        3,
+        "events.since",
+        json!({"n":first["r"]["through"],"limit":1,"kinds":["chat"]}),
+    )
+    .await;
+    assert_eq!(first["r"]["rows"][0]["data"]["text"], "one");
+    assert_eq!(second["r"]["rows"][0]["data"]["text"], "two");
+    assert_eq!(second["r"]["through"], core.with_store(|s| s.event_cursor()).await.unwrap());
+    core.shutdown().await.unwrap();
+    task.abort();
+    std::fs::remove_dir_all(root).unwrap();
 }

@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway read transport coverage (2026-10-18)**: loopback WebSocket tests cover note keys/revisions and event pagination with hidden tells. [Request contract](live-library.md#gateway-shared-requests).
+
 * **Bounded note revisions (2026-10-18)**: local and gateway edits share the same 4000-key capacity, including cleared-note revisions. [Contract](live-library.md#gateway-shared-requests).
 
 * **Durable gateway revocation (2026-10-18)**: retain bounded revoked digests so dev configuration cannot resurrect a token on restart. [Persistence regression](live-library.md#gateway-shared-requests).
