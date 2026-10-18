@@ -1,5 +1,7 @@
 # Update log
 
+* **Live game-read quotas (2026-10-18)**: asynchronous game queries now consume client quota on both HTTP routes. [Contract](live-ops-wire.md#game-read-quotas-2026-10-18).
+
 * **Bounded Live result reports (2026-10-18)**: 512 KiB batches, deferred receipts and bounded parser headroom; private engine proof passes. [Contract](live-ops-wire.md#report-result-budget-2026-10-18).
 
 * **Desktop session storage (2026-10-18)**: per-server OS keyring with private fallback only on unavailability, atomic replacement and recovery migration. [Contract](live-desktop-link.md#credential-storage).

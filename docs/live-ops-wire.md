@@ -3163,3 +3163,12 @@ uses its private server and scratch directory. Four synthetic 180,000-byte
 rows were delivered across bounded reports and cleared with exact receipts;
 no deferred result was prematurely acknowledged. `report_budget` checks parser
 headroom and rejection beyond the hard limit.
+
+## Game-read quotas (2026-10-18)
+
+HTTP command quotas use the operation catalogue's execution handler in addition
+to its capability group. All commands and game queries consume the named
+client's quota, including get_variable, dump_locals and capture_object. Store
+status, event reads and waits remain unmetered. The API regression checks all
+three queries through both HTTP routes and confirms status remains available
+after exhaustion.

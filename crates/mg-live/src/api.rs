@@ -419,7 +419,8 @@ fn answer(
             );
         }
         if method == "POST"
-            && crate::access::group(op) != Some(ClientGroup::Read)
+            && (crate::access::group(op) != Some(ClientGroup::Read)
+                || crate::operations::executes_in_game(op))
             && let Err(seconds) = access.command(who, now_ms)
         {
             return (
@@ -1083,6 +1084,43 @@ mod tests {
             200
         );
         assert_eq!(scoped_exchange(&live, &access, &raw, time + 60000).0, 200);
+    }
+
+    #[test]
+    fn game_reads_spend_the_client_quota_on_both_http_routes() {
+        for op in ["get_variable", "dump_locals", "capture_object"] {
+            for legacy in [false, true] {
+                let live = LiveStore::default();
+                let time = now();
+                live.sync(SYNC.as_bytes(), time).unwrap();
+                let client = named(vec![ClientGroup::Read], 1);
+                let access = allowed_access(std::slice::from_ref(&client));
+                let mut input = json!({"id":"read","area":"a","target":"7f01"});
+                if op == "get_variable" {
+                    input["type"] = json!("int");
+                    input["name"] = json!("example");
+                }
+                let path = if legacy {
+                    input["op"] = json!(op);
+                    PATH.into()
+                } else {
+                    format!("/v1/call/live_{op}")
+                };
+                let raw = post(&path, &client.token, &input.to_string());
+                assert_eq!(scoped_exchange(&live, &access, &raw, time).0, 200, "{op}");
+                assert_eq!(scoped_exchange(&live, &access, &raw, time + 1).0, 429, "{op}");
+                assert_eq!(
+                    scoped_exchange(
+                        &live,
+                        &access,
+                        &post("/v1/call/live_status", &client.token, "{}"),
+                        time + 1
+                    )
+                    .0,
+                    200
+                );
+            }
+        }
     }
     #[test]
     fn chat_and_other_clients_results_cannot_leak_or_claim_ids() {

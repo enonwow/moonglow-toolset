@@ -966,6 +966,14 @@ pub fn command_scoped(
     live.enqueue_scoped(command, now_ms, scope).map(|id| json!({"queued":id}))
 }
 
+/// Quotas follow execution, not the capability group (some reads run in game).
+pub(crate) fn executes_in_game(name: &str) -> bool {
+    let name = name.strip_prefix("live_").unwrap_or(name);
+    table(Policy { scripts: true, chunks: true, players: true }).iter().any(
+        |op| matches!(op.handler, Handler::Command(kind) | Handler::Query(kind) if kind == name),
+    )
+}
+
 pub fn call(
     name: &str,
     input: Value,
