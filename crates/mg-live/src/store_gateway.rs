@@ -95,6 +95,9 @@ pub struct Events {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "topic", content = "body", rename_all = "snake_case")]
+// Short-lived values built and consumed by the same session pump; boxing the result row would
+// change the enum the desktop link constructs.
+#[allow(clippy::large_enum_variant)]
 pub enum Push {
     Meta(Meta),
     Area(Area),
