@@ -178,38 +178,54 @@ pub(crate) fn pause(stop: &AtomicBool, delay: Duration) {
 }
 
 /// Redis host and port, resolved again at every connection attempt: a restarted Redis
-/// container may come back on another address. The startup resolution is the fallback.
+/// container may come back on another address. Resolution runs on a helper thread with a
+/// short timeout and honours the stop flag (getaddrinfo cannot be interrupted, so a stuck
+/// lookup is abandoned, never waited for); the last good addresses are the fallback.
 pub(crate) struct Endpoint {
     host: String,
     port: u16,
-    fallback: Vec<SocketAddr>,
+    last: Mutex<Vec<SocketAddr>>,
 }
 impl Endpoint {
-    fn current(&self) -> Vec<SocketAddr> {
-        match (self.host.as_str(), self.port).to_socket_addrs() {
-            Ok(found) => {
-                let found: Vec<_> = found.collect();
-                if found.is_empty() { self.fallback.clone() } else { found }
+    pub(crate) fn new(host: String, port: u16, resolved: Vec<SocketAddr>) -> Self {
+        Self { host, port, last: Mutex::new(resolved) }
+    }
+    fn current(&self, stop: &AtomicBool) -> Vec<SocketAddr> {
+        let (send, receive) = mpsc::channel();
+        let target = (self.host.clone(), self.port);
+        thread::spawn(move || {
+            let found = target.to_socket_addrs().map(|a| a.collect::<Vec<_>>());
+            let _ = send.send(found);
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline && !stop.load(Ordering::Acquire) {
+            match receive.recv_timeout(Duration::from_millis(50)) {
+                Ok(Ok(found)) if !found.is_empty() => {
+                    *self.last.lock().unwrap_or_else(|e| e.into_inner()) = found.clone();
+                    return found;
+                }
+                Ok(_) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
-            Err(_) => self.fallback.clone(),
         }
+        self.last.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 pub(crate) trait Addresses {
-    fn addresses(&self) -> Vec<SocketAddr>;
+    fn addresses(&self, stop: &AtomicBool) -> Vec<SocketAddr>;
 }
 impl Addresses for Endpoint {
-    fn addresses(&self) -> Vec<SocketAddr> {
-        self.current()
+    fn addresses(&self, stop: &AtomicBool) -> Vec<SocketAddr> {
+        self.current(stop)
     }
 }
 impl<T: Addresses + ?Sized> Addresses for Arc<T> {
-    fn addresses(&self) -> Vec<SocketAddr> {
-        (**self).addresses()
+    fn addresses(&self, stop: &AtomicBool) -> Vec<SocketAddr> {
+        (**self).addresses(stop)
     }
 }
 impl Addresses for Vec<SocketAddr> {
-    fn addresses(&self) -> Vec<SocketAddr> {
+    fn addresses(&self, _: &AtomicBool) -> Vec<SocketAddr> {
         self.clone()
     }
 }
@@ -218,9 +234,11 @@ pub(crate) fn connect<A: Addresses + ?Sized>(
     addresses: &A,
     stop: &AtomicBool,
 ) -> Result<BufReader<TcpStream>, String> {
+    // The connect budget starts after resolution, which has its own bound.
+    let candidates = addresses.addresses(stop);
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut error = "Redis address is unavailable".to_owned();
-    for address in &addresses.addresses() {
+    for address in &candidates {
         if stop.load(Ordering::Acquire) {
             return Err("stopped".into());
         }
@@ -292,11 +310,7 @@ impl Bridge {
         if addresses.is_empty() {
             return Err("Redis host resolved to no address".into());
         }
-        let addresses = Arc::new(Endpoint {
-            host: config.host.clone(),
-            port: config.port,
-            fallback: addresses,
-        });
+        let addresses = Arc::new(Endpoint::new(config.host.clone(), config.port, addresses));
         let state = Arc::new(Mutex::new(State::default()));
         store.bind_server(&config);
         store.set_redis_status(state.clone());
@@ -622,12 +636,17 @@ mod tests {
     #[test]
     fn endpoint_resolves_again_and_falls_back_to_the_startup_address() {
         let fallback: SocketAddr = "192.0.2.1:6379".parse().unwrap();
-        let named = Endpoint { host: "localhost".into(), port: 6379, fallback: vec![fallback] };
-        let now = named.addresses();
+        let stop = AtomicBool::new(false);
+        let named = Endpoint::new("localhost".into(), 6379, vec![fallback]);
+        let now = named.addresses(&stop);
         assert!(!now.is_empty() && now.iter().all(|a| a.ip().is_loopback() && a.port() == 6379));
-        let gone =
-            Endpoint { host: "unresolvable.invalid".into(), port: 6379, fallback: vec![fallback] };
-        assert_eq!(gone.addresses(), vec![fallback]);
+        let gone = Endpoint::new("unresolvable.invalid".into(), 6379, vec![fallback]);
+        assert_eq!(gone.addresses(&stop), vec![fallback]);
+        // A stopped bridge never waits for the resolver.
+        stop.store(true, Ordering::Release);
+        let started = Instant::now();
+        assert_eq!(gone.addresses(&stop), vec![fallback]);
+        assert!(started.elapsed() < Duration::from_millis(200));
     }
 
     #[test]
