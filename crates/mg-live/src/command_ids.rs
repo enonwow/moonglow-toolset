@@ -139,7 +139,6 @@ impl Journal {
         }
         self.history.advance(now);
         if self.file.is_none() {
-            self.migrate_legacy(now)?;
             self.checkpoint()?;
         }
         if self.boot != boot {
@@ -149,55 +148,6 @@ impl Journal {
             self.boot = boot.into();
         }
         self.history.removed.clear();
-        Ok(())
-    }
-    /// Old journals have no fingerprint/owner: retain their reservations but never execute them.
-    fn migrate_legacy(&mut self, now: u64) -> Result<(), String> {
-        let mut migrated = Vec::new();
-        for f in fs::read_dir(&self.root).map_err(|e| e.to_string())? {
-            let f = f.map_err(|e| e.to_string())?;
-            let path = f.path();
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-            if path.extension().and_then(|s| s.to_str()) != Some("jsonl")
-                || stem.len() != 64
-                || !stem.bytes().all(|b| b.is_ascii_hexdigit())
-            {
-                continue;
-            }
-            if !f.file_type().map_err(|e| e.to_string())?.is_file() {
-                return Err("Invalid legacy journal type".into());
-            }
-            if f.metadata().map_err(|e| e.to_string())?.len() > MAX_BYTES {
-                return Err("Legacy command journal exceeds its size bound".into());
-            }
-            let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            if !text.is_empty() && !text.ends_with('\n') {
-                return Err("Incomplete command identity journal; refusing uncertain replay".into());
-            }
-            for line in text.lines() {
-                let id: String = serde_json::from_str(line)
-                    .map_err(|e| format!("Command identity record: {e}"))?;
-                if id.is_empty() || id.chars().count() > 64 {
-                    return Err("Invalid legacy command identity".into());
-                }
-                let at = crate::command_issued_ms(&id).unwrap_or(now);
-                self.history.insert(
-                    stem.into(),
-                    id,
-                    Entry { at, fingerprint: None, owner: String::new(), outcome: None },
-                );
-                self.history.removed.clear();
-            }
-            migrated.push(path);
-        }
-        if !migrated.is_empty() {
-            self.history.boundary.legacy_closed = true;
-            self.checkpoint()?;
-            // Only validated journal files, after the replacement boundary/rows are durable.
-            for path in migrated {
-                fs::remove_file(path).map_err(|e| e.to_string())?;
-            }
-        }
         Ok(())
     }
     fn checkpoint(&mut self) -> Result<(), String> {
@@ -466,21 +416,12 @@ mod tests {
     }
 
     #[test]
-    fn legacy_reservations_migrate_without_reexecution_and_truncation_fails_closed() {
+    fn truncated_journal_fails_closed() {
         let dir = folder();
         fs::create_dir(&dir).unwrap();
-        let old = dir.join(format!("{}.jsonl", boot_key("boot")));
-        fs::write(&old, b"\"old\"\n").unwrap();
         let mut j = Journal::new(dir.clone()).unwrap();
         j.select_boot_at("boot", 1000).unwrap();
-        assert!(j.entry("boot", "old").unwrap().fingerprint.is_none());
-        assert!(j.reserve("old").is_err());
-        assert!(j.reserve("new-legacy").is_err());
-        assert!(!old.exists());
-        drop(j);
-        let mut j = Journal::new(dir.clone()).unwrap();
-        j.select_boot_at("boot", 1000).unwrap();
-        assert!(j.reserve("new-legacy").is_err());
+        j.reserve("kept").unwrap();
         drop(j);
         // No partial record may silently drop a reservation.
         let path = dir.join("current.jsonl");
