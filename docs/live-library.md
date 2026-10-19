@@ -415,6 +415,11 @@ and other watch owners; unchanged ticks do not rebuild or reapply the union. A
 new gateway invalidates the cache and releases old session watches even when no
 new client connects. `audit_e1` checks expiry ownership, unchanged tick/pump work,
 watch changes and gateway restart. Direct core embedders must drive `tick`.
+Session pumps are woken when the Redis bridge applies a report, event or result
+(`CoreHandle` hands the bridge a wake closure) and otherwise poll every 100 ms
+for deadlines; an area, once per revision, is copied and serialized once for all
+sessions. Measurements and the lock-order rule for the bridge status:
+[Live gateway load test](live-gateway-load.md).
 
 Event delivery advances only through scanned rows in each bounded batch. Hidden
 rows still advance the cursor; gaps are counted only when crossed, not once per

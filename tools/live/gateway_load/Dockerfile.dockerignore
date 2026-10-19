@@ -1,0 +1,5 @@
+target
+.git
+private
+**/__pycache__
+*.log

@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway load test and tuning (2026-10-19)**: a Docker harness (30 to 120 desktops, 10 agents, 50 areas, Redis and gateway restarts) found a store/bridge lock-order deadlock, a copy and double encoding of every area per session, a `meta` frame on every poll, a gateway restart that copied the event log per page, and two per-poll CPU sinks seen with `perf`. Area-push p95 at 30 desktops 195 to 55 ms, gateway CPU 1.5 to 0.3 cores, 120 desktops p95 455 to 86 ms (the old code was killed at 4 GB). [Results, reproduction and Ubuntu 22.04 deployment notes](live-gateway-load.md).
+
 * **Avatars through the gateway (2026-10-18)**: the gateway fetches, re-encodes and caches AI avatars (`GET /avatars/<id>`), presence and `ai.list` carry `avatar_path`, and the desktop loads images only from the connected gateway; the direct third-party fetch is removed. [Protocol](live-gateway-protocol.md#avatars), [desktop contract](live-desktop-link.md#per-ai-consent-and-avatars).
 
 * **Per-AI consent and avatars (2026-10-18)**: validate consent acknowledgements, keep per-AI state separate, edit and preview bounded HTTPS avatars, and show them in Focus/map presence. [Desktop contract](live-desktop-link.md#per-ai-consent-and-avatars).
