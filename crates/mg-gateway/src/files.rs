@@ -11,9 +11,18 @@ use mg_module::{Module, nwsync};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 use tokio::io::AsyncReadExt;
+
+/// A body that makes no progress for this long gives up its download slot.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Even a steady trickle must average this many bytes a second, or the slot is freed.
+const MIN_BYTES_PER_SEC: u64 = 32 * 1024;
 
 /// Bounds outstanding response bodies, not just the time spent opening a file.
 #[derive(Debug, Clone, Copy)]
@@ -76,8 +85,14 @@ pub struct Publisher {
     build: Mutex<()>,
     limits: DownloadLimits,
     downloads: Arc<Mutex<DownloadUsage>>,
+    idle: Duration,
 }
 impl Publisher {
+    /// How long a response body may stand still before its slot is freed (default 30 s).
+    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
+        self.idle = idle;
+        self
+    }
     pub fn new(root: PathBuf) -> Self {
         Self::with_download_limits(root, DownloadLimits::default()).expect("valid defaults")
     }
@@ -91,6 +106,7 @@ impl Publisher {
             build: Mutex::new(()),
             limits,
             downloads: Arc::default(),
+            idle: IDLE_TIMEOUT,
         })
     }
     fn acquire(&self, principal: &str) -> Option<DownloadPermit> {
@@ -214,6 +230,33 @@ impl Publisher {
         Ok((file, meta.len()))
     }
 }
+/// A body in flight. The body owns it; dropping the body frees the slot at once.
+struct Transfer {
+    permit: Mutex<Option<DownloadPermit>>,
+    /// Chunks handed to the transport so far.
+    progress: AtomicU64,
+    expired: AtomicBool,
+}
+/// Hyper stops polling a body whose reader stopped reading, so only a timer can notice:
+/// it frees the slot of a body that stood still for `idle`, or outlived `total`, and the
+/// body's next poll fails. (The socket itself ends with the body or the transport.)
+fn watch(transfer: std::sync::Weak<Transfer>, idle: Duration, total: Duration) {
+    tokio::spawn(async move {
+        let started = tokio::time::Instant::now();
+        let mut seen = None;
+        loop {
+            tokio::time::sleep(idle).await;
+            let Some(transfer) = transfer.upgrade() else { return };
+            let now = transfer.progress.load(Ordering::Acquire);
+            if seen == Some(now) || started.elapsed() >= total {
+                transfer.expired.store(true, Ordering::Release);
+                transfer.permit.lock().unwrap_or_else(|e| e.into_inner()).take();
+                return;
+            }
+            seen = Some(now);
+        }
+    });
+}
 pub(crate) fn allowed(principal: &Principal) -> bool {
     principal.id.starts_with("dm:") && principal.groups.iter().any(|g| g == "read")
 }
@@ -241,6 +284,7 @@ pub(crate) async fn handle(
             None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         };
     }
+    let idle = publisher.idle;
     let Some(permit) = publisher.acquire(&principal.id) else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
@@ -255,19 +299,29 @@ pub(crate) async fn handle(
     if !permit.reserve_bytes(len) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
+    let transfer = Arc::new(Transfer {
+        permit: Mutex::new(Some(permit)),
+        progress: AtomicU64::new(0),
+        expired: AtomicBool::new(false),
+    });
+    watch(Arc::downgrade(&transfer), idle, idle + Duration::from_secs(len / MIN_BYTES_PER_SEC));
     let stream = futures_util::stream::try_unfold(
-        (tokio::fs::File::from_std(file).take(len), len, permit),
-        |(mut file, remaining, permit)| async move {
+        (tokio::fs::File::from_std(file).take(len), len, transfer),
+        |(mut file, remaining, transfer)| async move {
             if remaining == 0 {
                 return Ok::<_, std::io::Error>(None);
             }
+            if transfer.expired.load(Ordering::Acquire) {
+                return Err(std::io::Error::from(std::io::ErrorKind::TimedOut));
+            }
+            transfer.progress.fetch_add(1, Ordering::AcqRel);
             let mut buf = vec![0u8; remaining.min(32 * 1024) as usize];
             let n = file.read(&mut buf).await?;
             if n == 0 {
                 return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
             }
             buf.truncate(n);
-            Ok(Some((buf, (file, remaining - n as u64, permit))))
+            Ok(Some((buf, (file, remaining - n as u64, transfer))))
         },
     );
     (

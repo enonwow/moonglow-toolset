@@ -36,6 +36,12 @@ impl Authenticator for Auth {
 fn fixture(
     root: &std::path::Path,
 ) -> (std::path::PathBuf, Arc<Publisher>, mg_live::resource_files::ResourceGeneration) {
+    fixture_with(root, Publisher::new(root.join("published")))
+}
+fn fixture_with(
+    root: &std::path::Path,
+    publisher: Publisher,
+) -> (std::path::PathBuf, Arc<Publisher>, mg_live::resource_files::ResourceGeneration) {
     let path = root.join("fixture.mod");
     let mut module = Module::new();
     module.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
@@ -44,7 +50,7 @@ fn fixture(
         &b"private bytecode"[..],
     );
     module.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let publisher = Arc::new(Publisher::new(root.join("published")));
+    let publisher = Arc::new(publisher);
     let hak = nwsync::manifest(&[]);
     let hash = mg_core::sha1::hex(&mg_core::sha1::sha1(&hak));
     let g =
@@ -282,4 +288,39 @@ async fn download_permits_live_until_the_response_body_is_dropped() {
     assert_eq!(r.status(), 200);
     assert!(!to_bytes(r.into_body(), 1024 * 1024).await.unwrap().is_empty());
     assert_eq!(app.oneshot(request()).await.unwrap().status(), 200);
+}
+
+#[tokio::test]
+async fn a_reader_that_stops_reading_loses_its_download_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let idle = std::time::Duration::from_millis(150);
+    let (_, publisher, g) = fixture_with(
+        dir.path(),
+        Publisher::new(dir.path().join("published")).with_idle_timeout(idle),
+    );
+    let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+    let app = mg_gateway::router(
+        core,
+        Arc::new(Auth),
+        Arc::new(Policy::default()),
+        Config { publisher: Some(publisher), ..Default::default() },
+    );
+    let request = || {
+        Request::builder()
+            .uri(format!("/files/v1/manifests/{}", g.module_manifest))
+            .header("authorization", "Bearer fixture-dm")
+            .body(Body::empty())
+            .unwrap()
+    };
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(app.clone().oneshot(request()).await.unwrap());
+    }
+    assert_eq!(app.clone().oneshot(request()).await.unwrap().status(), 429);
+    tokio::time::sleep(idle * 4).await;
+    let fresh = app.clone().oneshot(request()).await.unwrap();
+    assert_eq!(fresh.status(), 200, "stalled readers no longer hold slots");
+    assert!(!to_bytes(fresh.into_body(), 1024 * 1024).await.unwrap().is_empty());
+    let stalled = held.pop().unwrap();
+    assert!(to_bytes(stalled.into_body(), 1024 * 1024).await.is_err(), "the stalled body ends");
 }

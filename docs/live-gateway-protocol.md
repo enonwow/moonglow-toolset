@@ -317,6 +317,14 @@ of outstanding payload bytes. A saturated budget returns HTTP 429. Bodies use
 32 KiB asynchronous reads with transport backpressure and a fixed file length;
 no complete 17 MiB blob is buffered per request. Hosts may configure
 `Publisher::with_download_limits` with positive `DownloadLimits`.
+A body that stands still for 30 s (`Publisher::with_idle_timeout`), or averages
+less than 32 KiB/s, gives up its slot; its next chunk fails and the transfer ends,
+so a reader that stopped reading cannot hold a slot.
+
+Per session, `call` and `events.since` share a token bucket: a burst of 30, then 10
+requests a second (it survives reconnects). A request beyond it gets
+`err rate_limited` ("Too many read requests") and nothing is scanned. `call find`
+returns at most 200 objects (the schema rejects a larger `limit`).
 
 AI capacity counts active credentials: at most 16 per owner and 256 globally.
 Revoked records are retained for at most one day and at most 64 records; expired
