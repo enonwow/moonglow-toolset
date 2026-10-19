@@ -1,4 +1,4 @@
-use crate::App;
+use crate::{App, limit::PerPrincipal};
 use axum::{
     Json,
     body::to_bytes,
@@ -10,21 +10,54 @@ use mg_live::api::{RouteContext, RouteResponse};
 use serde_json::json;
 use std::{
     collections::HashMap,
-    sync::{Mutex, atomic::AtomicBool},
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
+
+/// Requests in flight, all AIs together and per AI.
+const SLOTS: usize = 16;
+const SLOTS_PER_AI: usize = 4;
+/// Long polls (`live_events` with `wait_ms`, `live_wait`) sit in a blocking worker for up to
+/// 30 s, so they have a smaller pool of their own: waiting AIs cannot crowd out quick calls.
+const POLLS: usize = 8;
+const POLLS_PER_AI: usize = 2;
 
 #[derive(Debug)]
 pub(crate) struct AgentState {
     windows: Mutex<HashMap<String, (u64, u32)>>,
-    slots: std::sync::Arc<tokio::sync::Semaphore>,
+    slots: Arc<tokio::sync::Semaphore>,
+    polls: Arc<tokio::sync::Semaphore>,
+    per_ai: Arc<PerPrincipal>,
+    polls_per_ai: Arc<PerPrincipal>,
 }
 impl Default for AgentState {
     fn default() -> Self {
         Self {
             windows: Mutex::new(HashMap::new()),
-            slots: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
+            slots: Arc::new(tokio::sync::Semaphore::new(SLOTS)),
+            polls: Arc::new(tokio::sync::Semaphore::new(POLLS)),
+            per_ai: Arc::default(),
+            polls_per_ai: Arc::default(),
         }
     }
+}
+fn waits(path: &str, body: &[u8]) -> bool {
+    let key = if path.ends_with("/call/live_events") {
+        "wait_ms"
+    } else if path.ends_with("/call/live_wait") {
+        "timeout_ms"
+    } else {
+        return false;
+    };
+    let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    // `live_wait` waits 5 s by default.
+    value.get(key).map_or(key == "timeout_ms", |n| n.as_u64() != Some(0))
+}
+fn rate_limited() -> Response {
+    response(RouteResponse {
+        status: 429,
+        body: json!({"ok":false,"code":"rate_limited","error":"Client command limit exceeded","retryAfterSeconds":1}),
+        etag: None,
+    })
 }
 impl AgentState {
     fn charge(&self, id: &str, limit: u32, now: u64) -> Result<(), u64> {
@@ -53,12 +86,11 @@ pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response
         )
             .into_response();
     }
+    let Some(slot) = app.agents.per_ai.acquire(&principal.id, SLOTS_PER_AI) else {
+        return rate_limited();
+    };
     let Ok(permit) = app.agents.slots.clone().try_acquire_owned() else {
-        return response(RouteResponse {
-            status: 429,
-            body: json!({"ok":false,"code":"rate_limited","error":"Client command limit exceeded","retryAfterSeconds":1}),
-            etag: None,
-        });
+        return rate_limited();
     };
     let method = request.method().as_str().to_owned();
     let path = format!("/v1/{}", request.uri().path().trim_start_matches("/agent/v1/"));
@@ -82,12 +114,23 @@ pub(crate) async fn handle(State(app): State<App>, request: Request) -> Response
                 .into_response();
         }
     };
+    let poll = if waits(&path, &body) {
+        let slot = app.agents.polls_per_ai.acquire(&principal.id, POLLS_PER_AI);
+        let permit = app.agents.polls.clone().try_acquire_owned().ok();
+        let Some(poll) = slot.zip(permit) else {
+            return rate_limited();
+        };
+        Some(poll)
+    } else {
+        None
+    };
     let policy = app.policy.clone();
     let agents = app.agents.clone();
     let routed = app
         .core
         .with_store(move |store| {
-            let _permit = permit;
+            // The worker owns its places even if the HTTP task is cancelled.
+            let _held = (slot, permit, poll);
             store.set_policy(policy.policy());
             let scope = match principal.scope(policy.delivery(&principal))
                 .and_then(|scope|scope.with_command_limit(policy.command_limit(&principal))) {
@@ -177,18 +220,20 @@ mod tests {
         let core =
             crate::CoreHandle::new(Arc::new(mg_live::store::LiveStore::default())).await.unwrap();
         core.with_gateway(|g| {
-            g.install_ai(
-                mg_live::gateway::AiIdentity {
-                    id: "ai:test".into(),
-                    owner: "dm:owner".into(),
-                    name: "Test".into(),
-                    groups: vec!["read".into()],
-                    expires_ms: u64::MAX,
-                    llm_allowed: true,
-                },
-                "test-agent-credential-for-local-fixtures",
-            )
-            .unwrap();
+            for i in 0..4 {
+                g.install_ai(
+                    mg_live::gateway::AiIdentity {
+                        id: format!("ai:test{i}"),
+                        owner: "dm:owner".into(),
+                        name: "Test".into(),
+                        groups: vec!["read".into()],
+                        expires_ms: u64::MAX,
+                        llm_allowed: true,
+                    },
+                    &format!("test-agent-credential-for-local-fixtures-{i}"),
+                )
+                .unwrap();
+            }
             g.set_llm_enabled(true);
         })
         .await
@@ -200,21 +245,25 @@ mod tests {
             config: crate::Config::default(),
             agents: Arc::new(AgentState::default()),
             connections: Arc::new(tokio::sync::Semaphore::new(1)),
+            users: Arc::default(),
         };
-        let request = || {
+        let request = |i: usize| {
             Request::builder()
                 .method("POST")
                 .uri("/agent/v1/call/live_events")
-                .header("authorization", "Bearer test-agent-credential-for-local-fixtures")
+                .header(
+                    "authorization",
+                    format!("Bearer test-agent-credential-for-local-fixtures-{i}"),
+                )
                 .body(axum::body::Body::from(r#"{"wait_ms":500}"#))
                 .unwrap()
         };
         let mut polls = vec![];
-        for _ in 0..16 {
-            polls.push(tokio::spawn(handle(State(app.clone()), request())));
+        for i in (0..4).flat_map(|i| [i, i]) {
+            polls.push(tokio::spawn(handle(State(app.clone()), request(i))));
         }
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            while app.agents.slots.available_permits() != 0 {
+            while app.agents.polls.available_permits() != 0 {
                 tokio::task::yield_now().await;
             }
         })
@@ -226,8 +275,9 @@ mod tests {
             p.abort();
         }
         tokio::task::yield_now().await;
-        assert_eq!(handle(State(app.clone()), request()).await.status(), 429);
+        assert_eq!(handle(State(app.clone()), request(0)).await.status(), 429);
         tokio::time::sleep(std::time::Duration::from_millis(550)).await;
-        assert_eq!(app.agents.slots.available_permits(), 16);
+        assert_eq!(app.agents.polls.available_permits(), POLLS);
+        assert_eq!(app.agents.slots.available_permits(), SLOTS);
     }
 }

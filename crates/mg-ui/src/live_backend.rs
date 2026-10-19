@@ -185,7 +185,7 @@ pub(crate) fn update(app: &mut Moonglow, ctx: &egui::Context) {
         if let Some(draft) = &mut app.options {
             draft.live.enabled = false;
         }
-        app.live_gateway.take();
+        app.end_gateway();
     }
     let Some(runtime) = &mut app.live_gateway else {
         crate::live_avatar::set_client(ctx, None);
@@ -368,13 +368,23 @@ pub(crate) fn menu_status(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
 }
 
+/// Dropping a `LinkService` joins its worker, which can wait on a DNS lookup: never on the UI
+/// thread.
+fn drop_in_background<T: Send + 'static>(value: T) {
+    std::thread::spawn(move || drop(value));
+}
 impl Moonglow {
+    fn end_gateway(&mut self) {
+        if let Some(runtime) = self.live_gateway.take() {
+            drop_in_background(runtime);
+        }
+    }
     /// Apply the saved Live options, with the environment gateway override, on the UI thread.
     pub fn apply_live(&mut self, ctx: &egui::Context) {
         self.live_needs_apply = false;
         self.live_error = None;
         let was_running = self.live_backend().active();
-        self.live_gateway.take();
+        self.end_gateway();
         let Some(resolved) = self.settings.live_servers.resolve() else {
             if self.live.as_ref().is_some_and(|s| s.is_mirror()) {
                 self.live = None;
@@ -429,6 +439,25 @@ mod tests {
         assert_eq!(actors[0].avatar, kept);
         // A bad URL, a gateway without avatar routes and a foreign path draw no image.
         assert!(actors[1..].iter().all(|a| a.avatar.is_none()));
+    }
+
+    #[test]
+    fn a_dropped_gateway_runtime_is_released_off_the_ui_thread() {
+        struct Slow(mpsc::Sender<std::thread::ThreadId>);
+        impl Drop for Slow {
+            fn drop(&mut self) {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let _ = self.0.send(std::thread::current().id());
+            }
+        }
+        let (tx, rx) = mpsc::channel();
+        let started = std::time::Instant::now();
+        drop_in_background(Slow(tx));
+        assert!(started.elapsed() < std::time::Duration::from_millis(100), "did not wait");
+        let thread = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_ne!(thread, std::thread::current().id());
+        fn send<T: Send>() {}
+        send::<GatewayRuntime>();
     }
 
     #[test]

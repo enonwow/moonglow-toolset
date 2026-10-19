@@ -42,6 +42,20 @@ the management panel and translations are host concerns.
 - Unknown fields MUST be ignored. Unknown `t` or `topic` from the gateway
   MUST be logged and skipped. Unknown `op` from a client → `err unsupported`.
 
+Connection limits (`Config`): a user may hold at most `user_connections` (2) sockets
+open, whether or not they said `hello` (the upgrade over that limit is refused with
+429 `rate_limited`), so a reconnecting client has room while its old socket closes. The
+first frame must be `hello` within `hello_timeout` (5 s) or the socket is closed
+(1002). Only a socket that sent a valid `hello` takes one of the `connections` (128)
+global slots; when none is free it gets `bye overloaded` (1013). The upgrade is also
+refused with 429 when the global slots are all taken. A silent socket therefore costs
+its owner, not everyone, a place.
+
+`/agent/v1`: at most 16 requests run at once and four per AI; long polls (`live_events`
+with `wait_ms > 0`, `live_wait`) additionally share a pool of eight with two per AI.
+Over a limit the answer is 429 `rate_limited` with `retryAfterSeconds` (and a
+`Retry-After` header); quick calls of other AIs are unaffected by anyone's polls.
+
 Implementation note (P2a): HTTP status is final after upgrade. The public
 transport accepts optional `?proto=1&mirror=2` on the upgrade URL and returns
 426 with `min_client` for a mismatch there. It always validates the actual
@@ -202,11 +216,13 @@ accepted ──► pending ──► final
 | `watch.set` | `{"areas":[…]}` | `{"accepted":[…],"waiting":[…]}` | absolute set for this session; the gateway unions sessions (game limit 64 areas) and drives `watch_areas` itself |
 | `focus.set` | `{"objects":[{"area","id"}…]}` | `{}` | ≤ 256 entries; absolute set |
 | `call` | `{"op","input"}` | operation result | read-only operations only (allow-list from the catalogue: `find`, `status`, `npc_card`, `gm_card`, `npc_memory`, `area_notes`, `events` without waiting, …) |
-| `book.put` | `{"kind","key","value","if_rev"}` | `{"rev"}` | stale `if_rev` → `conflict` |
+| `book.put` | `{"kind","key","value","if_rev"}` | `{"rev"}` | needs a DM with `npc` or `admin` (`read` alone → `forbidden`: the cards and notes feed every AI prompt); stale `if_rev` → `conflict`; the author and new revision enter the core's action log (`Live: book.put <kind> <key> rev <n> by <principal>`) |
 | `draft.decide` | `{"id","text"\|null}` | `{"result"}` | only drafts of the caller's own AIs, or admin |
 | `ai.list` / `ai.create` / `ai.update` / `ai.revoke` | create/update: `{"name","avatar"?}` (+id for update/revoke) | list: `[{id,name,owner,avatar,llm}]` | HTTPS avatar or null; create returns `{ai,token}` once |
 | `llm.allow` | `{"id"?,"on":bool}` | `{"ids":[...]}` | one/all owned AIs; admin may select another owner's AI; global switch belongs to the host |
 | `events.since` | `{"n","limit","kinds"}` | `{"rows","through","lost"}` | paging older events |
+
+An `ai.update` that changes an AI's groups ends that AI's open sessions at once (the AI reconnects with the new scope). Every request and push re-checks the whole group list against the AI's current groups, `read_tells` and `focus` included, so a narrowed AI loses tells and focus immediately.
 
 ## 8. Resume and restarts
 
@@ -315,6 +331,14 @@ of outstanding payload bytes. A saturated budget returns HTTP 429. Bodies use
 32 KiB asynchronous reads with transport backpressure and a fixed file length;
 no complete 17 MiB blob is buffered per request. Hosts may configure
 `Publisher::with_download_limits` with positive `DownloadLimits`.
+A body that stands still for 30 s (`Publisher::with_idle_timeout`), or averages
+less than 32 KiB/s, gives up its slot; its next chunk fails and the transfer ends,
+so a reader that stopped reading cannot hold a slot.
+
+Per session, `call` and `events.since` share a token bucket: a burst of 30, then 10
+requests a second (it survives reconnects). A request beyond it gets
+`err rate_limited` ("Too many read requests") and nothing is scanned. `call find`
+returns at most 200 objects (the schema rejects a larger `limit`).
 
 AI capacity counts active credentials: at most 16 per owner and 256 globally.
 Revoked records are retained for at most one day and at most 64 records; expired

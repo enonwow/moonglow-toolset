@@ -17,6 +17,29 @@ pub(super) use identity::{draft_scope, validate_ai_scope};
 
 pub const RESULT_RETENTION_MS: u64 = 600_000;
 pub const RESULT_CAPACITY: usize = 256;
+/// Read calls and event pages scan the store under its lock: a session may burst this many,
+/// then gets `READ_REFILL_PER_SEC` more each second.
+const READ_BURST: u64 = 30;
+const READ_REFILL_PER_SEC: u64 = 10;
+
+#[derive(Debug)]
+struct ReadBudget {
+    /// Thousandths of a request.
+    tokens: u64,
+    at_ms: u64,
+}
+impl ReadBudget {
+    fn take(&mut self, now_ms: u64) -> bool {
+        let gained = now_ms.saturating_sub(self.at_ms) * READ_REFILL_PER_SEC;
+        self.tokens = (self.tokens + gained).min(READ_BURST * 1000);
+        self.at_ms = self.at_ms.max(now_ms);
+        let ok = self.tokens >= 1000;
+        if ok {
+            self.tokens -= 1000;
+        }
+        ok
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Meta {
@@ -219,6 +242,7 @@ struct Session {
     meta: Option<Meta>,
     resume_valid: bool,
     auxiliary: VecDeque<Push>,
+    reads: ReadBudget,
 }
 impl Session {
     fn prune_completed(&mut self, now_ms: Option<u64>) {
@@ -402,15 +426,20 @@ impl Gateway {
         use crate::gateway_frames::{FrameError, Response};
         let result = (|| -> Result<Value, FrameError> {
             let invalid = |e: String| FrameError::new("invalid", e);
-            let config = self
-                .store
-                .lock()
-                .gateway
-                .sessions
-                .get(session)
-                .ok_or_else(|| FrameError::new("forbidden", "Unknown session"))?
-                .config
-                .clone();
+            let config = {
+                let mut s = self.store.lock();
+                let current = s
+                    .gateway
+                    .sessions
+                    .get_mut(session)
+                    .ok_or_else(|| FrameError::new("forbidden", "Unknown session"))?;
+                if matches!(request.op.as_str(), "call" | "events.since")
+                    && !current.reads.take(now_ms)
+                {
+                    return Err(FrameError::new("rate_limited", "Too many read requests"));
+                }
+                current.config.clone()
+            };
             validate_ai_scope(&self.store.lock(), &config.scope())
                 .map_err(|e| FrameError::new("forbidden", e.error))?;
             let a = request.a;
@@ -436,8 +465,8 @@ impl Gateway {
                         })
                 }
                 "book.put" => {
-                    if !config.id.starts_with("dm:")
-                        || (!config.has("read") && !config.has("admin"))
+                    // The cards and notes feed every AI prompt: editing them is an `npc` capability.
+                    if !config.id.starts_with("dm:") || (!config.has("npc") && !config.has("admin"))
                     {
                         return Err(FrameError::new("forbidden", "DM book permission required"));
                     }
@@ -455,6 +484,10 @@ impl Gateway {
                     let rev = self.store.gateway_book_put(kind, key, value, if_rev)?;
                     let push = Push::Book { kind: kind.into(), key: key.into(), rev };
                     let mut s = self.store.lock();
+                    s.logs.push_back(format!("Live: book.put {kind} {key} rev {rev} by {session}"));
+                    while s.logs.len() > MAX_QUEUE {
+                        s.logs.pop_front();
+                    }
                     for session in s.gateway.sessions.values_mut() {
                         session.auxiliary.retain(
                             |p| !matches!(p,Push::Book{kind:k,key:v,..} if k==kind && v==key),
@@ -678,6 +711,7 @@ impl Gateway {
             meta: None,
             resume_valid: true,
             auxiliary: VecDeque::new(),
+            reads: ReadBudget { tokens: READ_BURST * 1000, at_ms: now_ms },
         });
         session.online = true;
         session.presence_sent = 0;
@@ -1863,5 +1897,56 @@ mod lock_order_tests {
         }
         publisher.join().unwrap();
         pump.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod read_budget_tests {
+    use super::*;
+    fn ask(
+        g: &Gateway,
+        op: &str,
+        a: Value,
+        now: u64,
+    ) -> Result<Value, crate::gateway_frames::FrameError> {
+        g.handle("dm:one", crate::gateway_frames::Request { id: 1, op: op.into(), a }, now).result
+    }
+    #[test]
+    fn reads_beyond_the_session_budget_are_refused_and_refill_with_time() {
+        let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+        let config = SessionConfig {
+            id: "dm:one".into(),
+            id_prefix: "one.".into(),
+            groups: vec!["read".into()],
+            watch_limit: 16,
+        };
+        g.connect(config, None, &[], 0).unwrap();
+        let find = || json!({"op":"find","input":{"text":"x"}});
+        let refused = (0..200)
+            .filter(|_| ask(&g, "call", find(), 1000).is_err_and(|e| e.code == "rate_limited"))
+            .count();
+        assert!((150..200).contains(&refused), "burst only, {refused} refused");
+        assert_eq!(ask(&g, "events.since", json!({"n":0}), 1000).unwrap_err().code, "rate_limited");
+        assert!(ask(&g, "events.since", json!({"n":0}), 3000).is_ok(), "the budget refills");
+        // Writes, watch changes and acks are not read calls.
+        assert!(ask(&g, "watch.set", json!({"areas":[]}), 1000).is_ok());
+    }
+    #[test]
+    fn find_never_asks_for_more_than_two_hundred() {
+        let live = LiveStore::default();
+        let scope = Scope::restricted("dm:one", vec![ClientGroup::Read], DeliveryMode::Auto);
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        for limit in [201, 100_000] {
+            assert!(
+                crate::operations::call_scoped(
+                    "live_find",
+                    json!({"text":"x","limit":limit}),
+                    &live,
+                    &stop,
+                    &scope
+                )
+                .is_err()
+            );
+        }
     }
 }

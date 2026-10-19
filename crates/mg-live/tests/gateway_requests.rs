@@ -155,10 +155,19 @@ fn book_compare_and_swap_persists_revisions_and_notifies_every_session() {
     let s = Arc::new(LiveStore::default());
     s.assistant_context(root.clone(), root.join("fixture.mod"), "fixture".into()).unwrap();
     let g = Gateway::new(s.clone()).unwrap();
-    session(&g, "dm:one", &["read"]);
-    session(&g, "dm:two", &["read"]);
+    session(&g, "dm:one", &["read", "npc"]);
+    session(&g, "dm:two", &["read", "admin"]);
+    session(&g, "dm:ro", &["read"]);
     let put = json!({"kind":"npc","key":"tag:guard","value":{"who":"Guard"},"if_rev":0});
+    assert_eq!(request(&g, "dm:ro", "book.put", put.clone()).unwrap_err().code, "forbidden");
+    assert_eq!(s.gateway_card("npc", "tag:guard").unwrap()["rev"], 0);
     assert_eq!(request(&g, "dm:one", "book.put", put.clone()).unwrap()["rev"], 1);
+    assert!(
+        s.take_logs().iter().any(|l| l.contains("book.put npc tag:guard")
+            && l.contains("dm:one")
+            && l.contains("rev 1")),
+        "a book write names its author and revision"
+    );
     assert_eq!(request(&g, "dm:two", "book.put", put).unwrap_err().code, "conflict");
     for id in ["dm:one", "dm:two"] {
         assert!(g.pushes(id, 1000).unwrap().iter().any(
@@ -239,7 +248,7 @@ fn note_reads_include_canonical_keys_and_revisions_and_book_backlog_fails_closed
     s.assistant_context(root.clone(), root.join("fixture.mod"), "fixture".into()).unwrap();
     s.sync(br#"{"v":1,"boot":"b","seq":1,"areas":[{"area":"square","full":true,"cre":[{"id":"a1","tag":"guard"}]}]}"#,1000).unwrap();
     let g = Gateway::new(s).unwrap();
-    session(&g, "dm:one", &["read"]);
+    session(&g, "dm:one", &["read", "npc"]);
     let first = request(&g, "dm:one", "call", json!({"op":"area_notes","input":{"area":"square"}}))
         .unwrap();
     assert_eq!(first["revs"]["a1"], 0);

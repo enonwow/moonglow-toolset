@@ -1038,7 +1038,7 @@ pub(crate) fn call_scoped_at(
         }
         Handler::Assistant(name) => assistant::call(name, &input, live, scope),
         Handler::Find => {
-            let limit = input["limit"].as_u64().unwrap_or(50) as usize;
+            let limit = input["limit"].as_u64().unwrap_or(50).min(200) as usize;
             Ok(json!({"objects": live.find(input["text"].as_str().unwrap_or_default(), limit)}))
         }
         Handler::Command(kind) | Handler::Query(kind) => {

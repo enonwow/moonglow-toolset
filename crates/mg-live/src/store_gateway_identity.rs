@@ -414,6 +414,8 @@ impl Gateway {
         let mut ais = identities.ais.clone();
         prune(&mut ais, now);
         let mut disabled = Vec::new();
+        // Sessions that were opened with other groups: ended, so no push outlives its scope.
+        let mut regrouped = Vec::new();
         let result = match op {
             "ai.create" => {
                 if !capacity(&ais, &config.id) {
@@ -521,7 +523,11 @@ impl Gateway {
                         ai.avatar = avatar(a.get("avatar"))?;
                     }
                     if a.get("groups").is_some() {
-                        ai.identity.groups = groups(a.get("groups"))?;
+                        let next = groups(a.get("groups"))?;
+                        if next != ai.identity.groups {
+                            regrouped.push(id.to_owned());
+                        }
+                        ai.identity.groups = next;
                     }
                     if let Some(expiry) = a.get("expires_ms") {
                         let expiry = expiry
@@ -553,7 +559,7 @@ impl Gateway {
                 presence_changed = true;
             }
         }
-        for (id, _) in &disabled {
+        for id in disabled.iter().map(|(id, _)| id).chain(&regrouped) {
             presence_changed |= s.gateway.sessions.remove(id).is_some();
             s.gateway.generation += 1;
         }
@@ -599,6 +605,11 @@ pub(in crate::store) fn validate_ai_scope(s: &State, scope: &Scope) -> Result<()
         if scope.has(group) && !current.has(group) {
             return Err(CommandError::new(ErrorCode::Forbidden, "AI permissions changed"));
         }
+    }
+    // `read_tells` and `focus` have no ClientGroup: compare the gateway group names too.
+    let now = current.gateway_groups.as_deref().unwrap_or_default();
+    if scope.gateway_groups.iter().flatten().any(|g| !now.contains(g)) {
+        return Err(CommandError::new(ErrorCode::Forbidden, "AI permissions changed"));
     }
     Ok(())
 }
@@ -826,5 +837,64 @@ mod observer_tests {
                 (id.into(), IdentityDisabled::Revoked)
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod group_change_tests {
+    use super::*;
+    #[test]
+    fn narrowing_an_ai_ends_its_session_and_read_tells_and_focus_are_checked() {
+        let g = Gateway::new(Arc::new(LiveStore::default())).unwrap();
+        let all = ["read", "read_tells", "focus", "manage_ai", "allow_llm"];
+        let c = SessionConfig {
+            id: "dm:owner".into(),
+            id_prefix: "owner.".into(),
+            groups: all.iter().map(|g| (*g).into()).collect(),
+            watch_limit: 16,
+        };
+        g.refresh_principal(Principal {
+            id: c.id.clone(),
+            name: "Owner".into(),
+            groups: c.groups.clone(),
+        })
+        .unwrap();
+        g.set_llm_enabled(true);
+        let now = crate::now_ms();
+        let created = g
+            .identity_request(
+                &c,
+                "ai.create",
+                &json!({"name":"A","groups":["read","read_tells","focus"]}),
+                now,
+            )
+            .unwrap();
+        let id = created["ai"]["id"].as_str().unwrap();
+        g.identity_request(&c, "llm.allow", &json!({"id":id,"on":true}), now).unwrap();
+        for (kept, dropped) in
+            [(json!(["read", "focus"]), "read_tells"), (json!(["read"]), "focus")]
+        {
+            let held = SessionConfig {
+                id: id.into(),
+                id_prefix: "ai.".into(),
+                groups: vec!["read".into(), "read_tells".into(), "focus".into()],
+                watch_limit: 16,
+            };
+            g.connect(held.clone(), None, &[], now).unwrap();
+            assert!(validate_ai_scope(&g.store.lock(), &held.scope()).is_ok());
+            g.identity_request(&c, "ai.update", &json!({"id":id,"groups":kept}), now).unwrap();
+            assert!(
+                validate_ai_scope(&g.store.lock(), &held.scope()).is_err(),
+                "{dropped} was dropped"
+            );
+            assert!(g.pushes(id, now).is_err(), "{dropped}: the live session ended");
+            g.identity_request(
+                &c,
+                "ai.update",
+                &json!({"id":id,"groups":["read","read_tells","focus"]}),
+                now,
+            )
+            .unwrap();
+        }
     }
 }

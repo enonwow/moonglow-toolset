@@ -165,7 +165,6 @@ impl CoreHandle {
                 generation: 0,
                 touched: std::time::Instant::now(),
             });
-            session.generation += 1;
             session.touched = std::time::Instant::now();
             let resumed = core.gateway.connect(
                 SessionConfig {
@@ -178,6 +177,8 @@ impl CoreHandle {
                 &hello.watch,
                 crate::now(),
             )?;
+            // Only a connect that succeeded replaces the open connection.
+            session.generation += 1;
             let owner = core.gateway.ai_owner(&principal.id);
             let avatar = core.gateway.ai_avatar(&principal.id);
             core.gateway.set_identity(
@@ -274,6 +275,28 @@ impl Drop for Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn a_failed_connect_leaves_the_open_connection_in_place() {
+        let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+        let principal =
+            Principal { id: "dm:test".into(), name: "Test".into(), groups: vec!["read".into()] };
+        let hello = |watch: Vec<String>| Hello {
+            proto: 1,
+            mirror: MIRROR_VERSION,
+            client: "test".into(),
+            resume: None,
+            watch,
+        };
+        let (generation, _) =
+            core.connect(principal.clone(), hello(vec![]), Config::default()).await.unwrap();
+        let too_many = (0..64).map(|i| format!("zone{i}")).collect();
+        assert!(core.connect(principal.clone(), hello(too_many), Config::default()).await.is_err());
+        core.session("dm:test".into(), generation, |_, _| Ok(())).await.unwrap();
+        let (next, _) = core.connect(principal, hello(vec![]), Config::default()).await.unwrap();
+        assert_eq!(next, generation + 1);
+        assert!(core.session("dm:test".into(), generation, |_, _| Ok(())).await.is_err());
+        core.shutdown().await.unwrap();
+    }
     #[tokio::test]
     async fn abandoned_sessions_release_watch_capacity_and_cannot_resume() {
         let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();

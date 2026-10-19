@@ -189,7 +189,7 @@ impl Inbox {
         Ok(())
     }
     pub(crate) fn restored_status(&self, status: &SharedStatus) {
-        let mut s = status.lock().unwrap();
+        let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
         s.last_id = self.last().map_or(String::new(), |e| e.id.clone());
         s.lost = self.rows.iter().map(|e| e.lost_before).sum();
     }
@@ -296,7 +296,8 @@ pub(crate) fn run<A: crate::bridge::Addresses>(
     let key = format!("{}.events", config.prefix);
     let mut retry = 1;
     while !stop.load(Ordering::Acquire) {
-        let group = inbox.lock().unwrap().as_ref().map(|i| i.group.clone());
+        let group =
+            inbox.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|i| i.group.clone());
         let Some(group) = group else {
             pause(&stop, Duration::from_millis(100));
             continue;
@@ -306,7 +307,7 @@ pub(crate) fn run<A: crate::bridge::Addresses>(
             let info = request(&mut c, &[b"INFO", b"persistence"])?;
             let persistent = bulk(&info)?.lines().any(|line| line.trim() == "aof_enabled:1");
             {
-                let mut s = status.lock().unwrap();
+                let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
                 s.persistent = persistent;
                 s.warning = if persistent {
                     String::new()
@@ -354,8 +355,8 @@ pub(crate) fn run<A: crate::bridge::Addresses>(
                 }
             }
             retry = 1;
-            status.lock().unwrap().connected = true;
-            status.lock().unwrap().error.clear();
+            status.lock().unwrap_or_else(|e| e.into_inner()).connected = true;
+            status.lock().unwrap_or_else(|e| e.into_inner()).error.clear();
             wake();
             while !stop.load(Ordering::Acquire) {
                 let reply = request(
@@ -397,20 +398,21 @@ pub(crate) fn run<A: crate::bridge::Addresses>(
                 if meta.len() == 2 && meta[0] != Reply::Bulk(None) {
                     let epoch = bulk(&meta[0])?;
                     let n: u64 = bulk(&meta[1])?.parse().map_err(|_| "Invalid stream metadata")?;
-                    let guard = inbox.lock().unwrap();
+                    let guard = inbox.lock().unwrap_or_else(|e| e.into_inner());
                     let applied = guard
                         .as_ref()
                         .and_then(|i| i.last())
                         .filter(|e| e.epoch == epoch)
                         .map_or(0, |e| e.n);
-                    status.lock().unwrap().backlog = n.saturating_sub(applied);
+                    status.lock().unwrap_or_else(|e| e.into_inner()).backlog =
+                        n.saturating_sub(applied);
                 }
             }
             Ok(())
         })();
-        status.lock().unwrap().connected = false;
+        status.lock().unwrap_or_else(|e| e.into_inner()).connected = false;
         if let Err(e) = result {
-            status.lock().unwrap().error = e;
+            status.lock().unwrap_or_else(|e| e.into_inner()).error = e;
             wake();
         }
         pause(&stop, Duration::from_secs(retry));
@@ -430,7 +432,7 @@ fn apply(
     if rows.is_empty() {
         return Ok(());
     }
-    let mut guard = inbox.lock().unwrap();
+    let mut guard = inbox.lock().unwrap_or_else(|e| e.into_inner());
     let inbox = guard.as_mut().ok_or("Event inbox is not configured")?;
     let mut fresh: Vec<_> = rows.iter().filter(|e| !inbox.contains(e)).cloned().collect();
     let previous = inbox.last().cloned();
@@ -449,7 +451,7 @@ fn apply(
     inbox.append(&fresh)?;
     for e in &fresh {
         store.stream_event(e, crate::now_ms())?;
-        let mut s = status.lock().unwrap();
+        let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
         s.lost += e.lost_before;
         s.last_id = e.id.clone();
         s.applied += 1;

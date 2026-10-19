@@ -730,8 +730,10 @@ async fn book_requests_conflict_and_invalidate_other_sessions() {
     .await
     .unwrap();
     let (mut one, _) = connect(&url, vec![], None, "test-credential").await;
-    let (mut two, _) = connect(&url, vec![], None, "test-reader").await;
+    let (mut two, _) = connect(&url, vec![], None, "test-admin").await;
+    let (mut reader, _) = connect(&url, vec![], None, "test-reader").await;
     let put = json!({"kind":"gm","key":"","value":{"house_rules":"Shared"},"if_rev":0});
+    assert_eq!(call(&mut reader, 1, "book.put", put.clone()).await["err"]["code"], "forbidden");
     assert_eq!(call(&mut one, 1, "book.put", put.clone()).await["r"]["rev"], 1);
     loop {
         let v = receive(&mut two).await;
@@ -866,5 +868,79 @@ async fn websocket_uses_the_hosts_lower_authoritative_command_limit() {
     assert_eq!(r["r"]["accepted"], json!([id]), "{r}");
     let r = call(&mut ws, 5, "draft.decide", json!({"id":id,"text":"approved"})).await;
     assert_eq!(r["err"]["code"], "rate_limited", "{r}");
+    task.abort();
+}
+
+async fn raw(url: &str, token: &str) -> Result<Ws, tokio_tungstenite::tungstenite::Error> {
+    let mut r = request(url);
+    r.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+    connect_async(r).await.map(|(ws, _)| ws)
+}
+fn refused(error: tokio_tungstenite::tungstenite::Error) -> u16 {
+    match error {
+        tokio_tungstenite::tungstenite::Error::Http(r) => r.status().as_u16(),
+        other => panic!("{other}"),
+    }
+}
+#[tokio::test]
+async fn sockets_without_hello_are_limited_per_user_and_hold_no_global_slot() {
+    let (url, core, task) = server(Config { connections: 2, ..Config::default() }).await;
+    let first = raw(&url, "test-credential").await.unwrap();
+    let second = raw(&url, "test-credential").await.unwrap();
+    assert_eq!(refused(raw(&url, "test-credential").await.unwrap_err()), 429);
+    // Two silent sockets of one DM leave the global slots to everyone else.
+    let (mut a, _) = connect(&url, vec![], None, "test-admin").await;
+    let (mut b, _) = connect(&url, vec![], None, "test-chat").await;
+    a.close(None).await.unwrap();
+    b.close(None).await.unwrap();
+    drop((first, second));
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+#[tokio::test]
+async fn the_global_slot_is_taken_by_hello_and_a_closed_socket_returns_the_user_slot() {
+    let (url, core, task) = server(Config { connections: 1, ..Config::default() }).await;
+    let mut one = raw(&url, "test-credential").await.unwrap();
+    let mut two = raw(&url, "test-admin").await.unwrap();
+    one.send(Message::Text(hello().to_string().into())).await.unwrap();
+    assert_eq!(receive(&mut one).await["t"], "welcome");
+    two.send(Message::Text(hello().to_string().into())).await.unwrap();
+    let bye = receive(&mut two).await;
+    assert_eq!((bye["t"].as_str(), bye["code"].as_str()), (Some("bye"), Some("overloaded")));
+    one.close(None).await.unwrap();
+    drop(two);
+    // Both of that user's slots come back once the sockets are gone.
+    let mut back = false;
+    for _ in 0..50 {
+        let held = (raw(&url, "test-admin").await, raw(&url, "test-admin").await);
+        if held.0.is_ok() && held.1.is_ok() {
+            back = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(back, "closed sockets return the user's slots");
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+#[tokio::test]
+async fn a_socket_that_never_says_hello_is_closed_after_the_hello_timeout() {
+    let (url, core, task) = server(Config {
+        hello_timeout: std::time::Duration::from_millis(300),
+        ..Config::default()
+    })
+    .await;
+    let mut silent = raw(&url, "test-credential").await.unwrap();
+    let end = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            match silent.next().await {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await;
+    assert!(end.is_ok(), "the silent socket was closed");
+    core.shutdown().await.unwrap();
     task.abort();
 }
