@@ -59,10 +59,16 @@ impl Queue {
         self.notify.notify_one();
         Ok(())
     }
+    /// The newest queued copy of an area replaces the one about to be sent, unless something
+    /// keyless (an `area_gone`, say) is queued ahead of it: the client must see that first.
     fn latest(&self, mut entry: Entry) -> Entry {
         if let Some(key) = &entry.area {
             let mut queue = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(index) = queue.iter().position(|e| e.area.as_ref() == Some(key)) {
+            let next = queue
+                .iter()
+                .take_while(|e| e.area.is_some())
+                .position(|e| e.area.as_ref() == Some(key));
+            if let Some(index) = next {
                 entry = queue.remove(index).expect("known entry");
             }
         }
@@ -362,6 +368,37 @@ mod tests {
         }
         let value: serde_json::Value = serde_json::from_str(&q.next().await.text).unwrap();
         assert_eq!(value["body"]["rev"], 3);
+    }
+    #[tokio::test]
+    async fn a_newer_area_never_jumps_over_a_queued_area_gone() {
+        let q = Queue {
+            entries: Mutex::new(VecDeque::new()),
+            notify: Notify::new(),
+            frames: 8,
+            bytes: 65536,
+        };
+        let store = mg_live::store::LiveStore::default();
+        store.sync(br#"{"v":1,"boot":"b","areas":[{"area":"a"}]}"#, 1).unwrap();
+        let live = store.area("a").unwrap();
+        let area = |rev| {
+            ServerFrame::Push(Push::Area(mg_live::gateway::Area {
+                boot: "b".into(),
+                area: "a".into(),
+                rev,
+                age_ms: 0,
+                live: live.clone().into(),
+            }))
+        };
+        q.put(area(1)).unwrap();
+        let held = q.next().await;
+        q.put(ServerFrame::Push(Push::AreaGone { boot: "b".into(), area: "a".into() })).unwrap();
+        q.put(area(3)).unwrap();
+        let sent: serde_json::Value = serde_json::from_str(&q.latest(held).text).unwrap();
+        assert_eq!(sent["body"]["rev"], 1, "the old copy goes first");
+        let then: serde_json::Value = serde_json::from_str(&q.next().await.text).unwrap();
+        assert_eq!(then["topic"], "area_gone");
+        let last: serde_json::Value = serde_json::from_str(&q.next().await.text).unwrap();
+        assert_eq!(last["body"]["rev"], 3);
     }
     #[test]
     fn queue_rejects_overflow() {
