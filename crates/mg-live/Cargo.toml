@@ -1,6 +1,6 @@
 [package]
 name = "mg-live"
-description = "Live mode: a running game's state and commands — the store, the HTTPS API for clients and the Redis link to the server"
+description = "Live mode: a running game's state and commands — the store, the agent API routing and the Redis link to the server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,8 +25,6 @@ mg-core.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rustls.workspace = true
-rcgen.workspace = true
 getrandom = "0.3"
 log = "0.4"
 ring = "0.17"

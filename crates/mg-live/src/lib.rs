@@ -1,12 +1,11 @@
-//! Live reports and commands: HTTPS for local clients, Redis pub/sub for the game.
+//! Live reports and commands: the store, the agent API's routing and the Redis link to the
+//! game server. Hosts (the gateway) supply transport and authentication.
 pub mod access;
-pub mod agents;
 pub mod api;
 pub mod bridge;
 #[cfg(feature = "build")]
 pub mod build;
 mod command_ids;
-mod descriptor;
 pub mod events;
 pub mod logs;
 pub mod operations;
@@ -15,10 +14,8 @@ pub mod scene;
 pub mod service;
 pub mod store;
 mod wire_text;
-mod wsl;
 
-pub use agents::AgentPresence;
-pub use service::{LiveConfig, LiveService};
+pub use service::LiveConfig;
 
 /// Milliseconds since the Unix epoch, shared by the transport and the viewer.
 pub fn now_ms() -> u64 {

@@ -1,13 +1,7 @@
-//! Named API credentials, operation scopes, command quotas and payload-free audit.
+//! Operation scopes and groups for agent access, and the command quotas they carry.
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use std::{
-    collections::HashSet,
-    fs::OpenOptions,
-    io::Write,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+#[cfg(any(test, feature = "measure"))]
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -250,20 +244,17 @@ pub(crate) fn group(op: &str) -> Option<ClientGroup> {
         _ => return None,
     })
 }
+/// A fixture of named clients' scopes, for the store's own tests and diagnostics: the
+/// gateway builds scopes from its principals instead.
+#[derive(Debug)]
+pub(crate) struct Access {
+    scopes: Vec<Scope>,
+}
+#[cfg(any(test, feature = "measure"))]
 fn valid_token(token: &str) -> bool {
     (32..=256).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_graphic())
 }
-fn same(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-#[derive(Debug)]
-pub(crate) struct Access {
-    pub agents: crate::agents::Agents,
-    clients: Vec<ClientToken>,
-    scopes: Vec<Scope>,
-    pub audit: Arc<Audit>,
-}
+#[cfg(any(test, feature = "measure"))]
 impl Access {
     pub(crate) fn new(default: String, clients: &[ClientToken]) -> Result<Self, String> {
         if !valid_token(&default) {
@@ -273,7 +264,7 @@ impl Access {
             return Err("At most 64 named live clients are supported".into());
         }
         let mut names = HashSet::from(["default".to_string(), "local".to_string()]);
-        let mut tokens = HashSet::from([default.clone()]);
+        let mut tokens = HashSet::from([default]);
         for c in clients {
             if c.name.is_empty()
                 || c.name.chars().count() > 64
@@ -293,14 +284,6 @@ impl Access {
         if clients.iter().any(|c| tokens.iter().any(|t| c.name.contains(t))) {
             return Err("Client names must not contain credentials".into());
         }
-        let mut all = vec![ClientToken {
-            name: "default".into(),
-            token: default,
-            groups: vec![],
-            per_minute: 60,
-            delivery: DeliveryMode::Auto,
-        }];
-        all.extend_from_slice(clients);
         let scopes = std::iter::once(Scope::default())
             .chain(clients.iter().map(|c| Scope {
                 name: c.name.clone(),
@@ -312,153 +295,22 @@ impl Access {
                 gateway_groups: None,
             }))
             .collect();
-        Ok(Self {
-            clients: all,
-            scopes,
-            audit: Arc::new(Audit::default()),
-            agents: Default::default(),
-        })
+        Ok(Self { scopes })
     }
-    pub(crate) fn authenticate(&self, bearer: &str) -> Option<usize> {
-        let mut found = None;
-        for (i, c) in self.clients.iter().enumerate() {
-            if same(bearer.as_bytes(), c.token.as_bytes()) {
-                found = Some(i);
-            }
-        }
-        found
-    }
-    pub(crate) fn scope_named(&self, name: &str) -> Option<Scope> {
-        self.scopes.iter().find(|s| s.name == name).cloned()
-    }
+    #[cfg(test)]
     pub(crate) fn scope(&self, who: usize) -> &Scope {
         &self.scopes[who]
     }
 }
-
-#[derive(Debug, Default)]
-struct AuditState {
-    path: Option<PathBuf>,
-    pending: Vec<Value>,
-    dropped: u64,
-}
-#[derive(Debug, Default)]
-pub(crate) struct Audit {
-    state: Mutex<AuditState>,
-}
-const AUDIT_BYTES: u64 = 8 * 1024 * 1024;
-
-// Reopen under an OS lock so separate service instances never keep writing an
-// inode which another instance has rotated. Keep one bounded previous segment.
-fn audit_line(path: &Path, record: &Value, limit: u64) -> std::io::Result<()> {
-    let guard = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(path.with_extension("lock"))?;
-    guard.lock()?;
-    let row = format!("{record}\n");
-    if path.metadata().is_ok_and(|m| m.len() + row.len() as u64 > limit) {
-        let previous = path.with_extension("1.jsonl");
-        if previous.exists() {
-            std::fs::remove_file(&previous)?;
-        }
-        std::fs::rename(path, previous)?;
-    }
-    let mut options = OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    file.write_all(row.as_bytes())?;
-    file.flush()
-}
-impl Audit {
-    pub(crate) fn open(&self, data_dir: &Path) -> Result<(), String> {
-        let dir = data_dir.join("live");
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Audit directory: {e}"))?;
-        let mut options = OpenOptions::new();
-        options.create(true).append(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let path = dir.join("audit.jsonl");
-        drop(options.open(&path).map_err(|e| format!("Audit file: {e}"))?);
-        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if s.path.is_some() {
-            return Ok(());
-        }
-        for record in &s.pending {
-            audit_line(&path, record, AUDIT_BYTES).map_err(|e| format!("Audit write: {e}"))?;
-        }
-        if s.dropped > 0 {
-            audit_line(&path,&json!({"at_ms":crate::now_ms(),"who":"local","op":"audit","target":null,"result":"buffer_overflow","dropped":s.dropped}), AUDIT_BYTES).map_err(|e|e.to_string())?;
-        }
-        s.pending.clear();
-        s.path = Some(path);
-        Ok(())
-    }
-    pub(crate) fn record(
-        &self,
-        who: &str,
-        op: &str,
-        target: Option<&str>,
-        result: &str,
-        phase: &str,
-    ) {
-        let op = op.strip_prefix("live_").unwrap_or(op);
-        let op = if group(op).is_some() || matches!(op, "describe" | "openapi") {
-            op
-        } else {
-            "unknown"
-        };
-        let target = target
-            .filter(|t| !t.is_empty() && t.len() <= 16 && t.bytes().all(|b| b.is_ascii_hexdigit()));
-        let value = json!({"at_ms":crate::now_ms(),"who":who,"by":who,"op":op,"target":target,"result":result,"phase":phase});
-        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(path) = &s.path {
-            if audit_line(path, &value, AUDIT_BYTES).is_err() {
-                log::error!("Live audit write failed");
-            }
-        } else if s.pending.len() < 4096 {
-            s.pending.push(value);
-        } else {
-            s.dropped += 1;
-        }
+impl Access {
+    pub(crate) fn scope_named(&self, name: &str) -> Option<Scope> {
+        self.scopes.iter().find(|s| s.name == name).cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn audit_rotates_during_appends_and_keeps_complete_recent_rows() {
-        let dir = std::env::temp_dir()
-            .join(format!("mg-audit-rotate-{}", crate::service::generate_token().unwrap()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("audit.jsonl");
-        for n in 0..20 {
-            audit_line(&path, &json!({"n":n,"text":"bounded"}), 100).unwrap();
-        }
-        let mut rows = Vec::new();
-        for file in [path.with_extension("1.jsonl"), path] {
-            assert!(file.metadata().unwrap().len() <= 100);
-            rows.extend(
-                std::fs::read_to_string(file).unwrap().lines().map(|line| {
-                    serde_json::from_str::<Value>(line).unwrap()["n"].as_u64().unwrap()
-                }),
-            );
-        }
-        assert_eq!(rows.last(), Some(&19));
-        assert!(rows.len() < 20);
-        assert!(rows.windows(2).all(|pair| pair[1] == pair[0] + 1));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
     #[test]
     fn only_local_scope_can_issue_raw_watch_commands() {
         let mut scope = Scope::default();
@@ -479,9 +331,7 @@ mod tests {
     fn config_validation_redaction_and_default_compatibility() {
         let c = client();
         let access = Access::new(ROOT.into(), std::slice::from_ref(&c)).unwrap();
-        assert_eq!(access.authenticate(ROOT), Some(0));
-        assert_eq!(access.authenticate(&c.token), Some(1));
-        assert_eq!(access.authenticate("wrong"), None);
+        assert!(access.scope_named("LLM").is_some() && access.scope_named("default").is_some());
         assert_eq!(
             serde_json::from_str::<ClientToken>(r#"{"name":"LLM","token":"x"}"#)
                 .unwrap()
@@ -501,15 +351,13 @@ mod tests {
             assert!(Access::new(ROOT.into(), &[bad]).is_err());
         }
         assert!(serde_json::from_str::<ClientToken>(r#"{"groups":["admin"]}"#).is_err());
-        assert!(crate::LiveConfig::default().clients.is_empty());
-        assert!(serde_json::from_str::<crate::LiveConfig>("{}").unwrap().clients.is_empty());
     }
     #[test]
     fn configured_command_limits_are_carried_by_scopes() {
         let c = ClientToken { per_minute: 2, ..client() };
         let access = Access::new(ROOT.into(), &[c]).unwrap();
-        assert_eq!(access.scope(0).command_limit, 60);
-        assert_eq!(access.scope(1).command_limit, 2);
+        assert_eq!(access.scope_named("default").unwrap().command_limit, 60);
+        assert_eq!(access.scope_named("LLM").unwrap().command_limit, 2);
     }
     #[test]
     fn every_operation_has_a_primary_group_and_script_intersection() {
@@ -552,7 +400,7 @@ mod tests {
         let c = ClientToken::conversation("Conversation", "c".repeat(32));
         assert_eq!(c.delivery, DeliveryMode::Drafts);
         let access = Access::new(ROOT.into(), &[c]).unwrap();
-        let scope = access.scope(1);
+        let scope = access.scope_named("Conversation").unwrap();
         for op in [
             "live_npc_say",
             "live_reply_to_player",
@@ -578,49 +426,5 @@ mod tests {
         }
         assert!(!scope.has(ClientGroup::Players));
         assert!(!scope.has(ClientGroup::Npc));
-    }
-    #[test]
-    fn audit_buffers_then_appends_complete_rows_across_instances() {
-        let dir = std::env::temp_dir().join(format!(
-            "mg-live-audit-{}-{}",
-            std::process::id(),
-            crate::now_ms()
-        ));
-        assert!(!dir.exists());
-        let children: Vec<_> = ["A", "B"]
-            .into_iter()
-            .map(|name| {
-                let audit = Audit::default();
-                audit.record(name, "live_freeze", Some("bad target"), "queued", "request");
-                audit.open(&dir).unwrap();
-                audit.open(&dir).unwrap(); // No duplicate buffered rows.
-                std::thread::spawn(move || {
-                    for _ in 0..100 {
-                        audit.record(name, "live_freeze", Some("7f01"), "ok", "completion");
-                    }
-                })
-            })
-            .collect();
-        for child in children {
-            child.join().unwrap();
-        }
-        let path = dir.join("live/audit.jsonl");
-        let rows: Vec<Value> = std::fs::read_to_string(&path)
-            .unwrap()
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect();
-        assert_eq!(rows.len(), 202);
-        assert_eq!(
-            rows.iter().filter(|r| r["phase"] == "request" && r["target"].is_null()).count(),
-            2
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
-        }
-        assert!(dir.starts_with(std::env::temp_dir()));
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

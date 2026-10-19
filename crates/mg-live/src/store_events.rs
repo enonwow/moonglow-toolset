@@ -79,6 +79,7 @@ fn query(s: &State, q: &Query, scope: &Scope, filter: &ChatFilter) -> EventPage 
     }
 }
 impl LiveStore {
+    #[cfg(test)]
     pub(crate) fn set_agent_consent(&self, allowed: bool) {
         let mut s = self.lock();
         s.agent_consent = Some(allowed);
@@ -96,10 +97,6 @@ impl LiveStore {
 
     pub(crate) fn check_poll(&self, scope: &Scope, epoch: u64) -> Result<(), super::CommandError> {
         poll_allowed(&self.lock(), scope, epoch)
-    }
-    pub(crate) fn log_rows(&self, since: u64) -> (String, Vec<Event>, u64) {
-        let s = self.lock();
-        (s.boot.clone(), s.events.log_rows(since), s.events.last())
     }
     /// Stream events are independent of state baseline/boot. Historical boots
     /// can drain while the latest state is already from a newer game process.
@@ -184,6 +181,7 @@ impl LiveStore {
             s = signal.wait_timeout(s, remaining).unwrap_or_else(|e| e.into_inner()).0;
         }
     }
+    #[cfg(test)]
     pub(crate) fn wake_event_waiters(&self) {
         self.lock().events.changed.notify_all();
     }
@@ -228,6 +226,8 @@ impl LiveStore {
     }
 }
 
+const DENIED: &str = "LLM access is off for this AI (Moonglow: AI agents)";
+
 pub(super) fn poll_allowed(
     s: &State,
     scope: &Scope,
@@ -239,7 +239,7 @@ pub(super) fn poll_allowed(
             || epoch != s.agent_epoch
             || scope.agent_epoch.is_some_and(|authorized| authorized != s.agent_epoch))
     {
-        return Err(super::CommandError::new(super::ErrorCode::Forbidden, crate::agents::DENIED));
+        return Err(super::CommandError::new(super::ErrorCode::Forbidden, DENIED));
     }
     Ok(())
 }

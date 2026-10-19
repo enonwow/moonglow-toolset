@@ -196,64 +196,6 @@ fn player_speech_is_reviewed_and_approval_rechecks_global_players_permission() {
 }
 
 #[test]
-fn every_draft_wakes_ui_even_when_client_and_operation_do_not_change() {
-    use std::{
-        io::{Read, Write},
-        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-    };
-    let (store, access) = fixture();
-    let store = Arc::new(store);
-    access.agents.set_allowed(true);
-    let wakes = Arc::new(AtomicUsize::new(0));
-    let count = wakes.clone();
-    let stop = Arc::new(AtomicBool::new(false));
-    let listener = crate::api::start_with_access(
-        "127.0.0.1:0",
-        access,
-        store.clone(),
-        Arc::new(move || {
-            count.fetch_add(1, Ordering::SeqCst);
-        }),
-        stop.clone(),
-    )
-    .unwrap();
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add(rustls::pki_types::CertificateDer::from(listener.certificate.clone())).unwrap();
-    let config = Arc::new(
-        rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .unwrap()
-        .with_root_certificates(roots)
-        .with_no_client_auth(),
-    );
-    let mut replies = Vec::new();
-    let mut counts = Vec::new();
-    for id in ["first-draft", "second-draft"] {
-        let client =
-            rustls::ClientConnection::new(config.clone(), "moonglow-live".try_into().unwrap())
-                .unwrap();
-        let socket = std::net::TcpStream::connect(listener.address).unwrap();
-        socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
-        let mut tls = rustls::StreamOwned::new(client, socket);
-        let body = json!({"id":id,"area":"room","target":"1","text":"Hello"}).to_string();
-        write!(tls,"POST /v1/call/live_npc_say HTTP/1.1\r\nHost: moonglow-live\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}","s".repeat(32),body.len()).unwrap();
-        tls.flush().unwrap();
-        let mut response = String::new();
-        tls.read_to_string(&mut response).unwrap();
-        replies.push(response);
-        counts.push(wakes.load(Ordering::SeqCst));
-    }
-    stop.store(true, Ordering::Release);
-    listener.worker.join().unwrap();
-    assert!(replies.iter().all(|r| r.starts_with("HTTP/1.1 200")), "{replies:?}");
-    assert_eq!(counts, [1, 2]);
-    assert_eq!(store.drafts().len(), 2);
-    assert!(store.commands(crate::now_ms())["commands"].as_array().unwrap().is_empty());
-}
-
-#[test]
 fn draft_and_completion_events_describe_the_action() {
     let (store, access) = fixture();
     let scope = access.scope_named("Storyteller").unwrap();
