@@ -9,8 +9,30 @@ pub struct Principal {
     pub name: String,
     pub groups: Vec<String>,
 }
+/// Every group a host may grant. A name outside this list is a host configuration error.
+pub const GROUPS: [&str; 16] = [
+    "read",
+    "read_chat",
+    "read_tells",
+    "variables",
+    "npc",
+    "speech",
+    "spawn",
+    "spawn_scripted",
+    "scripts",
+    "chunks",
+    "players",
+    "focus",
+    "approve_drafts",
+    "allow_llm",
+    "manage_ai",
+    "admin",
+];
 impl Principal {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(g) = self.groups.iter().find(|g| !GROUPS.contains(&g.as_str())) {
+            return Err(format!("Unknown group {g:?}"));
+        }
         let (kind, id) = self.id.split_once(':').ok_or("Invalid principal")?;
         if !matches!(kind, "dm" | "ai")
             || id.is_empty()
@@ -640,6 +662,18 @@ pub(in crate::store) fn draft_scope(
         .map_err(|_| denied())
 }
 
+#[cfg(test)]
+#[test]
+fn unknown_group_names_are_configuration_errors() {
+    let mut p = Principal {
+        id: "dm:a".into(),
+        name: "A".into(),
+        groups: GROUPS.map(String::from).to_vec(),
+    };
+    assert!(p.validate().is_ok());
+    p.groups.push("player".into());
+    assert_eq!(p.validate().unwrap_err(), "Unknown group \"player\"");
+}
 #[cfg(test)]
 mod retention_audit_tests {
     use super::*;

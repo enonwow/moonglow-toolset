@@ -12,7 +12,7 @@ mod event_view;
 #[path = "store_gateway_identity.rs"]
 mod identity;
 pub(super) use event_view::project_event;
-pub use identity::{AiIdentity, AiSummary, IdentityDisabled, IdentityObserver, Principal};
+pub use identity::{AiIdentity, AiSummary, GROUPS, IdentityDisabled, IdentityObserver, Principal};
 pub(super) use identity::{draft_scope, validate_ai_scope};
 
 pub const RESULT_RETENTION_MS: u64 = 600_000;
