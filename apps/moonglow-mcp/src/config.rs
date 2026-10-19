@@ -2,13 +2,10 @@ use std::{env, path::PathBuf};
 
 #[derive(Clone)]
 pub struct Config {
-    pub descriptors: Vec<PathBuf>,
     pub gateway: Option<String>,
     pub gateway_pin: Option<String>,
     pub ai_token: Option<String>,
     pub session_id: String,
-    /// More folders of session descriptors, besides Moonglow's own (a demo's data folder).
-    pub sessions: Vec<PathBuf>,
     pub mg: PathBuf,
     pub roots: Vec<PathBuf>,
     pub write: bool,
@@ -41,13 +38,6 @@ impl Config {
             gateway_pin: None,
             ai_token: env::var("MOONGLOW_AI_TOKEN").ok(),
             session_id: "gateway".into(),
-            descriptors: env::var_os("MOONGLOW_AGENT_DESCRIPTOR")
-                .map(PathBuf::from)
-                .into_iter()
-                .collect(),
-            sessions: env::var_os("MOONGLOW_MCP_SESSIONS")
-                .map(|v| env::split_paths(&v).collect())
-                .unwrap_or_default(),
             mg: env::var_os("MOONGLOW_MG")
                 .map(PathBuf::from)
                 .or(sibling)
@@ -67,15 +57,13 @@ impl Config {
                 "--help" | "-h" => c.cli = vec!["help".into()],
                 "--allow-write" => c.write = true,
                 "--http-allow-remote" => c.remote = true,
-                "--descriptor" | "--sessions" | "--mg" | "--roots" | "--http" | "--http-token"
-                | "--gateway" | "--gateway-pin" | "--session-id" => {
+                "--mg" | "--roots" | "--http" | "--http-token" | "--gateway" | "--gateway-pin"
+                | "--session-id" => {
                     let value = args.next().ok_or_else(|| format!("Missing value for {arg}"))?;
                     match arg.as_str() {
                         "--gateway" => c.gateway = Some(value),
                         "--gateway-pin" => c.gateway_pin = Some(value),
                         "--session-id" => c.session_id = value,
-                        "--descriptor" => c.descriptors.push(value.into()),
-                        "--sessions" => c.sessions.push(value.into()),
                         "--mg" => c.mg = value.into(),
                         "--roots" => c.roots.push(value.into()),
                         "--http" => c.http = Some(value),
@@ -92,7 +80,7 @@ impl Config {
                 _ if !arg.starts_with('-') => c.cli.push(arg),
                 _ => {
                     return Err(format!(
-                        "Unknown option {arg}. Usage: moonglow-mcp [tools | call TOOL [JSON]] --descriptor FILE --sessions DIR --mg PROGRAM \
+                        "Unknown option {arg}. Usage: moonglow-mcp [tools | call TOOL [JSON]] --gateway URL [--gateway-pin SHA256] --mg PROGRAM \
                          --roots DIR (repeatable) --allow-write --http ADDRESS \
                          --http-token TOKEN --http-allow-remote"
                     ));

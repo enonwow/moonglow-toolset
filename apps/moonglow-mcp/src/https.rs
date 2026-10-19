@@ -96,16 +96,6 @@ pub struct Client {
     last: Option<std::time::Instant>,
 }
 impl Client {
-    pub fn request(
-        &mut self,
-        endpoint: (&str, &str, &str),
-        path: &str,
-        body: Option<&Value>,
-        etag: Option<&str>,
-        timeout: Duration,
-    ) -> Result<Reply, String> {
-        self.request_inner(endpoint, path, body, etag, timeout, None)
-    }
     pub fn gateway_request(
         &mut self,
         endpoint: (&str, &str, &str),

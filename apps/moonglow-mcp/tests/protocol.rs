@@ -28,9 +28,7 @@ fn shell_call_latency() {
             describe["operations"].as_array_mut().unwrap().push(op);
         }
     }
-    let sessions = scratch.0.join("sessions");
-    fs::create_dir(&sessions).unwrap();
-    agent.descriptor(&sessions.join("agent.json"), std::process::id(), &agent.pin);
+    let gateway = agent.args(&agent.pin);
     let mg = std::env::var_os("MGLIVE_MCP_MEASURE_MG")
         .map(PathBuf::from)
         .unwrap_or_else(|| scratch.0.join("no-cli"));
@@ -38,21 +36,13 @@ fn shell_call_latency() {
     for _ in 0..11 {
         let start = std::time::Instant::now();
         let result = Command::new(env!("CARGO_BIN_EXE_moonglow-mcp"))
-            .args([
-                "--sessions",
-                sessions.to_str().unwrap(),
-                "--mg",
-                mg.to_str().unwrap(),
-                "call",
-                "invented_read",
-                "{}",
-            ])
+            .args(&gateway)
+            .args(["--mg", mg.to_str().unwrap(), "call", "invented_read", "{}"])
             .current_dir(&scratch.0)
             .env("APPDATA", &scratch.0)
             .env("XDG_DATA_HOME", &scratch.0)
             .env("HOME", &scratch.0)
-            .env_remove("MOONGLOW_AGENT_DESCRIPTOR")
-            .env_remove("MOONGLOW_MCP_SESSIONS")
+            .env("MOONGLOW_AI_TOKEN", "test-secret")
             .env_remove("MOONGLOW_MCP_ROOTS")
             .env_remove("MOONGLOW_MCP_HTTP_TOKEN")
             .output()
@@ -69,7 +59,7 @@ fn shell_call_latency() {
             .map(|b| format!("{b:02x}"))
             .collect::<String>()
     };
-    let receipt = json!({"fixture":"82 operations; automatic descriptor discovery; authenticated TLS; one shell process/call",
+    let receipt = json!({"fixture":"82 operations; gateway discovery; authenticated TLS; one shell process/call",
         "cold_ms":samples[0],"warm_median_ms":(warm[4]+warm[5])/2.,"warm_max_ms":warm[9],"samples_ms":samples,
         "adapter_sha256":hash(Path::new(env!("CARGO_BIN_EXE_moonglow-mcp"))),
         "cli_sha256":mg.is_file().then(||hash(&mg)),"describe_bytes":agent.describe.lock().unwrap().to_string().len()});
@@ -105,15 +95,20 @@ struct Client {
     output: BufReader<std::process::ChildStdout>,
 }
 impl Client {
-    fn new(scratch: &Path, mg: &Path, description: Option<&Path>, args: &[&str]) -> Self {
+    fn new<S: AsRef<str>>(
+        scratch: &Path,
+        mg: &Path,
+        description: Option<&Path>,
+        args: &[S],
+    ) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_moonglow-mcp"));
         command
             .args(["--mg", mg.to_str().unwrap(), "--roots", scratch.to_str().unwrap()])
-            .args(args)
+            .args(args.iter().map(AsRef::as_ref))
             .env("APPDATA", scratch)
             .env("XDG_DATA_HOME", scratch)
             .env("HOME", scratch)
-            .env_remove("MOONGLOW_AGENT_DESCRIPTOR")
+            .env("MOONGLOW_AI_TOKEN", "test-secret")
             .env_remove("MOONGLOW_MCP_WRITE")
             .env_remove("MOONGLOW_MCP_ROOTS")
             .env_remove("FAKE_CLI_DESCRIPTION")
@@ -257,8 +252,9 @@ impl Agent {
             transport,
         }
     }
-    fn descriptor(&self, path: &Path, pid: u32, pin: &str) {
-        fs::write(path,json!({"protocol":"moonglow-agent/1","url":self.url,"token":"test-secret","certSha256":pin,"pid":pid}).to_string()).unwrap();
+    /// The adapter's gateway arguments; its token is the environment's `MOONGLOW_AI_TOKEN`.
+    fn args(&self, pin: &str) -> Vec<String> {
+        vec!["--gateway".into(), self.url.clone(), "--gateway-pin".into(), pin.into()]
     }
 }
 impl Drop for Agent {
@@ -322,6 +318,7 @@ fn serve_agent(socket: TcpStream, config: Arc<rustls::ServerConfig>, state: Arc<
             return;
         }
         let path = header.split_whitespace().nth(1).unwrap();
+        let path = path.strip_prefix("/agent").expect("the gateway serves /agent/v1");
         let describe = state.describe.lock().unwrap().clone();
         let etag = format!(
             "\"{}\"",
@@ -421,28 +418,26 @@ fn tools(value: &Value) -> Vec<String> {
         .collect()
 }
 
-fn shell(scratch: &Path, descriptor: &Path) -> Command {
+fn shell(scratch: &Path, agent: &Agent) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_moonglow-mcp"));
-    cmd.args(["--descriptor", descriptor.to_str().unwrap(), "--mg", "missing-cli"])
+    cmd.args(agent.args(&agent.pin))
+        .args(["--mg", "missing-cli"])
         .current_dir(scratch)
         .env("APPDATA", scratch)
         .env("HOME", scratch)
         .env("XDG_DATA_HOME", scratch)
-        .env_remove("MOONGLOW_AGENT_DESCRIPTOR")
-        .env_remove("MOONGLOW_MCP_SESSIONS")
+        .env("MOONGLOW_AI_TOKEN", "test-secret")
         .env_remove("MOONGLOW_MCP_ROOTS")
         .env_remove("MOONGLOW_MCP_WRITE");
     cmd
 }
 
 #[test]
-fn shell_cache_validates_revision_descriptor_and_input_without_repeating_actions() {
+fn shell_cache_validates_revision_credential_and_input_without_repeating_actions() {
     let scratch = Scratch::new();
     let agent = Agent::new();
-    let descriptor = scratch.0.join("agent.json");
-    agent.descriptor(&descriptor, std::process::id(), &agent.pin);
     let call = |input: Value| {
-        shell(&scratch.0, &descriptor)
+        shell(&scratch.0, &agent)
             .args(["call", "invented_put", &input.to_string()])
             .output()
             .unwrap()
@@ -460,10 +455,13 @@ fn shell_cache_validates_revision_descriptor_and_input_without_repeating_actions
     assert!(!call(json!({"message":42})).status.success());
     assert_eq!(agent.calls.lock().unwrap().len(), 2, "bad input is rejected before any command");
     assert_eq!(agent.describes.load(Ordering::Relaxed), 2, "local schema mismatch refreshes once");
-    let mut data: Value = serde_json::from_slice(&fs::read(&descriptor).unwrap()).unwrap();
-    data["generation"] = json!(2);
-    fs::write(&descriptor, data.to_string()).unwrap();
-    assert!(call(json!({"message":"new descriptor"})).status.success());
+    // Another credential is another cache identity: the description is fetched again.
+    let other = shell(&scratch.0, &agent)
+        .env("MOONGLOW_AI_TOKEN", "test-secret-2")
+        .args(["call", "invented_put", &json!({"message":"new credential"}).to_string()])
+        .output()
+        .unwrap();
+    assert!(other.status.success());
     assert_eq!(agent.describes.load(Ordering::Relaxed), 3);
     agent.describe.lock().unwrap()["operations"][1]["input"]["properties"]["count"] =
         json!({"type":"integer","description":"Optional count"});
@@ -493,8 +491,7 @@ fn shell_cache_validates_revision_descriptor_and_input_without_repeating_actions
         }
     }
     inspect(&scratch.0);
-    let result =
-        shell(&scratch.0, &descriptor).args(["call", "invented_read", "{}"]).output().unwrap();
+    let result = shell(&scratch.0, &agent).args(["call", "invented_read", "{}"]).output().unwrap();
     assert!(result.status.success(), "corrupt cache must be disposable");
 }
 
@@ -502,13 +499,16 @@ fn shell_cache_validates_revision_descriptor_and_input_without_repeating_actions
 fn shell_handles_404_and_revocation_and_older_uncached_agents() {
     let scratch = Scratch::new();
     let agent = Agent::new();
-    let descriptor = scratch.0.join("agent.json");
-    agent.descriptor(&descriptor, std::process::id(), &agent.pin);
-    let call =
-        || shell(&scratch.0, &descriptor).args(["call", "invented_read", "{}"]).output().unwrap();
-    assert!(call().status.success());
+    let call = |token: &str| {
+        shell(&scratch.0, &agent)
+            .env("MOONGLOW_AI_TOKEN", token)
+            .args(["call", "invented_read", "{}"])
+            .output()
+            .unwrap()
+    };
+    assert!(call("test-secret").status.success());
     agent.transport.store(2, Ordering::Relaxed);
-    assert!(call().status.success());
+    assert!(call("test-secret").status.success());
     assert_eq!(agent.describes.load(Ordering::Relaxed), 2);
     assert_eq!(
         agent.calls.lock().unwrap().len(),
@@ -516,16 +516,13 @@ fn shell_handles_404_and_revocation_and_older_uncached_agents() {
         "404 is pre-dispatch, then exactly one action"
     );
     agent.transport.store(3, Ordering::Relaxed);
-    assert!(!call().status.success());
+    assert!(!call("test-secret").status.success());
     assert_eq!(agent.describes.load(Ordering::Relaxed), 2, "403 never triggers a refresh or retry");
     assert_eq!(agent.calls.lock().unwrap().len(), 2);
-    // A different descriptor and an older server: no ETag and no keep-alive opt-in.
+    // A different credential and an older server: no ETag and no keep-alive opt-in.
     agent.transport.store(1, Ordering::Relaxed);
-    let mut d: Value = serde_json::from_slice(&fs::read(&descriptor).unwrap()).unwrap();
-    d["generation"] = json!(2);
-    fs::write(&descriptor, d.to_string()).unwrap();
-    assert!(call().status.success());
-    assert!(call().status.success());
+    assert!(call("test-secret-2").status.success());
+    assert!(call("test-secret-2").status.success());
     assert_eq!(agent.describes.load(Ordering::Relaxed), 4, "legacy describes are not cached");
 }
 
@@ -533,14 +530,8 @@ fn shell_handles_404_and_revocation_and_older_uncached_agents() {
 fn stdio_calls_reuse_description_and_connection_until_tools_list() {
     let scratch = Scratch::new();
     let agent = Agent::new();
-    let descriptor = scratch.0.join("agent.json");
-    agent.descriptor(&descriptor, std::process::id(), &agent.pin);
-    let mut client = Client::new(
-        &scratch.0,
-        &scratch.0.join("missing-cli"),
-        None,
-        &["--descriptor", descriptor.to_str().unwrap()],
-    );
+    let mut client =
+        Client::new(&scratch.0, &scratch.0.join("missing-cli"), None, &agent.args(&agent.pin));
     client.call("initialize", json!({"protocolVersion":"2025-06-18"}));
     for _ in 0..4 {
         assert_eq!(client.tool("invented_read", json!({}))["isError"], false);
@@ -574,8 +565,8 @@ struct Watching {
     lines: std::sync::mpsc::Receiver<String>,
 }
 impl Watching {
-    fn start(scratch: &Path, descriptor: &Path, args: &[&str]) -> Self {
-        let mut child = shell(scratch, descriptor)
+    fn start(scratch: &Path, agent: &Agent, args: &[&str]) -> Self {
+        let mut child = shell(scratch, agent)
             .arg("watch")
             .args(args)
             .stdout(Stdio::piped())
@@ -611,14 +602,12 @@ fn watch_tails_new_matching_events_over_one_connection_and_can_replay() {
     let scratch = Scratch::new();
     let agent = Agent::new();
     event_stream(&agent);
-    let descriptor = scratch.0.join("agent.json");
-    agent.descriptor(&descriptor, std::process::id(), &agent.pin);
     let event =
         |n, pc, kind, area| json!({"n":n,"kind":kind,"area":area,"data":{"pc":pc,"to_dm":true}});
     agent.events.0.lock().unwrap().push(event(1, true, "chat", "room"));
     let mut watch = Watching::start(
         &scratch.0,
-        &descriptor,
+        &agent,
         &["--from", "players", "--kinds", "chat", "--area", "room", "--to-dm", "--count", "2"],
     );
     let ready = std::time::Instant::now();
@@ -653,11 +642,8 @@ fn watch_tails_new_matching_events_over_one_connection_and_can_replay() {
         )
         .unwrap();
     }
-    let mut replay = Watching::start(
-        &scratch.0,
-        &descriptor,
-        &["--since", "4", "--kinds", "chat", "--count", "2"],
-    );
+    let mut replay =
+        Watching::start(&scratch.0, &agent, &["--since", "4", "--kinds", "chat", "--count", "2"]);
     assert_eq!(replay.read()["n"], 5);
     assert_eq!(replay.read()["n"], 6);
     assert!(replay.child.wait().unwrap().success());
@@ -667,7 +653,7 @@ fn watch_tails_new_matching_events_over_one_connection_and_can_replay() {
         "watch also consumes the description cache"
     );
     assert_eq!(agent.connections.load(Ordering::Relaxed), 2);
-    let bad = shell(&scratch.0, &descriptor).args(["watch", "--from", "robots"]).output().unwrap();
+    let bad = shell(&scratch.0, &agent).args(["watch", "--from", "robots"]).output().unwrap();
     assert!(!bad.status.success());
 }
 
@@ -688,10 +674,8 @@ fn pipes_discover_unknown_operations_cli_sessions_guards_and_bad_input() {
     let cli = scratch.0.join("cli.json");
     fs::write(&cli, description().to_string()).unwrap();
     let agent = Agent::new();
-    let d = scratch.0.join("session.json");
-    agent.descriptor(&d, std::process::id(), &agent.pin);
-    let mut client =
-        Client::new(&scratch.0, &mg, Some(&cli), &["--descriptor", d.to_str().unwrap()]);
+    let gateway = agent.args(&agent.pin);
+    let mut client = Client::new(&scratch.0, &mg, Some(&cli), &gateway);
     for version in ["2024-11-05", "2025-03-26", "2025-06-18", "future"] {
         let value=client.call("initialize",json!({"protocolVersion":version,"capabilities":{},"clientInfo":{"name":"pipe-test","version":"1"}}));
         assert_eq!(
@@ -810,49 +794,21 @@ fn pipes_discover_unknown_operations_cli_sessions_guards_and_bad_input() {
     };
     assert_eq!(timed_result["structuredContent"]["timedOut"], true);
     drop(writer);
-    let mut old = Client::new(&scratch.0, &mg, None, &[]);
+    let mut old = Client::new(&scratch.0, &mg, None, &[] as &[&str]);
     let init = old.call("initialize", json!({"protocolVersion":"2025-06-18"}));
     assert!(init["result"]["instructions"].as_str().unwrap().contains("no mg_*"));
     assert!(!tools(&old.call("tools/list", json!({}))).iter().any(|n| n.starts_with("mg_")));
     drop(old);
-    let second = scratch.0.join("second.json");
-    agent.descriptor(&second, std::process::id() + 1, &agent.pin);
-    let mut many = Client::new(
-        &scratch.0,
-        &mg,
-        None,
-        &["--descriptor", d.to_str().unwrap(), "--descriptor", second.to_str().unwrap()],
-    );
-    let listing = many.call("tools/list", json!({}));
-    let op = listing["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|v| v["name"] == "invented_read")
-        .unwrap();
-    assert_eq!(op["inputSchema"]["properties"]["session"]["enum"].as_array().unwrap().len(), 2);
-    assert_eq!(
-        many.tool("invented_read", json!({"session":std::process::id().to_string()}))["isError"],
-        false
-    );
-    drop(many);
-    agent.descriptor(&d, std::process::id(), &"0".repeat(64));
-    let mut wrong = Client::new(&scratch.0, &mg, None, &["--descriptor", d.to_str().unwrap()]);
+    // The wrong certificate fingerprint offers no agent tools, and no bearer is sent.
+    let calls = agent.calls.lock().unwrap().len();
+    let mut wrong = Client::new(&scratch.0, &mg, None, &agent.args(&"0".repeat(64)));
     assert!(!tools(&wrong.call("tools/list", json!({}))).contains(&"invented_read".into()));
     drop(wrong);
-    let base = if cfg!(windows) {
-        scratch.0.join("Moonglow")
-    } else if cfg!(target_os = "macos") {
-        scratch.0.join("Library/Application Support/Moonglow")
-    } else {
-        scratch.0.join("moonglow")
-    };
-    let sessions = base.join("live/sessions");
-    fs::create_dir_all(&sessions).unwrap();
-    agent.descriptor(&sessions.join("stale.json"), u32::MAX, &agent.pin);
-    let mut stale = Client::new(&scratch.0, &mg, None, &[]);
-    assert!(!tools(&stale.call("tools/list", json!({}))).contains(&"invented_read".into()));
-    drop(stale);
+    assert_eq!(agent.calls.lock().unwrap().len(), calls);
+    // No gateway: only the CLI tools, and nothing is discovered on this machine.
+    let mut none = Client::new(&scratch.0, &mg, Some(&cli), &[] as &[&str]);
+    let listed = tools(&none.call("tools/list", json!({})));
+    assert!(!listed.contains(&"invented_read".into()) && listed.contains(&"mg_invented".into()));
 }
 
 #[test]
@@ -892,28 +848,17 @@ fn http_requires_token_and_handles_initialize() {
 }
 
 #[test]
-fn idle_stdio_and_http_send_heartbeats_to_each_discovered_agent() {
+fn idle_stdio_and_http_send_heartbeats_to_the_gateway() {
     let scratch = Scratch::new();
-    let agents = [Agent::new(), Agent::new()];
-    let descriptors = [scratch.0.join("first.json"), scratch.0.join("second.json")];
-    for (i, agent) in agents.iter().enumerate() {
-        // Explicit descriptors permit fake remote PIDs, as ordinary tunnel discovery does.
-        agent.descriptor(&descriptors[i], std::process::id() + i as u32, &agent.pin);
-    }
-    agents[1].reject_ping.store(true, Ordering::Relaxed);
-    let args = [
-        "--descriptor",
-        descriptors[0].to_str().unwrap(),
-        "--descriptor",
-        descriptors[1].to_str().unwrap(),
-    ];
+    let agent = Agent::new();
+    let args = agent.args(&agent.pin);
     let mg = scratch.0.join("no-mg");
     let mut pipes = Client::new(&scratch.0, &mg, None, &args);
     pipes.call("initialize", json!({"protocolVersion":"2025-06-18"}));
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let address = format!("127.0.0.1:{port}");
-    let mut http_args = args.to_vec();
-    http_args.extend(["--http", &address, "--http-token", "test-http"]);
+    let mut http_args: Vec<String> = args.clone();
+    http_args.extend(["--http", &address, "--http-token", "test-http"].map(String::from));
     let http = Client::new(&scratch.0, &mg, None, &http_args);
     let mut socket = (0..100)
         .find_map(|_| match TcpStream::connect(&address) {
@@ -932,14 +877,12 @@ fn idle_stdio_and_http_send_heartbeats_to_each_discovered_agent() {
     assert!(response.starts_with("HTTP/1.1 200"));
     // No MCP messages for a full production 20-second interval, on either transport.
     let deadline = std::time::Instant::now() + Duration::from_secs(25);
-    while agents.iter().any(|a| a.pings.load(Ordering::Relaxed) < 2)
-        && std::time::Instant::now() < deadline
-    {
+    while agent.pings.load(Ordering::Relaxed) < 2 && std::time::Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
-    for agent in &agents {
-        assert_eq!(agent.pings.load(Ordering::Relaxed), 2);
-    }
+    assert_eq!(agent.pings.load(Ordering::Relaxed), 2, "one heartbeat per transport");
+    // A rejected heartbeat is never surfaced.
+    agent.reject_ping.store(true, Ordering::Relaxed);
     assert_eq!(
         pipes.call("ping", json!({}))["result"],
         json!({}),
@@ -960,7 +903,7 @@ fn a_shell_lists_and_calls_the_same_tools() {
             .env("XDG_DATA_HOME", &scratch.0)
             .env("HOME", &scratch.0)
             .env("MOONGLOW_MG", scratch.0.join("no-mg"))
-            .env_remove("MOONGLOW_AGENT_DESCRIPTOR")
+            .env("MOONGLOW_AI_TOKEN", "test-secret")
             .current_dir(&scratch.0)
             .output()
             .unwrap()
@@ -977,14 +920,12 @@ fn a_shell_lists_and_calls_the_same_tools() {
     assert!(String::from_utf8_lossy(&bad.stderr).contains("Invalid JSON input"));
     assert!(!run(&["call"]).status.success(), "usage");
 
-    // A session in another data folder (the demo's) is found through --sessions.
+    // A gateway's operations are listed beside them.
     let agent = Agent::new();
-    let sessions = scratch.0.join("demo-sessions");
-    fs::create_dir_all(&sessions).unwrap();
-    agent.descriptor(&sessions.join("1.json"), std::process::id(), &agent.pin);
+    let gateway = agent.args(&agent.pin);
     let stdout = |o: std::process::Output| String::from_utf8_lossy(&o.stdout).into_owned();
     assert!(!stdout(run(&["tools"])).contains("invented_read"));
-    assert!(
-        stdout(run(&["tools", "--sessions", sessions.to_str().unwrap()])).contains("invented_read")
-    );
+    let mut with_gateway = vec!["tools"];
+    with_gateway.extend(gateway.iter().map(String::as_str));
+    assert!(stdout(run(&with_gateway)).contains("invented_read"));
 }
