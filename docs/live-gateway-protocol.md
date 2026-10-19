@@ -51,8 +51,8 @@ global slots; when none is free it gets `bye overloaded` (1013). The upgrade is 
 refused with 429 when the global slots are all taken. A silent socket therefore costs
 its owner, not everyone, a place.
 
-`/agent/v1`: at most 16 requests run at once and four per AI; long polls (`live_events`
-with `wait_ms > 0`, `live_wait`) additionally share a pool of eight with two per AI.
+`/agent/v1`: at most 32 requests run at once and four per AI; long polls (`live_events`
+with `wait_ms > 0`, `live_wait`) additionally share a pool of 24 with two per AI.
 Over a limit the answer is 429 `rate_limited` with `retryAfterSeconds` (and a
 `Retry-After` header); quick calls of other AIs are unaffected by anyone's polls.
 

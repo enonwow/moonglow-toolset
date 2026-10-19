@@ -275,11 +275,13 @@ async fn agent_chat_requires_a_separate_tell_capability_and_keeps_the_cursor() {
     }
 }
 
+/// AIs that fill the global long-poll pool (24) at two polls each.
+const POLLERS: usize = 12;
 #[tokio::test]
 async fn one_ai_cannot_take_the_long_poll_pool_from_the_others() {
     let (app, core) = app().await;
     core.with_gateway(|g| {
-        for i in 0..5 {
+        for i in 0..=POLLERS {
             g.install_ai(
                 mg_live::gateway::AiIdentity {
                     id: format!("ai:poller{i}"),
@@ -319,20 +321,20 @@ async fn one_ai_cannot_take_the_long_poll_pool_from_the_others() {
     let wait = r#"{"wait_ms":600}"#;
     let mut polls = Vec::new();
     // Each AI may keep two long polls; the third is refused at once.
-    for i in 0..4 {
+    for i in 0..POLLERS {
         for _ in 0..2 {
             polls.push(tokio::spawn(call(i, "/agent/v1/call/live_events", wait)));
         }
     }
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    assert!(polls.iter().all(|p| !p.is_finished()), "all eight polls are waiting");
+    assert!(polls.iter().all(|p| !p.is_finished()), "every poll of the full pool is waiting");
     assert_eq!(call(0, "/agent/v1/call/live_events", wait).await, 429, "third poll of one AI");
-    // The pool of eight is full: a fifth AI cannot poll, but its quick calls still run.
-    assert_eq!(call(4, "/agent/v1/call/live_events", wait).await, 429, "pool is full");
-    assert_eq!(call(4, "/agent/v1/call/live_find", r#"{"text":"a"}"#).await, 200);
+    // The pool (24 = 12 AIs x 2) is full: one more AI cannot poll, but its quick calls run.
+    assert_eq!(call(POLLERS, "/agent/v1/call/live_events", wait).await, 429, "pool is full");
+    assert_eq!(call(POLLERS, "/agent/v1/call/live_find", r#"{"text":"a"}"#).await, 200);
     assert_eq!(call(0, "/agent/v1/call/live_find", r#"{"text":"a"}"#).await, 200);
     for p in polls {
         assert_eq!(p.await.unwrap(), 200);
     }
-    assert_eq!(call(4, "/agent/v1/call/live_events", wait).await, 200, "slots come back");
+    assert_eq!(call(POLLERS, "/agent/v1/call/live_events", wait).await, 200, "slots come back");
 }

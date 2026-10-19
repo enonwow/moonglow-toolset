@@ -14,11 +14,13 @@ use std::{
 };
 
 /// Requests in flight, all AIs together and per AI.
-const SLOTS: usize = 16;
+const SLOTS: usize = 32;
 const SLOTS_PER_AI: usize = 4;
 /// Long polls (`live_events` with `wait_ms`, `live_wait`) sit in a blocking worker for up to
 /// 30 s, so they have a smaller pool of their own: waiting AIs cannot crowd out quick calls.
-const POLLS: usize = 8;
+// Sized for the design load of ~10 AIs that each keep one long poll open (the load test
+// with 10 AIs hit 429s at 8 and woke agents 2.6 s late at p95); per-AI caps stop hogging.
+const POLLS: usize = 24;
 const POLLS_PER_AI: usize = 2;
 
 #[derive(Debug)]
@@ -220,7 +222,7 @@ mod tests {
         let core =
             crate::CoreHandle::new(Arc::new(mg_live::store::LiveStore::default())).await.unwrap();
         core.with_gateway(|g| {
-            for i in 0..4 {
+            for i in 0..POLLS / POLLS_PER_AI {
                 g.install_ai(
                     mg_live::gateway::AiIdentity {
                         id: format!("ai:test{i}"),
@@ -259,7 +261,7 @@ mod tests {
                 .unwrap()
         };
         let mut polls = vec![];
-        for i in (0..4).flat_map(|i| [i, i]) {
+        for i in (0..POLLS / POLLS_PER_AI).flat_map(|i| [i; POLLS_PER_AI]) {
             polls.push(tokio::spawn(handle(State(app.clone()), request(i))));
         }
         tokio::time::timeout(std::time::Duration::from_secs(2), async {

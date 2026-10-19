@@ -296,7 +296,7 @@ scanned every object of every area on every poll.)
   and 60 a minute per client by default: 60 desktops speaking every five seconds already
   trip it (`rate_limited`, "Live global command limit exceeded"), by design, to protect the
   game's main thread. The ramp lets only the first 30 desktops speak.
-* **Dev host ceilings**: 128 WebSocket connections (`Config::connections`), 16 concurrent
+* **Dev host ceilings**: 128 WebSocket connections (`Config::connections`), 32 concurrent
   agent requests (every long poll holds one), 1024 sessions. The production binary sets its
   own; the 16 agent slots matter first (10 agents polling and calling use 10-14).
 * **Resident size** is about twice the live heap because glibc keeps freed pages in per-thread
