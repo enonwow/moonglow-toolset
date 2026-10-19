@@ -550,21 +550,21 @@ impl Bridge {
                             if pending {
                                 let reported = lock(&state).reported.clone();
                                 let commands = store.peek_commands(now_ms());
-                                let mut current = lock(&state);
+                                let current = lock(&state);
                                 if reported.as_ref().is_some_and(|(_, boot)| commands["boot"] == *boot)
                                     && current.reported == reported && current.subscriber && current.publisher
                                     && commands["prefix"] == config.prefix && !stop.load(Ordering::Acquire)
                                     && has_outbound(&commands) {
                                     let boot = reported.as_ref().expect("gate checked").1.clone();
-                                    let published = store.handoff_commands(now_ms(), &boot, &config.prefix, |commands| {
-                                        if !has_outbound(&commands) { return Ok::<bool, String>(false); }
+                                    let batch = store.handoff_commands(now_ms(), &boot, &config.prefix);
+                                    // No lock spans the PUBLISH: the batch carries the boot and prefix checked above and the game drops any other (mglive_inc.nss).
+                                    drop(current);
+                                    if let Some(commands) = batch.filter(has_outbound) {
                                         let body = game_json(&commands);
                                         if !matches!(request(&mut connection, &[b"PUBLISH", &channel, body.as_bytes()])?, Reply::Int(n) if n >= 0) { return Err("Redis PUBLISH failed".into()); }
-                                        Ok(true)
-                                    }).transpose()?.unwrap_or(false);
-                                    current.published += u64::from(published);
+                                        lock(&state).published += 1;
+                                    }
                                     sent = Instant::now();
-                                    drop(current);
                                     wake();
                                 }
                             }

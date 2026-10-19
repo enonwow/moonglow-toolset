@@ -2274,15 +2274,11 @@ impl LiveStore {
         game_commands(&s)
     }
 
-    /// The bridge holds its connection gate while this lock serializes the final
-    /// batch selection and transport handoff with acceptance and owner revocation.
-    pub(crate) fn handoff_commands<R>(
-        &self,
-        now_ms: u64,
-        boot: &str,
-        prefix: &str,
-        send: impl FnOnce(Value) -> R,
-    ) -> Option<R> {
+    /// Selects the batch for `boot` and `prefix` and marks it sent (no longer
+    /// revocable). The store lock serializes the boot/prefix check, the selection
+    /// and the marking with acceptance and owner revocation; the caller publishes
+    /// the returned batch after the lock is released.
+    pub(crate) fn handoff_commands(&self, now_ms: u64, boot: &str, prefix: &str) -> Option<Value> {
         let mut s = self.lock();
         expire(&mut s, now_ms);
         if s.boot != boot || s.server.as_ref().is_none_or(|c| c.prefix != prefix) {
@@ -2290,7 +2286,7 @@ impl LiveStore {
         }
         let batch = game_commands(&s);
         mark_handed_off(&mut s, &batch);
-        Some(send(batch))
+        Some(batch)
     }
 
     /// Takes the game's post (JSON) and returns the reply: the commands it

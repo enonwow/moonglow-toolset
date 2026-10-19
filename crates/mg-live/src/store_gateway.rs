@@ -1879,7 +1879,7 @@ mod lock_order_tests {
             std::thread::spawn(move || {
                 for now in 0..20_000 {
                     let gate = bridge.lock().unwrap();
-                    store.handoff_commands(now, "boot", "mglive", |_| ());
+                    store.handoff_commands(now, "boot", "mglive");
                     drop(gate);
                 }
                 done.send(()).unwrap();
