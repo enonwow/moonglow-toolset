@@ -7,10 +7,13 @@ use sha1::{Digest, Sha1};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio_rustls::{TlsConnector, client::TlsStream};
+use tokio_rustls::TlsConnector;
 
 const MAX: usize = mg_live::gateway_frames::SERVER_FRAME_LIMIT;
-pub(crate) type Stream = TlsStream<TcpStream>;
+pub(crate) trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
+/// TLS, or plain TCP to a loopback development gateway (`Gateway::new` allows nothing else).
+pub(crate) type Stream = Box<dyn Io>;
 
 pub(crate) async fn connect(gateway: &Gateway, token: &SessionToken) -> Result<Stream, LinkError> {
     let host = gateway.origin.host_str().ok_or(LinkError::Protocol)?.trim_matches(['[', ']']);
@@ -23,9 +26,14 @@ pub(crate) async fn connect(gateway: &Gateway, token: &SessionToken) -> Result<S
     let config = Arc::new(tls::config(verifier));
     let stream = TcpStream::connect((host, port)).await.map_err(|_| LinkError::Transport)?;
     stream.set_nodelay(true).map_err(|_| LinkError::Transport)?;
+    if gateway.origin.scheme() == "http" {
+        let mut stream: Stream = Box::new(stream);
+        upgrade(&mut stream, gateway, token).await?;
+        return Ok(stream);
+    }
     let name = rustls::pki_types::ServerName::try_from(host.to_owned())
         .map_err(|_| LinkError::Protocol)?;
-    let mut stream = TlsConnector::from(config).connect(name, stream).await.map_err(|_| {
+    let stream = TlsConnector::from(config).connect(name, stream).await.map_err(|_| {
         if gateway.pin.is_some()
             && observed
                 .lock()
@@ -38,6 +46,7 @@ pub(crate) async fn connect(gateway: &Gateway, token: &SessionToken) -> Result<S
             LinkError::Transport
         }
     })?;
+    let mut stream: Stream = Box::new(stream);
     upgrade(&mut stream, gateway, token).await?;
     Ok(stream)
 }

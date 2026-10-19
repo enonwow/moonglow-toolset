@@ -151,6 +151,8 @@ fn tofu_returns_fingerprint_without_http_or_implicit_trust() {
 fn reject_unsafe_urls_and_bad_pins() {
     for url in [
         "http://example.org",
+        "ws://example.org",
+        "http://192.0.2.1:5199",
         "https://user:secret@example.org",
         "https://example.org/path",
         "https://example.org?query",
@@ -160,6 +162,10 @@ fn reject_unsafe_urls_and_bad_pins() {
     }
     assert!(matches!(Gateway::new("https://example.org", Some("abc")), Err(Error::InvalidPin)));
     assert!(Gateway::new("wss://example.org", None).is_ok());
+    // A development gateway on this machine may speak plain HTTP.
+    for url in ["http://127.0.0.1:5199", "ws://[::1]:5199", "http://localhost:5199"] {
+        assert!(Gateway::new(url, None).is_ok(), "{url}");
+    }
 }
 
 #[test]

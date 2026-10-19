@@ -67,13 +67,25 @@ pub struct Gateway {
     pub(crate) pin: Option<String>,
 }
 
+fn loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        None => false,
+    }
+}
+
 impl Gateway {
     pub fn new(origin: &str, pin: Option<&str>) -> Result<Self, Error> {
         let mut origin = Url::parse(origin).map_err(|_| Error::InvalidGateway)?;
-        if origin.scheme() == "wss" {
-            origin.set_scheme("https").map_err(|_| Error::InvalidGateway)?;
+        match origin.scheme() {
+            "wss" => origin.set_scheme("https").map_err(|_| Error::InvalidGateway)?,
+            "ws" => origin.set_scheme("http").map_err(|_| Error::InvalidGateway)?,
+            _ => {}
         }
-        if origin.scheme() != "https"
+        // Plain HTTP only for a development gateway on this machine; the token never leaves it.
+        if !(origin.scheme() == "https" || origin.scheme() == "http" && loopback(&origin))
             || origin.host_str().is_none()
             || !origin.username().is_empty()
             || origin.password().is_some()
