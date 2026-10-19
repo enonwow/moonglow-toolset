@@ -3,6 +3,7 @@ mod agent;
 pub mod avatars;
 mod core;
 pub mod files;
+mod limit;
 mod socket;
 pub mod translation;
 pub use translation::{TranslationConfig, TranslationPipeline, Translator};
@@ -23,7 +24,7 @@ use mg_live::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 pub use mg_live::gateway::{IdentityDisabled, IdentityObserver, Principal};
 /// Called on blocking workers, on upgrade and again while the connection is alive.
@@ -66,7 +67,12 @@ pub struct Config {
     pub queue_frames: usize,
     pub queue_bytes: usize,
     pub watch_limit: usize,
+    /// Sockets that completed `hello`, all users together.
     pub connections: usize,
+    /// Open sockets per user, `hello` or not: bounds what one DM can hold open.
+    pub user_connections: usize,
+    /// How long an upgraded socket may stay silent before its `hello`.
+    pub hello_timeout: Duration,
     pub features: Vec<String>,
     pub nwsync: Option<mg_live::gateway_frames::Nwsync>,
 }
@@ -78,6 +84,8 @@ impl Default for Config {
             queue_bytes: 32 * 1024 * 1024,
             watch_limit: 16,
             connections: 128,
+            user_connections: 2,
+            hello_timeout: Duration::from_secs(5),
             features: vec![],
             nwsync: None,
             publisher: None,
@@ -93,6 +101,7 @@ pub(crate) struct App {
     config: Config,
     agents: Arc<agent::AgentState>,
     connections: Arc<tokio::sync::Semaphore>,
+    users: Arc<limit::PerPrincipal>,
 }
 pub fn router(
     core: CoreHandle,
@@ -113,6 +122,7 @@ pub fn router(
             connections: Arc::new(tokio::sync::Semaphore::new(config.connections)),
             config,
             agents: Arc::new(agent::AgentState::default()),
+            users: Arc::default(),
         })
 }
 #[derive(Debug, Default, Deserialize)]
@@ -209,7 +219,9 @@ async fn upgrade(
     if app.core.is_shutdown() {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    let Ok(permit) = app.connections.clone().try_acquire_owned() else {
+    // The global slot is taken by `hello` (socket::run); a full house is refused early.
+    let slot = app.users.acquire(&principal.id, app.config.user_connections);
+    let (Some(slot), true) = (slot, app.connections.available_permits() > 0) else {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(json!({"ok":false,"code":"rate_limited","error":"Connection limit exceeded"})),
@@ -224,7 +236,7 @@ async fn upgrade(
         .max_message_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
         .max_frame_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
         .on_upgrade(move |ws| async move {
-            let _permit = permit;
+            let _slot = slot;
             socket::run(ws, app, token, principal).await;
         })
         .into_response()

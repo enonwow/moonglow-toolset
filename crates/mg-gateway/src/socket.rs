@@ -88,7 +88,7 @@ async fn revalidate(app: &App, token: &str, principal: &Principal) -> Result<(),
 }
 pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principal: Principal) {
     let mut connection = Connection::default();
-    let first = timeout(Duration::from_secs(45), socket.next()).await;
+    let first = timeout(app.config.hello_timeout, socket.next()).await;
     let hello = match first {
         Ok(Some(Ok(Message::Text(text)))) => match frames::decode_client(text.as_bytes()) {
             Ok(frame) => match connection.receive(&frame) {
@@ -113,6 +113,11 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
             close(&mut socket, "invalid").await;
             return;
         }
+    };
+    // Held for the life of the connection; a socket that never said hello never took one.
+    let Ok(_permit) = app.connections.clone().try_acquire_owned() else {
+        close(&mut socket, "overloaded").await;
+        return;
     };
     if let Err(code) = revalidate(&app, &token, &principal).await {
         close(&mut socket, code).await;

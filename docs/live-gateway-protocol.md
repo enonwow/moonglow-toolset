@@ -42,6 +42,20 @@ the management panel and translations are host concerns.
 - Unknown fields MUST be ignored. Unknown `t` or `topic` from the gateway
   MUST be logged and skipped. Unknown `op` from a client → `err unsupported`.
 
+Connection limits (`Config`): a user may hold at most `user_connections` (2) sockets
+open, whether or not they said `hello` (the upgrade over that limit is refused with
+429 `rate_limited`), so a reconnecting client has room while its old socket closes. The
+first frame must be `hello` within `hello_timeout` (5 s) or the socket is closed
+(1002). Only a socket that sent a valid `hello` takes one of the `connections` (128)
+global slots; when none is free it gets `bye overloaded` (1013). The upgrade is also
+refused with 429 when the global slots are all taken. A silent socket therefore costs
+its owner, not everyone, a place.
+
+`/agent/v1`: at most 16 requests run at once and four per AI; long polls (`live_events`
+with `wait_ms > 0`, `live_wait`) additionally share a pool of eight with two per AI.
+Over a limit the answer is 429 `rate_limited` with `retryAfterSeconds` (and a
+`Retry-After` header); quick calls of other AIs are unaffected by anyone's polls.
+
 Implementation note (P2a): HTTP status is final after upgrade. The public
 transport accepts optional `?proto=1&mirror=2` on the upgrade URL and returns
 426 with `min_client` for a mismatch there. It always validates the actual
