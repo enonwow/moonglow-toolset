@@ -251,10 +251,12 @@ pub(crate) use mg_live::now_ms;
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     ui.add_enabled_ui(app.live_backend().active(), |ui| {
         ui.toggle_value(&mut view.live.on, "📡 Live")
-            .on_disabled_hover_text("Turn on live mode in Options › Live")
+            .on_disabled_hover_text("Connect to a gateway: Live › Connect to Gateway")
             .on_hover_text("Show the running game; actions send commands to the server");
     });
-    crate::live_agents::toolbar(app, ui);
+    if app.live_backend().is_gateway() && ui.button("My AI").clicked() {
+        app.live_ai.open = true;
+    }
     if view.live.on {
         // Keep the Live controls usable with the palette docked beside a narrow view.
         ui.end_row();
@@ -1047,7 +1049,7 @@ pub(crate) fn queue_in_area(
     op: Op,
 ) -> Option<String> {
     if !app.live_backend().active() {
-        view.notice = Some("Turn on live mode in Options › Live".into());
+        view.notice = Some("Connect to a gateway: Live › Connect to Gateway".into());
         return None;
     }
     let command = Command { id: String::new(), area, op };
@@ -1319,7 +1321,7 @@ pub(crate) fn input(
 
 fn menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui, live: Option<&AreaLive>) {
     if !app.live_backend().active() {
-        ui.label("Turn on live mode in Options › Live");
+        ui.label("Connect to a gateway: Live › Connect to Gateway");
         return;
     }
     if let Some(live) =
@@ -1446,7 +1448,7 @@ fn script_window(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
                 cancel = ui.button("Cancel").clicked();
             });
             if !allowed {
-                ui.label("This command is disabled in Options › Live");
+                ui.label("This command is not allowed on this server");
             }
         });
     if send {

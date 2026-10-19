@@ -1,40 +1,19 @@
-//! Regressions for windows against the runtime service and a fresh fake store.
+//! Regressions for windows against a fresh fake store.
 #[path = "support/live_windows.rs"]
 mod support;
 use egui_kittest::kittest::{NodeT, Queryable};
 use mg_ui::Tab;
 
 #[test]
-fn hexxar_runtime_enabled_overrides_saved_option() {
+fn hexxar_windows_follow_the_live_switch() {
     let (mut app, store, dir) = support::app("runtime-enabled", None);
-    // An owned listener reserves the Redis endpoint without touching any server.
-    let redis = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    app.settings.live.enabled = false; // Start-LiveDemo leaves this unchanged.
-    app.live_service = Some(
-        mg_live::LiveService::start(
-            mg_live::LiveConfig {
-                enabled: true,
-                api_port: 0,
-                redis_port: redis.local_addr().unwrap().port(),
-                keep_wsl: Some(false),
-                keep_logs: false,
-                policy: mg_live::store::Policy { players: true, ..Default::default() },
-                ..Default::default()
-            },
-            store.clone(),
-            std::sync::Arc::new(|| {}),
-        )
-        .unwrap(),
-    );
-    // Complete desktop startup before issuing commands through the runtime service.
-    app.live_service.as_mut().unwrap().publish_descriptor(&dir.join("data")).unwrap();
-    // Endpoint binding invalidates the pre-service fixture baseline.
-    support::report(&store, 1, vec![]);
+    store.set_policy(mg_live::store::Policy { players: true, ..Default::default() });
     app.live_library.data_dir = Some(dir.join("data"));
+    support::report(&store, 1, vec![]);
     let mut h = support::harness(app, Tab::LiveVfx);
     assert!(
         !h.get_by_label("Apply VFX").accesskit_node().is_disabled(),
-        "fresh report, runtime enabled"
+        "fresh report, Live enabled"
     );
     h.get_by_label("Apply VFX").click();
     h.run_steps(2);
@@ -59,18 +38,12 @@ fn hexxar_runtime_enabled_overrides_saved_option() {
         vec![serde_json::json!({"id":queued[0]["id"],"ok":true,"value":{"players":[]}})],
     );
     h.run_steps(2);
-    assert!(
-        h.state().live_skill.result.is_some(),
-        "pending result must survive saved enabled=false"
-    );
+    assert!(h.state().live_skill.result.is_some(), "pending result must survive the next report");
     support::prime(&mut h, Tab::Scene);
     assert!(!h.get_by_label("Record").accesskit_node().is_disabled());
     h.get_by_label("Record").click();
     h.run_steps(2);
-    assert!(
-        h.state().live_scene.recording,
-        "Scenes follows runtime enabled, even with saved enabled=false"
-    );
+    assert!(h.state().live_scene.recording, "Scenes follows the Live switch");
     h.get_by_label("Stop scene").click();
     h.run_steps(2);
     support::prime(&mut h, Tab::LiveLibrary);
@@ -85,12 +58,9 @@ fn hexxar_runtime_enabled_overrides_saved_option() {
     h.run_steps(2);
     h.get_by_label("Spawn NPC").click();
     h.run_steps(2);
-    assert!(
-        support::commands(&store).is_empty(),
-        "runtime-enabled library spawn arms a map preview"
-    );
+    assert!(support::commands(&store).is_empty(), "library spawn arms a map preview");
     h.get_by_label("Aim the NPC ghost, then click the map to spawn. Turn keys rotate; Esc/right click cancels.");
-    // Runtime availability does not turn an actually old area into a fresh one.
+    // The Live switch does not turn an actually old area into a fresh one.
     store.sync(serde_json::json!({"v":1,"boot":"windows","seq":4,"areas":[{"area":"start","full":true,"cre":[]}]}).to_string().as_bytes(), mg_live::now_ms()-20_000).unwrap();
     support::prime(&mut h, Tab::LiveVfx);
     assert!(h.get_by_label("Apply VFX").accesskit_node().is_disabled());

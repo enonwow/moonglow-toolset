@@ -93,7 +93,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     ui.heading("Atmosphere");
     ui.weak("Change the running server. Values below are proposed settings; Apply returns the server's settings. The module stays unchanged.");
     let Some(store) = app.live.clone().filter(|_| live_targets::enabled(app)) else {
-        ui.label("Start Live to control an area's atmosphere.");
+        ui.label("Connect to a gateway to control an area's atmosphere.");
         return;
     };
     let id = egui::Id::new("live-atmosphere-state");

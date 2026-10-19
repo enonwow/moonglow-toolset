@@ -1,21 +1,19 @@
 //! The GUI's single runtime boundary. Reports keep the same LiveStore shape.
 //!
-//! `Moonglow::live_service` remains the local embedding/test injection point;
-//! GUI code uses this view so choosing a server never duplicates a widget path.
+//! Moonglow reaches a game server only through a gateway: `GatewayRuntime` owns the link and
+//! `Moonglow::live` holds the mirror it fills. A store attached without a gateway (embedding
+//! and tests) is read and commanded directly. GUI code uses this view so no widget has its own
+//! path to the server.
 use crate::Moonglow;
 use mg_live::store::{Command, CommandError, LiveStore};
 use mg_live_link::{LinkService, LinkStatus, PendingCall};
 use serde_json::{Value, json};
 use std::sync::{Arc, mpsc};
 
-pub(crate) const SHARED_REASON: &str =
-    "The local global LLM switch does not apply to gateway connections.";
-
 pub(crate) struct GatewayRuntime {
     pub pending: Option<mpsc::Receiver<Result<LinkService, String>>>,
     pub link: Option<LinkService>,
     pub error: Option<String>,
-    pub config: mg_live::LiveConfig,
     pub server_id: String,
     watches: Option<Vec<String>>,
     focus: Option<Vec<(String, String)>>,
@@ -32,11 +30,6 @@ impl GatewayRuntime {
             link: None,
             error: None,
             server_id,
-            config: mg_live::LiveConfig {
-                enabled: true,
-                allow_agents: false,
-                ..Default::default()
-            },
             watches: None,
             focus: None,
             connection: 0,
@@ -78,8 +71,10 @@ impl<'a> LiveBackend<'a> {
             self.app.module_path()
         }
     }
+    /// Connected to a gateway, or (embedding and tests) driving a store attached directly.
     pub fn active(&self) -> bool {
-        self.app.live_gateway.is_some() || self.app.live_service.is_some()
+        self.app.live_gateway.is_some()
+            || (self.app.live.is_some() && self.app.settings.live.enabled)
     }
     pub(crate) fn server_id(&self) -> Option<&str> {
         self.app.live_gateway.as_ref().map(|r| r.server_id.as_str())
@@ -87,29 +82,16 @@ impl<'a> LiveBackend<'a> {
     pub fn is_gateway(&self) -> bool {
         self.app.live_gateway.is_some() || self.app.live.as_ref().is_some_and(|s| s.is_mirror())
     }
-    pub fn config(&self) -> &'a mg_live::LiveConfig {
-        if let Some(gateway) = &self.app.live_gateway {
-            &gateway.config
-        } else {
-            self.app.live_service.as_ref().map_or(&self.app.settings.live, |s| s.config())
-        }
-    }
     pub(crate) fn link(&self) -> Option<&LinkService> {
         self.app.live_gateway.as_ref()?.link.as_ref()
     }
     pub fn store(&self) -> Option<Arc<LiveStore>> {
         self.app.live.clone()
     }
-    pub fn shared_reason(&self) -> Option<&'static str> {
-        self.is_gateway().then_some(SHARED_REASON)
-    }
-    pub fn allow_agents(&self) -> bool {
-        !self.is_gateway() && self.config().allow_agents
-    }
     pub(crate) fn panel_fraction(&self) -> f32 {
-        // Gateway Focus also contains actor chips; leave its two columns and
-        // composer usable in the default dock. Keep the local layout unchanged.
-        if self.is_gateway() { 0.4 } else { 0.62 }
+        // Focus also contains actor chips; leave its two columns and composer usable in the
+        // default dock.
+        0.4
     }
     pub fn connection_status(&self) -> Value {
         if let Some(gateway) = &self.app.live_gateway {
@@ -119,13 +101,8 @@ impl<'a> LiveBackend<'a> {
                 status["state"] = json!(status["state"].as_str().unwrap_or("connecting").to_ascii_lowercase());
                 status
             })
-        } else if self.is_gateway() {
-            json!({"connected":false,"state":"stopped","error":null})
         } else {
-            self.app
-                .live_service
-                .as_ref()
-                .map_or(Value::Null, mg_live::LiveService::connection_status)
+            json!({"connected":false,"state":"stopped","error":null})
         }
     }
     pub fn enqueue(&self, command: Command) -> Result<String, CommandError> {
@@ -136,16 +113,6 @@ impl<'a> LiveBackend<'a> {
         } else {
             self.app.live.as_ref().ok_or("Live is unavailable")?.enqueue(command, mg_live::now_ms())
         }
-    }
-    pub(crate) fn agents_revision(&self) -> u64 {
-        self.link().map_or_else(
-            || self.app.live_service.as_ref().map_or(0, |s| s.agents_revision()),
-            |s| s.agents_revision(),
-        )
-    }
-    pub(crate) fn agents(&self, now: u64) -> Vec<mg_live::AgentPresence> {
-        // Gateway focus presence has its own actor identities, not local HTTP activity.
-        self.app.live_service.as_ref().map_or_else(Vec::new, |s| s.agents(now))
     }
     pub(crate) fn presence(&self, id: &str) -> Vec<FocusActor> {
         let Some(link) = self.link() else { return Vec::new() };
@@ -316,16 +283,6 @@ pub(crate) fn watch(app: &mut Moonglow, areas: &[String]) -> Result<(), String> 
     }
 }
 
-pub(crate) fn set_allowed(app: &mut Moonglow, allowed: bool) -> Result<(), String> {
-    if app.live_backend().is_gateway() {
-        return Err(SHARED_REASON.into());
-    }
-    if let Some(service) = &mut app.live_service {
-        service.set_allow_agents(allowed)?;
-    }
-    Ok(())
-}
-
 pub(crate) fn chips(app: &Moonglow, ui: &mut egui::Ui, id: &str) {
     for actor in app.live_backend().presence(id) {
         egui::Frame::new()
@@ -412,81 +369,34 @@ pub(crate) fn menu_status(app: &mut Moonglow, ui: &mut egui::Ui) {
 }
 
 impl Moonglow {
-    /// Apply saved Live options, with explicit environment overrides, on the UI thread.
+    /// Apply the saved Live options, with the environment gateway override, on the UI thread.
     pub fn apply_live(&mut self, ctx: &egui::Context) {
         self.live_needs_apply = false;
-        self.live_agents = Default::default();
         self.live_error = None;
         let was_running = self.live_backend().active();
-        self.live_service.take();
         self.live_gateway.take();
-        if let Some(resolved) =
-            self.settings.live_servers.resolve().filter(|r| r.server.id != "local-dev")
-        {
-            if self.settings.live.enabled
-                || (self.live.is_none() && resolved.server.id == "environment")
-            {
-                let server_id = resolved.server.id.clone();
-                let receiver = crate::options::start_gateway(ctx, resolved);
-                self.live = Some(Arc::new(LiveStore::new_mirror()));
-                self.live_gateway = Some(GatewayRuntime::starting(server_id, receiver));
+        let Some(resolved) = self.settings.live_servers.resolve() else {
+            if self.live.as_ref().is_some_and(|s| s.is_mirror()) {
+                self.live = None;
+            }
+            if self.settings.live.enabled {
+                self.live_error = Some("Choose a gateway server in Options › Live first.".into());
+            } else if was_running {
+                self.log.info("Live: stopped");
             }
             return;
-        }
-        if self.live.as_ref().is_some_and(|s| s.is_mirror()) {
-            self.live = None;
-        }
-        let mut start = || -> Result<Option<mg_live::LiveService>, String> {
-            let mut config = self.settings.live.clone().from_env()?;
-            // The environment turns Live on when Moonglow starts (no store yet); after
-            // that Live › Stop Live and Options decide.
-            config.enabled &= self.settings.live.enabled || self.live.is_none();
-            if !config.enabled {
-                return Ok(None);
-            }
-            crate::settings::restore_live_clients(&mut config).map_err(|e| e.to_string())?;
-            let store = self.live.get_or_insert_with(Default::default).clone();
-            let ctx = ctx.clone();
-            let mut service = mg_live::LiveService::start(
-                config,
-                store,
-                std::sync::Arc::new(move || crate::live_repaint::wake(&ctx)),
-            )?;
-            if let Some(data_dir) = self.recovery_dir.as_deref().and_then(std::path::Path::parent) {
-                service.publish_descriptor(data_dir)?;
-            }
-            Ok(Some(service))
         };
-        match start() {
-            Ok(Some(service)) => {
-                let config = service.config();
-                // Save a newly generated credential, but never persist an env override.
-                if self.settings.live.token.is_empty()
-                    && std::env::var_os("MOONGLOW_LIVE_TOKEN").is_none()
-                {
-                    self.settings.live.token = config.token.clone();
-                    if let Some(draft) = &mut self.options {
-                        draft.live.token = config.token.clone();
-                    }
-                }
-                self.log.info(format!(
-                    "Live: API on {}, Redis {}:{} ({})",
-                    service.status()["api"].as_str().unwrap_or_default(),
-                    config.redis_host,
-                    config.redis_port,
-                    config.prefix,
-                ));
-                self.live_service = Some(service);
-            }
-            Ok(None) => {
-                if was_running {
-                    self.log.info("Live: stopped");
-                }
-            }
-            Err(error) => {
-                self.log.error(format!("Live: {error}"));
-                self.live_error = Some(error);
-            }
+        // The environment starts Live when Moonglow starts (no store yet); after that
+        // Live › Disconnect from Gateway and Options decide.
+        if self.settings.live.enabled
+            || (self.live.is_none() && resolved.server.id == "environment")
+        {
+            let server_id = resolved.server.id.clone();
+            let receiver = crate::options::start_gateway(ctx, resolved);
+            self.live = Some(Arc::new(LiveStore::new_mirror()));
+            self.live_gateway = Some(GatewayRuntime::starting(server_id, receiver));
+        } else if was_running {
+            self.log.info("Live: stopped");
         }
     }
 }
@@ -522,29 +432,23 @@ mod tests {
     }
 
     #[test]
-    fn gateway_consent_is_off_and_sign_out_keeps_only_the_passive_snapshot() {
+    fn sign_out_keeps_only_the_passive_snapshot() {
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         let id = app.settings.live_servers.add();
         app.settings.live.enabled = true;
-        app.settings.live.allow_agents = true; // A previous local service's consent.
-        assert!(app.live_backend().allow_agents());
-        assert_eq!(app.live_backend().panel_fraction(), 0.62);
         let (_tx, rx) = mpsc::channel();
         app.live_gateway = Some(GatewayRuntime::starting(id.clone(), rx));
         let store = Arc::new(LiveStore::new_mirror());
         app.live = Some(store.clone());
         let identity = app.live_backend().context();
-        assert!(!app.live_backend().allow_agents());
         assert_eq!(app.live_backend().panel_fraction(), 0.4);
         assert_eq!(app.live_backend().connection_status()["state"], "connecting");
         let ctx = egui::Context::default();
         ctx.data_mut(|d| d.insert_temp(egui::Id::new("live-signed-out"), id));
         update(&mut app, &ctx);
         assert!(!app.live_backend().active());
-        assert!(!app.live_backend().allow_agents());
         assert_eq!(app.live_backend().connection_status()["state"], "stopped");
         assert_eq!(app.live_backend().context(), identity);
-        assert_eq!(app.live_backend().shared_reason(), Some(SHARED_REASON));
         assert!(Arc::ptr_eq(app.live.as_ref().unwrap(), &store));
     }
 

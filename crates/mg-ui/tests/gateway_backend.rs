@@ -18,7 +18,6 @@ async fn gateway_gui_mirror_command_presence_reconnect_and_unknown() {
         .with_size(egui::vec2(1200., 850.))
         .build_ui_state(support::draw(), support::app(&host, data.path()));
     connected(&mut h).await;
-    assert!(h.state().live_service.is_none(), "gateway never starts the local listener");
     assert!(h.state().live.as_ref().unwrap().is_mirror());
     let mut mirror = h.state().live.as_ref().unwrap().area("square").unwrap();
     let mut authoritative = host.store.area("square").unwrap();

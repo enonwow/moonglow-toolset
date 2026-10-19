@@ -54,16 +54,21 @@ fn live_servers_add_select_remove_and_apply() {
         },
         OptionsDraft::from_settings(&mg_ui::Settings::default()),
     );
+    assert!(h.state().live_servers.selected().is_none(), "a fresh profile has no server");
+    h.get_by_label("Add server").click();
+    h.run_steps(2);
     pump(&mut h, "Disconnected");
+    let first = h.state().live_servers.selected().unwrap().id.clone();
+    h.state_mut().live_servers.servers[0].name = "Campaign".into();
     h.get_by_label("Add server").click();
     h.run_steps(2);
     pump(&mut h, "Disconnected");
     assert_eq!(h.state().live_servers.servers.len(), 2);
     assert_eq!(h.state().live_servers.selected().unwrap().name, "New server");
-    h.get_by_label("Local (dev)").click();
+    h.get_by_label("Campaign").click();
     h.run_steps(2);
     pump(&mut h, "Disconnected");
-    assert_eq!(h.state().live_servers.selected().unwrap().id, "local-dev");
+    assert_eq!(h.state().live_servers.selected().unwrap().id, first);
     h.get_by_label("New server").click();
     h.run_steps(2);
     pump(&mut h, "Disconnected");
@@ -76,7 +81,7 @@ fn live_servers_add_select_remove_and_apply() {
     }
     assert_eq!(
         h.state().apply(&mg_ui::Settings::default()).live_servers.selected().unwrap().id,
-        "local-dev"
+        first
     );
 }
 
@@ -86,6 +91,7 @@ fn sign_in_opens_browser_redeems_fake_gateway_and_sign_out_erases_session() {
     let memory = Arc::new(Memory::default());
     let directory = tempfile::tempdir().unwrap();
     let mut draft = OptionsDraft::from_settings(&mg_ui::Settings::default());
+    let id = draft.live_servers.add();
     draft.live_servers.servers[0].url = fake.url.clone();
     draft.live_servers.servers[0].cert_pin = Some(fake.pin.clone());
     let mut h = Harness::builder().with_size(egui::vec2(850., 500.)).build_ui_state(
@@ -116,7 +122,7 @@ fn sign_in_opens_browser_redeems_fake_gateway_and_sign_out_erases_session() {
     assert!(url.starts_with(&fake.url));
     gateway::callback(&url, false);
     pump(&mut h, "Session saved on this device");
-    assert_eq!(memory.get("local-dev").unwrap().unwrap().expose(), "fixture-session");
+    assert_eq!(memory.get(&id).unwrap().unwrap().expose(), "fixture-session");
     assert!(
         !serde_json::to_string(&h.state().apply(&mg_ui::Settings::default()))
             .unwrap()
@@ -124,7 +130,7 @@ fn sign_in_opens_browser_redeems_fake_gateway_and_sign_out_erases_session() {
     );
     h.get_by_label("Sign out").click();
     pump(&mut h, "Not signed in");
-    assert!(memory.get("local-dev").unwrap().is_none());
+    assert!(memory.get(&id).unwrap().is_none());
     assert_eq!(
         fake.request.recv_timeout(Duration::from_secs(1)).unwrap()["grant"],
         "fixture-grant"

@@ -13,10 +13,10 @@ pub(crate) struct Selection {
     pub objects: Vec<(ObjectKind, LiveObject)>,
 }
 
-/// The running service has already applied environment overrides (demo launcher).
-/// Saved options can remain disabled for an enabled runtime service.
+/// A gateway connection is up (it may come from the environment, whatever the saved options
+/// say), or the saved options ask for Live.
 pub(crate) fn enabled(app: &Moonglow) -> bool {
-    app.live_backend().config().enabled
+    app.live_backend().active() || app.settings.live.enabled
 }
 
 pub(crate) fn selection(app: &Moonglow) -> Result<Selection, String> {

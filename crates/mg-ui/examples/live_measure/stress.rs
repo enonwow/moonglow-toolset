@@ -453,7 +453,6 @@ pub(super) fn run() -> eframe::Result<()> {
             app.recovery_dir = None;
             app.compiled_dir = None;
             app.open_palette = false;
-            app.live_assistant.data_dir = Some(data.clone());
             app.live_focus.data_dir = Some(data.clone());
             app.live_scene.data_dir = Some(data.clone());
             app.set_render_state(cc.wgpu_render_state.clone().unwrap());

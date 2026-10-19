@@ -321,7 +321,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     crate::live_backend::status_ui(app, ui);
     ui.separator();
     let Some(store) = app.live.clone() else {
-        ui.label("Live mode is off: Live › Start Live.");
+        ui.label("Not connected: Live › Connect to Gateway.");
         return;
     };
     let shown_area = shown_area(app).map(|a| a.to_string());

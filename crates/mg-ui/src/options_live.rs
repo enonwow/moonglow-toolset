@@ -67,7 +67,7 @@ impl OptionsDraft {
         ctx.data_mut(|d| d.insert_temp(environment_id(), Environment { backend, data_dir }));
     }
 
-    /// Draw the gateway connection panel independently of the legacy local controls.
+    /// Draw the gateway connection panel.
     pub fn live_servers_ui(&mut self, ui: &mut egui::Ui) {
         self.live_servers_ui_status(ui, None);
     }
@@ -161,7 +161,8 @@ impl OptionsDraft {
                     });
                 });
             });
-            ui.separator();
+            // (A separator here would run down the whole page and push what follows off it.)
+            ui.add_space(14.);
             ui.vertical(|ui| {
                 let Some(server) = self.live_servers.servers.iter_mut().find(|s| s.selected) else {
                     ui.weak("Add a server to configure Live."); return;

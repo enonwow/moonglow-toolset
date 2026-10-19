@@ -57,7 +57,7 @@ fn selected(app: &Moonglow) -> Option<(String, String)> {
 
 /// Cheap composer prerequisites; the queue still validates each command.
 fn recipient_error(app: &Moonglow, to: To, area: Option<&str>) -> Option<&'static str> {
-    let Some(store) = &app.live else { return Some("Start Live to send messages.") };
+    let Some(store) = &app.live else { return Some("Connect to a gateway to send messages.") };
     if to != To::Npc && !store.policy().players {
         return Some("Enable player operations in Options > Live to message players.");
     }
@@ -94,7 +94,7 @@ fn orders(
     if let Some(reason) = recipient_error(app, to, scope) {
         return Err(reason.into());
     }
-    let store = app.live.as_ref().ok_or("Live mode is off: Live › Start Live.")?;
+    let store = app.live.as_ref().ok_or("Not connected: Live › Connect to Gateway.")?;
     let command = |area: String, op| Command { id: String::new(), area, op };
     let text = text.trim().to_string();
     if text.is_empty() {
@@ -179,7 +179,7 @@ fn body(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut LiveChat, pinned: Opt
     ui.heading("Live Chat");
     ui.separator();
     let Some(store) = app.live.clone() else {
-        ui.label("Live mode is off: Live › Start Live.");
+        ui.label("Not connected: Live › Connect to Gateway.");
         return;
     };
     ui.horizontal(|ui| {
