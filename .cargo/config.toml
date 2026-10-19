@@ -3,3 +3,9 @@
 # Redistributable installed.
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# shortcut: rustc overflows its default stack optimising mg-live (release, STATUS_STACK_BUFFER_OVERRUN
+# on Windows since the gateway delivery work); a larger compiler stack fixes it. Upgrade: find
+# and split the function that needs it, then drop this.
+[env]
+RUST_MIN_STACK = "67108864"
