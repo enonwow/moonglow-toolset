@@ -293,6 +293,16 @@ pub struct CommandResult {
 }
 
 impl CommandResult {
+    /// Unknown wins over pending: the outcome can no longer be learned in order.
+    pub(crate) fn state(&self) -> mirror::ResultState {
+        if self.code == Some(ErrorCode::Unknown) {
+            mirror::ResultState::Unknown
+        } else if self.pending {
+            mirror::ResultState::Pending
+        } else {
+            mirror::ResultState::Final
+        }
+    }
     /// Event-only normalization: an empty native object is absent, so the action
     /// log can fall back to the command target. Keep the API result unchanged.
     fn event_value(&self) -> Value {
@@ -3450,10 +3460,7 @@ fn receive_results(
             let boot = crate::command_history::boot_key(&s.boot);
             if let Some(entry) = s.history.get(&boot, &r.id)
                 && entry.fingerprint.is_some()
-                && entry
-                    .outcome
-                    .as_ref()
-                    .is_none_or(|r| r.pending || r.code == Some(ErrorCode::Unknown))
+                && entry.outcome.as_ref().is_none_or(|r| r.state() != mirror::ResultState::Final)
             {
                 let mut r = r;
                 r.by = (entry.owner != "local").then(|| entry.owner.clone());

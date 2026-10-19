@@ -139,6 +139,7 @@ impl Journal {
         }
         self.history.advance(now);
         if self.file.is_none() {
+            self.refuse_old_journals()?;
             self.checkpoint()?;
         }
         if self.boot != boot {
@@ -148,6 +149,24 @@ impl Journal {
             self.boot = boot.into();
         }
         self.history.removed.clear();
+        Ok(())
+    }
+    /// Per-boot journals from before the single journal are not replayed; starting over them
+    /// would forget their reservations, so the operator removes them first.
+    fn refuse_old_journals(&self) -> Result<(), String> {
+        for f in fs::read_dir(&self.root).map_err(|e| e.to_string())? {
+            let path = f.map_err(|e| e.to_string())?.path();
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+            if path.extension().is_some_and(|e| e == "jsonl")
+                && stem.len() == 64
+                && stem.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err(format!(
+                    "Unsupported old command journal {}; remove it",
+                    path.display()
+                ));
+            }
+        }
         Ok(())
     }
     fn checkpoint(&mut self) -> Result<(), String> {
@@ -416,9 +435,20 @@ mod tests {
     }
 
     #[test]
-    fn truncated_journal_fails_closed() {
+    fn truncated_or_old_journal_fails_closed() {
         let dir = folder();
         fs::create_dir(&dir).unwrap();
+        let old = dir.join(format!("{}.jsonl", boot_key("boot")));
+        fs::write(
+            &old,
+            b"\"old\"
+",
+        )
+        .unwrap();
+        let mut j = Journal::new(dir.clone()).unwrap();
+        assert!(j.select_boot_at("boot", 1000).unwrap_err().contains("old command journal"));
+        drop(j);
+        fs::remove_file(old).unwrap();
         let mut j = Journal::new(dir.clone()).unwrap();
         j.select_boot_at("boot", 1000).unwrap();
         j.reserve("kept").unwrap();
