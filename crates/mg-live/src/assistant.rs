@@ -54,6 +54,19 @@ pub(super) struct AssistantState {
     access: Option<Arc<Access>>,
 }
 
+impl AssistantState {
+    pub(super) fn draft_revision(&self) -> u64 {
+        self.revision
+    }
+    pub(super) fn sorted_drafts(&self) -> Vec<Draft> {
+        let mut out: Vec<_> = self.drafts.values().cloned().collect();
+        out.sort_by(|a, b| {
+            a.created_ms.cmp(&b.created_ms).then_with(|| a.command.id.cmp(&b.command.id))
+        });
+        out
+    }
+}
+
 #[cfg(feature = "measure")]
 impl AssistantState {
     pub(super) fn measure_census(&self) -> serde_json::Value {
@@ -220,14 +233,10 @@ impl LiveStore {
         pending(&s, id)
     }
     pub fn draft_revision(&self) -> u64 {
-        self.lock().assistant.revision
+        self.lock().assistant.draft_revision()
     }
     pub fn drafts(&self) -> Vec<Draft> {
-        let mut out: Vec<_> = self.lock().assistant.drafts.values().cloned().collect();
-        out.sort_by(|a, b| {
-            a.created_ms.cmp(&b.created_ms).then_with(|| a.command.id.cmp(&b.command.id))
-        });
-        out
+        self.lock().assistant.sorted_drafts()
     }
     /// Trusted local UI only. No HTTP operation exposes this decision method.
     /// None rejects; Some(text) sends, including edits. Approval revalidates current

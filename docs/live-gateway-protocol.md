@@ -125,6 +125,16 @@ S→C {"t":"bye","code":"<code>","msg":"<text>"} before the gateway closes
   (§7). It MAY send every reported area to admins.
 - Coalescing: per session and area the gateway keeps only the newest pending
   `area` push; at most 4 pushes per area per second.
+- `meta` is pushed when one of its fields changes. `game.age_ms` changes every
+  millisecond, so it counts only once it has moved by a second since the `meta`
+  the session last received (a gateway that compared it exactly sent every
+  session a `meta` frame on each 50 ms poll). A client that shows the age of
+  the game's last report therefore sees it update at least once a second while
+  reports are late, and at each report otherwise.
+- `area.live` is the same text for every session watching the same `rev` (the
+  gateway serializes an area once per revision and shares it); frames of two
+  sessions differ only in `age_ms`. The bytes are those a per-session encoding
+  would produce.
 
 ## 6. Commands and results
 

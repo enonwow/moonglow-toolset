@@ -68,7 +68,7 @@ regex-lite = "0.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 # (A font's metrics for the NUI preview. epaint reads fonts with it too:
 # the version follows egui's.)
 skrifa = "0.44"

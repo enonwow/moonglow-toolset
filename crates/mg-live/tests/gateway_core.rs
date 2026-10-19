@@ -156,3 +156,43 @@ fn shorter_ttl_and_watch_union_are_enforced() {
         g.watch_set("s4", &(0..16).map(|j| format!("a4_{j}")).collect::<Vec<_>>(), 1000).unwrap();
     assert_eq!(response.waiting.len(), 16);
 }
+
+#[test]
+fn sessions_share_one_serialized_copy_of_an_area() {
+    use mg_live::gateway_frames::{ServerFrame, encode_server};
+    let (_s, g) = setup();
+    g.connect(config("two", &["read"]), None, &["square".into()], 1000).unwrap();
+    let area = |id: &str| {
+        g.pushes(id, 1000).unwrap().into_iter().find_map(|p| match p {
+            Push::Area(a) => Some(a),
+            _ => None,
+        })
+    };
+    let (a, b) = (area("one").unwrap(), area("two").unwrap());
+    assert!(std::ptr::eq(&*a.live, &*b.live), "one deep copy per revision");
+    for frame in [ServerFrame::Push(Push::Area(a)), ServerFrame::Push(Push::Area(b))] {
+        let text = encode_server(&frame).unwrap();
+        assert_eq!(text, serde_json::to_string(&frame).unwrap());
+        assert!(!text.contains("received_ms"));
+        // received_ms is local to each process and never on the wire.
+        let back = serde_json::from_str::<ServerFrame>(&text).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
+    }
+}
+#[test]
+fn meta_is_pushed_for_state_changes_not_for_the_ageing_of_the_last_report() {
+    let (s, g) = setup();
+    let metas =
+        |now| g.pushes("one", now).unwrap().iter().filter(|p| matches!(p, Push::Meta(_))).count();
+    assert_eq!(metas(1000), 1);
+    // The pump polls every 50 ms; the report age moves by that much each time.
+    for now in (1050..2000).step_by(50) {
+        assert_eq!(metas(now), 0, "age alone at {now}");
+    }
+    assert_eq!(metas(2100), 1, "a second without a report is news");
+    report(&s, 3, json!([]), json!([]));
+    assert_eq!(metas(3000), 1, "a report changes the game status");
+    s.set_policy(mg_live::store::Policy { chunks: true, ..Default::default() });
+    assert_eq!(metas(3050), 1, "so does the policy");
+    assert_eq!(metas(3100), 0);
+}

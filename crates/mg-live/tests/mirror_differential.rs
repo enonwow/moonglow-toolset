@@ -276,6 +276,8 @@ fn meta_revision_is_shared_and_acked_results_are_not_recreated_by_retries() {
     second.id = "two".into();
     second.id_prefix = "two.".into();
     pair.gateway.connect(second, None, &[], pair.now).unwrap();
+    // A second without a report is a meta change for every session, which then share its revision.
+    pair.now += 2000;
     let first = pair.gateway.pushes("one", pair.now + 1).unwrap();
     let second = pair.gateway.pushes("two", pair.now + 1).unwrap();
     let rev = |pushes: Vec<Push>| {

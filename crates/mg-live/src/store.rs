@@ -1086,6 +1086,21 @@ pub struct Command {
     pub op: Op,
 }
 
+/// `haystack.to_lowercase().contains(needle)` for a lowercase needle, without allocating when
+/// both are ASCII (a find walks every object of every area under the store lock).
+fn contains_lowercase(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if haystack.is_ascii() && needle.is_ascii() {
+        return haystack
+            .as_bytes()
+            .windows(needle.len())
+            .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()));
+    }
+    haystack.to_lowercase().contains(needle)
+}
+
 fn short(what: &str, s: &str, max: usize) -> Result<(), String> {
     if s.chars().count() > max {
         Err(format!("{what} is longer than {max} characters"))
@@ -2214,7 +2229,7 @@ impl LiveStore {
             ];
             for (kind, list) in lists {
                 for o in list.iter().filter(|o| {
-                    [&o.name, &o.tag, &o.resref].iter().any(|t| t.to_lowercase().contains(&needle))
+                    [&o.name, &o.tag, &o.resref].iter().any(|t| contains_lowercase(t, &needle))
                 }) {
                     if out.len() >= limit {
                         return out;
@@ -3689,6 +3704,27 @@ mod ops_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_matches_like_to_lowercase_contains() {
+        for (haystack, needle) in [
+            ("Guard Captain", "guard"),
+            ("Guard Captain", "tain"),
+            ("Guard", "guards"),
+            ("", "a"),
+            ("anything", ""),
+            ("\u{17b}aneta the Guard", "\u{17c}aneta"),
+            ("Stra\u{17c}nik", "stra"),
+            ("STRA\u{17b}NIK", "stra\u{17c}"),
+            ("ascii", "\u{17c}"),
+        ] {
+            assert_eq!(
+                contains_lowercase(haystack, needle),
+                haystack.to_lowercase().contains(needle),
+                "{haystack:?} {needle:?}"
+            );
+        }
+    }
 
     #[test]
     fn slow_command_reservation_releases_store_lock_and_revalidates_policy() {

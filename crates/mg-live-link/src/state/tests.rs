@@ -42,7 +42,7 @@ fn all_push_topics_update_store_or_auxiliary_snapshot_and_ack() {
         area: "square".into(),
         rev: 7,
         age_ms: 10,
-        live: source.area("square").unwrap(),
+        live: source.area("square").unwrap().into(),
     });
     replica.push(&store, push.clone(), 100).unwrap();
     assert_eq!(store.area("square"), source.area("square"));

@@ -41,7 +41,7 @@ impl Queue {
             ServerFrame::Push(Push::Area(a)) => Some((a.boot.clone(), a.area.clone())),
             _ => None,
         };
-        let text = serde_json::to_string(&frame).map_err(|_| "invalid")?;
+        let text = frames::encode_server(&frame).map_err(|_| "invalid")?;
         if text.len() > frames::SERVER_FRAME_LIMIT {
             return Err("too_large");
         }
@@ -232,10 +232,20 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
         Ok::<(), String>(())
     };
     let pump = async {
-        let mut tick = tokio::time::interval(Duration::from_millis(50));
+        // The bridge wakes the pump when game data arrives; the poll covers deadlines (the
+        // per-area rate limit, result retention, the age of the game's last report).
+        let mut wake = app.core.subscribe();
+        let mut tick = tokio::time::interval(Duration::from_millis(100));
         let mut ping = Instant::now();
         loop {
-            tick.tick().await;
+            tokio::select! {
+                _ = tick.tick() => {}
+                _ = wake.changed() => {
+                    // Let a burst of wakes (a report, then its events) become one delivery.
+                    tokio::time::sleep(Duration::from_millis(3)).await;
+                    wake.borrow_and_update();
+                }
+            }
             if app.core.is_shutdown() {
                 return Err("shutdown".into());
             }
@@ -341,7 +351,7 @@ mod tests {
                 area: "a".into(),
                 rev,
                 age_ms: 0,
-                live: live.clone(),
+                live: live.clone().into(),
             })))
             .unwrap();
         }

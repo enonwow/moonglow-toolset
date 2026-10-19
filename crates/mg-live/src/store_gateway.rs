@@ -34,29 +34,57 @@ pub struct Area {
     pub area: String,
     pub rev: u64,
     pub age_ms: u64,
-    #[serde(with = "area_wire")]
-    pub live: AreaLive,
+    pub live: SharedLive,
 }
-// received_ms is local to each process; full_ms remains the authoritative baseline identity.
-mod area_wire {
-    use super::*;
-    pub(super) fn serialize<S: serde::Serializer>(
-        live: &AreaLive,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        let mut value = serde_json::to_value(live).map_err(serde::ser::Error::custom)?;
-        value.as_object_mut().expect("AreaLive object").remove("received_ms");
-        value.serialize(serializer)
+/// An area's state as sessions receive it. Every session watching the same revision shares one
+/// copy, serialized once (`received_ms` is local to each process, so it is not on the wire;
+/// `full_ms` remains the authoritative baseline identity).
+#[derive(Debug, Clone)]
+pub struct SharedLive(Arc<LiveBody>);
+#[derive(Debug)]
+struct LiveBody {
+    live: AreaLive,
+    wire: std::sync::OnceLock<Box<serde_json::value::RawValue>>,
+}
+impl From<AreaLive> for SharedLive {
+    fn from(live: AreaLive) -> Self {
+        Self(Arc::new(LiveBody { live, wire: std::sync::OnceLock::new() }))
     }
-    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<AreaLive, D::Error> {
+}
+impl std::ops::Deref for SharedLive {
+    type Target = AreaLive;
+    fn deref(&self) -> &AreaLive {
+        &self.0.live
+    }
+}
+impl PartialEq for SharedLive {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0.live == other.0.live
+    }
+}
+impl SharedLive {
+    /// The wire JSON, built on first use by whichever session needs it first.
+    pub fn wire(&self) -> &serde_json::value::RawValue {
+        self.0.wire.get_or_init(|| {
+            let mut value = serde_json::to_value(&self.0.live).expect("AreaLive serializes");
+            value.as_object_mut().expect("AreaLive object").remove("received_ms");
+            serde_json::value::to_raw_value(&value).expect("area value serializes")
+        })
+    }
+}
+impl Serialize for SharedLive {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.wire().serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for SharedLive {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let mut value = Value::deserialize(deserializer)?;
         value
             .as_object_mut()
             .ok_or_else(|| serde::de::Error::custom("Expected area object"))?
             .insert("received_ms".into(), json!(0));
-        serde_json::from_value(value).map_err(serde::de::Error::custom)
+        serde_json::from_value::<AreaLive>(value).map(Self::from).map_err(serde::de::Error::custom)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -95,7 +123,7 @@ impl Push {
                 if mirror.boot() != a.boot {
                     return Err("Area boot differs from mirror".into());
                 }
-                mirror.mirror_area(&a.area, a.live.clone(), now_ms.saturating_sub(a.age_ms))?;
+                mirror.mirror_area(&a.area, (*a.live).clone(), now_ms.saturating_sub(a.age_ms))?;
             }
             Self::AreaGone { boot, area } => {
                 if mirror.boot() != *boot {
@@ -211,8 +239,16 @@ pub(super) struct GatewayState {
     generation: u64,
     reservation: u64,
     pub area_revs: BTreeMap<String, u64>,
+    /// Per area, for its current revision: the shared copy sent to sessions and whether a PC is in it.
+    area_cache: HashMap<String, AreaCache>,
     meta: Option<Meta>,
     sessions: BTreeMap<String, Session>,
+}
+#[derive(Debug)]
+struct AreaCache {
+    rev: u64,
+    has_pc: bool,
+    shared: Option<SharedLive>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WatchStamp {
@@ -980,8 +1016,6 @@ impl Gateway {
         Ok(())
     }
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
-        let draft_rev = self.store.draft_revision();
-        let drafts = self.store.drafts();
         let redis = self.store.redis_status().unwrap_or(Value::Null);
         let mut s = self.store.lock();
         let current = s.gateway.sessions.get(id).ok_or("revoked")?;
@@ -989,7 +1023,10 @@ impl Gateway {
             return Err("overloaded".into());
         }
         validate_ai_scope(&s, &current.config.scope()).map_err(|_| "revoked")?;
-        let presence = presence(&s.gateway);
+        // Presence lists every online session, this one included: build it before removing it.
+        let presence = (current.config.has("read")
+            && current.presence_sent != s.gateway.presence_rev)
+            .then(|| presence(&s.gateway));
         let mut session = s.gateway.sessions.remove(id).ok_or("Unknown session")?;
         session.prune_completed(Some(now_ms));
         let mut out = Vec::new();
@@ -1015,51 +1052,72 @@ impl Gateway {
             },
             redis,
         };
-        if s.gateway.meta.as_ref() != Some(&meta) {
+        if !s.gateway.meta.as_ref().is_some_and(|old| same_meta(old, &meta)) {
             meta.rev += 1;
             s.gateway.meta = Some(meta.clone());
         }
-        if session.meta.as_ref() != Some(&meta) {
+        if !session.meta.as_ref().is_some_and(|old| same_meta(old, &meta)) {
             session.meta = Some(meta.clone());
             out.push(Push::Meta(meta));
         }
-        let visible: BTreeSet<_> = s
-            .areas
-            .iter()
-            .filter(|(area, live)| {
-                session.config.has("read")
-                    && (session.watch.contains(*area)
-                        || live.creatures.iter().any(|o| o.pc)
-                        || session.focus.iter().any(|(_, id)| live.find(id).is_some()))
-            })
-            .map(|(a, _)| a.clone())
-            .collect();
-        for gone in
-            session.areas.keys().filter(|a| !visible.contains(*a)).cloned().collect::<Vec<_>>()
+        let boot = s.boot.clone();
         {
-            session.areas.remove(&gone);
-            out.push(Push::AreaGone { boot: s.boot.clone(), area: gone });
-        }
-        for area in visible {
-            let rev = s.gateway.area_revs.get(&area).copied().unwrap_or(0);
-            if session.areas.get(&area) == Some(&rev)
-                || session
-                    .area_sent
-                    .get(&area)
-                    .is_some_and(|last| now_ms.saturating_sub(*last) < 250)
-            {
-                continue;
+            let State { areas, gateway, .. } = &mut *s;
+            for (name, live) in areas.iter() {
+                let rev = gateway.area_revs.get(name).copied().unwrap_or(0);
+                if gateway.area_cache.get(name).is_none_or(|c| c.rev != rev) {
+                    let has_pc = live.creatures.iter().any(|o| o.pc);
+                    gateway
+                        .area_cache
+                        .insert(name.clone(), AreaCache { rev, has_pc, shared: None });
+                }
             }
-            let live = s.areas[&area].clone();
-            out.push(Push::Area(Area {
-                boot: s.boot.clone(),
-                area: area.clone(),
-                rev,
-                age_ms: now_ms.saturating_sub(live.received_ms),
-                live,
-            }));
-            session.areas.insert(area.clone(), rev);
-            session.area_sent.insert(area, now_ms);
+            gateway.area_cache.retain(|name, _| areas.contains_key(name));
+            let visible: BTreeSet<_> = areas
+                .iter()
+                .filter(|(area, live)| {
+                    session.config.has("read")
+                        && (session.watch.contains(*area)
+                            || gateway.area_cache[*area].has_pc
+                            || session.focus.iter().any(|(_, id)| live.find(id).is_some()))
+                })
+                .map(|(a, _)| a.clone())
+                .collect();
+            for gone in
+                session.areas.keys().filter(|a| !visible.contains(*a)).cloned().collect::<Vec<_>>()
+            {
+                session.areas.remove(&gone);
+                out.push(Push::AreaGone { boot: boot.clone(), area: gone });
+            }
+            for area in visible {
+                let rev = gateway.area_revs.get(&area).copied().unwrap_or(0);
+                if session.areas.get(&area) == Some(&rev)
+                    || session
+                        .area_sent
+                        .get(&area)
+                        .is_some_and(|last| now_ms.saturating_sub(*last) < 250)
+                {
+                    continue;
+                }
+                let live = &areas[&area];
+                // One deep copy per revision, shared by every session that watches the area.
+                let shared = gateway
+                    .area_cache
+                    .get_mut(&area)
+                    .expect("cached above")
+                    .shared
+                    .get_or_insert_with(|| live.clone().into())
+                    .clone();
+                out.push(Push::Area(Area {
+                    boot: boot.clone(),
+                    area: area.clone(),
+                    rev,
+                    age_ms: now_ms.saturating_sub(live.received_ms),
+                    live: shared,
+                }));
+                session.areas.insert(area.clone(), rev);
+                session.area_sent.insert(area, now_ms);
+            }
         }
         session.outbox.retain(|_, item| {
             if now_ms.saturating_sub(item.created_ms) >= RESULT_RETENTION_MS {
@@ -1092,15 +1150,18 @@ impl Gateway {
             out.push(Push::Events(events));
         }
         out.extend(session.auxiliary.drain(..));
-        if session.config.has("read") && session.presence_sent != s.gateway.presence_rev {
+        if let Some(presence) = presence {
             session.presence_sent = s.gateway.presence_rev;
             out.push(presence);
         }
+        let draft_rev = s.assistant.draft_revision();
         if session.config.id.starts_with("dm:")
             && (session.config.has("approve_drafts") || session.config.has("admin"))
             && session.drafts_sent != Some(draft_rev)
         {
-            let items = drafts
+            let items = s
+                .assistant
+                .sorted_drafts()
                 .into_iter()
                 .filter(|d| {
                     session.config.has("admin") || s.gateway.identities.owned_by(&d.client, id)
@@ -1113,6 +1174,19 @@ impl Gateway {
         s.gateway.sessions.insert(id.into(), session);
         Ok(out)
     }
+}
+/// Equal apart from the game's report age, which counts only once it has moved by a second: it
+/// changes every millisecond, so comparing it exactly made every pump poll (20 a second per
+/// session) push a meta frame.
+fn same_meta(old: &Meta, new: &Meta) -> bool {
+    old.boot == new.boot
+        && old.rev == new.rev
+        && old.factions == new.factions
+        && old.watched == new.watched
+        && old.policy == new.policy
+        && old.game.connected == new.game.connected
+        && old.game.age_ms.abs_diff(new.game.age_ms) < 1000
+        && old.redis == new.redis
 }
 fn presence(g: &GatewayState) -> Push {
     let mut actors = Vec::new();
@@ -1147,22 +1221,23 @@ fn event_page(
     let mut retained = 0;
     let mut oversized = 0;
     let mut complete = true;
-    for event in log.log_rows(since) {
-        let projected = project_event(s, &event, &scope);
-        let visible = projected.is_some() && (kinds.is_empty() || kinds.contains(&event.kind));
-        let event = projected.unwrap_or(event);
-        let size = if visible {
-            serde_json::to_vec(&event).expect("event serializes").len() + 1
-        } else {
-            0
+    for original in log.rows_after(since) {
+        let projected = project_event(s, original, &scope);
+        let visible = projected.is_some() && (kinds.is_empty() || kinds.contains(&original.kind));
+        let number = projected.as_ref().map_or(original.n, |p| p.n);
+        let size = match &projected {
+            Some(event) if visible => {
+                serde_json::to_vec(event).expect("event serializes").len() + 1
+            }
+            _ => 0,
         };
         if visible && !rows.is_empty() && (rows.len() >= limit || bytes + size > BUDGET) {
             complete = false;
             break;
         }
-        through = event.n;
+        through = number;
         retained += 1;
-        if visible {
+        if let Some(event) = projected.filter(|_| visible) {
             if size + 128 > BUDGET {
                 oversized += 1;
                 continue;
@@ -1238,7 +1313,7 @@ fn valid_id(id: &str, prefix: &str) -> bool {
         && counter.parse::<u64>().is_ok_and(|n| n > 0)
 }
 fn lost_since(log: &crate::events::EventLog, since: u64) -> u64 {
-    log.last().saturating_sub(since).saturating_sub(log.log_rows(since).len() as u64)
+    log.last().saturating_sub(since).saturating_sub(log.count_after(since) as u64)
 }
 
 #[cfg(test)]

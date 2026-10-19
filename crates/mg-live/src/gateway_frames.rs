@@ -156,6 +156,24 @@ pub enum ServerFrame {
     Push(Push),
     Bye(Bye),
 }
+/// A server frame as JSON text. An area push is assembled around the area's shared, already
+/// serialized state, so a frame of hundreds of KiB is copied once instead of being re-encoded
+/// and regrown for every session; the text is identical to `serde_json::to_string(frame)`.
+pub fn encode_server(frame: &ServerFrame) -> Result<String, serde_json::Error> {
+    let ServerFrame::Push(Push::Area(a)) = frame else {
+        return serde_json::to_string(frame);
+    };
+    let live = a.live.wire().get();
+    let mut text = String::with_capacity(live.len() + a.boot.len() + a.area.len() + 128);
+    text.push_str(r#"{"t":"push","topic":"area","body":{"boot":"#);
+    text.push_str(&serde_json::to_string(&a.boot)?);
+    text.push_str(r#","area":"#);
+    text.push_str(&serde_json::to_string(&a.area)?);
+    text.push_str(&format!(r#","rev":{},"age_ms":{},"live":"#, a.rev, a.age_ms));
+    text.push_str(live);
+    text.push_str("}}");
+    Ok(text)
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecodedServer {
     Frame(Box<ServerFrame>),

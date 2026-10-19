@@ -70,6 +70,25 @@ pub struct EventLog {
     pub dropped: i64,
 }
 
+/// See [`EventLog::rows_after`].
+pub(crate) struct RowsAfter<'a> {
+    rings: Vec<(&'a VecDeque<Event>, usize)>,
+    heap: BinaryHeap<std::cmp::Reverse<(u64, usize)>>,
+}
+impl<'a> Iterator for RowsAfter<'a> {
+    type Item = &'a Event;
+    fn next(&mut self) -> Option<&'a Event> {
+        let std::cmp::Reverse((_, ring)) = self.heap.pop()?;
+        let (rows, at) = &mut self.rings[ring];
+        let row = &rows[*at];
+        *at += 1;
+        if let Some(next) = rows.get(*at) {
+            self.heap.push(std::cmp::Reverse((next.n, ring)));
+        }
+        Some(row)
+    }
+}
+
 fn text(v: &Value) -> Option<String> {
     v.as_str().map(str::to_string)
 }
@@ -159,6 +178,25 @@ impl EventLog {
         self.next
     }
 
+    /// Retained rows numbered above `since`, oldest first, without copying them: each area keeps
+    /// its rows in order, so this merges the areas. A catching-up reader takes a page at a time
+    /// from a log of tens of thousands of rows; cloning the whole tail per page made a restart
+    /// (every desktop reconnecting at once) cost gigabytes.
+    pub(crate) fn rows_after(&self, since: u64) -> RowsAfter<'_> {
+        let mut rings = Vec::with_capacity(self.areas.len());
+        let mut heap = BinaryHeap::new();
+        for ring in self.areas.values() {
+            let start = ring.partition_point(|e| e.n <= since);
+            if let Some(first) = ring.get(start) {
+                heap.push(std::cmp::Reverse((first.n, rings.len())));
+                rings.push((ring, start));
+            }
+        }
+        RowsAfter { rings, heap }
+    }
+    pub(crate) fn count_after(&self, since: u64) -> usize {
+        self.areas.values().map(|ring| ring.len() - ring.partition_point(|e| e.n <= since)).sum()
+    }
     /// The local disk sink drains every retained row; the API's newest-page
     /// limit must not silently drop a reconnect burst from the log writer.
     pub(crate) fn log_rows(&self, since: u64) -> Vec<Event> {
@@ -504,6 +542,23 @@ mod tests {
         let end = log.query(&Query { since: 5, ..Default::default() });
         assert_eq!(end.len(), 1, "the same target is no new event");
         assert_eq!(end[0].kind, "combat_end");
+    }
+
+    #[test]
+    fn rows_after_merges_the_areas_like_the_copying_reader() {
+        let mut log = EventLog::default();
+        let events: Vec<Value> = (1..=3000)
+            .map(|i| json!({"seq":i,"kind":"chat","area":format!("a{}", i % 7 + i / 700),"id":"7","text":format!("line {i}")}))
+            .collect();
+        log.game("b", &events, 0, 1);
+        assert!(log.last() > 2900);
+        for since in [0, 1, 17, 1500, 2999, log.last(), log.last() + 5] {
+            let copied: Vec<u64> = log.log_rows(since).iter().map(|e| e.n).collect();
+            let merged: Vec<u64> = log.rows_after(since).map(|e| e.n).collect();
+            assert_eq!(merged, copied, "since {since}");
+            assert_eq!(log.count_after(since), copied.len());
+        }
+        assert_eq!(EventLog::default().rows_after(0).count(), 0);
     }
 
     #[test]

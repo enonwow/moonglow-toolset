@@ -26,6 +26,9 @@ struct Core {
     sessions: Mutex<HashMap<String, Session>>,
     bridge: Mutex<Option<Bridge>>,
     stopped: AtomicBool,
+    /// Bumped when the Redis bridge applied a report, event or result, so session pumps deliver
+    /// it at once instead of at their next poll.
+    wake: Arc<tokio::sync::watch::Sender<u64>>,
 }
 /// Every closure runs on Tokio's blocking pool; no store guard crosses an await.
 #[derive(Debug, Clone)]
@@ -38,6 +41,7 @@ impl CoreHandle {
                 sessions: Mutex::new(HashMap::new()),
                 bridge: Mutex::new(None),
                 stopped: AtomicBool::new(false),
+                wake: Arc::new(tokio::sync::watch::channel(0).0),
             })))
         })
         .await
@@ -97,10 +101,13 @@ impl CoreHandle {
             if bridge.is_some() {
                 return Err("Bridge already started".into());
             }
+            let wake = core.wake.clone();
             *bridge = Some(Bridge::start_persistent(
                 config,
                 core.gateway.store().clone(),
-                Arc::new(|| {}),
+                Arc::new(move || {
+                    wake.send_modify(|n| *n = n.wrapping_add(1));
+                }),
                 Arc::new(AtomicBool::new(false)),
                 &data,
             )?);
@@ -119,6 +126,10 @@ impl CoreHandle {
         tokio::task::spawn_blocking(move || core.gateway.publish_session(&principal, push))
             .await
             .map_err(|e| e.to_string())?
+    }
+    /// Resolves whenever the bridge applied new game data (coalesced); pumps also poll.
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.0.wake.subscribe()
     }
     pub fn request_shutdown(&self) {
         self.0.stopped.store(true, Ordering::Release);
