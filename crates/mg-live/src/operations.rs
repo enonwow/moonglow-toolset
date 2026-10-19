@@ -1056,19 +1056,11 @@ pub(crate) fn call_scoped_at(
                 if stop.load(Ordering::Acquire) {
                     return Err("Live service stopped".into());
                 }
-                if let Some(draft) = live.draft_result_scoped(id, scope) {
-                    return Ok(serde_json::to_value(draft).unwrap_or(Value::Null));
+                let (result, queued) = live.wait_scoped(id, scope);
+                if let Some(result) = result {
+                    return Ok(serde_json::to_value(result).unwrap_or(Value::Null));
                 }
-                let status = live.status_scoped(now_ms(), scope);
-                if let Some(found) = status["results"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|r| r["result"]["id"] == id)
-                {
-                    return Ok(found["result"].clone());
-                }
-                if !status["queued"].as_array().into_iter().flatten().any(|q| q["id"] == id) {
+                if !queued {
                     return Err("Unknown command id or result no longer retained".into());
                 }
                 if Instant::now() >= deadline {

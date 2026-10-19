@@ -12,7 +12,7 @@ mod event_view;
 #[path = "store_gateway_identity.rs"]
 mod identity;
 pub(super) use event_view::project_event;
-pub use identity::{AiIdentity, AiSummary, IdentityDisabled, IdentityObserver, Principal};
+pub use identity::{AiIdentity, AiSummary, GROUPS, IdentityDisabled, IdentityObserver, Principal};
 pub(super) use identity::{draft_scope, validate_ai_scope};
 
 pub const RESULT_RETENTION_MS: u64 = 600_000;
@@ -349,15 +349,6 @@ pub(super) fn validate_accept(s: &State, scope: &Scope) -> Result<(), CommandErr
 pub(super) fn command_binding<'a>(g: &'a GatewayState, id: &str) -> Option<(&'a str, u64)> {
     g.sessions.values().find_map(|s| s.outbox.get(id)).map(|o| (o.boot.as_str(), o.ttl_ms))
 }
-fn result_state(r: &CommandResult) -> ResultState {
-    if r.code == Some(ErrorCode::Unknown) {
-        ResultState::Unknown
-    } else if r.pending {
-        ResultState::Pending
-    } else {
-        ResultState::Final
-    }
-}
 pub(super) fn record_result(g: &mut GatewayState, r: &CommandResult) {
     for session in g.sessions.values_mut() {
         if let Some(out) = session.outbox.get_mut(&r.id)
@@ -365,7 +356,7 @@ pub(super) fn record_result(g: &mut GatewayState, r: &CommandResult) {
             && out.row.result.as_ref() != Some(r)
         {
             out.row.rev += 1;
-            out.row.state = result_state(r);
+            out.row.state = r.state();
             out.row.result = Some(r.clone());
         }
     }

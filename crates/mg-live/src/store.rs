@@ -62,6 +62,9 @@ impl Default for Policy {
 /// A command not acknowledged within this long expires.
 pub const COMMAND_TTL_MS: u64 = 30_000;
 const MAX_QUEUE: usize = 256;
+/// The game skips ids in its last 256 executed (`MGLIVE_MAX_DONE` in `mglive_inc.nss`): an
+/// unacknowledged command is resent only while fewer newer commands could have pushed it out.
+const GAME_DONE: u64 = 256;
 const MAX_RESULTS: usize = 64;
 const MAX_AREAS: usize = 64;
 /// A report carries at most 256 (the game's buffer); this leaves room.
@@ -290,6 +293,16 @@ pub struct CommandResult {
 }
 
 impl CommandResult {
+    /// Unknown wins over pending: the outcome can no longer be learned in order.
+    pub(crate) fn state(&self) -> mirror::ResultState {
+        if self.code == Some(ErrorCode::Unknown) {
+            mirror::ResultState::Unknown
+        } else if self.pending {
+            mirror::ResultState::Pending
+        } else {
+            mirror::ResultState::Final
+        }
+    }
     /// Event-only normalization: an empty native object is absent, so the action
     /// log can fall back to the command target. Keep the API result unchanged.
     fn event_value(&self) -> Value {
@@ -1809,6 +1822,8 @@ struct Queued {
     players: bool,
     queued_ms: u64,
     ttl_ms: u64,
+    /// `State::handed` when this command first crossed the transport.
+    handed_at: u64,
 }
 
 const MAX_UNRESOLVED: usize = 4096;
@@ -1945,6 +1960,8 @@ struct State {
     factions: Option<Vec<ServerFaction>>,
     watch: watch::Watches,
     queue: VecDeque<Queued>,
+    /// Distinct commands handed to the game so far; see `GAME_DONE`.
+    handed: u64,
     results: VecDeque<(Command, CommandResult)>,
     unresolved: Unresolved,
     /// Receipts for the latest result batch, including control commands.
@@ -3116,7 +3133,14 @@ impl LiveStore {
         if drafted {
             return Ok(id);
         }
-        s.queue.push_back(Queued { command, sent: false, players, queued_ms: now_ms, ttl_ms });
+        s.queue.push_back(Queued {
+            command,
+            sent: false,
+            players,
+            queued_ms: now_ms,
+            ttl_ms,
+            handed_at: 0,
+        });
         if let Some(kick) = &s.kick {
             let _ = kick.send(());
         }
@@ -3124,20 +3148,25 @@ impl LiveStore {
     }
 
     pub fn result(&self, id: &str) -> Option<CommandResult> {
+        result_in(&self.lock(), id)
+    }
+
+    /// `live_wait`: the caller's own result wherever it is retained, and whether it is still
+    /// queued, read under one lock so a command cannot finish between the two checks.
+    pub(crate) fn wait_scoped(
+        &self,
+        id: &str,
+        scope: &crate::access::Scope,
+    ) -> (Option<CommandResult>, bool) {
         let s = self.lock();
-        if let Some(mirror) = &s.mirror {
-            return mirror.result(id);
+        if !scope.unrestricted() && s.owners.get(id) != Some(&scope.name) {
+            return (None, false);
         }
-        s.history
-            .get(&crate::command_history::boot_key(&s.boot), id)
-            .and_then(|e| e.outcome.clone())
-            .or_else(|| s.results.iter().find(|(_, r)| r.id == id).map(|(_, r)| r.clone()))
-            .or_else(|| s.unresolved.get(&s.boot, id).map(|entry| entry.result.clone()))
-            .or_else(|| assistant::pending(&s, id))
-            .map(|mut result| {
-                result.by = s.owners.get(id).filter(|by| by.as_str() != "local").cloned();
-                result
-            })
+        let queued = match &s.mirror {
+            Some(mirror) => mirror.queue.iter().any(|q| q.command.id == id),
+            None => s.queue.iter().any(|q| q.command.id == id),
+        };
+        (result_in(&s, id), queued)
     }
 
     pub fn area(&self, area: &str) -> Option<AreaLive> {
@@ -3427,10 +3456,7 @@ fn receive_results(
             let boot = crate::command_history::boot_key(&s.boot);
             if let Some(entry) = s.history.get(&boot, &r.id)
                 && entry.fingerprint.is_some()
-                && entry
-                    .outcome
-                    .as_ref()
-                    .is_none_or(|r| r.pending || r.code == Some(ErrorCode::Unknown))
+                && entry.outcome.as_ref().is_none_or(|r| r.state() != mirror::ResultState::Final)
             {
                 let mut r = r;
                 r.by = (entry.owner != "local").then(|| entry.owner.clone());
@@ -3475,7 +3501,9 @@ fn expire(s: &mut State, now_ms: u64) {
     }
     let mut i = 0;
     while i < s.queue.len() {
-        if now_ms.saturating_sub(s.queue[i].queued_ms) >= s.queue[i].ttl_ms {
+        let q = &s.queue[i];
+        let forgotten = q.sent && s.handed - q.handed_at >= GAME_DONE;
+        if forgotten || now_ms.saturating_sub(q.queued_ms) >= q.ttl_ms {
             let q = s.queue.remove(i).expect("in range");
             let result = undelivered(&q.command.id, q.sent, "not acknowledged in time");
             push_result(s, q.command, result);
@@ -3513,6 +3541,22 @@ fn attributed_command(s: &State, command: &Command) -> Value {
     value
 }
 
+fn result_in(s: &State, id: &str) -> Option<CommandResult> {
+    if let Some(mirror) = &s.mirror {
+        return mirror.result(id);
+    }
+    s.history
+        .get(&crate::command_history::boot_key(&s.boot), id)
+        .and_then(|e| e.outcome.clone())
+        .or_else(|| s.results.iter().find(|(_, r)| r.id == id).map(|(_, r)| r.clone()))
+        .or_else(|| s.unresolved.get(&s.boot, id).map(|entry| entry.result.clone()))
+        .or_else(|| assistant::pending(s, id))
+        .map(|mut result| {
+            result.by = s.owners.get(id).filter(|by| by.as_str() != "local").cloned();
+            result
+        })
+}
+
 fn mark_handed_off(s: &mut State, batch: &Value) {
     let ids: HashSet<_> = batch["commands"]
         .as_array()
@@ -3521,8 +3565,10 @@ fn mark_handed_off(s: &mut State, batch: &Value) {
         .filter_map(|c| c["id"].as_str())
         .collect();
     for q in &mut s.queue {
-        if ids.contains(q.command.id.as_str()) {
+        if ids.contains(q.command.id.as_str()) && !q.sent {
+            s.handed += 1;
             q.sent = true;
+            q.handed_at = s.handed;
         }
     }
 }
@@ -3786,6 +3832,20 @@ mod tests {
         assert!(store.lock().queue.is_empty());
         assert_eq!(store.poll_epoch(&scope).unwrap_err().code, ErrorCode::Forbidden);
         assert!(store.enqueue_scoped(spawn(), 0, &crate::access::Scope::default()).is_ok());
+    }
+
+    #[test]
+    fn unacknowledged_command_stops_before_the_game_can_forget_it() {
+        let store = LiveStore::default();
+        post(&store, report("boot", 1, true), 0);
+        let id = store.enqueue(spawn(), 0).unwrap();
+        assert_eq!(store.commands(1)["commands"][0]["id"], id);
+        // Newer commands the game executed while this one's acknowledgement was lost.
+        store.lock().handed += GAME_DONE - 1;
+        assert_eq!(store.commands(2)["commands"][0]["id"], id, "still in the game's done set");
+        store.lock().handed += 1;
+        assert!(store.commands(3)["commands"].as_array().unwrap().is_empty());
+        assert_eq!(store.result(&id).unwrap().code, Some(ErrorCode::Unknown));
     }
 
     #[test]
