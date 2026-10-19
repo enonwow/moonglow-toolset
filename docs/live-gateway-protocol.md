@@ -202,7 +202,7 @@ accepted ──► pending ──► final
 | `watch.set` | `{"areas":[…]}` | `{"accepted":[…],"waiting":[…]}` | absolute set for this session; the gateway unions sessions (game limit 64 areas) and drives `watch_areas` itself |
 | `focus.set` | `{"objects":[{"area","id"}…]}` | `{}` | ≤ 256 entries; absolute set |
 | `call` | `{"op","input"}` | operation result | read-only operations only (allow-list from the catalogue: `find`, `status`, `npc_card`, `gm_card`, `npc_memory`, `area_notes`, `events` without waiting, …) |
-| `book.put` | `{"kind","key","value","if_rev"}` | `{"rev"}` | stale `if_rev` → `conflict` |
+| `book.put` | `{"kind","key","value","if_rev"}` | `{"rev"}` | needs a DM with `npc` or `admin` (`read` alone → `forbidden`: the cards and notes feed every AI prompt); stale `if_rev` → `conflict`; the author and new revision enter the core's action log (`Live: book.put <kind> <key> rev <n> by <principal>`) |
 | `draft.decide` | `{"id","text"\|null}` | `{"result"}` | only drafts of the caller's own AIs, or admin |
 | `ai.list` / `ai.create` / `ai.update` / `ai.revoke` | create/update: `{"name","avatar"?}` (+id for update/revoke) | list: `[{id,name,owner,avatar,llm}]` | HTTPS avatar or null; create returns `{ai,token}` once |
 | `llm.allow` | `{"id"?,"on":bool}` | `{"ids":[...]}` | one/all owned AIs; admin may select another owner's AI; global switch belongs to the host |

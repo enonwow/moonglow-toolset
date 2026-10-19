@@ -436,8 +436,8 @@ impl Gateway {
                         })
                 }
                 "book.put" => {
-                    if !config.id.starts_with("dm:")
-                        || (!config.has("read") && !config.has("admin"))
+                    // The cards and notes feed every AI prompt: editing them is an `npc` capability.
+                    if !config.id.starts_with("dm:") || (!config.has("npc") && !config.has("admin"))
                     {
                         return Err(FrameError::new("forbidden", "DM book permission required"));
                     }
@@ -455,6 +455,10 @@ impl Gateway {
                     let rev = self.store.gateway_book_put(kind, key, value, if_rev)?;
                     let push = Push::Book { kind: kind.into(), key: key.into(), rev };
                     let mut s = self.store.lock();
+                    s.logs.push_back(format!("Live: book.put {kind} {key} rev {rev} by {session}"));
+                    while s.logs.len() > MAX_QUEUE {
+                        s.logs.pop_front();
+                    }
                     for session in s.gateway.sessions.values_mut() {
                         session.auxiliary.retain(
                             |p| !matches!(p,Push::Book{kind:k,key:v,..} if k==kind && v==key),

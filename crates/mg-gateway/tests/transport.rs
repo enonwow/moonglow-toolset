@@ -730,8 +730,10 @@ async fn book_requests_conflict_and_invalidate_other_sessions() {
     .await
     .unwrap();
     let (mut one, _) = connect(&url, vec![], None, "test-credential").await;
-    let (mut two, _) = connect(&url, vec![], None, "test-reader").await;
+    let (mut two, _) = connect(&url, vec![], None, "test-admin").await;
+    let (mut reader, _) = connect(&url, vec![], None, "test-reader").await;
     let put = json!({"kind":"gm","key":"","value":{"house_rules":"Shared"},"if_rev":0});
+    assert_eq!(call(&mut reader, 1, "book.put", put.clone()).await["err"]["code"], "forbidden");
     assert_eq!(call(&mut one, 1, "book.put", put.clone()).await["r"]["rev"], 1);
     loop {
         let v = receive(&mut two).await;
