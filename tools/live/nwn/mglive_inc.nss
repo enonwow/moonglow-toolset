@@ -597,9 +597,13 @@ json MgLiveArea(object area, int bFull)
     if(index>0 && !soundPhase && o!=cursor) o=cursor;
     if(soundPhase) o=OBJECT_INVALID;
     int more=FALSE;
+    // Every page admits at least one static row, however full the creatures left
+    // the page: otherwise the cursor never advances and the scan never ends.
+    int admitted=0;
     while(GetIsObjectValid(o))
     {
-        if(NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/2)
+        // Past the half limit the scan continues only until that first row.
+        if(NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/2*(admitted>0 ? 2 : 3)/2)
         { more=TRUE;break; }
         int t=MgLiveType(o);
         if(t!=OBJECT_TYPE_CREATURE && (t==OBJECT_TYPE_PLACEABLE || t==OBJECT_TYPE_DOOR ||
@@ -607,8 +611,8 @@ json MgLiveArea(object area, int bFull)
             t==OBJECT_TYPE_STORE || t==OBJECT_TYPE_TRIGGER))
         {
             json row=MgLiveObject(o,TRUE);int size=GetStringLength(JsonDump(row))+1;
-            if(bytes+size>budget) { more=TRUE;break; }
-            bytes+=size;
+            if(admitted>0 && bytes+size>budget) { more=TRUE;break; }
+            bytes+=size;admitted++;
             if(t==OBJECT_TYPE_PLACEABLE) JsonArrayInsertInplace(plc,row);
             else if(t==OBJECT_TYPE_DOOR) JsonArrayInsertInplace(doors,row);
             else if(t==OBJECT_TYPE_ITEM) JsonArrayInsertInplace(items,row);
@@ -631,11 +635,11 @@ json MgLiveArea(object area, int bFull)
             object sound=StringToObject(JsonGetString(JsonArrayGet(registered,soundAt)));
             if(GetIsObjectValid(sound) && GetArea(sound)==area)
             {
-                if(NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/2)
+                if(admitted>0 && NWNX_Util_GetInstructionsExecuted()>NWNX_Util_GetInstructionLimit()/2)
                 { more=TRUE;break; }
                 json row=MgLiveObject(sound,TRUE);int size=GetStringLength(JsonDump(row))+1;
-                if(bytes+size>budget) { more=TRUE;break; }
-                bytes+=size;JsonArrayInsertInplace(sounds,row);
+                if(admitted>0 && bytes+size>budget) { more=TRUE;break; }
+                bytes+=size;admitted++;JsonArrayInsertInplace(sounds,row);
             }
             soundAt++;
         }
