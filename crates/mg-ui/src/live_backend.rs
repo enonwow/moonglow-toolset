@@ -358,7 +358,12 @@ pub(crate) fn status_ui(app: &Moonglow, ui: &mut egui::Ui) {
 
 pub(crate) fn menu_status(app: &mut Moonglow, ui: &mut egui::Ui) {
     status_ui(app, ui);
-    if app.live_backend().is_gateway() && ui.button("AI agents").clicked() {
+    if app.live_backend().is_gateway()
+        && ui
+            .add_enabled(app.live_backend().link().is_some(), egui::Button::new("AI agents"))
+            .on_disabled_hover_text("Connect to the gateway first: Live › Connect to Gateway")
+            .clicked()
+    {
         app.live_ai.open = true;
         ui.close();
     }

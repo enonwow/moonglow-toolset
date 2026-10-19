@@ -254,7 +254,12 @@ pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView
             .on_disabled_hover_text("Connect to a gateway: Live › Connect to Gateway")
             .on_hover_text("Show the running game; actions send commands to the server");
     });
-    if app.live_backend().is_gateway() && ui.button("My AI").clicked() {
+    if app.live_backend().is_gateway()
+        && ui
+            .add_enabled(app.live_backend().link().is_some(), egui::Button::new("My AI"))
+            .on_disabled_hover_text("Connect to the gateway first: Live › Connect to Gateway")
+            .clicked()
+    {
         app.live_ai.open = true;
     }
     if view.live.on {
