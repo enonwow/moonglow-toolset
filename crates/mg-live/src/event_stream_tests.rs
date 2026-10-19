@@ -324,3 +324,33 @@ fn real_redis_reclaims_pending_dedupes_producer_and_detects_trim() {
         request(&mut c, &[b"DEL", name.as_bytes()]).unwrap();
     }
 }
+
+#[test]
+fn a_panic_under_the_inbox_or_status_guard_does_not_stop_the_stream() {
+    let dir = directory();
+    let journal = Inbox::new(&dir, "server").unwrap();
+    let group = journal.group.clone();
+    let inbox: SharedInbox = Arc::new(Mutex::new(Some(journal)));
+    let status = Arc::new(Mutex::new(Status::default()));
+    let held = inbox.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = held.lock().unwrap();
+        panic!("under the inbox guard");
+    })
+    .join();
+    let held = status.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = held.lock().unwrap();
+        panic!("under the status guard");
+    })
+    .join();
+    assert!(inbox.is_poisoned() && status.is_poisoned());
+    let store = LiveStore::default();
+    let (mut c, t) = connection(true);
+    apply(&mut c, "s", &group, vec![entry(1)], &inbox, &status, &store).unwrap();
+    t.join().unwrap();
+    inbox.lock().unwrap_or_else(|e| e.into_inner()).as_ref().unwrap().restored_status(&status);
+    assert_eq!(status.lock().unwrap_or_else(|e| e.into_inner()).applied, 1);
+    drop(inbox);
+    fs::remove_dir_all(dir).unwrap();
+}
