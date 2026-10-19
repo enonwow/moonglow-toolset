@@ -4,16 +4,11 @@
 //! players write) is kept only when asked. Folders older than
 //! [`MAX_AGE`] go, then the oldest while all of them pass [`MAX_BYTES`].
 
-use crate::{events::Event, store::LiveStore};
+use crate::events::Event;
 use std::{
     collections::{BTreeMap, HashMap},
     io::{BufRead, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::JoinHandle,
     time::{Duration, SystemTime},
 };
 
@@ -51,17 +46,6 @@ struct Writer {
 }
 
 impl Writer {
-    fn maintain(
-        &mut self,
-        dir: &Path,
-        now: SystemTime,
-        age: Duration,
-        bytes: u64,
-    ) -> std::io::Result<()> {
-        prune(dir, now, age, bytes)?;
-        self.receipts.retain(|path, _| path.exists());
-        Ok(())
-    }
     fn append(
         &mut self,
         dir: &Path,
@@ -176,101 +160,10 @@ pub fn prune(
     Ok(())
 }
 
-/// Keeps the store's new events on disk every second until `stop`.
-pub fn keep(
-    store: Arc<LiveStore>,
-    data_dir: &Path,
-    chat: bool,
-    stop: Arc<AtomicBool>,
-) -> JoinHandle<()> {
-    let dir = folder(data_dir);
-    std::thread::spawn(move || {
-        if let Err(e) = prune(&dir, SystemTime::now(), MAX_AGE, MAX_BYTES) {
-            log::warn!("Live logs: pruning {}: {e}", dir.display());
-        }
-        let mut since = 0;
-        let mut writer = Writer::default();
-        let mut maintenance = std::time::Instant::now();
-        loop {
-            let stopping = stop.load(Ordering::Acquire);
-            let (boot, events, last) = store.log_rows(since);
-            if !events.is_empty() {
-                match writer.append(&dir, &boot, &events, chat) {
-                    Ok(()) => since = last,
-                    Err(e) => log::warn!("Live logs: writing {}: {e}", dir.display()),
-                }
-            }
-            if !events.is_empty() || maintenance.elapsed() >= Duration::from_secs(60) {
-                if let Err(e) = writer.maintain(&dir, SystemTime::now(), MAX_AGE, MAX_BYTES) {
-                    log::warn!("Live logs: retention maintenance: {e}");
-                }
-                maintenance = std::time::Instant::now();
-            }
-            if stopping {
-                break;
-            }
-            for _ in 0..10 {
-                if stop.load(Ordering::Acquire) {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn running_writer_enforces_retention_and_can_append_after_pruning() {
-        let dir = std::env::temp_dir()
-            .join(format!("mg-retention-{}", crate::service::generate_token().unwrap()));
-        let mut writer = Writer::default();
-        writer.append(&dir, "active", &[event(1, "chat")], true).unwrap();
-        writer.maintain(&dir, SystemTime::now(), MAX_AGE, 1).unwrap();
-        assert!(writer.receipts.is_empty());
-        assert!(!dir.join("active").exists());
-        writer.append(&dir, "active", &[event(2, "chat")], true).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(dir.join("active/chat.jsonl")).unwrap().lines().count(),
-            1
-        );
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn final_flush_drains_more_than_an_api_page() {
-        let dir = std::env::temp_dir()
-            .join(format!("mg-log-drain-{}", crate::service::generate_token().unwrap()));
-        let store = Arc::new(LiveStore::default());
-        let events: Vec<_> =
-            (1..=600).map(|n| json!({"seq":n,"kind":"chat","text":"line"})).collect();
-        store
-            .sync(
-                &serde_json::to_vec(
-                    &json!({"v":1,"boot":"drain","seq":1,"areas":[],"events":events}),
-                )
-                .unwrap(),
-                1,
-            )
-            .unwrap();
-        let stopped = Arc::new(AtomicBool::new(true));
-        keep(store, &dir, true, stopped).join().unwrap();
-        let text = std::fs::read_to_string(folder(&dir).join("drain/chat.jsonl")).unwrap();
-        let seqs: Vec<u64> = text
-            .lines()
-            .map(|line| {
-                serde_json::from_str::<serde_json::Value>(line).unwrap()["data"]["game_seq"]
-                    .as_u64()
-                    .unwrap()
-            })
-            .collect();
-        assert_eq!(seqs, (1..=600).collect::<Vec<_>>());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
 
     #[test]
     fn stream_replay_keeps_original_boot_and_deduplicates_across_log_writer_restarts() {

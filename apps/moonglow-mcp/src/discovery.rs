@@ -1,19 +1,14 @@
 use crate::{
     cache,
-    config::{Config, data_dir},
+    config::Config,
     https,
     process::{Jobs, Running, arguments},
     schema,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
-#[cfg(not(windows))]
-use std::process::Stdio;
 use std::{
     collections::BTreeMap,
-    fs,
-    path::Path,
-    process::Command,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -26,25 +21,16 @@ const INSTRUCTIONS: &str = "Tools and their semantics are discovered from the co
     Long-running commands require background:true; manage only this adapter's jobs with \
     moonglow_jobs.";
 
-#[derive(Clone, Deserialize)]
+/// One gateway session: where to call, with which credential and pinned certificate.
+#[derive(Clone)]
 pub struct Descriptor {
-    protocol: String,
     url: String,
     token: String,
-    #[serde(rename = "certSha256")]
     pin: String,
-    pub pid: u32,
-    #[serde(skip)]
     id: String,
-    #[serde(skip)]
-    gateway: bool,
-    #[serde(skip)]
     client: Arc<Mutex<https::Client>>,
-    #[serde(skip)]
     key: String,
-    #[serde(skip)]
     fingerprint: String,
-    #[serde(skip)]
     revision: Option<String>,
 }
 impl Descriptor {
@@ -60,12 +46,13 @@ impl Descriptor {
         revision: Option<&str>,
         timeout: Duration,
     ) -> Result<https::Reply, String> {
-        let endpoint = (&*self.url, &*self.token, &*self.pin);
-        if self.gateway {
-            client.gateway_request(endpoint, path, body, revision, timeout)
-        } else {
-            client.request(endpoint, path, body, revision, timeout)
-        }
+        client.gateway_request(
+            (&*self.url, &*self.token, &*self.pin),
+            path,
+            body,
+            revision,
+            timeout,
+        )
     }
     fn response(
         &self,
@@ -122,53 +109,6 @@ pub struct Catalogue {
     pub instructions: String,
     pub diagnostics: Vec<String>,
     sessions: Vec<Session>,
-}
-fn alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    if pid == std::process::id() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .creation_flags(0x08000000)
-            .output()
-            .ok()
-            .is_some_and(|o| {
-                String::from_utf8_lossy(&o.stdout).lines().any(|s| {
-                    s.split(',').nth(1).is_some_and(|s| s.trim_matches('"') == pid.to_string())
-                })
-            })
-    }
-    #[cfg(not(windows))]
-    {
-        Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-    }
-}
-fn read_descriptor(path: &Path) -> Result<Descriptor, String> {
-    if fs::metadata(path).map_err(|e| e.to_string())?.len() > 65536 {
-        return Err("Descriptor too large".into());
-    }
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let mut d: Descriptor =
-        serde_json::from_slice(&bytes).map_err(|_| "Invalid descriptor JSON")?;
-    if d.protocol != "moonglow-agent/1" {
-        return Err("Unsupported agent protocol".into());
-    }
-    d.key =
-        cache::hash(path.canonicalize().map_err(|e| e.to_string())?.to_string_lossy().as_bytes());
-    d.fingerprint = cache::hash(&bytes);
-    d.id = d.pid.to_string();
-    Ok(d)
 }
 fn tool(
     name: String,
@@ -261,21 +201,6 @@ impl Catalogue {
             diagnostics: Vec::new(),
             sessions: Vec::new(),
         };
-        let mut paths = config.descriptors.clone();
-        if paths.is_empty() && config.gateway.is_none() {
-            let own = data_dir().map(|p| p.join("live/sessions"));
-            for dir in own.iter().chain(&config.sessions) {
-                let Ok(entries) = fs::read_dir(dir) else { continue };
-                paths.extend(
-                    entries
-                        .filter_map(Result::ok)
-                        .map(|e| e.path())
-                        .filter(|p| p.extension().is_some_and(|e| e == "json")),
-                );
-            }
-        }
-        paths.sort();
-        paths.dedup();
         let mut descriptors = Vec::new();
         if let Some(url) = &config.gateway {
             // Identity includes a non-reversible credential hash to keep cached scopes separate.
@@ -284,33 +209,15 @@ impl Catalogue {
             let pin = config.gateway_pin.clone().unwrap_or_default();
             let fingerprint = cache::hash(format!("{url}/{pin}/{token}").as_bytes());
             descriptors.push(Descriptor {
-                protocol: "moonglow-agent/1".into(),
                 url: url.clone(),
                 token,
                 pin,
-                pid: 0,
                 id: config.session_id.clone(),
-                gateway: true,
                 client: Arc::default(),
                 key,
                 fingerprint,
                 revision: None,
             });
-            paths.clear();
-        }
-        for path in paths {
-            let d = match read_descriptor(&path) {
-                Ok(d) => d,
-                Err(e) => {
-                    result.diagnostics.push(format!("Descriptor unavailable: {e}"));
-                    continue;
-                }
-            };
-            // Explicit descriptors may represent a tunnel whose PID is not local.
-            if !cached && include_cli && config.descriptors.is_empty() && !alive(d.pid) {
-                continue;
-            }
-            descriptors.push(d);
         }
         for mut d in descriptors {
             if result.sessions.iter().any(|s| s.descriptor.id == d.id) {
@@ -456,7 +363,7 @@ impl Catalogue {
         {
             result.diagnostics.push(
                 "No compatible agent or CLI source found. \
-                 Configure --descriptor or --mg, or start an agent."
+                 Configure --gateway or --mg."
                     .into(),
             );
         }

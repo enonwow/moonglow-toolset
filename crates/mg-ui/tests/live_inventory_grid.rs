@@ -220,6 +220,7 @@ fn inventory_nondroppable_potion_has_a_confirmed_dm_drop() {
         assert!(h.query_by_label("Drop item on the ground here").is_none());
         let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-output/live-accept6-astra2/drop-after.png");
+        std::fs::create_dir_all(out.parent().unwrap()).unwrap();
         h.render().unwrap().save(out).unwrap();
         h.get_by_label("Confirm drop").click();
         h.run_steps(2);

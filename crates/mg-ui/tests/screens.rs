@@ -297,6 +297,8 @@ fn live_gateway_options() {
     let credentials = tempfile::tempdir().unwrap();
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
     app.settings.live_servers.add();
+    app.settings.live_servers.servers[0].name = "Weekend campaign".into();
+    app.settings.live_servers.add();
     app.settings.live_servers.servers[1].name = "Campaign server".into();
     app.actions.push(mg_ui::Action::LiveOptions);
     let mut h = Harness::builder().with_size(egui::vec2(1120., 760.)).wgpu().build_ui_state(
@@ -320,13 +322,6 @@ fn live_gateway_options() {
         .set_size(egui::vec2(1000., 650.));
     std::thread::sleep(std::time::Duration::from_millis(30));
     shoot(&mut h, &mg_testkit::output_dir("screens"), "live-gateway-options");
-    let draft = h.state_mut().options.as_mut().unwrap();
-    draft
-        .live
-        .clients
-        .push(mg_live::access::ClientToken { name: "Reader".into(), ..Default::default() });
-    draft.live_credential_error = Some("OS credential store refused access".into());
-    shoot(&mut h, &mg_testkit::output_dir("screens"), "live-gateway-credential-error");
 }
 
 #[test]
@@ -401,14 +396,7 @@ fn live_next_pictures(acceptance_fixes: bool) {
             {"id":"3","name":"Player","pc":true,"x":21,"y":21,"hp":[24,30],"look":look,"lookHash":1,"dead":acceptance_fixes}]
     }]}).to_string().as_bytes(), mg_live::now_ms()).unwrap();
     app.live = Some(store);
-    app.settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    app.apply_live(&egui::Context::default());
+    app.settings.live.enabled = true;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1500., 950.))
@@ -558,15 +546,11 @@ fn live_mode() {
             {"id":"5","r":"plc_chest1","name":"Live chest","own":true,"x":27,"y":18,"hp":[8,10]}]
     }]}).to_string().as_bytes(), now).unwrap();
     app.live = Some(store);
-    app.settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    app.settings.live.policy.chunks = true; // Explicit UI fixture policy; never a real server.
-    app.apply_live(&egui::Context::default());
+    app.settings.live.enabled = true;
+    app.live
+        .as_ref()
+        .unwrap()
+        .set_policy(mg_live::store::Policy { chunks: true, ..Default::default() }); // Explicit UI fixture policy; never a real server.
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280., 850.))
@@ -636,14 +620,7 @@ fn live_demo_snapshot() {
     app.open_palette = false;
     let store = Arc::new(mg_ui::live::LiveStore::default());
     app.live = Some(store.clone());
-    app.settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    app.apply_live(&egui::Context::default());
+    app.settings.live.enabled = true;
     let area = mg_core::ResRef::from_str("demo_area").unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     let mut h = Harness::builder()
@@ -939,14 +916,7 @@ fn live_morning_pictures(component: Option<&str>) {
     app.open_palette = false;
     let store = Arc::new(mg_ui::live::LiveStore::default());
     app.live = Some(store.clone());
-    app.settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    app.apply_live(&egui::Context::default());
+    app.settings.live.enabled = true;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     let mut h = Harness::builder()
         .with_step_dt(if matches!(component, Some("motion" | "full-effects" | "event-effects")) {
@@ -1036,7 +1006,6 @@ fn live_morning_pictures(component: Option<&str>) {
             player["x"] = 25.into();
             player["y"] = 25.into();
             a["creatures"] = serde_json::json!([player]);
-            h.state_mut().settings.live.policy.players = true;
             store.set_policy(mg_live::store::Policy { players: true, ..Default::default() });
         }
         if component == Some("review-props") {
@@ -2006,35 +1975,6 @@ fn live_options() {
 
 #[test]
 #[ignore]
-fn live_clients_snapshot() {
-    mg_testkit::gpu::hold();
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-output/live-next/visual");
-    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    app.settings.live.clients.push(mg_live::access::ClientToken {
-        name: "Story assistant".into(),
-        token: "example-credential-for-picture-only-1234".into(),
-        groups: vec![mg_live::access::ClientGroup::Read, mg_live::access::ClientGroup::Npc],
-        per_minute: 30,
-        delivery: Default::default(),
-    });
-    app.actions.push(mg_ui::Action::LiveOptions);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280., 1000.))
-        .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run_steps(3);
-    place(&mut h, &mg_ui::Tab::Options, (120., 40.), (1040., 900.));
-    h.run_steps(3);
-    let stage = std::env::var("MGLIVE_PICTURE_STAGE").unwrap_or_else(|_| "after".into());
-    if !stage.ends_with("before") {
-        h.get_by_label("Named clients").click();
-    }
-    shoot(&mut h, &dir, &format!("clients-{stage}"));
-}
-
-#[test]
-#[ignore]
 fn live_scene_snapshot() {
     mg_testkit::gpu::hold();
     let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
@@ -2101,18 +2041,14 @@ fn live_log() {
         .join("../../target/test-output/live-next/visual");
     std::fs::create_dir_all(&dir).unwrap();
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    app.settings.live.api_port = 0;
-    app.settings.live.redis_port = 1;
+    let store = Arc::new(mg_live::store::LiveStore::default());
+    app.live = Some(store.clone());
+    app.settings.live.enabled = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100., 600.))
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    h.get_by_label("Live").click();
-    h.run();
-    h.get_by_label("Start Live").click();
-    h.run_steps(3);
-    let store = h.state().live.as_ref().unwrap().clone();
     let report = serde_json::json!({"v":1,"boot":"log","seq":1,"areas":[{"area":"gate","full":true,
         "cre":[{"id":"7","name":"Gate Guard"},{"id":"9","name":"Bandit"}]}],"events":[
         {"seq":1,"kind":"chat","id":"7","name":"Gate Guard","area":"gate","channel":1,"text":"Zażółć gęślą jaźń - who goes there?"},
@@ -2131,35 +2067,6 @@ fn live_log() {
     h.run();
     h.get_by_label("Live Log").click();
     shoot(&mut h, &dir, "live-log");
-}
-
-/// Real connection refusal, kept as before/after evidence for the WSL hint.
-#[test]
-#[ignore]
-fn live_redis_unreachable() {
-    mg_testkit::gpu::hold();
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-output/live-redis/visual");
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    app.settings.live.enabled = true;
-    app.settings.live.api_port = 0;
-    app.settings.live.redis_port = 1;
-    app.apply_live(&egui::Context::default());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while app.live_service.as_ref().unwrap().status()["redis"]["lastError"] == "" {
-        assert!(std::time::Instant::now() < deadline);
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-    app.options = Some(mg_ui::OptionsDraft::from_settings(&app.settings));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100., 900.))
-        .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run_steps(3);
-    h.get_all_by_label("Live").last().unwrap().click();
-    shoot(&mut h, &dir, "options-redis-after");
-    h.get_by_label("Redis unreachable — is WSL running?");
 }
 
 #[test]
@@ -4292,7 +4199,6 @@ fn hexxar_windows() {
         serde_json::json!({"players":[{"id":"9","passed":true,"nui_token":7},{"id":"a","passed":false,"nui_token":0}],"truncated":false}),
     );
     shoot(&mut h, &dir, "skill-results");
-    assert!(h.state().live_service.is_none());
     assert!(!h.state().has_unsaved_work());
 }
 

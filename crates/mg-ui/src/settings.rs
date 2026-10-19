@@ -101,9 +101,9 @@ impl Default for PaintSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Legacy development configuration. Secrets migrate before serialization.
-    #[serde(serialize_with = "save_legacy_live")]
-    pub live: mg_live::LiveConfig,
+    /// Whether Moonglow connects to the selected gateway server. Files from the removed
+    /// local Live mode carry more fields here; they are ignored and dropped on save.
+    pub live: LiveSettings,
     pub live_servers: LiveServers,
     /// Live resource cache budget in MiB; zero uses the 2048 MiB default.
     pub live_cache_mib: u32,
@@ -367,6 +367,13 @@ pub struct Settings {
     pub dialog_backup_minutes: Option<u32>,
 }
 
+/// The Live switch: connect to the selected gateway server, or stay offline.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveSettings {
+    pub enabled: bool,
+}
+
 /// Versioned gateway choices. Session secrets belong to the credential store.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "LiveServersWire")]
@@ -402,28 +409,24 @@ impl TryFrom<LiveServersWire> for LiveServers {
         if wire.servers.iter().any(|s| s.id.is_empty() || !ids.insert(s.id.clone())) {
             return Err("Live server IDs must be nonempty and unique".into());
         }
-        let mut result = Self { version: 1, servers: wire.servers };
-        if !result.servers.is_empty() {
-            let selected =
-                result.servers.iter().find(|s| s.selected).unwrap_or(&result.servers[0]).id.clone();
+        // The local development server went away with the local Live mode: a user who had it
+        // selected comes back with no server selected, not with another one chosen for them.
+        let mut servers = wire.servers;
+        servers.retain(|s| s.id != LOCAL_SERVER);
+        let mut result = Self { version: 1, servers };
+        if let Some(selected) = result.servers.iter().find(|s| s.selected).map(|s| s.id.clone()) {
             result.select(&selected);
         }
         Ok(result)
     }
 }
 
+/// The id of the removed local server entry, dropped from saved settings when they load.
+const LOCAL_SERVER: &str = "local-dev";
+
 impl Default for LiveServers {
     fn default() -> Self {
-        Self {
-            version: 1,
-            servers: vec![LiveServer {
-                id: "local-dev".into(),
-                name: "Local (dev)".into(),
-                url: "https://127.0.0.1:8080".into(),
-                cert_pin: None,
-                selected: true,
-            }],
-        }
+        Self { version: 1, servers: Vec::new() }
     }
 }
 
@@ -495,148 +498,7 @@ pub struct ResolvedGateway {
     pub token: Option<mg_live_link::SessionToken>,
 }
 
-fn system_tokens()
--> Result<mg_live_link::credentials::TokenStore, mg_live_link::credentials::StoreError> {
-    let dir =
-        crate::recovery::data_dir().ok_or(mg_live_link::credentials::StoreError::Unavailable)?;
-    Ok(mg_live_link::credentials::TokenStore::system(&dir))
-}
-
-/// Live identifies clients by unique, case-insensitive names.
-fn client_credential_id(name: &str) -> String {
-    format!("local-dev/client/{}", name.to_lowercase())
-}
-
-#[derive(Serialize)]
-struct SavedClient<'a> {
-    name: &'a str,
-    groups: &'a [mg_live::access::ClientGroup],
-    per_minute: u32,
-    delivery: mg_live::access::DeliveryMode,
-}
-
-fn restore_client_credentials<B: mg_live_link::credentials::Backend>(
-    live: &mut mg_live::LiveConfig,
-    store: &mg_live_link::credentials::TokenStore<B>,
-) -> Result<(), mg_live_link::credentials::StoreError> {
-    for client in &mut live.clients {
-        if client.token.is_empty() {
-            client.token = store
-                .get(&client_credential_id(&client.name))?
-                .ok_or(mg_live_link::credentials::StoreError::Storage)?
-                .expose()
-                .to_owned();
-        }
-    }
-    Ok(())
-}
-
-/// Resolve saved client identities only when starting the legacy local service.
-pub(crate) fn restore_live_clients(
-    live: &mut mg_live::LiveConfig,
-) -> Result<(), mg_live_link::credentials::StoreError> {
-    if live.clients.iter().any(|client| client.token.is_empty()) {
-        restore_client_credentials(live, &system_tokens()?)?;
-    }
-    Ok(())
-}
-
-/// Saving cannot discard an unmigrated credential when secure storage fails.
-fn save_legacy_live<S: serde::Serializer>(
-    live: &mg_live::LiveConfig,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    if !live.token.is_empty() {
-        let token = mg_live_link::SessionToken::new(live.token.clone())
-            .map_err(serde::ser::Error::custom)?;
-        system_tokens()
-            .and_then(|s| s.set("local-dev", &token))
-            .map_err(serde::ser::Error::custom)?;
-    }
-    for client in &live.clients {
-        if !client.token.is_empty() {
-            let token = mg_live_link::SessionToken::new(client.token.clone())
-                .map_err(serde::ser::Error::custom)?;
-            system_tokens()
-                .and_then(|s| s.set(&client_credential_id(&client.name), &token))
-                .map_err(serde::ser::Error::custom)?;
-        }
-    }
-    use serde::ser::SerializeStruct;
-    let mg_live::LiveConfig {
-        token: _,
-        enabled,
-        allow_agents,
-        api_bind,
-        api_port,
-        clients,
-        redis_host,
-        redis_port,
-        prefix,
-        policy,
-        keep_logs,
-        log_chat,
-        keep_wsl,
-    } = live;
-    let mut value = serializer.serialize_struct("LiveConfig", 12)?;
-    value.serialize_field("enabled", enabled)?;
-    value.serialize_field("allow_agents", allow_agents)?;
-    value.serialize_field("api_bind", api_bind)?;
-    value.serialize_field("api_port", api_port)?;
-    let clients: Vec<_> = clients
-        .iter()
-        .map(|client| SavedClient {
-            name: &client.name,
-            groups: &client.groups,
-            per_minute: client.per_minute,
-            delivery: client.delivery,
-        })
-        .collect();
-    value.serialize_field("clients", &clients)?;
-    value.serialize_field("redis_host", redis_host)?;
-    value.serialize_field("redis_port", redis_port)?;
-    value.serialize_field("prefix", prefix)?;
-    value.serialize_field("policy", policy)?;
-    value.serialize_field("keep_logs", keep_logs)?;
-    value.serialize_field("log_chat", log_chat)?;
-    value.serialize_field("keep_wsl", keep_wsl)?;
-    value.end()
-}
-
 impl Settings {
-    /// Import the previous plaintext token; leave it intact on storage failure.
-    /// Redis host, port and prefix remain in `live` for the development transition.
-    pub fn migrate_live<B: mg_live_link::credentials::Backend>(
-        &mut self,
-        store: &mg_live_link::credentials::TokenStore<B>,
-    ) -> Result<(), mg_live_link::credentials::StoreError> {
-        if !self.live.token.is_empty() {
-            let token = mg_live_link::SessionToken::new(self.live.token.clone())
-                .map_err(|_| mg_live_link::credentials::StoreError::Storage)?;
-            if store.get("local-dev")?.is_none() {
-                store.set("local-dev", &token)?;
-            }
-            self.live.token.clear();
-            if !self.live_servers.servers.iter().any(|s| s.id == "local-dev") {
-                let mut local = LiveServers::default().servers.remove(0);
-                local.selected = self.live_servers.servers.is_empty();
-                self.live_servers.servers.push(local);
-            }
-        }
-        for client in &mut self.live.clients {
-            if !client.token.is_empty() {
-                let token = mg_live_link::SessionToken::new(client.token.clone())
-                    .map_err(|_| mg_live_link::credentials::StoreError::Storage)?;
-                let id = client_credential_id(&client.name);
-                if store.get(&id)?.is_none() {
-                    store.set(&id, &token)?;
-                }
-                client.token.clear();
-            }
-        }
-        Ok(())
-    }
-
     /// Puts a module at the top of the recent list.
     pub fn remember(&mut self, path: &Path) {
         self.recent.retain(|p| p != path);
@@ -712,68 +574,11 @@ impl Settings {
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct MemoryTokens(
-        std::sync::Mutex<std::collections::HashMap<String, mg_live_link::SessionToken>>,
-    );
-    impl mg_live_link::credentials::Backend for MemoryTokens {
-        fn get(
-            &self,
-            id: &str,
-        ) -> Result<Option<mg_live_link::SessionToken>, mg_live_link::credentials::StoreError>
-        {
-            Ok(self.0.lock().unwrap().get(id).cloned())
-        }
-        fn set(
-            &self,
-            id: &str,
-            token: &mg_live_link::SessionToken,
-        ) -> Result<(), mg_live_link::credentials::StoreError> {
-            self.0.lock().unwrap().insert(id.into(), token.clone());
-            Ok(())
-        }
-        fn delete(&self, id: &str) -> Result<(), mg_live_link::credentials::StoreError> {
-            self.0.lock().unwrap().remove(id);
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn named_client_migration_saves_references_without_plaintext() {
-        let mut settings: Settings = serde_json::from_str(
-            r#"{"live":{"clients":[{"name":"reader","token":"fixture-reader"},{"name":"writer","token":"fixture-writer","per_minute":12}]}}"#,
-        ).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let store = mg_live_link::credentials::TokenStore::new(MemoryTokens::default(), dir.path());
-        settings.migrate_live(&store).unwrap();
-        let json = serde_json::to_string(&settings).unwrap();
-        assert!(!json.contains("fixture-reader"), "client secret leaked into settings");
-        assert!(!json.contains("fixture-writer"));
-        assert!(!json.contains("\"token\""));
-        assert_eq!(
-            store.get("local-dev/client/reader").unwrap().unwrap().expose(),
-            "fixture-reader"
-        );
-        assert_eq!(
-            store.get("local-dev/client/writer").unwrap().unwrap().expose(),
-            "fixture-writer"
-        );
-        let loaded: Settings = serde_json::from_str(&json).unwrap();
-        assert_eq!(loaded.live.clients[0].name, "reader");
-        assert_eq!(loaded.live.clients[1].per_minute, 12);
-        assert!(loaded.live.clients.iter().all(|client| client.token.is_empty()));
-        let ron = ron::to_string(&loaded).unwrap();
-        assert!(!ron.contains("fixture-reader"));
-        let mut restored: Settings = ron::from_str(&ron).unwrap();
-        restore_client_credentials(&mut restored.live, &store).unwrap();
-        assert_eq!(restored.live.clients[0].token, "fixture-reader");
-        assert_eq!(restored.live.clients[1].token, "fixture-writer");
-        assert_eq!(restored.live.clients[1].per_minute, 12);
-    }
-
     #[test]
     fn live_servers_round_trip_selection_and_version() {
         let mut settings = Settings::default();
+        assert!(settings.live_servers.selected().is_none(), "no server is chosen for the user");
+        let first = settings.live_servers.add();
         let id = settings.live_servers.add();
         settings.live_servers.servers[1].cert_pin = Some("a".repeat(64));
         let json = serde_json::to_string(&settings).unwrap();
@@ -782,7 +587,7 @@ mod tests {
         assert_eq!(settings, copy);
         assert_eq!(copy.live_servers.selected().unwrap().id, id);
         settings.live_servers.remove(&id);
-        assert_eq!(settings.live_servers.selected().unwrap().id, "local-dev");
+        assert_eq!(settings.live_servers.selected().unwrap().id, first);
         assert!(serde_json::from_str::<LiveServers>(r#"{"version":2,"servers":[]}"#).is_err());
         assert!(
             serde_json::from_str::<LiveServers>(
@@ -795,44 +600,48 @@ mod tests {
     #[test]
     fn live_settings_round_trip_desktop_ron() {
         let mut settings = Settings::default();
-        settings.live.keep_wsl = Some(false);
+        settings.live.enabled = true;
+        settings.live_servers.add();
         let text = ron::to_string(&settings).unwrap();
         assert_eq!(ron::from_str::<Settings>(&text).unwrap(), settings);
     }
 
+    /// Settings written while the desktop ran a local Live service still load: its fields are
+    /// dropped, its server entry goes and nothing is selected in its place.
     #[test]
-    fn legacy_live_migration_keeps_dev_parameters_and_removes_plain_token() {
-        let mut settings: Settings = serde_json::from_str(r#"{"live":{"redis_host":"localhost","redis_port":6390,"prefix":"demo","token":"fixture-session"}}"#).unwrap();
-        let dir = std::env::temp_dir().join(format!("mg-link-settings-{}", fastrand::u64(..)));
-        let store = mg_live_link::credentials::TokenStore::new(MemoryTokens::default(), &dir);
-        settings.migrate_live(&store).unwrap();
-        assert!(settings.live.token.is_empty());
-        assert_eq!(store.get("local-dev").unwrap().unwrap().expose(), "fixture-session");
-        assert_eq!(settings.live_servers.selected().unwrap().name, "Local (dev)");
-        assert_eq!(
-            (&*settings.live.redis_host, settings.live.redis_port, &*settings.live.prefix),
-            ("localhost", 6390, "demo")
-        );
-        let json = serde_json::to_string(&settings).unwrap();
-        assert!(!json.contains("fixture-session"));
-        assert!(!json.contains("\"token\""));
-        assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), settings);
-        assert!(!dir.exists(), "working keyring creates no fallback");
-    }
-
-    #[test]
-    fn legacy_migration_does_not_overwrite_a_new_session() {
-        let mut settings = Settings::default();
-        settings.live.token = "old-fixture".into();
-        let dir = std::env::temp_dir().join(format!("mg-link-migration-{}", fastrand::u64(..)));
-        let store = mg_live_link::credentials::TokenStore::new(MemoryTokens::default(), &dir);
-        store
-            .set("local-dev", &mg_live_link::SessionToken::new("new-fixture".into()).unwrap())
-            .unwrap();
-        settings.migrate_live(&store).unwrap();
-        assert_eq!(store.get("local-dev").unwrap().unwrap().expose(), "new-fixture");
-        assert!(settings.live.token.is_empty());
-        assert!(!dir.exists());
+    fn settings_of_the_removed_local_mode_migrate_to_no_server_selected() {
+        let json = r#"{"live":{"enabled":true,"allow_agents":true,"api_port":5199,"redis_host":"localhost",
+            "clients":[{"name":"reader","token":"fixture"}],"token":"fixture-session","keep_wsl":false},
+            "live_servers":{"version":1,"servers":[
+              {"id":"local-dev","name":"Local (dev)","url":"https://127.0.0.1:8080","selected":true},
+              {"id":"campaign","name":"Campaign","url":"https://live.example.org","selected":false}]},
+            "recent":["a.mod"]}"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert!(settings.live.enabled, "the connect switch survives");
+        assert!(settings.live_servers.selected().is_none());
+        assert_eq!(settings.live_servers.servers.len(), 1);
+        assert_eq!(settings.live_servers.servers[0].id, "campaign");
+        assert!(settings.live_servers.resolve_with(|_| None).is_none());
+        assert_eq!(settings.recent, [PathBuf::from("a.mod")]);
+        // Saving drops the old fields (and with them the old plaintext token).
+        let saved = serde_json::to_string(&settings).unwrap();
+        for gone in ["fixture", "api_port", "redis_host", "clients", "local-dev"] {
+            assert!(!saved.contains(gone), "{gone} in {saved}");
+        }
+        assert_eq!(serde_json::from_str::<Settings>(&saved).unwrap(), settings);
+        // A selected remote server stays selected when only the local entry is dropped.
+        let kept: Settings = serde_json::from_str(
+            r#"{"live_servers":{"version":1,"servers":[
+              {"id":"local-dev","name":"L","url":"https://127.0.0.1:8080"},
+              {"id":"campaign","name":"C","url":"https://live.example.org","selected":true}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(kept.live_servers.selected().unwrap().id, "campaign");
+        // The desktop's RON files read the same way.
+        let ron = r#"(live:(enabled:true,api_port:5199,token:"x",policy:(scripts:true,chunks:false,players:false)),
+            live_servers:(version:1,servers:[(id:"local-dev",name:"L",url:"u",selected:true)]))"#;
+        let from_ron: Settings = ron::from_str(ron).unwrap();
+        assert!(from_ron.live.enabled && from_ron.live_servers.servers.is_empty());
     }
 
     #[test]
@@ -850,7 +659,7 @@ mod tests {
         assert_eq!(resolved.token.as_ref().unwrap().expose(), "fixture-environment");
         assert!(!format!("{resolved:?}").contains("fixture-environment"));
         assert!(!serde_json::to_string(&servers).unwrap().contains("fixture-environment"));
-        assert_eq!(servers.resolve_with(|_| None).unwrap().server.id, "local-dev");
+        assert!(servers.resolve_with(|_| None).is_none(), "no server, no environment: offline");
     }
 
     /// The game's text is read in the language edited, where the install

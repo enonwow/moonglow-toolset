@@ -95,9 +95,8 @@ pub enum Id {
     ViewLog,
     HidePanels,
     ResetLayout,
-    /// Live: the service started or stopped (Options › Live › Enabled).
+    /// Live: the gateway connection started or stopped.
     LiveToggle,
-    LiveAllowAgents,
     /// Live: the shown area's view showing the running game, or the module.
     LiveInArea,
     LiveOptions,
@@ -227,7 +226,6 @@ pub const MENUS: [(&str, &[Item]); 9] = [
         "Live",
         &[
             Do(Id::LiveToggle),
-            Do(Id::LiveAllowAgents),
             Do(Id::LiveInArea),
             Do(Id::LiveLog),
             Do(Id::LiveChat),
@@ -476,20 +474,15 @@ impl Id {
             ),
             Id::LiveToggle => (
                 "live-toggle",
-                "Start Live",
-                "The live API and the game link (Redis), as set in Options › Live",
+                "Connect to Gateway",
+                "Connect to the server chosen in Options › Live",
             ),
             Id::LiveInArea => (
                 "live-in-area",
                 "Show Live in This Area",
                 "The running game in the area's view; actions there send commands to the server",
             ),
-            Id::LiveOptions => ("live-options", "Live Options…", "Status, token, API and Redis"),
-            Id::LiveAllowAgents => (
-                "live-allow-agents",
-                "Allow LLM",
-                "Allow LLM connections through MCP / the agent API",
-            ),
+            Id::LiveOptions => ("live-options", "Live Options…", "Gateway servers and sign-in"),
             Id::LiveHelp => ("live-help", "Live Mode Help", ""),
             Id::LiveLegend => {
                 ("live-legend", "Legend", "Marker visibility for each Live area view")
@@ -622,13 +615,7 @@ impl Id {
                 format!("{tick}{}", self.text().1)
             }
             Id::HidePanels if app.panels_hidden() => "Show All Panels".into(),
-            Id::LiveToggle if app.live_backend().active() => "Stop Live".into(),
-            Id::LiveAllowAgents => {
-                let tick = if app.live_backend().allow_agents() { "✔ " } else { "    " };
-                let status =
-                    if app.live_agents.connected() { "connected" } else { "no LLM connected" };
-                format!("{tick}Allow LLM · {status}")
-            }
+            Id::LiveToggle if app.live_backend().active() => "Disconnect from Gateway".into(),
             Id::LiveInArea => {
                 let tick = if live_view(app).is_some_and(|on| on) { "✔ " } else { "    " };
                 format!("{tick}{}", self.text().1)
@@ -677,9 +664,6 @@ impl Id {
             Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
             Id::LiveToggle | Id::LiveOptions | Id::LiveHelp | Id::LiveLog => true,
-            Id::LiveAllowAgents => {
-                app.live_backend().active() && app.live_backend().shared_reason().is_none()
-            }
             Id::LiveLegend
             | Id::LiveAtmosphere
             | Id::LiveGmCard
@@ -888,10 +872,6 @@ impl Id {
             Id::LiveToggle => {
                 app.settings.live.enabled = !app.live_backend().active();
                 app.live_needs_apply = true;
-                return;
-            }
-            Id::LiveAllowAgents => {
-                crate::live_agents::set_allowed(app, ctx, !app.settings.live.allow_agents);
                 return;
             }
             Id::LiveInArea => {
@@ -1476,11 +1456,6 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     let hint = id.text().2;
     if !hint.is_empty() {
         r = r.on_hover_text(hint);
-    }
-    if id == Id::LiveAllowAgents {
-        r = r.on_hover_text(crate::live_agents::hint(app)).on_disabled_hover_text(
-            app.live_backend().shared_reason().unwrap_or(crate::live_agents::OFF_REASON),
-        );
     }
     if r.clicked() || chosen {
         id.run(app, ui.ctx());

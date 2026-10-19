@@ -221,7 +221,8 @@ pub(super) fn pending(s: &State, id: &str) -> Option<CommandResult> {
 }
 
 impl LiveStore {
-    /// Service hook: replace the current authenticated-client policy on reconfiguration.
+    /// Test and diagnostic hook: the client scopes a local approval is checked against.
+    #[cfg(any(test, feature = "measure"))]
     pub(crate) fn set_assistant_access(&self, access: Arc<Access>) {
         self.lock().assistant.access = Some(access);
     }

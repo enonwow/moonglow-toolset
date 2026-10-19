@@ -10,7 +10,6 @@ sources:
   - ../crates/mg-live/src/access.rs
   - ../crates/mg-live/src/api.rs
   - ../crates/mg-live/src/service.rs
-  - ../crates/mg-live/src/agents.rs
   - ../apps/mg/src/describe.rs
   - ../apps/moonglow-mcp/src/main.rs
   - ../apps/moonglow-mcp/src/heartbeat.rs
@@ -21,6 +20,8 @@ sources:
 ---
 
 # Agent and CLI discovery protocols
+
+> **Superseded in part (2026-10-19).** The desktop no longer has a local Live mode: Moonglow reaches a game server only through a Live gateway. The local HTTPS API, its token and named clients, the session descriptors, `Allow LLM` consent, the Options › Live API/Redis/WSL/Logs controls and `moonglow-mcp`'s local discovery (`--descriptor`, `--sessions`) described here were removed; read it as the history of that design. Current behaviour: [Live mode](manual/19-live-mode.md), [desktop contract](live-desktop-link.md), [gateway protocol](live-gateway-protocol.md).
 
 ## MCP through the gateway (P4)
 

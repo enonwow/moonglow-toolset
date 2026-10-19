@@ -8,7 +8,7 @@ watch: --session ID --since N --from players --kinds chat,damage --area RESREF
        --to-dm --count N (stop after N events)
 Default watch starts now; --since replays retained events. Ctrl+C stops.
 Common: --gateway URL [--gateway-pin SHA256] [--session-id ID]; token: MOONGLOW_AI_TOKEN
-Legacy: --descriptor FILE --sessions DIR --mg PROGRAM --roots DIR --allow-write
+Files: --mg PROGRAM --roots DIR --allow-write
 MCP: no command for stdio; --http ADDRESS --http-token TOKEN [--http-allow-remote]";
 
 #[derive(Default)]

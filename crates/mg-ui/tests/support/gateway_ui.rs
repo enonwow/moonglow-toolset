@@ -14,7 +14,6 @@ pub(crate) fn app(host: &host::Host, data: &std::path::Path) -> Moonglow {
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
     app.recovery_dir = None;
     app.live_focus.data_dir = Some(data.into());
-    app.live_assistant.data_dir = None;
     // Tiny authored area: no game installation, downloaded HAK or real user folder.
     let mut module = mg_module::Module::new();
     let mut info = mg_gff::Gff::new(*b"IFO ");

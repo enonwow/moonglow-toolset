@@ -334,11 +334,6 @@ fn live_accept4_dialogs_audit() {
     if let Some(stage) = &stage {
         h.render().unwrap().save(out.join(format!("polish-options-{stage}.png"))).unwrap();
     }
-    h.get_by_label("Named clients").click();
-    h.run_steps(3);
-    if let Some(stage) = &stage {
-        h.render().unwrap().save(out.join(format!("polish-clients-{stage}.png"))).unwrap();
-    }
     assert!(store.status(mg_live::now_ms())["queued"].as_array().unwrap().is_empty());
     assert!(!h.state().has_unsaved_work());
 }

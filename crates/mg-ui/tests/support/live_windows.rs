@@ -186,7 +186,6 @@ pub(crate) fn vfx_app() {
     h.get_by_label("1  F  VFX_SPARK");
     assert!(h.query_by_label("0  D  VFX_RED_GLOW").is_none());
     assert!(!h.state().has_unsaved_work());
-    assert!(h.state().live_service.is_none());
 }
 
 pub(crate) fn appearance_app() {
@@ -253,7 +252,6 @@ pub(crate) fn library_app() {
         mg_ui::live_library::save(&dir.join("data"), "fixture", "../escape", &snapshot()).is_err()
     );
     assert!(!h.state().has_unsaved_work());
-    assert!(h.state().live_service.is_none());
 }
 
 // Skill window checks.
@@ -291,5 +289,4 @@ pub(crate) fn skill_app() {
     let line = mg_ui::live_log::line(event, &|id| format!("Player {id}"));
     assert!(line.contains("Player 9 (9): Success") && line.contains("Player a (a): Failure"));
     assert!(!h.state().has_unsaved_work());
-    assert!(h.state().live_service.is_none());
 }

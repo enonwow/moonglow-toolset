@@ -8,6 +8,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:30:00Z }
 
 # Live mode: the whole roadmap
 
+> **Superseded in part (2026-10-19).** The desktop no longer has a local Live mode: Moonglow reaches a game server only through a Live gateway. The local HTTPS API, its token and named clients, the session descriptors, `Allow LLM` consent, the Options › Live API/Redis/WSL/Logs controls and `moonglow-mcp`'s local discovery (`--descriptor`, `--sessions`) described here were removed; read it as the history of that design. Current behaviour: [Live mode](manual/19-live-mode.md), [desktop contract](live-desktop-link.md), [gateway protocol](live-gateway-protocol.md).
+
 Status: accepted by the owner on 2026-10-12 ("everything from this
 conversation has to be done"). This is the master list. Detailed specs
 live in [live mode over Redis](live-mode-redis.md) (done),

@@ -1957,7 +1957,6 @@ struct State {
     history: crate::command_history::History,
     history_dirty: HashSet<(String, String)>,
     owners: HashMap<String, String>,
-    audit: Option<Arc<crate::access::Audit>>,
     prefix: String,
     policy: Policy,
     kick: Option<Sender<()>>,
@@ -2002,10 +2001,6 @@ pub struct Synced {
 impl LiveStore {
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    pub(crate) fn set_audit(&self, audit: Arc<crate::access::Audit>) {
-        self.lock().audit = Some(audit);
     }
 
     pub(crate) fn require_command_identity(&self) {
@@ -3577,17 +3572,6 @@ fn push_result(s: &mut State, command: Command, mut result: CommandResult) {
         s.history_dirty.insert((boot, command.id.clone()));
     }
     let draft_answer = assistant::completed(s, &command, &result);
-    if let Some(audit) = &s.audit {
-        let cmd = serde_json::to_value(&command).unwrap_or_default();
-        let code = serde_json::to_value(result.code).unwrap_or_default();
-        audit.record(
-            s.owners.get(&command.id).map(String::as_str).unwrap_or("local"),
-            cmd["op"].as_str().unwrap_or("unknown"),
-            command.target(),
-            if result.ok { "ok" } else { code.as_str().unwrap_or("failed") },
-            if result.pending { "progress" } else { "completion" },
-        );
-    }
     gateway::record_result(&mut s.gateway, &result);
     let answer = result.event_value();
     s.events.command_action(&command, &answer, crate::now_ms());

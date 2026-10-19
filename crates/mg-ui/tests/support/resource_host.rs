@@ -268,7 +268,6 @@ impl Host {
     pub(crate) fn app(&self) -> Moonglow {
         let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
         app.recovery_dir = None;
-        app.live_assistant.data_dir = None;
         app.game = Some(Arc::new(mg_rules::GameData::new(
             mg_resman::ResMan::new(),
             mg_tlk::Tlk::new(mg_core::Language::ENGLISH),

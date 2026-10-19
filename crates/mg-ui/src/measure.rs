@@ -74,7 +74,7 @@ pub fn census_all(app: &crate::Moonglow) -> serde_json::Value {
         "focus_entries":app.live_focus.entries.len(),
         "focus_rows":app.live_focus.entries.iter().map(|e|e.rows.len()).collect::<Vec<_>>(),
         "chat":app.live_chat.measure_cache(),"log":app.live_log.measure_cache(),
-        "drafts":app.live_drafts.measure_cache(),"assistant":app.live_assistant.measure_cache(),
+        "drafts":app.live_drafts.measure_cache(),
         "renderer":app.viewport.as_ref().map(|v|v.renderer.measure_memory()),
     })
 }

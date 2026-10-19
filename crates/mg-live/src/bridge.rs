@@ -138,7 +138,7 @@ fn has_outbound(value: &Value) -> bool {
             .any(|key| value[key].as_array().is_some_and(|a| !a.is_empty()))
 }
 
-/// Lifetime is owned by LiveService; its shared stop flag cancels both workers.
+/// Lifetime is owned by the host (the gateway); its shared stop flag cancels both workers.
 #[derive(Debug)]
 pub struct Bridge {
     state: Arc<Mutex<State>>,

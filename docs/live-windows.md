@@ -1256,6 +1256,8 @@ fixture before the change and its own-speech default afterwards.
 
 ## Allow LLM consent and presence UI (2026-10-15)
 
+> Removed on 2026-10-19 with the local Live mode: AIs now have a per-AI **Allow LLM for this AI** switch in the AI agents window ([AI agents](manual/19-live-mode.md#ai-agents)). The text below is history.
+
 Owner request: one explicit, persisted consent switch (default off) for external
 MCP/agent API clients, with a recent-client indicator. The toolbar beside Live,
 Live menu (`Id::LiveAllowAgents`) and Options Live page share
@@ -1284,7 +1286,7 @@ authenticated request in the last 60 seconds. Hover lists all recent client
 names, operations and ages, without credentials or request arguments. The menu
 also spells out connection status. Settings serialization supplies normal desktop
 persistence; changing consent does not edit the module. Connection instructions
-are in [Allow LLM](manual/19-live-mode.md#allow-llm).
+are in [Allow LLM](manual/19-live-mode.md#ai-agents).
 
 Reproduce with PowerShell 7 and guarded `tools/live/check.ps1 -Phase 8 -Next
 -Jobs 1 -NoUiDebug -UiUnoptimized`: `-Step llm-unit -Package mg-ui -LibraryOnly

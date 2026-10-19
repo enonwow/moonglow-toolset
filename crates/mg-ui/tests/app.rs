@@ -6456,7 +6456,6 @@ fn area_harness_on(
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
-    app.live_assistant.data_dir = Some(path.parent().unwrap().join("assistant-data"));
     app.live_focus.data_dir = Some(path.parent().unwrap().join("assistant-data"));
     app.live_scene.data_dir = Some(path.parent().unwrap().join("assistant-data"));
     app.recovery_dir = Some(path.parent().unwrap().join("app-data/recovery"));
@@ -6530,9 +6529,7 @@ fn live_targeting_cancels_confirms_and_tracks_destinations() {
     };
     store.sync(report(1, 18., 20.).to_string().as_bytes(), mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live =
-        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     let v = h.state_mut().area_views.get_mut(&area).unwrap();
     v.live.on = true;
     v.live.selected = Some("1".into());
@@ -6941,9 +6938,7 @@ fn live_panel_filters_selection_and_follow_use_reports() {
     };
     store.sync(report(1, 18.).to_string().as_bytes(), mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live =
-        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
     h.run_steps(2);
     h.get_by_label("Live Panel").click();
@@ -7144,14 +7139,7 @@ fn live_review_props_sends_once_on_release_and_applies_numeric_transforms() {
         "doors":[{"id":"b","name":"Door","x":27,"y":20}]}]});
     store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     let v = h.state_mut().area_views.get_mut(&area).unwrap();
     v.live.on = true;
     v.live.select(Some("a".into()), false);
@@ -7264,14 +7252,7 @@ fn live_review_group_selects_markers_and_queues_each_eligible_object() {
         {"id":"3","name":"Three","x":24,"y":20},{"id":"4","name":"Player","pc":true,"x":30,"y":20}]}]});
     store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
     h.run_steps(3);
     let p1 = screen(&h, area, glam::vec3(18., 20., 0.3));
@@ -7416,9 +7397,7 @@ fn live_labels_toolbar_switches_modes_without_hiding_objects() {
         "area":area.to_string(),"full":true,"cre":[{"id":"1","r":"nw_bartender","x":18,"y":20}]
     }]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live =
-        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
     h.run_steps(2);
     let mut previous = LabelMode::NearSelected;
@@ -7461,8 +7440,6 @@ fn live_labels_toolbar_switches_modes_without_hiding_objects() {
         .insert(2, [12, 34, 56]);
     h.state_mut().actions.push(mg_ui::Action::LiveOptions);
     h.run_steps(3);
-    h.get_by_label("Local development (legacy)").click();
-    h.run_steps(3);
     h.get_by_label("Factions").click();
     h.run_steps(2);
     assert!(h.query_by_label("2: Commoner").is_some());
@@ -7489,9 +7466,7 @@ fn live_spawning_arms_places_once_repeats_and_cancels() {
         "area":area.to_string(),"full":true,"cre":[{"id":"1","r":"nw_bartender","x":18,"y":20}]
     }]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live =
-        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     let v = h.state_mut().area_views.get_mut(&area).unwrap();
     v.live.on = true;
     v.live.selected = Some("1".into());
@@ -7567,9 +7542,7 @@ fn live_viewer_queues_actions_without_editing_the_git() {
         )
         .unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live =
-        mg_live::LiveConfig { enabled: true, api_port: 0, redis_port: 1, ..Default::default() };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
     let git_key = ResKey::new(area, ResType::GIT);
     let before = h.state_mut().ws.as_mut().unwrap().doc(&git_key).unwrap().clone();
@@ -7950,187 +7923,12 @@ fn live_scene_records_saves_validates_plays_and_stops_with_a_fake_store() {
         5000,
         "module switching retains the draft"
     );
-    assert!(h.state().live_service.is_none());
     assert!(!h.state().has_unsaved_work());
 }
 
 #[test]
-fn live_clients_draft_validates_rotates_applies_and_cancels() {
-    use mg_live::access::ClientGroup;
-    let mut app = app_with(Vec::new());
-    app.actions.push(mg_ui::Action::LiveOptions);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280., 1000.))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run_steps(3);
-    let path = h.state().dock.find_tab(&Tab::Options).unwrap();
-    h.state_mut()
-        .dock
-        .get_window_state_mut(path.surface)
-        .unwrap()
-        .set_position(egui::pos2(50., 40.))
-        .set_size(egui::vec2(1120., 900.));
-    h.run_steps(3);
-    h.get_by_label("Local development (legacy)").click();
-    h.run_steps(3);
-    #[cfg(windows)]
-    {
-        h.get_by_label("Keep WSL running").click();
-        h.run_steps(2);
-    }
-    h.get_by_label("Named clients").click();
-    h.run_steps(2);
-    h.get_by_label("Add client").click();
-    h.run_steps(2);
-    let first = h.state().options.as_ref().unwrap().live.clients[0].token.clone();
-    assert!(first.len() >= 32);
-    assert!(h.state().settings.live.clients.is_empty());
-    h.get_by_label("npc").click();
-    h.get_by_label("variables").click();
-    h.get_by_label("Generate token").click();
-    h.run_steps(2);
-    assert!(h.state().options.as_ref().unwrap().live.clients[0].token != first);
-    h.get_by_label("Copy client token").click();
-    h.run_steps(1);
-    assert!(
-        h.output()
-            .platform_output
-            .commands
-            .iter()
-            .any(|c| matches!(c, egui::OutputCommand::CopyText(_)))
-    );
-    h.state_mut().options.as_mut().unwrap().live.clients[0].name = "default".into();
-    h.run_steps(2);
-    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
-    let draft = &mut h.state_mut().options.as_mut().unwrap().live;
-    draft.clients[0].name = "Story assistant".into();
-    draft.clients[0].per_minute = 30;
-    h.run_steps(2);
-    h.get_by_label("Apply").click();
-    h.run_steps(3);
-    let config = &h.state().settings.live;
-    assert_eq!(config.clients[0].name, "Story assistant");
-    assert_eq!(config.clients[0].per_minute, 30);
-    assert!(config.clients[0].groups.contains(&ClientGroup::Variables));
-    assert!(config.clients[0].groups.contains(&ClientGroup::Npc));
-    #[cfg(windows)]
-    assert_eq!(config.keep_wsl, Some(false));
-    // This UI test round-trips public configuration only. Secret migration and
-    // runtime restoration are covered by settings tests with an injected store.
-    let mut public_settings = h.state().settings.clone();
-    public_settings.live.token.clear();
-    for client in &mut public_settings.live.clients {
-        client.token.clear();
-    }
-    let json = serde_json::to_string(&public_settings).unwrap();
-    assert!(!json.contains("\"token\""));
-    let restored: mg_ui::Settings = serde_json::from_str(&json).unwrap();
-    assert_eq!(restored.live, public_settings.live);
-    h.get_by_label("Remove client").click();
-    h.run_steps(2);
-    h.get_by_label("Cancel").click();
-    h.run_steps(2);
-    assert_eq!(h.state().settings.live.clients.len(), 1);
-    assert!(h.state().live_service.is_none(), "disabled Live starts no listener or WSL child");
-    assert!(!h.state().has_unsaved_work());
-}
-
-#[test]
-fn live_options_apply_starts_restarts_stops_and_refuses_chunks_over_https() {
-    use std::io::{Read, Write};
-    use std::sync::Arc;
-    let mut app = app_with(Vec::new());
-    // Service commands require the same durable identity setup as desktop startup.
-    app.recovery_dir = Some(mg_testkit::scratch_dir("ui-live-options-service").join("recovery"));
-    app.settings.live.keep_logs = false;
-    app.settings.live.keep_wsl = Some(false);
-    let old: mg_ui::Settings = serde_json::from_str("{}").unwrap();
-    assert!(!old.live.enabled && !old.live.policy.chunks && old.live.policy.scripts);
-    app.settings.live.api_port = 0;
-    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
-    app.options = Some(mg_ui::OptionsDraft::from_settings(&app.settings));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100., 900.))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
-    h.get_all_by_label("Live").last().unwrap().click();
-    h.run();
-    h.get_by_label("Local development (legacy)").click();
-    h.run_steps(3);
-    h.get_by_label("Enable live mode").click();
-    h.get_by_label("Apply").click();
-    h.run_steps(3);
-    let service = h.state().live_service.as_ref().expect("Apply starts the service");
-    let port = service.config().api_port;
-    assert_ne!(port, 0);
-    assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_err());
-    let token = service.config().token.clone();
-    assert_eq!(h.state().settings.live.token, token);
-    assert!(!format!("{:?}", h.state().settings).contains(&token), "Debug must redact the token");
-    // The session secret no longer round-trips through settings. Credential
-    // migration is covered with a mock backend in settings' unit tests.
-    let mut persisted = h.state().settings.clone();
-    persisted.live.token.clear();
-    let saved = serde_json::to_string(&persisted).unwrap();
-    assert!(!saved.contains(&token));
-    let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
-    assert_eq!(back.live, persisted.live);
-    let store = h.state().live.as_ref().unwrap().clone();
-    store
-        .sync(
-            br#"{"v":1,"boot":"options","seq":1,"areas":[{"area":"start","full":true,"cre":[]}]}"#,
-            mg_live::now_ms(),
-        )
-        .unwrap();
-
-    // External calls need the owner's explicit consent as well as the chunk policy.
-    h.get_by_label("Allow LLM connections (MCP / agent API)").click();
-    h.run_steps(2);
-    let service = h.state().live_service.as_ref().unwrap();
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add(rustls::pki_types::CertificateDer::from(service.certificate().to_vec())).unwrap();
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_root_certificates(roots)
-    .with_no_client_auth();
-    let client =
-        rustls::ClientConnection::new(Arc::new(config), "moonglow-live".try_into().unwrap())
-            .unwrap();
-    let socket = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
-    let mut tls = rustls::StreamOwned::new(client, socket);
-    let body = r#"{"area":"start","op":"run_chunk","code":"SetName(OBJECT_SELF, \"test\");"}"#;
-    write!(tls, "POST /live/v1/command HTTP/1.1\r\nHost: moonglow-live\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-    tls.flush().unwrap();
-    let mut response = String::new();
-    tls.read_to_string(&mut response).unwrap();
-    assert!(response.starts_with("HTTP/1.1 400"), "{response}");
-    assert!(response.contains("NWScript chunks are off in Options"), "{response}");
-    drop(tls);
-
-    // Applying again must release the exact listening port before rebinding it.
-    h.state_mut().options.as_mut().unwrap().live.api_port = port;
-    h.get_by_label("Apply").click();
-    h.run_steps(3);
-    assert_eq!(h.state().live_service.as_ref().unwrap().config().api_port, port);
-    h.get_by_label("Enable live mode").click();
-    h.get_by_label("Apply").click();
-    h.run_steps(3);
-    assert!(h.state().live_service.is_none());
-    assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok());
-    assert!(Arc::ptr_eq(h.state().live.as_ref().unwrap(), &store));
-    assert!(store.area("start").is_some(), "Off retains the last report");
-    h.get_by_label("Live mode is off");
-}
-
-#[test]
-fn live_menu_starts_and_stops_live_and_opens_its_options() {
-    let mut app = app_with(Vec::new());
-    app.settings.live.api_port = 0;
-    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+fn live_menu_connects_to_a_gateway_and_opens_its_options() {
+    let app = app_with(Vec::new());
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100., 900.))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -8141,17 +7939,15 @@ fn live_menu_starts_and_stops_live_and_opens_its_options() {
     assert!(
         h.get_by_label("    Show Live in This Area Ctrl+Shift+L").accesskit_node().is_disabled()
     );
-    h.get_by_label("Start Live").click();
+    // The local service is gone: there is no LLM switch, only gateway commands.
+    assert!(h.query_by_label_contains("Allow LLM").is_none());
+    // No server is chosen on a fresh profile: connecting says so and starts nothing.
+    h.get_by_label("Connect to Gateway").click();
     h.run_steps(3);
     assert!(h.state().settings.live.enabled);
-    assert!(h.state().live_service.is_some(), "the menu starts the service");
-
-    h.get_by_label("Live").click();
-    h.run();
-    h.get_by_label("Stop Live").click();
-    h.run_steps(3);
-    assert!(!h.state().settings.live.enabled);
-    assert!(h.state().live_service.is_none());
+    assert!(!h.state().live_backend().active());
+    assert!(h.state().live.is_none());
+    assert!(h.state().live_error.as_deref().is_some_and(|e| e.contains("Choose a gateway")));
 
     // The live windows open from the Live menu.
     for (item, tab) in [
@@ -8177,21 +7973,13 @@ fn live_menu_starts_and_stops_live_and_opens_its_options() {
 #[test]
 fn live_chat_shows_speech_and_messages_every_player() {
     let mut app = app_with(Vec::new());
-    // Service commands require the same durable identity setup as desktop startup.
-    app.recovery_dir = Some(mg_testkit::scratch_dir("ui-live-chat-service").join("recovery"));
-    app.settings.live.keep_logs = false;
-    app.settings.live.keep_wsl = Some(false);
-    app.settings.live.api_port = 0;
-    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    app.live = Some(store.clone()); // A store attached directly: no gateway.
+    app.settings.live.enabled = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100., 900.))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    h.get_all_by_label("Live").next().unwrap().click();
-    h.run();
-    h.get_by_label("Start Live").click();
-    h.run_steps(3);
-    let store = h.state().live.as_ref().expect("Live started").clone();
     store.set_policy(mg_ui::live::Policy { scripts: true, chunks: false, players: true });
     let report = serde_json::json!({"v":1,"boot":"chat","seq":1,"areas":[{"area":"gate","full":true,
         "cre":[{"id":"7","name":"Gate Guard","portrait":"po_hu_m_99_"},{"id":"9","name":"Simo","pc":true}]}],"events":[
@@ -8224,17 +8012,13 @@ fn live_chat_shows_speech_and_messages_every_player() {
 #[test]
 fn live_log_shows_the_game_s_events_by_page() {
     let mut app = app_with(Vec::new());
-    app.settings.live.api_port = 0;
-    app.settings.live.redis_port = 1; // Never contacts a real Redis instance.
+    let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
+    app.live = Some(store.clone()); // A store attached directly: no gateway.
+    app.settings.live.enabled = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100., 900.))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    h.get_by_label("Live").click();
-    h.run();
-    h.get_by_label("Start Live").click();
-    h.run_steps(3);
-    let store = h.state().live.as_ref().expect("Live started").clone();
     let report = serde_json::json!({"v":1,"boot":"log","seq":1,"areas":[{"area":"gate","full":true,
         "cre":[{"id":"7","name":"Gate Guard"},{"id":"9","name":"Bandit"}]}],"events":[
         {"seq":1,"kind":"chat","id":"7","name":"Gate Guard","area":"gate","channel":2,"text":"Halt!"},
@@ -19405,14 +19189,7 @@ fn live_review_patrol_aims_groups_bounds_points_and_observes_progress() {
     store.sync(serde_json::json!({"v":1,"boot":"patrol-ui","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[
         {"id":"1","x":18,"y":20},{"id":"2","x":21,"y":20},{"id":"3","pc":true,"x":24,"y":20}]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
     h.run_steps(3);
     for id in ["1", "2", "3"] {
@@ -19535,14 +19312,7 @@ fn live_review_tiles_confirm_observe_restore_and_preserve_the_module() {
     let store = std::sync::Arc::new(mg_live::store::LiveStore::default());
     store.sync(serde_json::json!({"v":1,"boot":"tiles-ui","seq":1,"areas":[{"area":area.to_string(),"full":true,"cre":[]}]}).to_string().as_bytes(),mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        ..Default::default()
-    };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
     let revision = h.state().ws.as_ref().unwrap().revision();
     let are_key = ResKey::new(area, ResType::ARE);
     let before = h.state_mut().ws.as_mut().unwrap().doc(&are_key).unwrap().clone();
@@ -19754,15 +19524,8 @@ fn review_live_start(
     report["areas"][0]["full"] = true.into();
     store.sync(report.to_string().as_bytes(), mg_live::now_ms()).unwrap();
     h.state_mut().live = Some(store.clone());
-    h.state_mut().settings.live = mg_live::LiveConfig {
-        enabled: true,
-        api_port: 0,
-        redis_port: 1,
-        keep_wsl: Some(false),
-        policy: mg_live::store::Policy { players: true, ..Default::default() },
-        ..Default::default()
-    };
-    h.state_mut().apply_live(&egui::Context::default());
+    h.state_mut().settings.live.enabled = true;
+    store.set_policy(mg_live::store::Policy { players: true, ..Default::default() });
     h.state_mut().area_views.get_mut(&area).unwrap().live.on = true;
     h.run_steps(4);
     store
@@ -20359,9 +20122,6 @@ mod live_accept5;
 
 #[path = "support/live_portrait.rs"]
 mod live_portrait;
-
-#[path = "support/live_npc_menu.rs"]
-mod live_npc_menu;
 
 #[path = "support/live_accept5_factions.rs"]
 mod live_accept5_factions;
@@ -21231,8 +20991,6 @@ fn a_game_table_is_edited_as_a_copy() {
 
 #[path = "support/live_accept6.rs"]
 mod live_accept6;
-#[path = "support/live_agents.rs"]
-mod live_agents;
 
 #[path = "support/live_audit7.rs"]
 mod live_audit7;

@@ -411,10 +411,13 @@ It needs the game for `nwscript.nss` and the includes (`--root` or
 ## Agents and MCP
 
 `moonglow-mcp` ships beside `mg` and as a standalone archive. It discovers tools
-from running applications' `/v1/describe` and the chosen CLI's `mg describe`.
-It depends on no Moonglow crate or application version. A fork can implement
-the contract in `docs/agent-protocol.md`; no adapter tool list needs editing.
-Editor operations on unsaved documents are a future phase, not offered here.
+from a Live gateway's `/agent/v1/describe` (the game's operations, for one AI
+identity: see [Live mode](19-live-mode.md#ai-agents)) and the chosen CLI's
+`mg describe`. It reaches the game only through the gateway: there is no local
+Moonglow session to discover. It depends on no Moonglow crate or application
+version. A fork can implement the contract in `docs/agent-protocol.md`; no
+adapter tool list needs editing. Editor operations on unsaved documents are a
+future phase, not offered here.
 
 The default transport is stdio. Add the installed executable to PATH or use
 its full path. For an AppImage, a symlink named `moonglow-mcp` selects the
@@ -423,8 +426,9 @@ adapter; Flatpak uses `--command=moonglow-mcp`. On macOS it is in the app's
 
 | Option | Purpose |
 |---|---|
-| `--descriptor FILE` | Select an agent descriptor explicitly; repeat for multiple instances. Otherwise discover live sessions in the OS data folder. Environment: `MOONGLOW_AGENT_DESCRIPTOR`. |
-| `--sessions DIR` | Also discover live sessions in this folder (for example the Live demo's `gui-data/Moonglow/live/sessions`); repeatable. Environment: `MOONGLOW_MCP_SESSIONS` (a path list). |
+| `--gateway URL` | The Live gateway's `https://` address. The AI's token comes from the environment variable `MOONGLOW_AI_TOKEN` (never an argument). Without it only the `mg` CLI tools are offered. |
+| `--gateway-pin SHA256` | The gateway certificate's SHA-256 fingerprint, for a gateway whose certificate is not publicly trusted (required for an IP address). |
+| `--session-id ID` | The name this adapter's session has in `moonglow_sessions` and `watch --session` (default `gateway`). |
 | `--mg PROGRAM` | Discover this CLI; otherwise use `MOONGLOW_MG`, the executable beside the adapter, or PATH. |
 | `--roots DIR` | Allow filesystem arguments inside this directory; repeatable. Default: current directory. `MOONGLOW_MCP_ROOTS` is an OS path list. |
 | `--allow-write` | Permit CLI commands described as writes; alternative: `MOONGLOW_MCP_WRITE=1`. |
@@ -441,7 +445,7 @@ commands require `background:true`. The adapter's `moonglow_jobs` tool can
 list/status/stop/forget its own jobs, never unrelated PIDs. The roots guard
 covers described path arguments and resolves symlinks; it does not sandbox a
 trusted CLI's implementation or arbitrary script text. Project rules still
-apply to game/server commands. Live operations use Moonglow's own policy;
+apply to game/server commands. Live operations use the gateway's policy for the AI;
 disabled scripts/chunks are absent from discovery. Commands return a queued
 id: call `live_wait` for the result and read area state to verify movement.
 
@@ -450,7 +454,7 @@ your project directory. These examples are configuration, not commands to run
 a game server:
 
 ```sh
-claude mcp add --scope user moonglow -- moonglow-mcp --roots "<folder>"
+claude mcp add --scope user moonglow --env MOONGLOW_AI_TOKEN=<AI token> -- moonglow-mcp --gateway https://<gateway> --roots "<folder>"
 ```
 
 For Codex, add to `~/.codex/config.toml`:
@@ -458,28 +462,30 @@ For Codex, add to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.moonglow]
 command = "moonglow-mcp"
-args = ["--roots", "<folder>"]
+args = ["--gateway", "https://<gateway>", "--roots", "<folder>"]
+env = { MOONGLOW_AI_TOKEN = "<AI token>" }
 ```
 
 For Claude Desktop or Cursor, use a stdio server entry under `mcpServers`:
 
 ```json
-{"mcpServers":{"moonglow":{"command":"moonglow-mcp","args":["--roots","<folder>"]}}}
+{"mcpServers":{"moonglow":{"command":"moonglow-mcp","args":["--gateway","https://<gateway>","--roots","<folder>"],"env":{"MOONGLOW_AI_TOKEN":"<AI token>"}}}}
 ```
 
 For VS Code's `.vscode/mcp.json`, the container is `servers`:
 
 ```json
-{"servers":{"moonglow":{"type":"stdio","command":"moonglow-mcp","args":["--roots","<folder>"]}}}
+{"servers":{"moonglow":{"type":"stdio","command":"moonglow-mcp","args":["--gateway","https://<gateway>","--roots","<folder>"],"env":{"MOONGLOW_AI_TOKEN":"<AI token>"}}}}
 ```
 
 An HTTP client connects to `http://127.0.0.1:7801/mcp` with its bearer header
 after starting `moonglow-mcp --http 127.0.0.1:7801 --http-token <token>`.
 The adapter negotiates MCP versions `2024-11-05`, `2025-03-26` and `2025-06-18`.
 Stdio and HTTP discover the same tools. Clients without MCP use authenticated
-HTTPS calls and `docs/live-api.openapi.json`, also served at
-`/v1/openapi.json`. The application token and TLS certificate pin come from its
-private descriptor. Never paste descriptors or real tokens into shared config.
+HTTPS calls to the gateway's `/agent/v1/` routes with the AI's token (see
+`docs/live-api.openapi.json`). The AI token and the certificate fingerprint come
+from the AI agents window and the administrator. Never paste real tokens into
+shared config; prefer the environment of the process that starts the adapter.
 
 ## NWScript in other editors
 

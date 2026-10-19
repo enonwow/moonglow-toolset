@@ -719,7 +719,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     #[cfg(feature = "measure")]
     let _measure = crate::measure::span("window.scene");
     let live = app.live.clone();
-    let policy = live.as_ref().map_or(app.settings.live.policy, |s| s.policy());
+    let policy = live.as_ref().map_or_else(Default::default, |s| s.policy());
     let enabled = crate::live_targets::enabled(app) && live.is_some();
     let example = example(app);
     let dialogs = &mut app.dialogs;
@@ -1154,7 +1154,7 @@ pub(crate) fn hotkey(app: &mut Moonglow, ui: &egui::Ui) -> bool {
     let result = if crate::live_targets::enabled(app) {
         app.live
             .clone()
-            .ok_or("Start Live first".into())
+            .ok_or("Connect to a gateway first".into())
             .and_then(|live| app.live_scene.play_hotkey(index, live))
     } else {
         Err("Enable Live commands first".into())

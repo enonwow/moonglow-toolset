@@ -31,18 +31,16 @@ pub mod journal_view;
 pub mod keys;
 pub mod levelup_view;
 pub use mg_live::store as live;
-mod live_agents;
 mod live_ai;
 mod live_aim;
 mod live_animation;
 mod live_areas;
-pub mod live_assistant;
+mod live_assistant;
 mod live_atmosphere;
 mod live_avatar;
 pub mod live_backend;
 mod live_book;
 pub mod live_chat;
-mod live_clients;
 pub mod live_clipboard;
 pub mod live_colors;
 mod live_context;
@@ -603,18 +601,16 @@ pub struct Moonglow {
     pub prefab_deleted: Option<(String, String)>,
     /// Where variable sets are kept (`var_sets`).
     pub var_set_dir: Option<PathBuf>,
-    /// Reports and commands shared with the optional live HTTPS listener.
+    /// The game server's reports and commands: the gateway mirror (a store attached without
+    /// a gateway is read and commanded directly: embedding and tests).
     pub live: Option<std::sync::Arc<live::LiveStore>>,
-    pub live_service: Option<mg_live::LiveService>,
     live_gateway: Option<live_backend::GatewayRuntime>,
     live_resources: live_resources::Resources,
-    live_agents: live_agents::LiveAgents,
     pub live_error: Option<String>,
     pub live_panel: live_panel::LivePanel,
     pub live_log: live_log::LiveLog,
     pub live_chat: live_chat::LiveChat,
     pub live_drafts: live_drafts::LiveDrafts,
-    pub live_assistant: live_assistant::LiveAssistant,
     live_books: live_book::Books,
     live_ai: live_ai::Agents,
     pub live_focus: live_focus::LiveFocus,
@@ -868,16 +864,13 @@ impl Moonglow {
             prefab_deleted: None,
             var_set_dir: None,
             live: None,
-            live_service: None,
             live_gateway: None,
             live_resources: Default::default(),
-            live_agents: Default::default(),
             live_error: None,
             live_panel: Default::default(),
             live_log: Default::default(),
             live_chat: Default::default(),
             live_drafts: Default::default(),
-            live_assistant: Default::default(),
             live_books: Default::default(),
             live_ai: Default::default(),
             live_focus: Default::default(),
@@ -1012,8 +1005,6 @@ impl Moonglow {
         live_backend::update(self, ui.ctx());
         live_resources::update(self, ui.ctx());
         live_ai::window(self, ui.ctx());
-        live_agents::update(self, ui.ctx());
-        live_assistant::update(self);
         live_focus::update(self);
         live_scene::update(self, ui.ctx());
         live_prepare::update(self, ui.ctx());

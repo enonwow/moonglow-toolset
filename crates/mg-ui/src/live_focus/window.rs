@@ -254,7 +254,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             });
         }
-        let orders=app.live.as_ref().ok_or_else(||"Start Live to reply.".to_string())
+        let orders=app.live.as_ref().ok_or_else(||"Connect to a gateway to reply.".to_string())
             .and_then(|store|reply_orders(store,&members.iter().filter(|m|focus.area.as_ref().is_none_or(|a|m.area==*a)).cloned().collect::<Vec<_>>(),group,focus.volume,&focus.text));
         let reason=orders.as_ref().err().cloned();
         let mut send=false;
