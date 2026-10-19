@@ -862,3 +862,5 @@
 * **Page dense Live reports (2026-10-18)**: collect creatures first, converge static pages with explicit coverage, defer cold looks and recover interrupted reports without losing receipts. [Contract and native fault-injection proof](live-ops-wire.md#dense-area-reporting-stays-live).
 
 * **Negotiate the current mirror schema (2026-10-18)**: the desktop WebSocket upgrade uses the shared mirror version, including schema 2 coverage fields. [Transport contract](live-gateway-protocol.md#2-transport).
+
+* **Live demo scripts follow the gateway (2026-10-19)**: `Start-LiveDemo.ps1` runs `apps/mg-gateway-dev` beside the private WSL server; the scripts that drove the removed local service (`probe.ps1`, `morning.ps1`, `test-demo.ps1`, `test-next.*`, `stress_run.py`, `stress_clients.py`) are gone, and the earlier phase records that name them stay as history.

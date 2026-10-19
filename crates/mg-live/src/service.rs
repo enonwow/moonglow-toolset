@@ -52,6 +52,9 @@ impl LiveConfig {
         if let Some(value) = get("MOONGLOW_LIVE_CHUNKS") {
             self.policy.chunks = value == "1";
         }
+        if let Some(value) = get("MOONGLOW_LIVE_PLAYERS") {
+            self.policy.players = value == "1";
+        }
         Ok(self)
     }
 
@@ -77,10 +80,11 @@ mod tests {
                 "MOONGLOW_LIVE_REDIS" => Some("localhost:1234".into()),
                 "MOONGLOW_LIVE_PREFIX" => Some("demo".into()),
                 "MOONGLOW_LIVE_CHUNKS" => Some("1".into()),
+                "MOONGLOW_LIVE_PLAYERS" => Some("1".into()),
                 _ => None,
             })
             .unwrap();
-        assert!(changed.policy.chunks);
+        assert!(changed.policy.chunks && changed.policy.players);
         assert_eq!(
             (&*changed.redis_host, changed.redis_port, &*changed.prefix),
             ("localhost", 1234, "demo")

@@ -22,18 +22,7 @@ function Invoke-LiveWsl {
     & wsl @arguments
     if ($LASTEXITCODE -ne 0) { throw "WSL command failed ($LASTEXITCODE): $($Command[0])" }
 }
-# 'open' (the API answers), 'gated' (403: up, LLM access off) or $null (not listening yet).
-function Test-LiveListener {
-    param([string]$Uri, [string]$Token)
-    try {
-        $null = Invoke-RestMethod $Uri -Headers @{Authorization="Bearer $Token"} -SkipCertificateCheck -NoProxy -TimeoutSec 1
-        return 'open'
-    } catch {
-        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) { return 'gated' }
-        return $null
-    }
-}
-# With the API closed: Moonglow is subscribed to the game's reports and the game publishes them.
+# The gateway is subscribed to the game's reports and the game publishes them.
 function Test-LiveReportsByRedis {
     param([int]$RedisPort, [string]$Prefix)
     $channel = "$Prefix.state"

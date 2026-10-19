@@ -2368,7 +2368,6 @@ def main():
     parser._option_string_actions["--phase"].choices.append("chat_latency")
     parser._option_string_actions["--phase"].choices.append("pc_reply")
     parser._option_string_actions["--phase"].choices.append("redis_restart")
-    parser._option_string_actions["--phase"].choices.append("stress")
     parser._option_string_actions["--phase"].choices.append("command_receipts")
     parser._option_string_actions["--phase"].choices.append("command_budget")
     parser._option_string_actions["--phase"].choices.append("command_accounting")
@@ -2382,7 +2381,7 @@ def main():
     args = parser.parse_args()
     if args.phase == "dense_report":
         os.environ["MGLIVE_DENSE_PROOF"] = "1"
-    if args.phase in ("stress", "chat_translation_stress"):
+    if args.phase == "chat_translation_stress":
         os.environ["MGLIVE_STRESS_PREPARE"]="1"
     if args.phase.startswith("chat_translation"):
         os.environ["MGLIVE_XL_PROOF"]="1"
@@ -2476,7 +2475,7 @@ def main():
             env["MGLIVE_AREAS"] = ""
         if args.phase == "measure":
             env["MGLIVE_AREAS"] = os.environ.get("MGLIVE_DEMO_AREA", "demo_area")
-        if args.phase in ("stress", "chat_translation_stress"):
+        if args.phase == "chat_translation_stress":
             env["MGLIVE_AREAS"] = "events,events2,events3,events4,events5"
         native_started=time.time()
         server = subprocess.Popen([str(SERVER), "-userdirectory", str(SCRATCH), "-module", "events",
@@ -2505,10 +2504,7 @@ def main():
                 tail.wait(timeout=8)
                 raise
             processes.append((tail, identity(tail.pid)))
-        if args.phase == "stress":
-            import stress_run
-            report["checks"] = stress_run.run(proof,redis,server,processes,identity,SCRATCH)
-        elif args.phase == "redis_restart":
+        if args.phase == "redis_restart":
             from test_redis_restart import run
             report["checks"] = run(proof, redis, server, processes, identity, SCRATCH)
         else:

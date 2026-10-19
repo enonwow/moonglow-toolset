@@ -7,7 +7,6 @@ generated: { by: codex/astra2, at: 2026-10-15 }
 sources:
   - ../tools/live/measure_live.py
   - ../tools/live/measure_look_stress.py
-  - ../tools/live/stress_run.py
   - ../tools/live/stress_analyze.py
   - ../crates/mg-live/src/measure.rs
   - https://nwnxee.github.io/unified/group__dotnet.html

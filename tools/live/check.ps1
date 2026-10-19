@@ -6,12 +6,12 @@ param(
     [switch]$LibraryOnly,
     [ValidateSet('live_ops_proof')][string]$ProofExample,
     [switch]$NoCapture,
-    [ValidateSet('live_prepare_snapshot','live_session_factions_snapshot','live_vfx_transform_snapshot','live_appearance_restore_snapshot','live_inventory_grid_snapshot','live_skill_roll_snapshot','hexxar_followup','live_options','live_redis_unreachable','live_demo_snapshot','live_morning_snapshot','live_next_phase1','live_next_phase1b','live_labels_snapshot','live_panel_snapshot','live_combat_snapshot','live_factions_snapshot','live_motion_snapshot','live_grid_snapshot','live_effects_snapshot','live_full_effects_snapshot','live_event_effects_snapshot','live_speech_snapshot','live_clients_snapshot','live_scene_snapshot','live_review_legend_snapshot','live_review_group_snapshot','live_review_props_snapshot','live_review_lightshaft_snapshot','live_review_profile_snapshot','live_review_spells_snapshot','live_review_patrol_snapshot','live_review_tiles_snapshot','live_accept2_baselines','live_accept2_layout_snapshot','live_accept2_actions_snapshot','live_accept2_appearance_snapshot')][string]$Picture,
-    [ValidateSet('live_portrait','live_npc_menu','live_watch_areas','live_prepare','live_audit7','live_agents','live_accept6_focus','live_accept6_broken_looks','live_accept6','live_viewer','live_targeting','live_player_look','live_spawning','live_labels','live_panel','live_motion','live_effects','live_events_view','live_speech','live_clients','live_scene','live_chat','live_focus','live_review', 'live_accept5','live_accept5_portraits','live_accept5_effects','live_accept5_scene','live_accept5_teleport','live_accept5_factions', 'live_accept4', 'live_accept4_colours', 'live_accept4_windows', 'live_accept4_dialogs', 'live_accept4_placeable', 'live_review_accept3_animation','an_area_s_picture')][string]$UiTest,
+    [ValidateSet('live_prepare_snapshot','live_session_factions_snapshot','live_vfx_transform_snapshot','live_appearance_restore_snapshot','live_inventory_grid_snapshot','live_skill_roll_snapshot','hexxar_followup','live_options','live_demo_snapshot','live_morning_snapshot','live_next_phase1','live_next_phase1b','live_labels_snapshot','live_panel_snapshot','live_combat_snapshot','live_factions_snapshot','live_motion_snapshot','live_grid_snapshot','live_effects_snapshot','live_full_effects_snapshot','live_event_effects_snapshot','live_speech_snapshot','live_scene_snapshot','live_review_legend_snapshot','live_review_group_snapshot','live_review_props_snapshot','live_review_lightshaft_snapshot','live_review_profile_snapshot','live_review_spells_snapshot','live_review_patrol_snapshot','live_review_tiles_snapshot','live_accept2_baselines','live_accept2_layout_snapshot','live_accept2_actions_snapshot','live_accept2_appearance_snapshot')][string]$Picture,
+    [ValidateSet('live_portrait','live_watch_areas','live_prepare','live_audit7','live_accept6_focus','live_accept6_broken_looks','live_accept6','live_viewer','live_targeting','live_player_look','live_spawning','live_labels','live_panel','live_motion','live_effects','live_events_view','live_speech','live_scene','live_chat','live_focus','live_review', 'live_accept5','live_accept5_portraits','live_accept5_effects','live_accept5_scene','live_accept5_teleport','live_accept5_factions', 'live_accept4', 'live_accept4_colours', 'live_accept4_windows', 'live_accept4_dialogs', 'live_accept4_placeable', 'live_review_accept3_animation','an_area_s_picture')][string]$UiTest,
     [switch]$Lint,
     [switch]$CheckFmt,
     [switch]$Build,
-    [switch]$GuiBuild,
+    [switch]$DemoBuild,
     [switch]$MeasureGui,
     [ValidateSet('Debug','DevOpt','Release')][string]$MeasureProfile = 'Debug',
     [switch]$MeasureHeap,
@@ -25,9 +25,9 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($MeasureTest -and !$MeasureGui) { throw 'MeasureTest requires MeasureGui.' }
 if ($LibraryOnly -and !$Package) { throw 'LibraryOnly requires -Package.' }
-if ($Build -and $GuiBuild) { throw 'Choose either -Build or -GuiBuild, not both.' }
-if ($GuiBuild -and $UiUnoptimized) { throw 'GuiBuild uses Release; UiUnoptimized is for development tests.' }
-if ($GuiBuild) { $Jobs = 1 }
+if ($Build -and $DemoBuild) { throw 'Choose either -Build or -DemoBuild, not both.' }
+if ($DemoBuild -and $UiUnoptimized) { throw 'DemoBuild uses Release; UiUnoptimized is for development tests.' }
+if ($DemoBuild) { $Jobs = 1 }
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $out = Join-Path $repo $(if ($Phase -match '^[A-Z]$') { 'target/test-output/live-redis' } else { 'target/test-output/live-mode' })
 if ($Next) { $out = Join-Path $repo 'target/test-output/live-next' }
@@ -88,13 +88,13 @@ try {
     if ($Build) {
         $checks = @(@{ Name = 'build'; Args = @('build', '-p', 'mg', '-p', 'moonglow', '-p', 'moonglow-mcp') })
     }
-    if ($GuiBuild) {
-        # The demo GUI and the CLI its launcher drives, optimized in a separate artifact path; no lifecycle action.
-        $checks = @(@{ Name = 'gui-build-release'; Args = @('build', '--release', '-p', 'moonglow', '--bin', 'moonglow') },
+    if ($DemoBuild) {
+        # The demo gateway and the CLI its launcher drives, optimized in a separate artifact path; no lifecycle action.
+        $checks = @(@{ Name = 'gateway-build-release'; Args = @('build', '--release', '-p', 'mg-gateway-dev', '--bin', 'mg-gateway-dev') },
             @{ Name = 'mg-build-release'; Args = @('build', '--release', '-p', 'mg') })
     }
     if ($MeasureGui) {
-        if ($Build -or $GuiBuild -or $Package -or $Picture -or $UiTest -or $UiUnoptimized) {
+        if ($Build -or $DemoBuild -or $Package -or $Picture -or $UiTest -or $UiUnoptimized) {
             throw 'MeasureGui builds only its diagnostic example, with its explicit profile.'
         }
         $features = if ($MeasureHeap) { 'measure-alloc' } else { 'measure' }
