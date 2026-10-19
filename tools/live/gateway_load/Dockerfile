@@ -7,10 +7,13 @@ FROM rust:1.98-bookworm AS build
 WORKDIR /src
 COPY . .
 ARG RUSTFLAGS=""
+# Bounded parallelism: unbounded cargo on a 20-thread desktop exhausted the shared WSL2
+# VM memory and restarted WSL (and every container) twice.
+ARG JOBS=4
 ENV CARGO_INCREMENTAL=0 NWN_ROOT=/nonexistent RUSTFLAGS=${RUSTFLAGS}
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release -p mg-gateway-dev && \
+    cargo build --release -p mg-gateway-dev -j ${JOBS} && \
     install -D target/release/mg-gateway-dev /out/mg-gateway-dev
 
 FROM debian:bookworm-slim AS gateway
