@@ -19,7 +19,7 @@ pub(crate) fn number(
 /// Exact target only: the nearby-NPC radius action is a separate menu item.
 pub(crate) fn stop_attack(ui: &mut egui::Ui, target: &str, enabled: bool) -> Option<Op> {
     ui.add_enabled(enabled, egui::Button::new("Stop Attack"))
-        .on_disabled_hover_text("Requires a living creature. Players also require Allow actions on players and the server player switch.")
+        .on_disabled_hover_text("Requires a living creature; players also need player operations allowed by the gateway's policy.")
         .clicked()
         .then(|| Op::StopCombat { target: Some(target.into()), x: None, y: None, radius: None })
 }

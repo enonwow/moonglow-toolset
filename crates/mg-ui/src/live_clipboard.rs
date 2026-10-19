@@ -257,7 +257,7 @@ pub(crate) fn input(
                 Some("Select NPCs or placeables; players and DMs cannot be copied.".into());
         } else if cut && app.live.as_ref().is_none_or(|s| !s.policy().scripts) {
             state.notice = Some(
-                "Enable module scripts in Live Options before cutting: pasting requires them."
+                "Module scripts are disabled by the gateway's policy: pasting requires them, so cutting is off."
                     .into(),
             );
         } else if cut {
@@ -269,7 +269,7 @@ pub(crate) fn input(
         state.notice = Some("Copy a Live NPC or placeable first.".into());
     } else if app.live.as_ref().is_none_or(|s| !s.policy().scripts) {
         state.notice =
-            Some("Enable module scripts in Live Options to paste captured objects.".into());
+            Some("Module scripts are disabled by the gateway's policy, so pasting is off.".into());
     } else {
         crate::live_aim::clear(view);
         crate::live_tiles::stop(app, view);

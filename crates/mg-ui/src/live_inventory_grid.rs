@@ -292,7 +292,7 @@ pub(super) fn show(
     let reason = if state.pending.is_some() {
         "Wait for the current inventory request."
     } else {
-        "Enable player operations in Options and on the server for this creature."
+        "Player operations are disabled by the gateway's policy for this creature."
     };
     let context = CellContext { target, recipients: &recipients, ready, reason };
     let mut action = None;

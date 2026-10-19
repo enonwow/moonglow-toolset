@@ -276,14 +276,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     );
     let enabled = app.live.as_ref().is_some_and(|s| s.policy().players);
     if !enabled {
-        ui.weak("Enable player operations in Live Options before sending.");
+        ui.weak("Player operations are disabled by the gateway's policy.");
     }
     ui.collapsing("How player rolls work", |ui| {
         ui.label("Players click Roll in their Skill check window. The DM bonus adds to d20 and their full skill modifier.");
         ui.label("Empty texts show only the result; unanswered requests become No roll after the timeout.");
     });
     let reason = if !enabled {
-        Some("Enable player operations in Live Options before sending.")
+        Some("Player operations are disabled by the gateway's policy.")
     } else if let Err(e) = &selected {
         Some(e.as_str())
     } else if single && !centre.is_some_and(|(_, o)| o.pc) {

@@ -59,7 +59,7 @@ fn selected(app: &Moonglow) -> Option<(String, String)> {
 fn recipient_error(app: &Moonglow, to: To, area: Option<&str>) -> Option<&'static str> {
     let Some(store) = &app.live else { return Some("Connect to a gateway to send messages.") };
     if to != To::Npc && !store.policy().players {
-        return Some("Enable player operations in Options > Live to message players.");
+        return Some("Player operations are disabled by the gateway's policy.");
     }
     if to == To::AllPlayers {
         return None;
@@ -142,7 +142,7 @@ pub(crate) fn target_order(
         return Err("Choose an NPC or player, not a world object or DM.".into());
     }
     if o.pc && !store.policy().players {
-        return Err("Enable player operations in Options > Live to message players.".into());
+        return Err("Player operations are disabled by the gateway's policy.".into());
     }
     let text = text.trim().to_owned();
     if text.is_empty() {
@@ -369,7 +369,7 @@ fn dm_composer(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut LiveChat) {
     ));
     ui.weak("Private DM-prefixed server feedback; not an avatar chat message.");
     let reason = if !store.policy().players {
-        Some("Enable player operations in Live Options.")
+        Some("Player operations are disabled by the gateway's policy.")
     } else if recipient.as_ref().is_none_or(|(_, _, o)| !o.pc || o.dm || o.possessed) {
         Some("Select a player's To DM message to reply.")
     } else if state

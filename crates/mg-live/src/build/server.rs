@@ -43,7 +43,7 @@ NWNX_CORE_SKIP_ALL=y
     text.push_str(&format!(
         r#"# Redis must already be running. Use a local, private Redis instance.
 NWNX_REDIS_HOST=127.0.0.1
-# Redis TCP port (configure the same address in Moonglow Options > Live).
+# Redis TCP port (the Live gateway connects to this address).
 NWNX_REDIS_PORT=6392
 # Pub/sub callback: commands execute promptly without waiting for a tick.
 NWNX_REDIS_PUBSUB_SCRIPT=mglive_ps
@@ -53,7 +53,7 @@ MGLIVE_PREFIX=mglive
 MGLIVE_AREAS=''
 # Allow dynamically compiled NWScript chunks. OFF unless explicitly enabled.
 MGLIVE_ALLOW_CHUNK=0
-# Allow DM force operations on players; Moonglow's players switch is also required.
+# Allow DM force operations on players; the gateway's policy must also allow them.
 MGLIVE_ALLOW_PLAYER_OPS=0
 # Legacy game string charset; cp1250 (Polish), cp1251 or cp1252.
 MGLIVE_TEXT_CODEPAGE=cp1250

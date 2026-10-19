@@ -38,9 +38,8 @@ fn contents(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui, live: &A
         objects.iter().filter(|(_, o)| allowed(o, policy.players)).count()
     ));
     if objects.iter().any(|(_, o)| o.pc) && !policy.players {
-        ui.weak("Player: actions are off").on_hover_text(
-            "Options > Live > Allow actions on players, plus the server player switch.",
-        );
+        ui.weak("Player: actions are off")
+            .on_hover_text("Player operations are disabled by the gateway's policy.");
     }
     movement(view, ui, &actors, "Walk Here…", false, false);
     attack(view, ui, &actors);
@@ -374,7 +373,12 @@ fn contents(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui, live: &A
         for (enabled, chunk, label) in
             [(policy.scripts, false, "Run Script…"), (policy.chunks, true, "Run NWScript…")]
         {
-            if button(ui, label, enabled, "Enable this script operation in Live Options.") {
+            if button(
+                ui,
+                label,
+                enabled,
+                "This script operation is disabled by the gateway's policy.",
+            ) {
                 view.live.script = Some(crate::live_view::ScriptDraft {
                     target: None,
                     targets: objects.iter().map(|(_, o)| o.id.clone()).collect(),

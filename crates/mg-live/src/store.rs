@@ -3376,13 +3376,13 @@ fn find_target<'a>(
 fn policy_error(policy: Policy, op: &Op) -> Option<&'static str> {
     match op {
         op if op.is_player() && !policy.players => {
-            Some("Player operations are off in Options > Live")
+            Some("Player operations are disabled by the gateway's policy")
         }
         Op::RunScript { .. } | Op::SpawnJson { .. } if !policy.scripts => {
-            Some("Module scripts are off in Options Ă˘â‚¬Ĺź Live")
+            Some("Module scripts are disabled by the gateway's policy")
         }
         Op::RunChunk { .. } if !policy.chunks => {
-            Some("NWScript chunks are off in Options Ă˘â‚¬Ĺź Live")
+            Some("NWScript chunks are disabled by the gateway's policy")
         }
         _ => None,
     }
@@ -4224,7 +4224,7 @@ mod tests {
         assert!(matches!(chunk.op, Op::RunChunk { wrap: true, target: None, .. }));
         assert_eq!(
             store.enqueue(chunk.clone(), 1).unwrap_err().error,
-            "NWScript chunks are off in Options Ă˘â‚¬Ĺź Live"
+            "NWScript chunks are disabled by the gateway's policy"
         );
         store.set_policy(Policy { scripts: true, chunks: true, players: false });
         chunk.id = "chunk".into();
@@ -4239,7 +4239,7 @@ mod tests {
         };
         assert_eq!(
             store.enqueue(bad_target.clone(), 1).unwrap_err().error,
-            "Module scripts are off in Options Ă˘â‚¬Ĺź Live"
+            "Module scripts are disabled by the gateway's policy"
         );
         store.set_policy(Policy::default());
         assert!(store.enqueue(bad_target, 1).unwrap_err().contains("not in the latest reports"));

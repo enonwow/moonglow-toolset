@@ -1355,7 +1355,7 @@ fn menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui, live: Option
         let players = app.live.as_ref().is_some_and(|s| s.policy().players);
         if ui
             .add_enabled(players, egui::Button::new("Jump All Players…"))
-            .on_disabled_hover_text("Enable Allow actions on players and the server player switch.")
+            .on_disabled_hover_text("Player operations are disabled by the gateway's policy.")
             .clicked()
         {
             crate::live_aim::start(

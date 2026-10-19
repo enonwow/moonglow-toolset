@@ -105,10 +105,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let reason = if state.pending.is_some() {
         "Wait for the current inventory request to finish."
     } else {
-        "Enable player operations in Live Options for this target."
+        "Player operations are disabled by the gateway's policy for this target."
     };
     if protected && !players {
-        ui.weak("Enable player operations in Live Options to inspect or change this inventory.");
+        ui.weak(
+            "Player operations are disabled by the gateway's policy: this inventory is read-only.",
+        );
     }
     ui.horizontal_wrapped(|ui| {
         if ui
@@ -158,7 +160,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .on_disabled_hover_text(if !ready {
                 reason
             } else if !players {
-                "Enable player operations to give gold."
+                "Player operations are disabled by the gateway's policy."
             } else {
                 "Enter a gold amount greater than zero."
             })
