@@ -273,6 +273,24 @@ sockets: store ingest, `pushes()` for every session every 50 ms, frame encoding;
 scanned every object of every area on every poll.)
 
 
+## Final code after the audit (b4c846a)
+
+The final audit (Z8) added per-principal limits; the first evening run after it woke agents
+2.6 s late at p95 because ten AIs, each holding one long poll, met a global pool of eight.
+With the pools sized for ten AIs (32 requests, 24 long polls; per-AI caps unchanged) a clean
+ramp on `--cpus=6`, nothing else running on the host:
+
+| desktops | area push p50/p95/p99 (ms) | command RTT minus game wait p95 (ms) | agent wake p95 (ms) | gateway cores |
+|---|---|---|---|---|
+| 30 | 38 / 51 / 117 | 53 | 11 | 0.27 |
+| 60 | 44 / 69 / 140 | 68 | 11 | 0.47 |
+| 120 | 51 / 83 / 153 | 104 | 11 | 0.83 |
+
+3997 of 3997 commands final, none lost, duplicated or rejected; no panics. A ramp run while
+another build used the host CPU showed p95 136-158 ms at 30-60 desktops: measure on an idle
+box. The production host path (identity, panel, real OPUS-MT) was load-tested in the private
+gateway repository; its host costs about 1.6x the core's CPU.
+
 ## Limits that remain
 
 * **p99 is 120-170 ms, not 50 ms.** Every 30 s the game sends a full report (about 3 MB here);
