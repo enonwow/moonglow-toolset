@@ -196,3 +196,38 @@ fn meta_is_pushed_for_state_changes_not_for_the_ageing_of_the_last_report() {
     assert_eq!(metas(3050), 1, "so does the policy");
     assert_eq!(metas(3100), 0);
 }
+
+#[test]
+fn focus_brings_in_the_area_that_holds_the_object_and_follows_it() {
+    let s = Arc::new(LiveStore::default());
+    let report = |seq: u64, square: Value, market: Value| {
+        let body = json!({"v":1,"boot":"boot","seq":seq,"areas":[
+            {"area":"square","full":true,"cre":square},{"area":"market","full":true,"cre":market}]});
+        s.sync(body.to_string().as_bytes(), seq * 1000).unwrap();
+    };
+    report(1, json!([{"id":"a1"}]), json!([{"id":"b1"}]));
+    let g = Gateway::new(s.clone()).unwrap();
+    g.connect(config("one", &["read", "focus"]), None, &[], 1000).unwrap();
+    let areas = |pushes: Vec<Push>| -> (Vec<String>, Vec<String>) {
+        let mut shown = vec![];
+        let mut gone = vec![];
+        for p in pushes {
+            match p {
+                Push::Area(a) => shown.push(a.area),
+                Push::AreaGone { area, .. } => gone.push(area),
+                _ => {}
+            }
+        }
+        (shown, gone)
+    };
+    assert_eq!(areas(g.pushes("one", 1100).unwrap()), (vec![], vec![]), "nothing watched");
+    g.focus_set("one", vec![("market".into(), "b1".into())]).unwrap();
+    assert_eq!(areas(g.pushes("one", 1200).unwrap()), (vec!["market".to_string()], vec![]));
+    // The focused object walks into the square: the new revision of each area decides.
+    report(2, json!([{"id":"a1"},{"id":"b1"}]), json!([]));
+    assert_eq!(
+        areas(g.pushes("one", 2300).unwrap()),
+        (vec!["square".to_string()], vec!["market".to_string()])
+    );
+    assert_eq!(areas(g.pushes("one", 2400).unwrap()), (vec![], vec![]));
+}

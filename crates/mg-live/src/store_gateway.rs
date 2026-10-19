@@ -249,6 +249,8 @@ struct AreaCache {
     rev: u64,
     has_pc: bool,
     shared: Option<SharedLive>,
+    /// Every object id in the area, built when a session's focus first needs it.
+    ids: std::sync::OnceLock<HashSet<String>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WatchStamp {
@@ -1067,38 +1069,50 @@ impl Gateway {
                 let rev = gateway.area_revs.get(name).copied().unwrap_or(0);
                 if gateway.area_cache.get(name).is_none_or(|c| c.rev != rev) {
                     let has_pc = live.creatures.iter().any(|o| o.pc);
-                    gateway
-                        .area_cache
-                        .insert(name.clone(), AreaCache { rev, has_pc, shared: None });
+                    gateway.area_cache.insert(
+                        name.clone(),
+                        AreaCache { rev, has_pc, shared: None, ids: Default::default() },
+                    );
                 }
             }
             gateway.area_cache.retain(|name, _| areas.contains_key(name));
-            let visible: BTreeSet<_> = areas
-                .iter()
-                .filter(|(area, live)| {
-                    session.config.has("read")
-                        && (session.watch.contains(*area)
-                            || gateway.area_cache[*area].has_pc
-                            || session.focus.iter().any(|(_, id)| live.find(id).is_some()))
+            let read = session.config.has("read");
+            let visible = |area: &str| {
+                read && areas.contains_key(area) && {
+                    let cache = &gateway.area_cache[area];
+                    session.watch.contains(area)
+                        || cache.has_pc
+                        || session.focus.iter().any(|(_, id)| {
+                            cache
+                                .ids
+                                .get_or_init(|| {
+                                    areas[area].all().map(|(_, o)| o.id.clone()).collect()
+                                })
+                                .contains(id)
+                        })
+                }
+            };
+            let gone: Vec<String> = session.areas.keys().filter(|a| !visible(a)).cloned().collect();
+            let mut due: Vec<String> = areas
+                .keys()
+                .filter(|area| {
+                    let rev = gateway.area_revs.get(*area).copied().unwrap_or(0);
+                    session.areas.get(*area) != Some(&rev)
+                        && !session
+                            .area_sent
+                            .get(*area)
+                            .is_some_and(|last| now_ms.saturating_sub(*last) < 250)
+                        && visible(area)
                 })
-                .map(|(a, _)| a.clone())
+                .cloned()
                 .collect();
-            for gone in
-                session.areas.keys().filter(|a| !visible.contains(*a)).cloned().collect::<Vec<_>>()
-            {
+            due.sort_unstable();
+            for gone in gone {
                 session.areas.remove(&gone);
                 out.push(Push::AreaGone { boot: boot.clone(), area: gone });
             }
-            for area in visible {
+            for area in due {
                 let rev = gateway.area_revs.get(&area).copied().unwrap_or(0);
-                if session.areas.get(&area) == Some(&rev)
-                    || session
-                        .area_sent
-                        .get(&area)
-                        .is_some_and(|last| now_ms.saturating_sub(*last) < 250)
-                {
-                    continue;
-                }
                 let live = &areas[&area];
                 // One deep copy per revision, shared by every session that watches the area.
                 let shared = gateway

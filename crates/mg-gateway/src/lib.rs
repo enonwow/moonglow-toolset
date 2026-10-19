@@ -217,6 +217,10 @@ async fn upgrade(
             .into_response();
     };
     ws.protocols(["moonglow-gw.1"])
+        // Clients send small frames (acks, requests). tungstenite zero-fills the whole read buffer
+        // on every poll of the reader, and the reader is polled whenever the session task wakes:
+        // the 128 KiB default cost 5 % of the gateway's CPU at 120 desktops.
+        .read_buffer_size(8 * 1024)
         .max_message_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
         .max_frame_size(mg_live::gateway_frames::BOOK_FRAME_LIMIT)
         .on_upgrade(move |ws| async move {
