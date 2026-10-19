@@ -944,3 +944,133 @@ async fn a_socket_that_never_says_hello_is_closed_after_the_hello_timeout() {
     core.shutdown().await.unwrap();
     task.abort();
 }
+
+/// Counts `authenticate` calls; name and groups can change while a socket is open.
+#[derive(Debug)]
+struct Switch {
+    calls: std::sync::atomic::AtomicUsize,
+    current: std::sync::Mutex<(String, Vec<String>)>,
+}
+impl Switch {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            calls: Default::default(),
+            current: std::sync::Mutex::new(("Test".into(), vec!["read".into(), "npc".into()])),
+        })
+    }
+    fn set(&self, name: &str, groups: &[&str]) {
+        *self.current.lock().unwrap() =
+            (name.into(), groups.iter().map(|g| (*g).to_owned()).collect());
+    }
+    fn calls(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+impl Authenticator for Switch {
+    fn authenticate(&self, token: &str) -> Option<Principal> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (name, groups) = self.current.lock().unwrap().clone();
+        (token == "test-credential").then(|| Principal { id: "dm:test".into(), name, groups })
+    }
+}
+async fn switch_server(auth: Arc<Switch>) -> (String, CoreHandle, tokio::task::JoinHandle<()>) {
+    let core = CoreHandle::new(Arc::new(LiveStore::default())).await.unwrap();
+    let app =
+        mg_gateway::router(core.clone(), auth, Arc::new(Policy::default()), Config::default());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/ws/v1", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (url, core, task)
+}
+async fn bye(ws: &mut Ws, within: std::time::Duration) -> String {
+    tokio::time::timeout(within, async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(t))) => {
+                    let v: Value = serde_json::from_str(&t).unwrap();
+                    if v["t"] == "bye" {
+                        return v["code"].as_str().unwrap().to_owned();
+                    }
+                }
+                Some(Ok(_)) => {}
+                _ => return "closed".into(),
+            }
+        }
+    })
+    .await
+    .expect("socket closes")
+}
+
+#[tokio::test]
+async fn a_busy_socket_does_not_reauthenticate_per_frame() {
+    let auth = Switch::new();
+    let (url, core, task) = switch_server(auth.clone()).await;
+    let (mut ws, _) = connect(&url, vec![], None, "test-credential").await;
+    for n in 1..=100 {
+        let r = call(&mut ws, n, "ai.list", json!({})).await;
+        assert_eq!(r["t"], "res");
+    }
+    // The upgrade and the first check after hello; nothing per frame.
+    assert!(auth.calls() <= 2, "{} authentications for 100 requests", auth.calls());
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn a_removed_session_rejects_requests_and_closes_within_a_second() {
+    let auth = Switch::new();
+    let (url, core, task) = switch_server(auth).await;
+    let (mut ws, _) = connect(&url, vec![], None, "test-credential").await;
+    core.with_gateway(|g| g.remove_session("dm:test", now())).await.unwrap().unwrap();
+    ws.send(Message::Text(json!({"t":"req","id":1,"op":"ai.list","a":{}}).to_string().into()))
+        .await
+        .unwrap();
+    let code = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(t))) => {
+                    let v: Value = serde_json::from_str(&t).unwrap();
+                    if v["t"] == "res" {
+                        assert_eq!(v["ok"], false, "a removed session ran a request: {v}");
+                    }
+                    if v["t"] == "bye" {
+                        return v["code"].as_str().unwrap().to_owned();
+                    }
+                }
+                Some(Ok(_)) => {}
+                _ => return "closed".into(),
+            }
+        }
+    })
+    .await
+    .expect("closes within a second");
+    assert_eq!(code, "revoked");
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn a_display_name_change_keeps_the_socket_open_across_revalidation() {
+    let auth = Switch::new();
+    let (url, core, task) = switch_server(auth.clone()).await;
+    let (mut ws, _) = connect(&url, vec![], None, "test-credential").await;
+    auth.set("Renamed", &["read", "npc"]);
+    // Past the pump's 15 s revalidation.
+    tokio::time::sleep(std::time::Duration::from_secs(16)).await;
+    assert!(auth.calls() >= 3, "revalidation ran: {}", auth.calls());
+    assert_eq!(call(&mut ws, 1, "ai.list", json!({})).await["t"], "res");
+    core.shutdown().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn a_removed_group_closes_with_role_changed_at_the_next_revalidation() {
+    let auth = Switch::new();
+    let (url, core, task) = switch_server(auth.clone()).await;
+    let (mut ws, _) = connect(&url, vec![], None, "test-credential").await;
+    auth.set("Test", &["read"]);
+    let code = bye(&mut ws, std::time::Duration::from_secs(20)).await;
+    assert_eq!(code, "role_changed");
+    core.shutdown().await.unwrap();
+    task.abort();
+}

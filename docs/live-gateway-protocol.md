@@ -39,6 +39,9 @@ the management panel and translations are host concerns.
 - Frame limits: client → gateway 64 KiB (`book.put` 256 KiB); gateway →
   client 16 MiB. A larger frame closes with code 1009 (message too big).
 - Keep-alive: WebSocket ping every 15 s from the gateway; idle 45 s closes.
+- Re-authentication: the gateway re-authenticates the credential every 15 s, not per frame. A changed
+  id or group set closes with `bye role_changed` (a revoked credential, `revoked`); a changed display
+  name only refreshes the stored name. A host that removes a session closes its socket within ~100 ms.
 - Unknown fields MUST be ignored. Unknown `t` or `topic` from the gateway
   MUST be logged and skipped. Unknown `op` from a client → `err unsupported`.
 
