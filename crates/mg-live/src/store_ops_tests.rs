@@ -384,6 +384,35 @@ fn chunk_returns_preserve_json_null_and_enforce_the_wire_limit() {
 }
 
 #[test]
+fn wait_finds_results_older_than_the_status_ring_only_for_their_owner() {
+    use crate::access::{ClientGroup, DeliveryMode, Scope};
+    use crate::operations;
+    let live = store(false);
+    live.set_policy(Policy { chunks: true, ..Policy::default() });
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let scope = |name: &str| {
+        Scope::restricted(name, vec![ClientGroup::Read, ClientGroup::Chunks], DeliveryMode::Auto)
+            .with_command_limit(1000)
+            .unwrap()
+    };
+    let (a, b) = (scope("dm:a"), scope("dm:b"));
+    for i in 0..MAX_RESULTS as u64 + 6 {
+        let id = format!("c{i}");
+        let input = json!({"id":id,"area":"events","code":"MgReturn(\"1\");","return":true});
+        operations::call_scoped("live_run_chunk", input, &live, &stop, &a).unwrap();
+        let report =
+            json!({"v":1,"boot":"ops","seq":i + 2,"results":[{"id":id,"ok":true,"value":i}]});
+        live.sync(report.to_string().as_bytes(), crate::now_ms()).unwrap();
+    }
+    let wait = json!({"id":"c0","timeout_ms":0});
+    assert_eq!(
+        operations::call_scoped("live_wait", wait.clone(), &live, &stop, &a).unwrap()["value"],
+        0
+    );
+    assert!(operations::call_scoped("live_wait", wait, &live, &stop, &b).is_err());
+}
+
+#[test]
 fn deltas_merge_remove_reset_fields_and_recover_gaps() {
     let live = store(false);
     let send = |seq, base: Option<u64>, area: Value| {

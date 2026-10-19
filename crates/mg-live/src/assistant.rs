@@ -226,13 +226,6 @@ impl LiveStore {
     pub(crate) fn set_assistant_access(&self, access: Arc<Access>) {
         self.lock().assistant.access = Some(access);
     }
-    pub(crate) fn draft_result_scoped(&self, id: &str, scope: &Scope) -> Option<CommandResult> {
-        let s = self.lock();
-        if !scope.unrestricted() && s.owners.get(id) != Some(&scope.name) {
-            return None;
-        }
-        pending(&s, id)
-    }
     pub fn draft_revision(&self) -> u64 {
         self.lock().assistant.draft_revision()
     }
