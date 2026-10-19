@@ -689,6 +689,8 @@ mod tests {
         subscribers: Arc<Mutex<Vec<Subscriber>>>,
         clients: Arc<Mutex<Vec<TcpStream>>>,
         published: mpsc::Receiver<(String, Value)>,
+        /// Milliseconds each PUBLISH reply is held back, as a slow Redis would.
+        stall: Arc<std::sync::atomic::AtomicU64>,
         worker: Option<JoinHandle<()>>,
     }
 
@@ -701,7 +703,9 @@ mod tests {
             let subscribers = Arc::new(Mutex::new(Vec::new()));
             let clients = Arc::new(Mutex::new(Vec::new()));
             let (send, published) = mpsc::channel();
-            let (stopped, subs, sockets) = (stop.clone(), subscribers.clone(), clients.clone());
+            let stall = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let (stopped, subs, sockets, stalled) =
+                (stop.clone(), subscribers.clone(), clients.clone(), stall.clone());
             let worker = thread::spawn(move || {
                 let mut workers = Vec::new();
                 while !stopped.load(Ordering::Acquire) {
@@ -710,8 +714,8 @@ mod tests {
                             stream.set_nonblocking(false).unwrap();
                             stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
                             lock(&sockets).push(stream.try_clone().unwrap());
-                            let (stopped, subs, send) =
-                                (stopped.clone(), subs.clone(), send.clone());
+                            let (stopped, subs, send, stalled) =
+                                (stopped.clone(), subs.clone(), send.clone(), stalled.clone());
                             workers.push(thread::spawn(move || {
                                 let mut stream = BufReader::new(stream);
                                 while !stopped.load(Ordering::Acquire) {
@@ -767,6 +771,9 @@ mod tests {
                                                 String::from_utf8(args[1].clone()).unwrap(),
                                                 body,
                                             ));
+                                            thread::sleep(Duration::from_millis(
+                                                stalled.load(Ordering::Acquire),
+                                            ));
                                             let _ = stream.get_mut().write_all(b":1\r\n");
                                         }
                                         _ => {
@@ -789,7 +796,7 @@ mod tests {
                     let _ = worker.join();
                 }
             });
-            Self { address, stop, subscribers, clients, published, worker: Some(worker) }
+            Self { address, stop, subscribers, clients, published, stall, worker: Some(worker) }
         }
         fn state(&self, value: Value) {
             for (channel, stream) in lock(&self.subscribers).iter_mut() {
@@ -869,6 +876,46 @@ mod tests {
         assert_eq!(channel, "test.xl");
         assert_eq!(reply["to"]["pl"], "witaj");
         assert!(bridge.status()["lastStateMs"].is_null());
+    }
+
+    /// A slow Redis held the store and the bridge state locked for the whole PUBLISH
+    /// round trip, so every status, sync and gateway push waited on the network.
+    #[test]
+    fn slow_publish_blocks_neither_the_store_nor_the_bridge_status() {
+        let fake = Fake::start();
+        fake.stall.store(900, Ordering::Release);
+        let store = Arc::new(LiveStore::default());
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut bridge = Bridge::start(
+            RedisConfig {
+                host: "127.0.0.1".into(),
+                port: fake.address.port(),
+                prefix: "test".into(),
+            },
+            store.clone(),
+            Arc::new(|| {}),
+            stop.clone(),
+        )
+        .unwrap();
+        wait(|| bridge.status()["connected"] == true && !lock(&fake.subscribers).is_empty());
+        fake.state(report(1));
+        wait(|| store.area("a").is_some());
+        let command =
+            serde_json::from_value(json!({"id":"slow","area":"a","op":"destroy","target":"ab"}))
+                .unwrap();
+        store.enqueue(command, now_ms()).unwrap();
+        // The fake has the PUBLISH and holds its reply back for 900 ms from here.
+        let (_, wire) = fake.published.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(wire["commands"][0]["id"], "slow");
+        let started = Instant::now();
+        store.status(now_ms());
+        store.peek_commands(now_ms());
+        store.sync(&serde_json::to_vec(&report(2)).unwrap(), now_ms()).unwrap();
+        bridge.status();
+        assert!(started.elapsed() < Duration::from_millis(100), "{:?}", started.elapsed());
+        wait(|| bridge.status()["published"].as_u64() >= Some(1));
+        stop.store(true, Ordering::Release);
+        bridge.join();
     }
 
     #[test]
