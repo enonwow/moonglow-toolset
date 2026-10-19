@@ -316,7 +316,7 @@ gateway repository; its host costs about 1.6x the core's CPU.
   game's main thread. The ramp lets only the first 30 desktops speak.
 * **Dev host ceilings**: 128 WebSocket connections (`Config::connections`), 32 concurrent
   agent requests (every long poll holds one), 1024 sessions. The production binary sets its
-  own; the 16 agent slots matter first (10 agents polling and calling use 10-14).
+  own. The core allows 32 agent requests at once, 24 of them long polls (2 per AI).
 * **Resident size** is about twice the live heap because glibc keeps freed pages in per-thread
   arenas (the blocking pool has dozens of threads); see "Memory". The event log is the only
   state that grows, and only until it holds 50,000 rows.
