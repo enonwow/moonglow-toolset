@@ -113,49 +113,21 @@ Keyring API: [keyring 3.6](https://docs.rs/keyring/3.6.3/keyring/).
 ## Settings and migration
 
 `Settings.live_servers` is version 1 with stable IDs, names, gateway origins,
-optional certificate pins and exactly one selection when nonempty. Missing
-legacy data defaults to `Local (dev)`; Redis host, port and prefix remain in the
-legacy `live` block until the development transport is retired. Redis ports
-are not gateway HTTP ports, so they are never guessed into a gateway URL.
-The initial development origin is `https://127.0.0.1:8080`; edit it or supply
-`MOONGLOW_GATEWAY_URL` for the actual development gateway.
+optional certificate pins and at most one selection. `Settings.live` holds only
+the connect switch (`enabled`). A fresh profile has no server and none is chosen
+on the user's behalf; Redis ports are not gateway HTTP ports, so they are never
+guessed into a gateway URL. Supply `MOONGLOW_GATEWAY_URL` (and
+`MOONGLOW_GATEWAY_TOKEN`) for a development gateway.
 
-`Settings::migrate_live` imports the old token into the `local-dev` credential
-entry and clears the in-memory plaintext only after success. Saving old
-settings also imports an outstanding legacy token before serializing the
-non-secret fields; storage failure refuses serialization. An existing newer
-credential wins over an old legacy token. The emitted JSON/RON omits the old
-`token` field. JSON round trips, migration with a mock store and desktop RON
-round trips (including `keep_wsl: Some(false)`) are regression-tested.
-
-Named legacy clients now use their unique case-insensitive name as the client
-ID, with credential keys `local-dev/client/<id>`. Settings retain the name,
-groups, delivery mode and rate limit, never the bearer field. Explicit migration
-imports each old secret and clears it only after storage succeeds; newer stored
-credentials win. Saving an unmigrated or rotated client imports its current
-secret before emitting the reference. Local Live startup resolves these names
-from secure storage; a missing credential fails startup instead of granting access.
-
-The `named_client_migration_saves_references_without_plaintext` regression first
-failed because JSON contained the client secret. It covers two separate client
-entries, secret-free JSON, RON references and restoring credentials for runtime
-use with an injected memory backend.
-
-Opening Options resolves named-client references into the editable draft as
-well. This is necessary even while the legacy service is disabled: otherwise
-empty tokens would fail client validation and disable Apply after a restart.
-The original settings remain unchanged until Apply. A storage error is shown
-and leaves incomplete clients invalid. A loader-injected unit regression covers
-successful restoration and denial without accessing the system credential store.
-
-The existing client UI round-trip test now serializes only public configuration;
-the mock-backed migration test owns secret persistence coverage.
-`LiveServers::resolve` takes `MOONGLOW_GATEWAY_URL` and
-`MOONGLOW_GATEWAY_TOKEN` over saved settings, without persisting either.
-A URL override uses a distinct environment identity and cannot inherit a saved
-server's certificate pin or credential. `resolve_with` tests this without
-mutating process-global environment variables. Unsupported schema versions
-and empty/duplicate IDs fail deserialization; selection is normalized.
+Settings written while the desktop still had a local Live service load without
+error. The old `live` fields (API bind and port, token, named clients, Redis host,
+port and prefix, policy, logs, WSL) are ignored and are not written again, which
+also drops any plaintext token the file still held. A `local-dev` entry in
+`live_servers` is removed when the settings load; if it was the selected one, no
+server is selected afterwards (any other selection is kept). The regression is
+`settings_of_the_removed_local_mode_migrate_to_no_server_selected` (JSON and the
+desktop's RON). Credentials the old version stored in the operating system's
+store under `local-dev` are no longer read and can be deleted by hand.
 
 ## Certificate discovery deadline
 
@@ -291,7 +263,7 @@ comes from the entry identified by `server_id`; it is never a URL parameter or
 serialized configuration field. `store()` returns the shared mirror; `snapshot()`
 returns connection, account, drafts, presence, notices and book invalidations.
 `PendingCall::try_recv` and the wake callback support egui without blocking it.
-The GUI uses the unified backend described below; local servers retain `LiveService`.
+The GUI uses the unified backend described below; it has no local server.
 
 The normative [gateway protocol](live-gateway-protocol.md) distinguishes `u32`
 request IDs, unique on each connection, from game command IDs. The passive store
@@ -470,9 +442,8 @@ The shared Cargo build cache remains in place for other workspace consumers.
 
 ## Unified GUI backend (P2b part 2)
 
-Select a saved server in Options > Live, sign in, enable Live, and Apply. The
-`local-dev` identity keeps existing local service, descriptor and Redis behavior.
-Other entries start `LinkService` on a background thread using the same
+Select a saved server in Options > Live, sign in, enable Live, and Apply.
+The entry starts `LinkService` on a background thread using the same
 injected/system `TokenStore` as sign-in. Environment URL/token resolution keeps
 precedence; environment credentials are never persisted. Changing server settings
 restarts only that backend. Startup completion installs its own passive mirror;
@@ -995,3 +966,27 @@ sequential patches. Compact results, unresolved failure excerpts, patches and
 the five current PNGs remain. Shared Cargo outputs and existing accepted evidence
 were retained; no physical allocation or global free-space recovery is claimed.
 Application and agent histories are untouched.
+
+## Gateway-only desktop (2026-10-19)
+
+The owner's decision: the gateway is the window to the world. `apply_live`
+(`crates/mg-ui/src/live_backend.rs`) has one path, the gateway backend; the
+`LiveService` field, the local HTTPS agent API, session descriptors, Allow LLM,
+named clients, the token and Redis/WSL/Logs options and the GUI glue are gone.
+A store attached to the app without a gateway (`Moonglow::live`, as the window
+and renderer tests do) is still read and commanded directly and counts as active
+while `settings.live.enabled` is set; production never creates one.
+
+In `mg-live` the service runner and the listener (`LiveService`, `api::serve`,
+the descriptor writer, the WSL keeper, the log keeper, the agents presence and
+the audit file) were removed, and `LiveConfig` is only the Redis link
+(`host`, `port`, `prefix`) and policy the gateway host reads from the environment.
+Kept: the request routing the gateway's `/agent/v1` calls (`api::route`,
+`route_with_context`), scopes and groups, the store, the bridge, events and
+operations. `Access` survives only as a test and diagnostic scope fixture.
+`moonglow-mcp` keeps its `--gateway` mode and the `mg` CLI adapter; `--descriptor`,
+`--sessions`, `MOONGLOW_AGENT_DESCRIPTOR`, `MOONGLOW_MCP_SESSIONS` and the
+automatic scan of the data folder are gone. The `crates/mg-live` stress and
+`live_ops_proof` harnesses that drove `LiveService` were deleted; `tools/live`
+(demo launcher and acceptance scripts) still targets the removed mode and has
+to move onto `apps/mg-gateway-dev`.

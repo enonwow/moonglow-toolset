@@ -79,11 +79,11 @@ require NPC permission (or the conversation profile when available) plus
 ## Start the session and keep an observation loop
 
 1. Call the adapter's `moonglow_sessions` with an empty input object and refresh
-   MCP `tools/list`. Select the session the human identifies; never choose the
-   first PID automatically. If discovery adds `session`, include that PID string
-   in every adapter call. It is adapter routing, not part of the inputs below.
-   After a service restart or permission change, rediscover. Treat session
-   descriptors as credentials; never print their tokens.
+   MCP `tools/list`. The adapter has one session, the gateway named by
+   `--gateway` (`--session-id`, default `gateway`); if discovery adds `session`,
+   include that ID in every adapter call. It is adapter routing, not part of the
+   inputs below. After a gateway restart or a permission change, rediscover.
+   Treat the AI token (`MOONGLOW_AI_TOKEN`) as a credential; never print it.
 2. Read `live_status` and remember the game `boot`, chosen area and event cursor.
    `connected` or `redis.connected` alone does not mean the game is reporting.
    Before **each action**, require the same nonempty boot, a fresh global report
@@ -122,16 +122,16 @@ gaps. `read_chat` is needed in addition to `read` to see chat/server-log content
 See the [protocol recipe](agent-protocol.md#llm-recipe-discover-observe-act-and-verify-e75)
 for response envelopes, rate limits and cursor details.
 
-Shell equivalents (PowerShell 7 examples; replace the optional sessions path
-with the owner's actual descriptor directory, not the game user directory):
+Shell equivalents (PowerShell 7 examples; the AI token is in the environment of
+the shell, set from a secret store, never typed into the command):
 
 ```powershell
-moonglow-mcp --sessions 'C:\path\to\Moonglow\live\sessions' tools
-moonglow-mcp --sessions 'C:\path\to\Moonglow\live\sessions' call moonglow_sessions '{}'
-moonglow-mcp --sessions 'C:\path\to\Moonglow\live\sessions' call live_status '{}'
+moonglow-mcp --gateway https://gateway.example tools
+moonglow-mcp --gateway https://gateway.example call moonglow_sessions '{}'
+moonglow-mcp --gateway https://gateway.example call live_status '{}'
 ```
 
-Use normal discovery without `--sessions` when already configured. Shell calls
+Add `--gateway-pin SHA256` for a gateway reached by IP address. Shell calls
 print the operation's structured result; MCP exposes it as `structuredContent`.
 Check MCP `isError`/shell exit status **and** the eventual game result. Never put
 a bearer token on the command line. All following JSON blocks can be the input

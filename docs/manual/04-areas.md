@@ -81,23 +81,23 @@ looking straight down at their middle, north up, as in Aurora.
 ## Live mode
 
 **Live**, beside **Grid**, shows what a running NWNX server reports about this
-area. In **Tools › Options › Live**, select **Enable live mode** and **Apply**.
-Connect the server to the same Redis host, port and channel prefix as described
-in [Build, verify and test](09-build-and-test.md). Live mode starts off; its
-settings are saved, and environment variables only override them. Open the same
-module and HAKs that the server runs, then open its area and turn Live on.
+area. Moonglow reaches the server only through a Live gateway: in **Tools ›
+Options › Live**, add the gateway's address, sign in, select **Enable live mode**
+and **Apply** (see [Live mode](19-live-mode.md#connecting-to-a-gateway)). Live
+mode starts off and the choice is saved. Open the same module and HAKs that the
+server runs (Moonglow offers to download the server's resources), then open its
+area and turn Live on.
 
 Turning Live on applies the **Live layout**: Live Chat, Focus, Legend, Live Panel, Selection,
 Skill Check, VFX, NPC Library, Scenes and Inventory open as tabs to the right of
 the area, beside Palettes. Live Chat is shown first; Live Log opens only from the Live menu. Close tabs with their close
 buttons; opening a Live tool again docks it on the right. Turning Live off and
-on reapplies the layout. Options > Live wraps narrow controls and explains token
-drafts: Generate/Remove change the draft; Apply activates those changes.
+on reapplies the layout.
 
-The **Live** menu does the same from anywhere: **Start Live** / **Stop Live**
-(the option above), **Show Live in This Area** (Ctrl+Shift+L, the area shown
-last), **Live Options…** (the Options window at its Live page: status, token,
-API and Redis) and **Live Mode Help** (this section).
+The **Live** menu does the same from anywhere: **Connect to Gateway** /
+**Disconnect from Gateway** (the option above), **Show Live in This Area**
+(Ctrl+Shift+L, the area shown last), **Live Options…** (the Options window at its
+Live page: servers and sign-in) and **Live Mode Help** (this section).
 
 Right-click one object or a selection for the same organised menu. **Walk Here...**,
 **Attack...**, **Say...** and (for exactly one eligible creature) **Inventory...**
@@ -128,8 +128,8 @@ offer **Disable Trap** and **Trap**. On empty ground, **Set Time** accepts hour
 and minute fields as well as presets. Fields send nothing until their action
 button is clicked.
 
-With **Allow actions on players** in Options > Live and the server's player
-switch enabled, player commands use the same submenus: Walk Here, Run Here, Attack, Stop Attack, Freeze, Kill,
+When the gateway allows actions on players and the server's player
+switch is enabled, player commands use the same submenus: Walk Here, Run Here, Attack, Stop Attack, Freeze, Kill,
 Heal, Raise,
 Teleport, gold, XP, level and alignment. **Give Gold** and **Give XP** accept
 numeric amounts. Teleport uses the same targeting flow as other live objects.
@@ -152,12 +152,6 @@ Players, Server, Commands), a search and **This area only** narrow it;
 **Pause** holds it still, **Copy** copies the lines shown, and a click on a
 line selects its object in the area's view. Times are UTC. Agents read the
 same events with `live_events` and find objects with `live_find`.
-
-While Live runs, Moonglow also keeps the events on disk, a folder per server
-run under its data folder's `live/logs` (a file each for combat, players,
-server, commands and other events). Runs older than 14 days are removed, and
-the oldest go once all of them pass 500 MB. Chat is kept only with **Keep
-chat too** (Options › Live › Logs): it is what players write.
 
 A scene is a **macro: a recorded list of DM commands you can replay**. The **Scenes** window manages these macros. Follow its three
 steps: **1 Record** (the same button changes to **Recording... / Stop**),

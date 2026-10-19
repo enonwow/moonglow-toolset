@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Build, verify and test
-description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, private NWNX live mode, reloading haks and 2DAs, and Area Statistics.
+description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, the NWNX server side of Live mode, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync, live]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T20:28:07Z }
 ---
@@ -138,23 +138,26 @@ hak, `mg pack --compile-models` for a folder.)
 
 ## Live mode with NWNX
 
-Live mode connects Moonglow and the game through **Redis pub/sub only**.
-Clients use Moonglow's separate loopback HTTPS API. In **Tools › Options ›
-Live**, enable the service and Apply; it is off by default and remembers its
-settings. See [Options](10-options.md) and [Areas](04-areas.md)
-for the saved controls and live viewer.
+The game side of Live mode is a set of NWScripts on an NWNX server (NWNX Core,
+Redis, Util and Creature) that talk **to Redis pub/sub only**. A Live gateway
+connects to the same Redis and serves the game to Moonglow and to AI agents;
+Moonglow connects to the gateway and never to Redis or the game (see
+[Live mode](19-live-mode.md) for connecting, and [Options](10-options.md)).
+There is no local Live service in Moonglow any more. The gateway for
+development is `apps/mg-gateway-dev` in the source repository
+(`docs/live-gateway-protocol.md`).
 
 **After Redis restarts, restart the game server.** The installed NWNX_Redis
 connects once at startup: `Reconfigure()` is called only from its constructor,
-and its old cpp_redis has no auto-reconnect. Moonglow reconnects automatically.
-Options and `GET /live/v1/status` → `redis.connected` show that connection
-separately from the game's report age. A new game boot expires old queued
-commands. Repairing the plugin's pool and pub/sub resubscription is a
-separate future task recorded in the repository's `docs/deferred.md`.
+and its old cpp_redis has no auto-reconnect. The gateway reconnects
+automatically and reports the Redis link and the game's report age to
+Moonglow separately. A new game boot expires old queued commands. Repairing the
+plugin's pool and pub/sub resubscription is a separate future task recorded in
+the repository's `docs/deferred.md`.
 
 ### Windows/WSL setup
 
-The demo needs PowerShell 7, the installed game, WSL with NWNX Core, Redis and
+A Windows development setup needs the installed game, WSL with NWNX Core, Redis and
 Util plugins, and a base module with its HAKs. Install Redis inside WSL:
 
 ```powershell
@@ -163,110 +166,44 @@ wsl -e sudo apt-get install -y redis-server
 
 Keep Redis bound to loopback in protected mode. NWNX_Redis has no password
 setting. Windows reaches it through WSL's localhost forwarding. WSL can stop
-when idle: the launcher keeps an owned foreground WSL process alive throughout
-the run, including outages and GUI/server restarts. If Options says **Redis
-unreachable — is WSL running?**, check WSL and the configured Redis port.
+when idle: keep a foreground WSL process alive for as long as the gateway and
+the server run, or the gateway reports the Redis link as down.
 
-Put workstation-specific paths in ignored `tools/live/local.ps1`; set
-`NWNX_ROOT` (WSL directory containing `Binaries/NWScript.zip`),
-`NWN_SERVER` (WSL server executable), `NWN_ROOT` (Windows game directory),
-`MGLIVE_DEMO_BASE`, `MGLIVE_HAK_SOURCE`, and optionally `MGLIVE_DISTRO`.
-Live views subscribe to areas automatically; `-Areas` is only an optional extra
-list, empty by default. The base is read-only.
-From the repository root:
-
-```powershell
-.\tools\live\check.ps1 -Phase 1b -Next -Build
-$live = .\tools\live\Start-LiveDemo.ps1 -PassThru
-```
-
-The launcher reuses one working set under `target/test-output/live-demo/`,
-compiles and verifies `DEMO-Live-01.mod`, opens it in Moonglow and starts a
-**private** WSL server on UDP 5121. By the owner's demo policy, player/DM
-passwords are omitted; the admin password stays random and is never printed.
-`-Passwords` restores random player/DM passwords. Public launches are refused.
-It refuses an occupied
-game port. Writable game data stays in the owned scratch user directory;
-neither the original module nor the real game/user folders are written.
-`start-redis.sh` reuses the system service if PING succeeds, otherwise starts
-an owned loopback instance. The normal demo never stops the system service.
-
-Open the reported area in Moonglow and turn **Live** on. `-Base PATH` and
-`-Areas resref1,resref2` select another input; preserve any needed result before
-explicitly replacing a working set. `-SkipBuild` reuses the current verified
-module. `-AllowChunks` opts this private run into both chunk switches. The
-launcher uses environment overrides; clear them when testing saved Options
-alone. Its returned token stays in `$live.Token`; `-Quiet` suppresses printing it.
-
-```powershell
-.\tools\live\Stop-LiveDemo.ps1
-```
-
-Stop checks the recorded process identity, stops only owned processes, removes
-the owned stale descriptor and releases the WSL keeper.
+The scripts under `tools/live` (the demo launcher and the acceptance runs) were
+written for the local Live service that Moonglow no longer has; they are not a
+supported way to connect Moonglow until they are moved onto the gateway
+development host. Keep the game private (`-publicserver 0`) in any case.
 
 ### Connecting another module
 
 Import `tools/live/nwn/*.nss`, compile using the installed NWNX Redis, Util and Creature
 includes from `NWScript.zip`, and call `mglive_load` from OnModuleLoad while
 preserving the module's existing load script. Enable NWNX Core, Redis, Util and Creature.
-There are no HTTPClient scripts and no `/live/v1/sync` route.
+There are no HTTPClient scripts and no HTTP route into the game.
 
 | Process | Setting | Meaning |
 |---|---|---|
-| Moonglow | Options › Live | Saved enable switch, API token/port, Redis host/port, prefix and script policies |
-| Moonglow | `MOONGLOW_LIVE_TOKEN` | Override the bearer token; at least 32 printable ASCII characters (the launcher accepts 32–256 letters, digits, hyphens or underscores) |
-| Moonglow | `MOONGLOW_LIVE_BIND` | Override loopback IP:port; default `127.0.0.1:5199` |
-| Moonglow | `MOONGLOW_LIVE_REDIS` | Override Redis host:port; default `127.0.0.1:6379` |
-| Moonglow | `MOONGLOW_LIVE_PREFIX` | Override channel prefix; default `mglive` |
-| Moonglow | `MOONGLOW_LIVE_CHUNKS` | Override its chunk policy; only `1` enables it |
+| Gateway | `MOONGLOW_LIVE_REDIS` | Redis host:port; default `127.0.0.1:6379` |
+| Gateway | `MOONGLOW_LIVE_PREFIX` | Channel prefix; default `mglive` |
+| Gateway | `MOONGLOW_LIVE_CHUNKS` | Its chunk policy; only `1` enables it |
 | Server | `NWNX_REDIS_HOST`, `NWNX_REDIS_PORT` | Redis connection; loopback, default port 6379 |
 | Server | `NWNX_REDIS_PUBSUB_SCRIPT` | `mglive_ps` |
 | Server | `NWNX_REDIS_PUBSUB_CHANNELS` | `mglive.cmd`, or `<prefix>.cmd` |
-| Server | `MGLIVE_PREFIX` | Same prefix as Moonglow; state publishes on `<prefix>.state` |
+| Server | `MGLIVE_PREFIX` | Same prefix as the gateway; state publishes on `<prefix>.state` |
 | Server | `MGLIVE_AREAS` | Optional comma-separated area resrefs; player areas are also reported |
-| Server | `MGLIVE_BOOT` | Fresh identifier for each start; the launcher generates it |
+| Server | `MGLIVE_BOOT` | Fresh identifier for each start |
 | Server | `MGLIVE_ALLOW_CHUNK` | Second chunk switch; only `1` allows execution |
 
-An explicitly supplied `MOONGLOW_LIVE_*` override also enables the service for
-that process. With no overrides, saved Options control it; no environment token
-is required. The game never receives the HTTPS bearer token.
+The game never receives a gateway or Moonglow credential.
 
-### Client API and command examples
+### Commands
 
-All HTTPS routes require `Authorization: Bearer <token>`:
-
-| Route | Result |
-|---|---|
-| `GET /live/v1/status` | Redis state, boot/sequence, area ages/counts, queue and recent results |
-| `GET /live/v1/area/RESREF` | Reported creatures, placeables, doors and items |
-| `POST /live/v1/command` | Queue one command and return `{"queued":"id"}` |
-| `GET /v1/describe` | Available operations and flat input schemas |
-| `POST /v1/call/NAME` | Call a discovered operation, including `live_wait` |
-| `GET /v1/openapi.json` | OpenAPI 3.1 for current policy |
-
-The following Git Bash examples use `TOKEN` copied from Options. Replace
-`AREA`, object ids and blueprint resrefs with values from your module/reports.
-Each command is asynchronous; inspect status results before relying on its
-effect. Do not run the examples against objects you need to preserve.
-
-```bash
-api=https://127.0.0.1:5199/live/v1
-get() { curl --noproxy '*' -skS -H "Authorization: Bearer $TOKEN" "$api/$1"; }
-send() { curl --noproxy '*' -skS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$1" "$api/command"; }
-get status
-get area/AREA
-send '{"area":"AREA","op":"spawn","kind":"creature","r":"nw_bartender","x":20,"y":20,"z":0,"f":90}'
-send '{"area":"AREA","op":"npc_move","target":"NPC_ID","x":20,"y":20,"z":0,"run":true}'
-send '{"area":"AREA","op":"npc_say","target":"NPC_ID","text":"Good morning!"}'
-send '{"area":"AREA","op":"npc_attack","target":"NPC_ID","victim":"VICTIM_ID"}'
-send '{"area":"AREA","op":"set_state","target":"DOOR_ID","open":true,"lock":false}'
-send '{"area":"AREA","op":"run_script","target":"NPC_ID","script":"mglive_probe"}'
-send '{"area":"AREA","op":"run_chunk","target":"NPC_ID","code":"SetName(OBJECT_SELF, \"Chunk ran\"); SpeakString(\"Sent from outside\");"}'
-send '{"area":"AREA","op":"run_chunk","code":"this is not nwscript"}'
-send '{"area":"AREA","op":"destroy","target":"SPAWNED_ID"}'
-get status
-```
+The operations a DM or an AI sends (spawn, move, say, attack, set state, run a
+script or chunk, destroy and the rest) are described by the gateway at
+`/agent/v1/describe` for each AI, and appear as tools in `moonglow-mcp` (see
+[Command-line tools](11-command-line.md#agents-and-mcp) and
+[Live mode](19-live-mode.md#ai-agents)). Each is asynchronous; inspect results
+before relying on an effect.
 
 Spawn also accepts `placeable` and `item`. Script resrefs are 1–16 ASCII
 letters, digits or underscores; the script must already be compiled in the
@@ -279,38 +216,12 @@ intentionally act on PCs/DMs; the ordinary object actions protect them.
 Object targets are reported hexadecimal ids, and areas use resrefs, not tags.
 An explicit `id` can support retrying the same command. Reusing it for different
 content is rejected. Commands expire after 30 seconds without acknowledgement,
-or on a new game boot. The game remembers 256 ids; Moonglow remembers up to
-65,536 until exit. An action's success means dispatch succeeded: check reports
-for the final position, name or object state.
+or on a new game boot. The game remembers 256 ids. An action's success means
+dispatch succeeded: check reports for the final position, name or object state.
 
-Keep the game private (`-publicserver 0`), Redis on loopback
-and the client API on loopback. Its self-signed certificate needs curl `-k`;
-the MCP adapter instead verifies the descriptor's certificate pin. Tokens and
-descriptors are credentials. `run_chunk` is off by default and requires both
-switches because it executes arbitrary server code. It is not a public-server
-interface.
-
-### Reproducing acceptance
-
-`tools/live/test-demo.ps1 -Screens` exercises real HTTPS/Redis/NWNX operations,
-GUI reconnect/deduplication, the owned Redis 6380 outage, required game restart,
-old-command expiry and both independent chunk-off gates. The test explicitly
-enables both gates temporarily for its positive cases; it takes no
-`-AllowChunks` argument. It never stops the system service on 6379.
-
-`tools/live/morning.ps1 -SkipBuild` reruns that acceptance and then runs curl
-and an actual MCP SDK client. Configure `MGLIVE_MCP_CLIENT` in local settings
-to the installed `@modelcontextprotocol/client` package. Results and status
-JSON go in `target/test-output/live-demo/morning/`. The guarded
-`tools/live/check.ps1 -Phase F -Picture live_morning_snapshot` renders its
-before/after reports through the actual viewer. All Rust checks on this
-workstation use `check.ps1`, which excludes native Windows game-server tests.
-
-The automated run uses an owned temporary bartender for each transport and
-requires arrival at (20,20); shutdown discards those runtime objects. A
-module's own NPC routine can issue competing actions, so dispatch alone
-does not prove arrival. On failure, the harness retains area/status responses
-alongside the failed result.
+`run_chunk` is off by default and requires both switches (the gateway's policy and
+`MGLIVE_ALLOW_CHUNK=1` on the server) because it executes arbitrary server code.
+It is not a public-server interface.
 
 `npc_move` and `npc_attack` accept `hold:true` to keep routines from replacing
 the order, with `timeout` from 1–120 seconds (default 30). Arrival/end of action,
@@ -321,15 +232,7 @@ Same-faction attacks temporarily put the attacker in Hostile with a bounded hold
 death, timeout or a new order restores its original faction. Their command result
 includes `faction:"hostile_temporarily"`. A hold's timeout releases routine
 control and does not itself stop all combat. The view's
-Attack command enables a 30-second hold. `tools/live/test-next.ps1 -Phase 1b`
-checks same-faction combat and hold restoration in the private WSL game.
-
-Recorded-report pictures prove the renderer, not that a person watched the
-native Moonglow window. Watching Live movement there and joining with a player
-remain manual acceptance. The default private demo join needs no player/DM
-password. With `MGLIVE_PASSWORDS=1`, `MGLIVE_PRINT_PASSWORD=1` makes the WSL
-helper print only its random player password; do not retain that output in logs.
-
+Attack command enables a 30-second hold.
 
 ## Test Module
 

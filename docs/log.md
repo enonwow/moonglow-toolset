@@ -1,5 +1,7 @@
 # Update log
 
+* **Gateway only (2026-10-19)**: Moonglow talks to a game server only through a Live gateway. The local Live service, its HTTPS agent API and descriptors, Allow LLM, named clients and the Redis/WSL/Logs options are removed from the desktop and `mg-live`; old settings load with no server selected; `moonglow-mcp` keeps only `--gateway`. The manual's [Live mode](manual/19-live-mode.md), [Options](manual/10-options.md), [Areas](manual/04-areas.md), [Build, verify and test](manual/09-build-and-test.md) and [Command-line tools](manual/11-command-line.md) describe connecting to a gateway; [desktop contract](live-desktop-link.md#gateway-only-desktop-2026-10-19).
+
 * **Avatars through the gateway (2026-10-18)**: the gateway fetches, re-encodes and caches AI avatars (`GET /avatars/<id>`), presence and `ai.list` carry `avatar_path`, and the desktop loads images only from the connected gateway; the direct third-party fetch is removed. [Protocol](live-gateway-protocol.md#avatars), [desktop contract](live-desktop-link.md#per-ai-consent-and-avatars).
 
 * **Per-AI consent and avatars (2026-10-18)**: validate consent acknowledgements, keep per-AI state separate, edit and preview bounded HTTPS avatars, and show them in Focus/map presence. [Desktop contract](live-desktop-link.md#per-ai-consent-and-avatars).

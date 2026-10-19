@@ -55,7 +55,7 @@ deliberately departs.
 18. [NUI Creator](18-nui-creator.md): designing Enhanced Edition UI
     windows, their binds and event handlers, and building their scripts.
 19. [Live mode](19-live-mode.md): a running server in the area viewer, Options › Live,
-    the Live menu and windows, agents and MCP.
+    the Live menu and windows, AI agents and drafts, all through a gateway.
 
 Moonglow is free software under the GNU General Public License, version 3.
 It contains no game data: it reads the game's files from your

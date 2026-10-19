@@ -16,8 +16,8 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Conversations](06-conversations.md) - Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 * [Scripts](07-scripts.md) - Scripts - the script editor, finding your way in code, and the compiler.
 * [Journal and factions](08-journal-and-factions.md) - The Journal Editor and the Faction Editor.
-* [Build, verify and test](09-build-and-test.md) - Build Module, publishing to NWSync, Verify Module, Test Module, private NWNX live mode, reloading haks and 2DAs, and Area Statistics.
-* [Options](10-options.md) - The Options dialog, including saved Live connection settings, script policies and Redis status, and where settings are kept.
+* [Build, verify and test](09-build-and-test.md) - Build Module, publishing to NWSync, Verify Module, Test Module, the NWNX server side of Live mode, reloading haks and 2DAs, and Area Statistics.
+* [Options](10-options.md) - The Options dialog page by page, including the Live gateway servers and sign-in, and where settings are kept.
 * [Command-line tools](11-command-line.md) - The mg command-line tool, command discovery and the independent MCP adapter: transports, client registration and safety switches.
 * [Differences from Aurora](12-differences.md) - Where Moonglow deliberately departs from Aurora.
 * [Troubleshooting](13-troubleshooting.md) - Troubleshooting - the game is not found, no GPU in the area viewer, Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
@@ -26,4 +26,4 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Writing plugins](16-writing-plugins.md) - Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 * [Plugin API reference](17-plugin-api.md) - Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 * [NUI Creator](18-nui-creator.md) - The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.
-* [Live mode](19-live-mode.md) - Live mode - watching and directing a running NWNX server from Moonglow; Options › Live, the Live menu, the Live view and its windows, agents and MCP.
+* [Live mode](19-live-mode.md) - Live mode - watching and directing a running NWNX server from Moonglow through a Live gateway; connecting (Options › Live, Discord sign-in, certificate fingerprint trust, the resource download window), the Live menu, the Live view and its windows, AI agents, drafts, shared notes and presence chips.
