@@ -88,7 +88,8 @@ async fn revalidate(app: &App, token: &str, principal: &Principal) -> Result<(),
     let current = crate::authenticate_token(app, token).await;
     match current {
         None => Err("revoked"),
-        Some(p) if &p != principal => Err("role_changed"),
+        // A display-name change is not a role change; authenticate_token already refreshed it.
+        Some(p) if p.id != principal.id || p.groups != principal.groups => Err("role_changed"),
         _ => Ok(()),
     }
 }
@@ -166,7 +167,6 @@ pub(crate) async fn run(mut socket: WebSocket, app: App, token: String, principa
                 Ok(Message::Text(text)) => {
                     let frame = frames::decode_client(text.as_bytes()).map_err(|e| e.code)?;
                     connection.receive(&frame).map_err(|e| e.code)?;
-                    revalidate(&app, &token, &principal).await.map_err(str::to_owned)?;
                     let id = principal.id.clone();
                     match frame {
                         ClientFrame::Req(req) => {
