@@ -208,6 +208,8 @@ accepted ──► pending ──► final
 | `llm.allow` | `{"id"?,"on":bool}` | `{"ids":[...]}` | one/all owned AIs; admin may select another owner's AI; global switch belongs to the host |
 | `events.since` | `{"n","limit","kinds"}` | `{"rows","through","lost"}` | paging older events |
 
+An `ai.update` that changes an AI's groups ends that AI's open sessions at once (the AI reconnects with the new scope). Every request and push re-checks the whole group list against the AI's current groups, `read_tells` and `focus` included, so a narrowed AI loses tells and focus immediately.
+
 ## 8. Resume and restarts
 
 - **Link drop**: the client reconnects with back-off 1, 2, 4 … 10 s and sends
