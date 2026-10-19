@@ -864,3 +864,5 @@
 * **Negotiate the current mirror schema (2026-10-18)**: the desktop WebSocket upgrade uses the shared mirror version, including schema 2 coverage fields. [Transport contract](live-gateway-protocol.md#2-transport).
 
 * **Live demo scripts follow the gateway (2026-10-19)**: `Start-LiveDemo.ps1` runs `apps/mg-gateway-dev` beside the private WSL server; the scripts that drove the removed local service (`probe.ps1`, `morning.ps1`, `test-demo.ps1`, `test-next.*`, `stress_run.py`, `stress_clients.py`) are gone, and the earlier phase records that name them stay as history.
+
+* **Gateway fix plan (2026-10-19)**: PUBLISH outside the store and bridge locks, re-authentication every 15 s instead of per frame, no resend once the game may have forgotten a command, full `live_wait` lookup, one group list; three interleaved runs each, no regression after a bisect, authentications 144 -> 18/s at 120 desktops. [Results](live-gateway-load.md#after-the-fix-plan-4de20fe).

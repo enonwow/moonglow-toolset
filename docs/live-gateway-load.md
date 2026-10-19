@@ -291,6 +291,30 @@ another build used the host CPU showed p95 136-158 ms at 30-60 desktops: measure
 box. The production host path (identity, panel, real OPUS-MT) was load-tested in the private
 gateway repository; its host costs about 1.6x the core's CPU.
 
+## After the fix plan (4de20fe)
+
+The fix plan moved the Redis PUBLISH out of the store and bridge locks, dropped
+re-authentication on every inbound frame (now every 15 s), stopped resending a command the
+game may have forgotten and gave `live_wait` the full result lookup. Each image ran three
+times, interleaved with the previous code (`final`, b4c846a), on `--cpus=6` while other
+desktop programs shared the host:
+
+| desktops | area push p95, median [range] (ms): before | after | area push p99 median (ms): before / after |
+|---|---|---|---|
+| 30 | 122 [108-147] | 144 [130-164] | 295 / 639 |
+| 60 | 161 [117-352] | 173 [162-185] | 370 / 646 |
+| 120 | 163 [159-217] | 187 [184-202] | 417 / 658 |
+
+The higher tail did not survive a bisect: five-minute 30-desktop ramps of each change alone
+and of both codes, run twice in turn, gave p99 114-128 ms for the new code and 119 and 859 ms
+for the old. The spread comes from the shared host, not from a change; the numbers to plan
+with are the clean ramp above and a run on the production box. In every run all commands
+reached a final result (none lost, unknown or duplicated), and three evenings with a Redis
+and a gateway restart recovered pushes within 2-3 s. Through the private production host
+the change cut authentications at 120 desktops from 144 to 18 a second with the same push
+latency (p95 143-168 ms, three runs) and about the same CPU (1.27-1.41 cores), so the
+host's extra CPU is not authentication.
+
 ## Limits that remain
 
 * **p99 is 120-170 ms, not 50 ms.** Every 30 s the game sends a full report (about 3 MB here);

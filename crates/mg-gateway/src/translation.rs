@@ -20,7 +20,8 @@ pub trait Translator: Debug + Send + Sync + 'static {
     fn translate<'a>(&'a self, text: &'a str, from: &'a str, to: &'a str) -> TranslationFuture<'a>;
 }
 pub const LANGUAGES: &[&str] = &["en", "pl", "de", "fr", "es", "it"];
-const DEADLINE: Duration = Duration::from_millis(650);
+/// How long a chat line may wait for its translation before the original is used.
+pub const DEADLINE: Duration = Duration::from_millis(650);
 const QUEUE: usize = 128;
 const CONCURRENCY: usize = 4;
 
