@@ -128,9 +128,12 @@ S→C {"t":"bye","code":"<code>","msg":"<text>"} before the gateway closes
 - `meta` is pushed when one of its fields changes. `game.age_ms` changes every
   millisecond, so it counts only once it has moved by a second since the `meta`
   the session last received (a gateway that compared it exactly sent every
-  session a `meta` frame on each 50 ms poll). A client that shows the age of
-  the game's last report therefore sees it update at least once a second while
-  reports are late, and at each report otherwise.
+  session a `meta` frame on each 50 ms poll). The bridge's running counters
+  (`redis.received`, `redis.published`, `redis.lastStateMs`, `redis.events.applied`,
+  `.backlog`, `.last_id`) change with every report and event and are treated the
+  same way: they ride with the next `meta` pushed for another reason (a
+  connection, `lost`, policy, watch or boot change, or a second of age). A
+  client must not rely on them for anything but a diagnostic display.
 - `area.live` is the same text for every session watching the same `rev` (the
   gateway serializes an area once per revision and shares it); frames of two
   sessions differ only in `age_ms`. The bytes are those a per-session encoding

@@ -63,6 +63,24 @@ pub(crate) struct State {
     events: event_stream::SharedStatus,
 }
 
+#[cfg(test)]
+impl State {
+    /// What a report and an event do to the status, and a connection change.
+    pub(crate) fn count_traffic(&mut self) {
+        self.received += 1;
+        self.published += 1;
+        self.last_state_ms = Some(self.received);
+        let mut events = lock(&self.events);
+        events.applied += 1;
+        events.backlog += 1;
+        events.last_id = format!("{}-0", self.received);
+    }
+    pub(crate) fn set_connected(&mut self, on: bool) {
+        self.subscriber = on;
+        self.publisher = on;
+    }
+}
+
 pub(crate) fn status(state: &Mutex<State>) -> Value {
     let s = lock(state);
     json!({"connected":s.subscriber && s.publisher,"moduleStatus":s.module_status,"lastStateMs":s.last_state_ms,"lastError":s.last_error,"published":s.published,"received":s.received,"events":*lock(&s.events)})

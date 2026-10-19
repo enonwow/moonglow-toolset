@@ -1175,9 +1175,10 @@ impl Gateway {
         Ok(out)
     }
 }
-/// Equal apart from the game's report age, which counts only once it has moved by a second: it
-/// changes every millisecond, so comparing it exactly made every pump poll (20 a second per
-/// session) push a meta frame.
+/// Equal apart from the game's report age, which counts only once it has moved by a second, and
+/// the bridge's running counters. The age changes every millisecond and the counters with every
+/// report and every event, so comparing them exactly made every pump poll (20 a second per
+/// session) push a meta frame. The counters travel with the next meta pushed for any other reason.
 fn same_meta(old: &Meta, new: &Meta) -> bool {
     old.boot == new.boot
         && old.rev == new.rev
@@ -1186,7 +1187,14 @@ fn same_meta(old: &Meta, new: &Meta) -> bool {
         && old.policy == new.policy
         && old.game.connected == new.game.connected
         && old.game.age_ms.abs_diff(new.game.age_ms) < 1000
-        && old.redis == new.redis
+        && same_redis(&old.redis, &new.redis)
+}
+fn same_redis(old: &Value, new: &Value) -> bool {
+    let events = |v: &Value, key: &str| v["events"][key].clone();
+    ["connected", "moduleStatus", "lastError"].iter().all(|k| old[k] == new[k])
+        && ["connected", "lost", "error", "persistent", "warning"]
+            .iter()
+            .all(|k| events(old, k) == events(new, k))
 }
 fn presence(g: &GatewayState) -> Push {
     let mut actors = Vec::new();
@@ -1757,6 +1765,39 @@ mod quota_audit_tests {
         assert_eq!(validate_accept(&g.store.lock(), &old).unwrap_err().code, ErrorCode::Forbidden);
         assert!(validate_accept(&g.store.lock(), &old.with_command_limit(1).unwrap()).is_ok());
         assert!(g.set_command_limit(&c.id, 0).is_err());
+    }
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::*;
+    #[test]
+    fn the_bridge_s_running_counters_alone_do_not_make_a_meta_push() {
+        let store = Arc::new(LiveStore::default());
+        store.sync(br#"{"v":1,"boot":"boot","seq":1,"areas":[]}"#, 0).unwrap();
+        let bridge = Arc::new(Mutex::new(crate::bridge::State::default()));
+        store.set_redis_status(bridge.clone());
+        let g = Gateway::new(store).unwrap();
+        let config = SessionConfig {
+            id: "dm:one".into(),
+            id_prefix: "one.".into(),
+            groups: vec!["read".into()],
+            watch_limit: 16,
+        };
+        g.connect(config, None, &[], 0).unwrap();
+        let metas = |now| {
+            g.pushes("dm:one", now).unwrap().iter().filter(|p| matches!(p, Push::Meta(_))).count()
+        };
+        assert_eq!(metas(0), 1);
+        for now in 1..40 {
+            bridge.lock().unwrap().count_traffic();
+            assert_eq!(metas(now * 20), 0, "report and event counters at {now}");
+        }
+        bridge.lock().unwrap().set_connected(true);
+        assert_eq!(metas(900), 1, "a connection change is news");
+        let meta = g.store().lock().gateway.meta.clone().unwrap();
+        assert_eq!(meta.redis["connected"], true);
+        assert_eq!(meta.redis["received"], 39, "the counters travel with it");
     }
 }
 
