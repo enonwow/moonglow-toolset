@@ -1,6 +1,9 @@
 //! Validate retained sizes before changing any area, then move rows once.
 use super::{AreaLive, AreaReport, HashMap, HashSet, LiveObject, MAX_OBJECTS};
 
+/// Consecutive partial creature lists an NPC may be missing from before it is dropped.
+const MAX_PARTIAL_MISSES: u8 = 3;
+
 enum Row {
     Old(usize),
     New(usize, Option<usize>),
@@ -65,7 +68,8 @@ impl DeltaPlan {
             &update.stores,
             &update.triggers,
         ];
-        let rows = std::array::from_fn(|kind| {
+        let npc_listed = update.cre.iter().any(|o| !o.pc && !o.dm);
+        let mut rows: [Vec<Row>; 9] = std::array::from_fn(|kind| {
             let mut pending: HashMap<&str, usize> =
                 after[kind].iter().enumerate().map(|(i, o)| (o.id.as_str(), i)).collect();
             let mut rows = Vec::new();
@@ -75,7 +79,13 @@ impl DeltaPlan {
                 } else if !removed.contains(old.id.as_str()) && !changed.contains(old.id.as_str()) {
                     let keep = match &scan {
                         None => true,
-                        Some(_) if kind == 0 => update.cre_partial,
+                        Some(_) if kind == 0 => {
+                            // The game lists players first: once an NPC is listed, a missing
+                            // player is gone. An NPC is dropped after repeated partial misses.
+                            update.cre_partial
+                                && old.missed_partial + 1 < MAX_PARTIAL_MISSES
+                                && !((old.pc || old.dm) && npc_listed)
+                        }
                         Some(scan) => !scan.complete || scan.seen.contains(&old.id),
                     };
                     if keep {
@@ -90,6 +100,23 @@ impl DeltaPlan {
             }
             rows
         });
+        if scan.is_some() && update.cre_partial {
+            // A partial list never fails the report: evict the longest-missing rows.
+            while rows[0].len() > MAX_OBJECTS {
+                let worst = rows[0]
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(at, r)| match *r {
+                        Row::Old(i) => Some((before[0][i].missed_partial, at)),
+                        Row::New(..) => None,
+                    })
+                    .max();
+                match worst {
+                    Some((_, at)) => drop(rows[0].remove(at)),
+                    None => break,
+                }
+            }
+        }
         if rows.iter().any(|v| v.len() > MAX_OBJECTS) {
             return Err("Too many retained delta objects".into());
         }
@@ -125,6 +152,7 @@ impl DeltaPlan {
 
     pub(super) fn apply(self, old: &mut AreaLive, update: &mut AreaReport) {
         let reuse_player_look = update.paged && !update.full;
+        let update_partial = update.paged && update.cre_partial;
         let before = [
             &mut old.creatures,
             &mut old.placeables,
@@ -147,13 +175,22 @@ impl DeltaPlan {
             &mut update.stores,
             &mut update.triggers,
         ];
-        for ((rows, before), after) in self.rows.into_iter().zip(before).zip(after) {
+        for (kind, ((rows, before), after)) in
+            self.rows.into_iter().zip(before).zip(after).enumerate()
+        {
+            let count_misses = kind == 0 && update_partial;
             let mut old_rows: Vec<_> = std::mem::take(before).into_iter().map(Some).collect();
             let mut new_rows: Vec<_> = std::mem::take(after).into_iter().map(Some).collect();
             *before = rows
                 .into_iter()
                 .map(|row| match row {
-                    Row::Old(i) => old_rows[i].take().expect("each row is moved once"),
+                    Row::Old(i) => {
+                        let mut kept = old_rows[i].take().expect("each row is moved once");
+                        if count_misses {
+                            kept.missed_partial = kept.missed_partial.saturating_add(1);
+                        }
+                        kept
+                    }
                     Row::New(i, previous) => {
                         let mut new = new_rows[i].take().expect("each row is moved once");
                         if new.look.is_none()
@@ -251,6 +288,41 @@ mod tests {
                 assert!(old.creatures[0].look.is_none(), "never reuse a different appearance");
             }
         }
+    }
+
+    #[test]
+    fn partial_creature_lists_drop_departed_creatures_and_never_fail() {
+        let npc = |id: &str, pc: bool| LiveObject { id: id.into(), pc, ..Default::default() };
+        let mut area = AreaLive {
+            creatures: vec![npc("p", true), npc("a", false), npc("b", false)],
+            ..Default::default()
+        };
+        let partial = |ids: &[&str]| -> AreaReport {
+            let cre: Vec<_> = ids.iter().map(|id| json!({"id":id})).collect();
+            serde_json::from_value(json!({"area":"a","paged":true,"cre_partial":true,"cre":cre}))
+                .unwrap()
+        };
+        let step = |area: &mut AreaLive, ids: &[&str]| {
+            let mut update = partial(ids);
+            let scan = super::super::StaticScan::default();
+            DeltaPlan::paged(area, &update, &scan).unwrap().apply(area, &mut update);
+            area.creatures.iter().map(|o| o.id.clone()).collect::<Vec<_>>()
+        };
+        // Players come first: a listed NPC means the missing player left. NPC "b" is kept
+        // through two misses and dropped on the third.
+        assert_eq!(step(&mut area, &["a"]), ["a", "b"]);
+        assert_eq!(step(&mut area, &["a"]), ["a", "b"]);
+        assert_eq!(step(&mut area, &["a"]), ["a"]);
+        // At the cap the longest-missing rows go instead of failing the whole report.
+        let mut full = AreaLive {
+            creatures: (0..MAX_OBJECTS).map(|i| npc(&format!("o{i}"), false)).collect(),
+            ..Default::default()
+        };
+        let mut update = partial(&["n1", "n2"]);
+        let scan = super::super::StaticScan::default();
+        DeltaPlan::paged(&full, &update, &scan).unwrap().apply(&mut full, &mut update);
+        assert_eq!(full.creatures.len(), MAX_OBJECTS);
+        assert!(full.creatures.iter().any(|o| o.id == "n2"));
     }
 
     #[test]
