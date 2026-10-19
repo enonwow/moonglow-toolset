@@ -1,6 +1,7 @@
 use super::*;
 use crate::events::Query;
 use serde_json::json;
+use std::net::SocketAddr;
 fn directory() -> PathBuf {
     std::env::temp_dir().join(format!("mg-stream-{}", crate::service::generate_token().unwrap()))
 }

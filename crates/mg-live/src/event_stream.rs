@@ -11,7 +11,6 @@ use std::{
     collections::VecDeque,
     fs::{self, File, OpenOptions},
     io::{Seek, SeekFrom, Write},
-    net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -285,9 +284,9 @@ fn entries(reply: &Reply) -> Result<Vec<Entry>, String> {
 
 pub(crate) type SharedInbox = Arc<Mutex<Option<Inbox>>>;
 pub(crate) type SharedStatus = Arc<Mutex<Status>>;
-pub(crate) fn run(
+pub(crate) fn run<A: crate::bridge::Addresses>(
     config: RedisConfig,
-    addresses: Vec<SocketAddr>,
+    addresses: A,
     inbox: SharedInbox,
     status: SharedStatus,
     store: Arc<LiveStore>,

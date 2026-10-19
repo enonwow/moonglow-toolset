@@ -177,13 +177,50 @@ pub(crate) fn pause(stop: &AtomicBool, delay: Duration) {
     }
 }
 
-pub(crate) fn connect(
-    addresses: &[SocketAddr],
+/// Redis host and port, resolved again at every connection attempt: a restarted Redis
+/// container may come back on another address. The startup resolution is the fallback.
+pub(crate) struct Endpoint {
+    host: String,
+    port: u16,
+    fallback: Vec<SocketAddr>,
+}
+impl Endpoint {
+    fn current(&self) -> Vec<SocketAddr> {
+        match (self.host.as_str(), self.port).to_socket_addrs() {
+            Ok(found) => {
+                let found: Vec<_> = found.collect();
+                if found.is_empty() { self.fallback.clone() } else { found }
+            }
+            Err(_) => self.fallback.clone(),
+        }
+    }
+}
+pub(crate) trait Addresses {
+    fn addresses(&self) -> Vec<SocketAddr>;
+}
+impl Addresses for Endpoint {
+    fn addresses(&self) -> Vec<SocketAddr> {
+        self.current()
+    }
+}
+impl<T: Addresses + ?Sized> Addresses for Arc<T> {
+    fn addresses(&self) -> Vec<SocketAddr> {
+        (**self).addresses()
+    }
+}
+impl Addresses for Vec<SocketAddr> {
+    fn addresses(&self) -> Vec<SocketAddr> {
+        self.clone()
+    }
+}
+
+pub(crate) fn connect<A: Addresses + ?Sized>(
+    addresses: &A,
     stop: &AtomicBool,
 ) -> Result<BufReader<TcpStream>, String> {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut error = "Redis address is unavailable".to_owned();
-    for address in addresses {
+    for address in &addresses.addresses() {
         if stop.load(Ordering::Acquire) {
             return Err("stopped".into());
         }
@@ -255,6 +292,11 @@ impl Bridge {
         if addresses.is_empty() {
             return Err("Redis host resolved to no address".into());
         }
+        let addresses = Arc::new(Endpoint {
+            host: config.host.clone(),
+            port: config.port,
+            fallback: addresses,
+        });
         let state = Arc::new(Mutex::new(State::default()));
         store.bind_server(&config);
         store.set_redis_status(state.clone());
@@ -576,6 +618,17 @@ impl Drop for Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoint_resolves_again_and_falls_back_to_the_startup_address() {
+        let fallback: SocketAddr = "192.0.2.1:6379".parse().unwrap();
+        let named = Endpoint { host: "localhost".into(), port: 6379, fallback: vec![fallback] };
+        let now = named.addresses();
+        assert!(!now.is_empty() && now.iter().all(|a| a.ip().is_loopback() && a.port() == 6379));
+        let gone =
+            Endpoint { host: "unresolvable.invalid".into(), port: 6379, fallback: vec![fallback] };
+        assert_eq!(gone.addresses(), vec![fallback]);
+    }
 
     #[test]
     fn legacy_module_has_an_actionable_status_even_when_redis_is_connected() {
@@ -973,7 +1026,7 @@ mod tests {
         )
         .unwrap();
         wait(|| bridge.status()["connected"] == true);
-        let mut client = connect(&["127.0.0.1:6379".parse().unwrap()], &stop).unwrap();
+        let mut client = connect(&vec!["127.0.0.1:6379".parse().unwrap()], &stop).unwrap();
         let mut body = report(1);
         body["prefix"] = json!(prefix);
         let body = body.to_string();
