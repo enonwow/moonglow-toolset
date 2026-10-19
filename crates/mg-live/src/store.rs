@@ -139,9 +139,6 @@ pub struct LiveObject {
     pub animation: Option<Value>,
     /// Made by a live command.
     pub own: bool,
-    /// Consecutive partial creature lists that omitted this row (not reported).
-    #[serde(skip)]
-    pub missed_partial: u8,
 }
 
 impl LiveObject {

@@ -1,5 +1,5 @@
 //! Independent static scan generations. A missing page never proves deletion.
-use super::{AreaReport, HashSet, MAX_OBJECTS};
+use super::{AreaReport, HashMap, HashSet, MAX_OBJECTS};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -17,6 +17,8 @@ pub(super) struct StaticScan {
     valid: bool,
     pub(super) complete: bool,
     pub(super) seen: HashSet<String>,
+    /// Consecutive partial creature lists that omitted each retained creature.
+    pub(super) missed: HashMap<String, u8>,
 }
 
 impl StaticScan {
@@ -29,6 +31,7 @@ impl StaticScan {
         } else {
             old.clone()
         };
+        scan.missed.clone_from(&old.missed);
         scan.valid &= scan.generation == page.generation && scan.next == page.index;
         scan.next = page.index.checked_add(1).ok_or("Static page index overflow")?;
         scan.complete = page.complete && scan.valid;

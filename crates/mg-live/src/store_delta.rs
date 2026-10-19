@@ -30,7 +30,7 @@ impl DeltaPlan {
     fn build(
         old: &AreaLive,
         update: &AreaReport,
-        scan: Option<super::StaticScan>,
+        mut scan: Option<super::StaticScan>,
     ) -> Result<Self, String> {
         let changed: HashSet<&str> = update
             .cre
@@ -69,6 +69,7 @@ impl DeltaPlan {
             &update.triggers,
         ];
         let npc_listed = update.cre.iter().any(|o| !o.pc && !o.dm);
+        let missed = |id: &str| scan.as_ref().and_then(|s| s.missed.get(id)).copied().unwrap_or(0);
         let mut rows: [Vec<Row>; 9] = std::array::from_fn(|kind| {
             let mut pending: HashMap<&str, usize> =
                 after[kind].iter().enumerate().map(|(i, o)| (o.id.as_str(), i)).collect();
@@ -83,7 +84,7 @@ impl DeltaPlan {
                             // The game lists players first: once an NPC is listed, a missing
                             // player is gone. An NPC is dropped after repeated partial misses.
                             update.cre_partial
-                                && old.missed_partial + 1 < MAX_PARTIAL_MISSES
+                                && missed(&old.id) + 1 < MAX_PARTIAL_MISSES
                                 && !((old.pc || old.dm) && npc_listed)
                         }
                         Some(scan) => !scan.complete || scan.seen.contains(&old.id),
@@ -107,7 +108,7 @@ impl DeltaPlan {
                     .iter()
                     .enumerate()
                     .filter_map(|(at, r)| match *r {
-                        Row::Old(i) => Some((before[0][i].missed_partial, at)),
+                        Row::Old(i) => Some((missed(&before[0][i].id), at)),
                         Row::New(..) => None,
                     })
                     .max();
@@ -116,6 +117,18 @@ impl DeltaPlan {
                     None => break,
                 }
             }
+        }
+        let next = rows[0]
+            .iter()
+            .filter_map(|r| match *r {
+                Row::Old(i) if update.cre_partial => {
+                    Some((before[0][i].id.clone(), missed(&before[0][i].id) + 1))
+                }
+                _ => None,
+            })
+            .collect();
+        if let Some(scan) = &mut scan {
+            scan.missed = next;
         }
         if rows.iter().any(|v| v.len() > MAX_OBJECTS) {
             return Err("Too many retained delta objects".into());
@@ -152,7 +165,6 @@ impl DeltaPlan {
 
     pub(super) fn apply(self, old: &mut AreaLive, update: &mut AreaReport) {
         let reuse_player_look = update.paged && !update.full;
-        let update_partial = update.paged && update.cre_partial;
         let before = [
             &mut old.creatures,
             &mut old.placeables,
@@ -175,22 +187,13 @@ impl DeltaPlan {
             &mut update.stores,
             &mut update.triggers,
         ];
-        for (kind, ((rows, before), after)) in
-            self.rows.into_iter().zip(before).zip(after).enumerate()
-        {
-            let count_misses = kind == 0 && update_partial;
+        for ((rows, before), after) in self.rows.into_iter().zip(before).zip(after) {
             let mut old_rows: Vec<_> = std::mem::take(before).into_iter().map(Some).collect();
             let mut new_rows: Vec<_> = std::mem::take(after).into_iter().map(Some).collect();
             *before = rows
                 .into_iter()
                 .map(|row| match row {
-                    Row::Old(i) => {
-                        let mut kept = old_rows[i].take().expect("each row is moved once");
-                        if count_misses {
-                            kept.missed_partial = kept.missed_partial.saturating_add(1);
-                        }
-                        kept
-                    }
+                    Row::Old(i) => old_rows[i].take().expect("each row is moved once"),
                     Row::New(i, previous) => {
                         let mut new = new_rows[i].take().expect("each row is moved once");
                         if new.look.is_none()
@@ -302,10 +305,12 @@ mod tests {
             serde_json::from_value(json!({"area":"a","paged":true,"cre_partial":true,"cre":cre}))
                 .unwrap()
         };
-        let step = |area: &mut AreaLive, ids: &[&str]| {
+        let mut scan = super::super::StaticScan::default();
+        let mut step = |area: &mut AreaLive, ids: &[&str]| {
             let mut update = partial(ids);
-            let scan = super::super::StaticScan::default();
-            DeltaPlan::paged(area, &update, &scan).unwrap().apply(area, &mut update);
+            let mut plan = DeltaPlan::paged(area, &update, &scan).unwrap();
+            scan = plan.scan.take().unwrap();
+            plan.apply(area, &mut update);
             area.creatures.iter().map(|o| o.id.clone()).collect::<Vec<_>>()
         };
         // Players come first: a listed NPC means the missing player left. NPC "b" is kept
