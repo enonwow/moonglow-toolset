@@ -982,6 +982,7 @@ impl Gateway {
     pub fn pushes(&self, id: &str, now_ms: u64) -> Result<Vec<Push>, String> {
         let draft_rev = self.store.draft_revision();
         let drafts = self.store.drafts();
+        let redis = self.store.redis_status().unwrap_or(Value::Null);
         let mut s = self.store.lock();
         let current = s.gateway.sessions.get(id).ok_or("revoked")?;
         if current.overloaded {
@@ -1012,7 +1013,7 @@ impl Gateway {
                 connected: !s.boot.is_empty(),
                 age_ms: now_ms.saturating_sub(s.received_ms),
             },
-            redis: s.redis.as_ref().map(|r| crate::bridge::status(r)).unwrap_or(Value::Null),
+            redis,
         };
         if s.gateway.meta.as_ref() != Some(&meta) {
             meta.rev += 1;
@@ -1681,5 +1682,53 @@ mod quota_audit_tests {
         assert_eq!(validate_accept(&g.store.lock(), &old).unwrap_err().code, ErrorCode::Forbidden);
         assert!(validate_accept(&g.store.lock(), &old.with_command_limit(1).unwrap()).is_ok());
         assert!(g.set_command_limit(&c.id, 0).is_err());
+    }
+}
+
+#[cfg(test)]
+mod lock_order_tests {
+    use super::*;
+    use std::{sync::mpsc, time::Duration};
+    /// The Redis publisher holds the bridge mutex while it takes the store (the command hand-off).
+    /// A session pump or status call that read the bridge status while holding the store locked the
+    /// whole gateway within a minute of load; the status is read before the store is locked.
+    #[test]
+    fn pushes_and_status_never_wait_for_the_bridge_while_holding_the_store() {
+        let store = Arc::new(LiveStore::default());
+        store.sync(br#"{"v":1,"boot":"boot","seq":1,"areas":[{"area":"a","full":true,"cre":[{"id":"1"}]}]}"#, 0).unwrap();
+        let bridge = Arc::new(Mutex::new(crate::bridge::State::default()));
+        store.set_redis_status(bridge.clone());
+        let g = Arc::new(Gateway::new(store.clone()).unwrap());
+        let config = SessionConfig {
+            id: "dm:one".into(),
+            id_prefix: "one.".into(),
+            groups: vec!["read".into()],
+            watch_limit: 16,
+        };
+        g.connect(config, None, &["a".into()], 0).unwrap();
+        let (done, finished) = mpsc::channel();
+        let publisher = {
+            let (store, bridge, done) = (store.clone(), bridge, done.clone());
+            std::thread::spawn(move || {
+                for now in 0..20_000 {
+                    let gate = bridge.lock().unwrap();
+                    store.handoff_commands(now, "boot", "mglive", |_| ());
+                    drop(gate);
+                }
+                done.send(()).unwrap();
+            })
+        };
+        let pump = std::thread::spawn(move || {
+            for now in 0..20_000 {
+                g.pushes("dm:one", now).unwrap();
+                store.status(now);
+            }
+            done.send(()).unwrap();
+        });
+        for _ in 0..2 {
+            finished.recv_timeout(Duration::from_secs(60)).expect("store and bridge deadlocked");
+        }
+        publisher.join().unwrap();
+        pump.join().unwrap();
     }
 }

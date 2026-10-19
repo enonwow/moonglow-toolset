@@ -3190,12 +3190,20 @@ impl LiveStore {
         self.status_scoped(now_ms, &crate::access::Scope::default())
     }
 
+    /// The Redis bridge's status. The bridge publisher takes its own mutex and then the store
+    /// (to hand commands off), so this must never run while the store is locked.
+    pub(crate) fn redis_status(&self) -> Option<Value> {
+        let state = self.lock().redis.clone();
+        state.map(|state| crate::bridge::status(&state))
+    }
+
     pub fn status_scoped(&self, now_ms: u64, scope: &crate::access::Scope) -> Value {
+        let redis = self.redis_status();
         let mut s = self.lock();
         expire(&mut s, now_ms);
         let mut status = json!({
             "connected": s.mirror.as_ref().map_or(!s.boot.is_empty(), |m| m.game.connected),
-            "redis": s.redis.as_ref().map(|state| crate::bridge::status(state)),
+            "redis": redis,
             "boot": s.boot,
             "seq": s.seq,
             "delta": s.delta,
