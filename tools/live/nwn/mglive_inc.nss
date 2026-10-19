@@ -427,15 +427,18 @@ json MgLiveObject(object o, int bFull)
         {
             json look;
             if (GetIsPC(o)) look = MgLiveLook(o);
-            else if (GetLocalString(o,"MGLIVE_LOOK_SIGNATURE")==MgLiveLookSignature(o) &&
-                GetLocalInt(GetModule(),"MGLIVE_SEQ")<GetLocalInt(o,"MGLIVE_LOOK_REFRESH"))
-                look = GetLocalJson(o,"MGLIVE_NPC_LOOK");
             else
             {
-                // A cold look must not hide this NPC or the rest of the area.
-                JsonObjectSetInplace(j,"look_pending",JsonBool(TRUE));
                 object m=GetModule();int tick=GetLocalInt(m,"MGLIVE_SEQ");
-                if(GetLocalInt(o,"MGLIVE_LOOK_QUEUED")!=tick && GetLocalInt(m,"MGLIVE_LOOK_JOBS")<4)
+                json cached=GetLocalJson(o,"MGLIVE_NPC_LOOK");
+                int cold=GetLocalString(o,"MGLIVE_LOOK_SIGNATURE")!=MgLiveLookSignature(o) ||
+                    JsonGetType(cached)!=JSON_TYPE_OBJECT;
+                // A cold look must not hide this NPC or the rest of the area; an
+                // expired refresh keeps sending the cached look while it is rebuilt.
+                if(cold) JsonObjectSetInplace(j,"look_pending",JsonBool(TRUE));
+                else look=cached;
+                if((cold || tick>=GetLocalInt(o,"MGLIVE_LOOK_REFRESH")) &&
+                    GetLocalInt(o,"MGLIVE_LOOK_QUEUED")!=tick && GetLocalInt(m,"MGLIVE_LOOK_JOBS")<4)
                 {
                     SetLocalInt(o,"MGLIVE_LOOK_QUEUED",tick);
                     SetLocalInt(m,"MGLIVE_LOOK_JOBS",GetLocalInt(m,"MGLIVE_LOOK_JOBS")+1);
