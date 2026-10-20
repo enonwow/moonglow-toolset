@@ -27,7 +27,8 @@ use serde_json::json;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 pub use mg_live::gateway::{GROUPS, IdentityDisabled, IdentityObserver, Principal};
-/// Called on blocking workers, on upgrade and again while the connection is alive.
+/// Called on blocking workers, on upgrade and then every 15 s while the connection is alive.
+/// To end access at once (a removed role), the host calls `Gateway::remove_session`.
 /// Never include a credential in an error or Debug output.
 pub trait Authenticator: Debug + Send + Sync + 'static {
     fn authenticate(&self, bearer: &str) -> Option<Principal>;

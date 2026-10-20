@@ -1962,6 +1962,8 @@ struct State {
     queue: VecDeque<Queued>,
     /// Distinct commands handed to the game so far; see `GAME_DONE`.
     handed: u64,
+    /// Control ids in the last handed batch, so each is counted once in `handed`.
+    handed_control: HashSet<String>,
     results: VecDeque<(Command, CommandResult)>,
     unresolved: Unresolved,
     /// Receipts for the latest result batch, including control commands.
@@ -3158,7 +3160,8 @@ impl LiveStore {
         id: &str,
         scope: &crate::access::Scope,
     ) -> (Option<CommandResult>, bool) {
-        let s = self.lock();
+        let mut s = self.lock();
+        expire(&mut s, crate::now_ms());
         if !scope.unrestricted() && s.owners.get(id) != Some(&scope.name) {
             return (None, false);
         }
@@ -3505,7 +3508,12 @@ fn expire(s: &mut State, now_ms: u64) {
         let forgotten = q.sent && s.handed - q.handed_at >= GAME_DONE;
         if forgotten || now_ms.saturating_sub(q.queued_ms) >= q.ttl_ms {
             let q = s.queue.remove(i).expect("in range");
-            let result = undelivered(&q.command.id, q.sent, "not acknowledged in time");
+            let reason = if forgotten {
+                "not acknowledged before the game could forget it"
+            } else {
+                "not acknowledged in time"
+            };
+            let result = undelivered(&q.command.id, q.sent, reason);
             push_result(s, q.command, result);
         } else {
             i += 1;
@@ -3564,6 +3572,15 @@ fn mark_handed_off(s: &mut State, batch: &Value) {
         .flatten()
         .filter_map(|c| c["id"].as_str())
         .collect();
+    // Resync and watch commands take a slot in the game's done list too; one that leaves the
+    // batch and returns is counted again, which only ends a resend early.
+    let control: HashSet<String> = ids
+        .iter()
+        .filter(|id| !s.queue.iter().any(|q| q.command.id == **id))
+        .map(|id| id.to_string())
+        .collect();
+    s.handed += control.difference(&s.handed_control).count() as u64;
+    s.handed_control = control;
     for q in &mut s.queue {
         if ids.contains(q.command.id.as_str()) && !q.sent {
             s.handed += 1;
@@ -3841,11 +3858,27 @@ mod tests {
         let id = store.enqueue(spawn(), 0).unwrap();
         assert_eq!(store.commands(1)["commands"][0]["id"], id);
         // Newer commands the game executed while this one's acknowledgement was lost.
-        store.lock().handed += GAME_DONE - 1;
+        store.lock().handed += GAME_DONE - 2;
+        // A watch command also takes a slot in the game's done list, once however often it is sent.
+        store
+            .lock()
+            .watch
+            .pending
+            .push(json!({"id":"watch-a","op":"watch_areas","areas":["a"],"on":true}));
         assert_eq!(store.commands(2)["commands"][0]["id"], id, "still in the game's done set");
-        store.lock().handed += 1;
-        assert!(store.commands(3)["commands"].as_array().unwrap().is_empty());
-        assert_eq!(store.result(&id).unwrap().code, Some(ErrorCode::Unknown));
+        assert_eq!(store.commands(3)["commands"][0]["id"], id, "the same watch id counts once");
+        store
+            .lock()
+            .watch
+            .pending
+            .push(json!({"id":"watch-b","op":"watch_areas","areas":["b"],"on":true}));
+        // watch-b runs after this command in its batch, so only the next batch must drop it.
+        assert_eq!(store.commands(4)["commands"][0]["id"], id);
+        let batch = store.commands(5);
+        assert!(batch["commands"].as_array().unwrap().iter().all(|c| c["id"] != id));
+        let unknown = store.result(&id).unwrap();
+        assert_eq!(unknown.code, Some(ErrorCode::Unknown));
+        assert!(unknown.err.contains("could forget"), "{}", unknown.err);
     }
 
     #[test]

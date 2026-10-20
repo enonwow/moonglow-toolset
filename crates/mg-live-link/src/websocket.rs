@@ -26,7 +26,7 @@ pub(crate) async fn connect(gateway: &Gateway, token: &SessionToken) -> Result<S
     let config = Arc::new(tls::config(verifier));
     let stream = TcpStream::connect((host, port)).await.map_err(|_| LinkError::Transport)?;
     stream.set_nodelay(true).map_err(|_| LinkError::Transport)?;
-    if gateway.origin.scheme() == "http" {
+    if gateway.plain() {
         let mut stream: Stream = Box::new(stream);
         upgrade(&mut stream, gateway, token).await?;
         return Ok(stream);

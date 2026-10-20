@@ -164,8 +164,13 @@ fn reject_unsafe_urls_and_bad_pins() {
     assert!(Gateway::new("wss://example.org", None).is_ok());
     // A development gateway on this machine may speak plain HTTP.
     for url in ["http://127.0.0.1:5199", "ws://[::1]:5199", "http://localhost:5199"] {
-        assert!(Gateway::new(url, None).is_ok(), "{url}");
+        let gateway = Gateway::new(url, None).unwrap();
+        // No TLS probe and no trust prompt: nothing listens there, so any I/O would fail.
+        gateway.check_trust(std::time::Duration::from_millis(50)).unwrap();
+        assert!(gateway.tls_config().is_ok(), "{url}");
     }
+    let pin = "a".repeat(64);
+    assert!(matches!(Gateway::new("http://127.0.0.1:5199", Some(&pin)), Err(Error::InvalidPin)));
 }
 
 #[test]

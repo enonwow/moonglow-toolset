@@ -13,7 +13,9 @@ use crate::tls::{self, Pinned, TrustPrompt};
 /// Errors deliberately exclude request URLs, grants and response bodies.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Use an HTTPS gateway origin without credentials, path, query or fragment")]
+    #[error(
+        "Use an HTTPS gateway origin (plain HTTP only on 127.0.0.1 or ::1) without credentials, path, query or fragment"
+    )]
     InvalidGateway,
     #[error("Certificate pin must be 64 hexadecimal characters")]
     InvalidPin,
@@ -71,8 +73,7 @@ fn loopback(url: &Url) -> bool {
     match url.host() {
         Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
         Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
-        None => false,
+        _ => false,
     }
 }
 
@@ -83,6 +84,10 @@ impl Gateway {
             "wss" => origin.set_scheme("https").map_err(|_| Error::InvalidGateway)?,
             "ws" => origin.set_scheme("http").map_err(|_| Error::InvalidGateway)?,
             _ => {}
+        }
+        // `localhost` would go through the resolver; a literal address cannot leave the machine.
+        if origin.scheme() == "http" && origin.host_str() == Some("localhost") {
+            origin.set_host(Some("127.0.0.1")).map_err(|_| Error::InvalidGateway)?;
         }
         // Plain HTTP only for a development gateway on this machine; the token never leaves it.
         if !(origin.scheme() == "https" || origin.scheme() == "http" && loopback(&origin))
@@ -95,10 +100,17 @@ impl Gateway {
         {
             return Err(Error::InvalidGateway);
         }
-        if pin.is_some_and(|p| p.len() != 64 || !p.bytes().all(|b| b.is_ascii_hexdigit())) {
+        if pin.is_some_and(|p| {
+            origin.scheme() == "http" || p.len() != 64 || !p.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
             return Err(Error::InvalidPin);
         }
         Ok(Self { origin, pin: pin.map(str::to_ascii_lowercase) })
+    }
+
+    /// A loopback development gateway without TLS (`Gateway::new` allows no other).
+    pub(crate) fn plain(&self) -> bool {
+        self.origin.scheme() == "http"
     }
 
     /// Reuse the gateway's saved pin or public WebPKI roots for another TLS client.
@@ -106,6 +118,7 @@ impl Gateway {
     /// certificate with `check_trust` before creating a credential-bearing client.
     pub fn tls_config(&self) -> Result<Arc<rustls::ClientConfig>, Error> {
         if self.pin.is_none()
+            && !self.plain()
             && matches!(self.origin.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)))
         {
             return Err(Error::UntrustedGateway);
@@ -121,6 +134,7 @@ impl Gateway {
     /// DNS gateways use public WebPKI roots; a saved pin always takes precedence.
     pub fn check_trust(&self, timeout: Duration) -> Result<(), Error> {
         if self.pin.is_some()
+            || self.plain()
             || !matches!(self.origin.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)))
         {
             return Ok(());

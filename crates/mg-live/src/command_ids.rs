@@ -64,6 +64,7 @@ impl Journal {
             #[cfg(test)]
             before_write: None,
         };
+        j.refuse_old_journals()?;
         let path = j.root.join("current.jsonl");
         if path.exists() {
             let mut file = open(&path)?;
@@ -139,7 +140,6 @@ impl Journal {
         }
         self.history.advance(now);
         if self.file.is_none() {
-            self.refuse_old_journals()?;
             self.checkpoint()?;
         }
         if self.boot != boot {
@@ -161,10 +161,8 @@ impl Journal {
                 && stem.len() == 64
                 && stem.bytes().all(|b| b.is_ascii_hexdigit())
             {
-                return Err(format!(
-                    "Unsupported old command journal {}; remove it",
-                    path.display()
-                ));
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                return Err(format!("Unsupported old command journal {name}; remove it"));
             }
         }
         Ok(())
@@ -445,9 +443,10 @@ mod tests {
 ",
         )
         .unwrap();
-        let mut j = Journal::new(dir.clone()).unwrap();
-        assert!(j.select_boot_at("boot", 1000).unwrap_err().contains("old command journal"));
-        drop(j);
+        let refused = Journal::new(dir.clone()).err().unwrap();
+        assert!(
+            refused.contains("old command journal") && !refused.contains(&*dir.to_string_lossy())
+        );
         fs::remove_file(old).unwrap();
         let mut j = Journal::new(dir.clone()).unwrap();
         j.select_boot_at("boot", 1000).unwrap();

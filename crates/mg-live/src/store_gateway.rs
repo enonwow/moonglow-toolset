@@ -208,6 +208,7 @@ impl SessionConfig {
         scope
     }
     fn has(&self, group: &str) -> bool {
+        debug_assert!(identity::GROUPS.contains(&group), "{group} is not in GROUPS");
         self.groups.iter().any(|g| g == group)
     }
 }

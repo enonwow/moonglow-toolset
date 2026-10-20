@@ -671,6 +671,18 @@ fn unknown_group_names_are_configuration_errors() {
         groups: GROUPS.map(String::from).to_vec(),
     };
     assert!(p.validate().is_ok());
+    // A new variant stops this match compiling until ALL lists it.
+    let _ = |g: crate::access::ClientGroup| {
+        use crate::access::ClientGroup::*;
+        match g {
+            Read | ReadChat | Variables | Npc | Speech | Spawn | SpawnScripted | Scripts
+            | Chunks | Players => (),
+        }
+    };
+    for group in serde_json::to_value(crate::access::ClientGroup::ALL).unwrap().as_array().unwrap()
+    {
+        assert!(GROUPS.contains(&group.as_str().unwrap()), "{group}");
+    }
     p.groups.push("player".into());
     assert_eq!(p.validate().unwrap_err(), "Unknown group \"player\"");
 }

@@ -19,6 +19,12 @@ pub enum ClientGroup {
     Chunks,
     Players,
 }
+impl ClientGroup {
+    pub const ALL: [ClientGroup; 10] = {
+        use ClientGroup::*;
+        [Read, ReadChat, Variables, Npc, Speech, Spawn, SpawnScripted, Scripts, Chunks, Players]
+    };
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
