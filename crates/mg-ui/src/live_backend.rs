@@ -19,6 +19,8 @@ pub(crate) struct GatewayRuntime {
     focus: Option<Vec<(String, String)>>,
     connection: u64,
     calls: Vec<PendingCall>,
+    /// Last connection state written to the log, so each drop and recovery is logged once.
+    logged: Option<(bool, Option<mg_live_link::LinkError>)>,
 }
 impl GatewayRuntime {
     pub(crate) fn starting(
@@ -34,6 +36,7 @@ impl GatewayRuntime {
             focus: None,
             connection: 0,
             calls: Vec::new(),
+            logged: None,
         }
     }
 }
@@ -217,6 +220,18 @@ pub(crate) fn update(app: &mut Moonglow, ctx: &egui::Context) {
     };
     crate::live_avatar::set_client(ctx, Some(link.avatar_client()));
     let snapshot = link.snapshot();
+    // Retries flip between connecting states; log only a new error and a recovery.
+    let state = (snapshot.status == LinkStatus::Connected, snapshot.error);
+    if runtime.logged.as_ref() != Some(&state) {
+        match state {
+            (_, Some(error)) => {
+                app.log.warn(format!("Live: gateway {:?}: {error}", snapshot.status))
+            }
+            (true, None) if runtime.logged.is_some() => app.log.info("Live: gateway connected"),
+            _ => {}
+        }
+        runtime.logged = Some(state);
+    }
     if snapshot.connections != runtime.connection {
         runtime.connection = snapshot.connections;
         runtime.watches = None;
