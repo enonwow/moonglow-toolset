@@ -142,7 +142,7 @@ impl LiveStore {
         // Historical IDs may refer to different objects in the current boot.
         let events = if s.boot == entry.source { enrich(&s, rows, now_ms) } else { rows.clone() };
         let dropped = s.events.dropped;
-        s.events.game(&entry.source, &events, dropped, now_ms);
+        s.events.game(&entry.source, &events, dropped, stream_ms(&entry.id, now_ms));
         s.events.commit_stream(&entry.epoch, entry.n);
         super::assistant::capture(&mut s);
         Ok(())
@@ -514,4 +514,18 @@ mod acceptance_tests {
         );
         assert_eq!(store.poll_epoch(&scope).unwrap_err().code, crate::store::ErrorCode::Forbidden);
     }
+}
+
+/// When Redis stored a stream entry (`<ms>-<seq>`): a replay after a gateway restart keeps the
+/// time the game sent the event, never one later than now.
+fn stream_ms(id: &str, now_ms: u64) -> u64 {
+    id.split('-').next().and_then(|ms| ms.parse().ok()).filter(|ms| *ms <= now_ms).unwrap_or(now_ms)
+}
+
+#[cfg(test)]
+#[test]
+fn replayed_stream_entries_keep_their_redis_time() {
+    assert_eq!(stream_ms("1792488572547-0", 1792488600000), 1792488572547);
+    assert_eq!(stream_ms("1792488572547-0", 1000), 1000, "never in the future");
+    assert_eq!(stream_ms("bad", 1000), 1000);
 }

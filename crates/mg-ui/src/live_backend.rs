@@ -131,10 +131,11 @@ impl<'a> LiveBackend<'a> {
             |s| s.drafts().unwrap_or_default(),
         )
     }
-    pub(crate) fn draft_revision(&self) -> u64 {
+    /// With the connection count: a restarted gateway numbers its draft revisions afresh.
+    pub(crate) fn draft_revision(&self) -> (u64, u64) {
         self.link().map_or_else(
-            || self.app.live.as_ref().map_or(0, |s| s.draft_revision()),
-            |s| s.draft_revision(),
+            || (0, self.app.live.as_ref().map_or(0, |s| s.draft_revision())),
+            |s| (s.snapshot().connections, s.draft_revision()),
         )
     }
 }

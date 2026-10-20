@@ -1073,28 +1073,27 @@ pub(crate) fn results(app: &mut Moonglow) {
     if app.live_commands.is_empty() {
         return;
     }
-    let Some(store) = &app.live else { return };
-    let status = store.status(now_ms());
-    let Some(results) = status["results"].as_array() else { return };
-    for item in results {
-        let result = &item["result"];
-        let Some(id) = result["id"].as_str() else { continue };
-        if !app.live_commands.remove(id) {
-            continue;
-        }
-        log_result(&mut app.log, id, result);
-    }
-    // A long UI pause can outlast the store's bounded result history. Do not
-    // retain such ids forever or invent a successful outcome for them.
-    if let Some(queued) = status["queued"].as_array() {
-        app.live_commands.retain(|id| {
-            if queued.iter().any(|command| command["id"].as_str() == Some(id)) {
-                true
-            } else {
-                app.log.warn(format!("Live: {id} result is no longer available"));
-                false
+    let Some(store) = app.live.clone() else { return };
+    let mut settled = Vec::new();
+    for (id, sent) in &app.live_commands {
+        match store.result(id) {
+            Some(result) if !result.pending => settled.push((id.clone(), Some(result))),
+            // The gateway settles every command (final or unknown); a mirror sees the result
+            // only after the command has left its queue, so give up on silence alone.
+            None if sent.elapsed() > std::time::Duration::from_secs(120) => {
+                settled.push((id.clone(), None))
             }
-        });
+            _ => {}
+        }
+    }
+    for (id, result) in settled {
+        app.live_commands.remove(&id);
+        match result {
+            Some(result) => {
+                log_result(&mut app.log, &id, &serde_json::to_value(result).unwrap_or_default())
+            }
+            None => app.log.warn(format!("Live: {id} result is no longer available")),
+        }
     }
 }
 

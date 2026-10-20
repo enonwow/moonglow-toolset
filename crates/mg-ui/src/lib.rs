@@ -622,7 +622,8 @@ pub struct Moonglow {
     pub live_clipboard: live_clipboard::Clipboard,
     pub live_library: live_library::LiveLibrary,
     live_needs_apply: bool,
-    live_commands: std::collections::HashSet<String>,
+    /// Commands sent from a Live view, with when they were sent, until their result is logged.
+    live_commands: std::collections::HashMap<String, std::time::Instant>,
     /// When changed haks and folders were last looked for.
     reload_checked: Option<std::time::Instant>,
     /// The custom talk table's file and its time when loaded.

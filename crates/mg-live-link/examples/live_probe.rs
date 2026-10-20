@@ -43,6 +43,19 @@ fn main() {
     until("connection", 20, || (link.snapshot().status == LinkStatus::Connected).then_some(()));
     let welcome = link.snapshot().welcome.unwrap();
     println!("connected in {:?} as {}", started.elapsed(), welcome.user.id);
+    if std::env::var_os("PROBE_DRAFTS").is_some() {
+        std::thread::sleep(Duration::from_secs(2));
+        let raw = link.snapshot().drafts.len();
+        println!("drafts pushed: {raw}, revision {}", link.draft_revision());
+        match link.drafts() {
+            Ok(d) => println!("drafts read: {}", d.len()),
+            Err(e) => println!("drafts unreadable: {e:?}"),
+        }
+        if let Some(first) = link.snapshot().drafts.first() {
+            println!("first draft json: {}", serde_json::to_string(first).unwrap_or_default());
+        }
+        return;
+    }
 
     link.set_watched_areas(std::slice::from_ref(&area))
         .unwrap()

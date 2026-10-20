@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::Weak};
 #[derive(Debug, Default)]
 pub struct LiveDrafts {
     source: Weak<LiveStore>,
-    revision: Option<u64>,
+    revision: Option<(u64, u64)>,
     rows: Vec<Draft>,
     editing: HashMap<String, String>,
     notice: Option<String>,
@@ -20,7 +20,7 @@ impl LiveDrafts {
     fn update(
         &mut self,
         store: &std::sync::Arc<LiveStore>,
-        revision: u64,
+        revision: (u64, u64),
         read: impl FnOnce() -> Vec<Draft>,
     ) {
         let same = self.source.upgrade().is_some_and(|old| std::sync::Arc::ptr_eq(&old, store));
@@ -175,5 +175,26 @@ mod tests {
         assert!(matches(&draft, Some("gate"), Some(&["b".into()]), true));
         assert!(!matches(&draft, Some("inn"), None, false));
         assert!(!matches(&draft, None, Some(&["c".into()]), false));
+    }
+
+    #[test]
+    fn a_new_connection_rereads_drafts_even_with_the_same_revision_number() {
+        let store = std::sync::Arc::new(LiveStore::default());
+        let mut state = LiveDrafts::default();
+        let mut reads = 0;
+        state.update(&store, (1, 1), || {
+            reads += 1;
+            vec![]
+        });
+        state.update(&store, (1, 1), || {
+            reads += 1;
+            vec![]
+        });
+        // A restarted gateway counts draft revisions from the start again.
+        state.update(&store, (2, 1), || {
+            reads += 1;
+            vec![]
+        });
+        assert_eq!(reads, 2);
     }
 }

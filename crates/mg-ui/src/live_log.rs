@@ -495,7 +495,8 @@ pub(crate) fn attributed(text: &str, event: &mg_live::events::Event) -> String {
         .as_str()
         .or_else(|| event.data["result"]["by"].as_str())
         .or_else(|| event.data["command"]["by"].as_str());
-    match by.filter(|name| !name.is_empty() && *name != "local") {
+    // Gateway identities are `dm:` people and `ai:` agents; only agents are LLMs.
+    match by.filter(|name| !name.is_empty() && *name != "local" && !name.starts_with("dm:")) {
         Some(name) => format!("{text} [⚡ by LLM: {name}]"),
         None => text.into(),
     }
@@ -505,6 +506,14 @@ pub(crate) fn attributed(text: &str, event: &mg_live::events::Event) -> String {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn only_agents_are_labelled_as_llm() {
+        let said = |by: &str| attributed("Hello", &event("command", json!({"id":"c1","by":by})));
+        assert_eq!(said("dm:owner"), "Hello");
+        assert_eq!(said("local"), "Hello");
+        assert_eq!(said("ai:scribe"), "Hello [⚡ by LLM: ai:scribe]");
+    }
 
     #[test]
     fn unknown_is_a_warning_even_if_a_result_has_a_success_flag() {

@@ -428,7 +428,7 @@ pub fn enqueue(app: &mut Moonglow, command: Command) -> Result<String, CommandEr
     let now = mg_live::now_ms();
     let id = app.live_backend().enqueue(command.clone())?;
     app.live_scene.record_command(&command, now);
-    app.live_commands.insert(id.clone());
+    app.live_commands.insert(id.clone(), std::time::Instant::now());
     Ok(id)
 }
 
