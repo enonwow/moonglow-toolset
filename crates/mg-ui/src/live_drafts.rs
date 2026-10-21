@@ -108,7 +108,7 @@ pub(crate) fn ui(
         }
         let names: std::collections::HashMap<String, String> = rows
             .iter()
-            .filter_map(|d| Some((d.client.clone(), app.live_backend().actor_name(&d.client)?)))
+            .filter_map(|d| Some((d.client.clone(), app.live_backend().ai_label(&d.client)?)))
             .collect();
         egui::ScrollArea::vertical().id_salt(("llm-drafts",area,targets)).max_height(220.).show(ui,|ui| {
             for d in rows {

@@ -117,11 +117,14 @@ impl<'a> LiveBackend<'a> {
             self.app.live.as_ref().ok_or("Live is unavailable")?.enqueue(command, mg_live::now_ms())
         }
     }
-    /// The display name the gateway gives a DM or AI identity, when it has announced one.
-    pub(crate) fn actor_name(&self, id: &str) -> Option<String> {
+    /// "name (ai:…)" for an AI the gateway has announced. The id stays visible: an owner
+    /// chooses the name, so it alone must not pass for another identity.
+    pub(crate) fn ai_label(&self, id: &str) -> Option<String> {
         let snapshot = self.link()?.snapshot();
         let actor = snapshot.actors.iter().find(|a| a["id"].as_str() == Some(id))?;
-        actor["name"].as_str().filter(|n| !n.is_empty()).map(|n| n.chars().take(80).collect())
+        let name: String =
+            actor["name"].as_str().filter(|n| !n.is_empty())?.chars().take(80).collect();
+        (actor["kind"].as_str() == Some("ai")).then(|| format!("{name} ({id})"))
     }
     pub(crate) fn presence(&self, id: &str) -> Vec<FocusActor> {
         let Some(link) = self.link() else { return Vec::new() };
