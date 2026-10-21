@@ -251,6 +251,10 @@ impl Gateway {
     pub fn set_command_limit(&self, principal: &str, limit: u32) -> Result<(), String> {
         Scope::restricted(principal, vec![], DeliveryMode::Auto).with_command_limit(limit)?;
         let mut s = self.store.lock();
+        // Re-authentication repeats the same limit; skip the identity scan unless it changes.
+        if s.gateway.command_limits.get(principal) == Some(&limit) {
+            return Ok(());
+        }
         let known: BTreeSet<_> = s
             .gateway
             .identities

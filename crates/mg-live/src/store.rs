@@ -2151,6 +2151,10 @@ impl LiveStore {
     /// Changing policy also cancels undelivered commands that it now disallows.
     pub fn set_policy(&self, policy: Policy) {
         let mut s = self.lock();
+        // Every socket, agent request and the host write the same policy: only a change counts.
+        if s.policy == policy {
+            return;
+        }
         s.policy = policy;
         if let Some(mirror) = &mut s.mirror {
             mirror.revision += 1;
@@ -3886,6 +3890,19 @@ mod tests {
         assert!(store.lock().queue.is_empty());
         assert_eq!(store.poll_epoch(&scope).unwrap_err().code, ErrorCode::Forbidden);
         assert!(store.enqueue_scoped(spawn(), 0, &crate::access::Scope::default()).is_ok());
+    }
+
+    #[test]
+    fn writing_the_same_policy_again_changes_nothing() {
+        let store = LiveStore::new_mirror();
+        let revision = || store.lock().mirror.as_ref().unwrap().revision;
+        let first = revision();
+        store.set_policy(Policy::default());
+        assert_eq!(revision(), first);
+        store.set_policy(Policy { players: true, ..Policy::default() });
+        assert_eq!(revision(), first + 1);
+        store.set_policy(Policy { players: true, ..Policy::default() });
+        assert_eq!(revision(), first + 1);
     }
 
     #[test]
