@@ -226,3 +226,23 @@ async fn facade_reads_auxiliary_pushes_and_preserves_host_refusals() {
         LinkError::Unsupported
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_or_closed_bye_reconnects_instead_of_stopping() {
+    use mg_live::gateway_frames::{Bye, ServerFrame};
+    for code in ["idle", "closed"] {
+        let host = Host::new().await;
+        let service = LinkService::start(host.config(), &tokens(), Arc::new(|| {})).unwrap();
+        until(|| service.snapshot().status == LinkStatus::Connected).await;
+        let first = service.snapshot().connections;
+        let bye =
+            serde_json::to_string(&ServerFrame::Bye(Bye { code: code.into(), msg: code.into() }))
+                .unwrap();
+        let mut frame = vec![129, bye.len() as u8];
+        frame.extend(bye.as_bytes());
+        host.inject(frame);
+        // A quiet desktop (sleep, a busy machine) is not a protocol fault: it comes back.
+        until(|| service.snapshot().connections > first).await;
+        assert_eq!(service.snapshot().status, LinkStatus::Connected, "{code}");
+    }
+}

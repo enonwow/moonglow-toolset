@@ -274,7 +274,7 @@ async fn connection(
                                 ServerFrame::Bye(bye)=>return Err(match bye.code.as_str() {
                                     "revoked"=>LinkError::Revoked,"role_changed"=>LinkError::RoleChanged,
                                     "upgrade"=>LinkError::Upgrade,"replaced"=>LinkError::Replaced,
-                                    "overloaded"|"shutdown"=>LinkError::Transport,_=>LinkError::Protocol,
+                                    "overloaded"|"shutdown"|"idle"|"closed"=>LinkError::Transport,_=>LinkError::Protocol,
                                 }),
                                 _=>return Err(LinkError::Protocol),
                             }
