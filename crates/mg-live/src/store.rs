@@ -2636,389 +2636,12 @@ impl LiveStore {
         if !command.id.is_empty() {
             s.history.check(&identity_boot, &command.id, now_ms)?;
         }
-        if let Some(previous) = s.accepted.get(&command.id) {
-            if !scope.unrestricted() && s.owners.get(&command.id) != Some(&scope.name) {
-                return Err(CommandError::new(
-                    ErrorCode::Forbidden,
-                    "Command id belongs to another client",
-                ));
-            }
-            return if previous == &command_fingerprint(&command) {
-                Ok(command.id)
-            } else {
-                Err("Command id already belongs to a different operation".into())
-            };
-        }
-        if reservation.is_none() {
-            let previous = s.history.get(&identity_boot, &command.id).cloned().or_else(|| {
-                s.command_ids.as_ref().and_then(|j| j.entry(&s.boot, &command.id)).cloned()
-            });
-            if let Some(previous) = previous {
-                if previous.fingerprint.is_none() {
-                    return Err(crate::command_history::expired());
-                }
-                if !scope.unrestricted() && previous.owner != scope.name {
-                    return Err(CommandError::new(
-                        ErrorCode::Forbidden,
-                        "Command id belongs to another client",
-                    ));
-                }
-                if previous.fingerprint != Some(command_fingerprint(&command)) {
-                    return Err(CommandError::new(
-                        ErrorCode::Invalid,
-                        "Command id already belongs to a different operation",
-                    ));
-                }
-                let mut previous = previous;
-                previous.outcome.get_or_insert_with(|| {
-                    failure(
-                        &command.id,
-                        ErrorCode::Unknown,
-                        "unknown: durable reservation has no result; command will not be retried",
-                    )
-                });
-                s.accepted.insert(command.id.clone(), command_fingerprint(&command));
-                s.owners.insert(command.id.clone(), previous.owner.clone());
-                s.history.insert(identity_boot, command.id.clone(), previous);
-                refresh_identities(&mut s, now_ms);
-                s.history.check(&crate::command_history::boot_key(&s.boot), &command.id, now_ms)?;
-                return Ok(command.id);
-            }
-        }
-        let teleport = matches!(command.op, Op::Teleport { .. } | Op::PcTeleport { .. });
-        // Teleport's area is the destination. Keep the original optional value
-        // in the accepted command so retries remain stable after a cross-area move.
-        let control_area = AreaLive::default();
-        let area = if matches!(command.op, Op::WatchAreas { .. }) {
-            &control_area // observation control must bootstrap an unreported area
-        } else if teleport || matches!(command.op, Op::ReplyToPlayer { .. }) {
-            s.areas
-                .values()
-                .find(|a| command.target().is_some_and(|id| a.find(id).is_some()))
-                .ok_or_else(|| {
-                    CommandError::new(ErrorCode::NotFound, "Target is not in the latest reports")
-                })?
-        } else {
-            s.areas
-                .get(&command.area)
-                .ok_or_else(|| CommandError::new(ErrorCode::NotFound, "No report for this area"))?
-        };
-        if teleport {
-            let destination =
-                if command.area.is_empty() { Some(area) } else { s.areas.get(&command.area) };
-            let (x, y) = match command.op {
-                Op::Teleport { x, y, .. } | Op::PcTeleport { x, y, .. } => (x, y),
-                _ => unreachable!(),
-            };
-            if x < 0.0
-                || y < 0.0
-                || destination
-                    .and_then(|a| a.size)
-                    .is_some_and(|[w, h]| x >= w as f32 || y >= h as f32)
-            {
-                return Err("xy must be inside destination area bounds".into());
-            }
-            // Unreported destination areas are resolved and bounded by the game.
-        }
-        let recipient = match &command.op {
-            Op::UseItem { recipient, .. } => recipient.as_deref(),
-            Op::TransferItem { recipient, .. } => Some(recipient.as_str()),
-            _ => None,
-        };
-        if let Some(recipient) = recipient {
-            let (kind, object) = find_target(&s, area, recipient)?;
-            if kind != ObjectKind::Creature {
-                return Err("Recipient must be a creature".into());
-            }
-            if (object.pc || object.dm || object.possessed) && !players {
-                return Err(CommandError::new(
-                    ErrorCode::Disabled,
-                    "Player recipient requires both permissions",
-                ));
-            }
-            if object.dead {
-                return Err(CommandError::new(ErrorCode::Dead, "Recipient is dead"));
-            }
-        }
-        // A creature in module limbo has no area row; the game validates its identity/type.
-        if let Some(target) = command.target().filter(|_| !matches!(command.op, Op::Unlimbo { .. }))
+        if let Some(id) =
+            known_command(&mut s, &command, scope, reservation.is_none(), &identity_boot, now_ms)?
         {
-            let (kind, object) = find_target(&s, area, target)?;
-            if teleport && (object.pc || object.dm || object.possessed) && !players {
-                return Err(CommandError::new(
-                    ErrorCode::Disabled,
-                    "Player teleport requires both player permissions",
-                ));
-            }
-            if command.op.is_player() && kind != ObjectKind::Creature {
-                return Err("Target must be a creature".into());
-            }
-            if (object.pc || object.dm || object.possessed)
-                && !players
-                && matches!(
-                    command.op,
-                    Op::GiveItem { .. }
-                        | Op::EquipItem { .. }
-                        | Op::UnequipItem { .. }
-                        | Op::DropItem { .. }
-                        | Op::UseItem { .. }
-                        | Op::TransferItem { .. }
-                        | Op::PlayCreatureAnimation { .. }
-                        | Op::TakeGold { .. }
-                        | Op::SetXp { .. }
-                        | Op::TakeXp { .. }
-                        | Op::RemoveLevel { .. }
-                        | Op::GetFactionReputation { .. }
-                        | Op::SetFactionReputation { .. }
-                )
-            {
-                return Err(CommandError::new(
-                    ErrorCode::Disabled,
-                    "Player operations require both player permissions",
-                ));
-            }
-            if object.dead
-                && matches!(
-                    command.op,
-                    Op::Teleport { .. }
-                        | Op::GiveItem { .. }
-                        | Op::EquipItem { .. }
-                        | Op::UnequipItem { .. }
-                        | Op::DropItem { .. }
-                        | Op::UseItem { .. }
-                        | Op::TransferItem { .. }
-                        | Op::PlayCreatureAnimation { .. }
-                        | Op::TakeGold { .. }
-                        | Op::SetXp { .. }
-                        | Op::TakeXp { .. }
-                        | Op::RemoveLevel { .. }
-                        | Op::GiveLevel { .. }
-                        | Op::GiveAlignment { .. }
-                        | Op::SetStat { .. }
-                        | Op::GetFactionReputation { .. }
-                        | Op::SetFactionReputation { .. }
-                        | Op::SetLootable { .. }
-                        | Op::Kill { .. }
-                        | Op::Heal { .. }
-                        | Op::ForceRest { .. }
-                        | Op::Limbo { .. }
-                        | Op::Patrol { .. }
-                        | Op::NpcMove { .. }
-                        | Op::NpcAttack { .. }
-                        | Op::NpcSay { .. }
-                        | Op::StopCombat { .. }
-                        | Op::SetFaction { .. }
-                        | Op::Freeze { .. }
-                        | Op::Unfreeze { .. }
-                        | Op::RunScript { .. }
-                        | Op::RunChunk { .. }
-                )
-                || object.dead
-                    && command.op.is_player()
-                    && !matches!(
-                        command.op,
-                        Op::PcRaise { .. }
-                            | Op::ReplyToPlayer { .. }
-                            | Op::PcMessage { .. }
-                            | Op::PcJournal { .. }
-                            | Op::PcTakeItem { .. }
-                            | Op::PcBoot { .. }
-                            | Op::Fade { .. }
-                            | Op::PlaySound { .. }
-                    )
-            {
-                return Err(CommandError::new(ErrorCode::Dead, "Target is dead"));
-            }
-            let player_stop = matches!(command.op, Op::StopCombat { target: Some(_), .. })
-                && object.pc
-                && !object.dm
-                && !object.possessed;
-            if player_stop && !players {
-                return Err(CommandError::new(
-                    ErrorCode::Disabled,
-                    "Player stop requires both player permissions",
-                ));
-            }
-            if (object.pc || object.dm || object.possessed)
-                && !matches!(command.op, Op::GetVariable { .. } | Op::DumpLocals { .. })
-                && !matches!(command.op, Op::RunScript { .. } | Op::RunChunk { .. })
-                && !(players
-                    && (command.op.is_player()
-                        || player_stop
-                        || matches!(
-                            command.op,
-                            Op::Teleport { .. }
-                                | Op::NpcMove { .. }
-                                | Op::NpcAttack { .. }
-                                | Op::ReplaceObjectAnimation { .. }
-                                | Op::SetAppearance { .. }
-                                | Op::ApplyVfx { .. }
-                                | Op::ClearVfx { .. }
-                                | Op::ViewInventory { .. }
-                                | Op::TakeItem { .. }
-                                | Op::SetVariable { .. }
-                                | Op::Freeze { .. }
-                                | Op::Unfreeze { .. }
-                                | Op::Kill { .. }
-                                | Op::GiveItem { .. }
-                                | Op::EquipItem { .. }
-                                | Op::UnequipItem { .. }
-                                | Op::DropItem { .. }
-                                | Op::UseItem { .. }
-                                | Op::TransferItem { .. }
-                                | Op::PlayCreatureAnimation { .. }
-                                | Op::TakeGold { .. }
-                                | Op::SetXp { .. }
-                                | Op::TakeXp { .. }
-                                | Op::RemoveLevel { .. }
-                                | Op::GetFactionReputation { .. }
-                                | Op::SetFactionReputation { .. }
-                                | Op::Heal { .. }
-                                | Op::SetInvulnerable { .. }
-                                | Op::SetImmortal { .. }
-                                | Op::SetAi { .. }
-                                | Op::ForceRest { .. }
-                        )))
-            {
-                return Err(CommandError::new(
-                    ErrorCode::Protected,
-                    "Target is a player, DM or DM-possessed creature",
-                ));
-            }
-            match &command.op {
-                Op::Destroy { .. } if kind == ObjectKind::Encounter => {
-                    return Err(CommandError::new(
-                        ErrorCode::Disabled,
-                        "Native encounter destruction is unavailable; object would remain active",
-                    ));
-                }
-                Op::GetFactionReputation { .. }
-                | Op::SetFactionReputation { .. }
-                | Op::GiveItem { .. }
-                | Op::EquipItem { .. }
-                | Op::UnequipItem { .. }
-                | Op::DropItem { .. }
-                | Op::UseItem { .. }
-                | Op::TransferItem { .. }
-                | Op::PlayCreatureAnimation { .. }
-                | Op::Patrol { .. }
-                | Op::StopPatrol { .. }
-                | Op::SetLootable { .. }
-                | Op::Kill { .. }
-                | Op::TakeGold { .. }
-                | Op::SetXp { .. }
-                | Op::TakeXp { .. }
-                | Op::RemoveLevel { .. }
-                | Op::Heal { .. }
-                | Op::SetInvulnerable { .. }
-                | Op::SetImmortal { .. }
-                | Op::SetAi { .. }
-                | Op::ForceRest { .. }
-                | Op::Limbo { .. }
-                | Op::NpcMove { .. }
-                | Op::NpcAttack { .. }
-                | Op::StopCombat { .. }
-                | Op::SetFaction { .. }
-                | Op::Freeze { .. }
-                | Op::Unfreeze { .. }
-                | Op::PcHeal { .. }
-                | Op::PcRaise { .. }
-                | Op::PcTeleport { .. }
-                | Op::PcGiveGold { .. }
-                | Op::PcGiveXp { .. }
-                | Op::PcGiveItem { .. }
-                    if kind != ObjectKind::Creature =>
-                {
-                    return Err("Target must be a creature".into());
-                }
-                Op::ViewInventory { .. }
-                | Op::TakeItem { .. }
-                | Op::NpcSay { .. }
-                | Op::SetAppearance { .. }
-                    if !matches!(kind, ObjectKind::Creature | ObjectKind::Placeable) =>
-                {
-                    return Err("Target must be a creature or placeable".into());
-                }
-                Op::DisableTrap { .. }
-                | Op::SpawnTrapOnObject { .. }
-                | Op::SetState { .. }
-                | Op::SetFacing { .. }
-                | Op::SetVisualTransform { .. }
-                | Op::SetPosition { .. }
-                | Op::PlayAnimation { .. }
-                | Op::SetUseable { .. }
-                    if !matches!(kind, ObjectKind::Door | ObjectKind::Placeable) =>
-                {
-                    return Err("Target must be a door or placeable".into());
-                }
-                _ => {}
-            }
-            if matches!(
-                command.op,
-                Op::ReplyToPlayer { .. }
-                    | Op::PcMessage { .. }
-                    | Op::PcJournal { .. }
-                    | Op::PcTakeItem { .. }
-                    | Op::PcBoot { .. }
-                    | Op::Fade { .. }
-                    | Op::PlaySound { .. }
-            ) && (!object.pc || object.dm || object.possessed)
-            {
-                return Err(CommandError::new(
-                    ErrorCode::Protected,
-                    "Target must be a PC, not an NPC or DM",
-                ));
-            }
-            if matches!(command.op, Op::SkillCheck { .. })
-                && (!object.pc || object.dm || object.possessed)
-            {
-                return Err(CommandError::new(
-                    ErrorCode::Protected,
-                    "Skill checks target a player, not an NPC or DM",
-                ));
-            }
-            if object.pc && matches!(command.op, Op::NpcAttack { faction: Some(_), .. }) {
-                return Err("Fighting faction cannot change a PC".into());
-            }
-            if matches!(command.op, Op::SetStatic { .. }) && kind != ObjectKind::Placeable {
-                return Err("Target must be a placeable".into());
-            }
-            if matches!(command.op, Op::PcRaise { .. }) && !object.dead {
-                return Err("Target is already alive".into());
-            }
-            if matches!(command.op, Op::SetFacing { .. }) && kind == ObjectKind::Door {
-                return Err(CommandError::new(
-                    ErrorCode::Disabled,
-                    "Native door facing is unsupported; use visual rotation",
-                ));
-            }
-            if let Op::PlayAnimation { name, .. } = command.op {
-                if kind == ObjectKind::Door && !matches!(name, Animation::Open | Animation::Close) {
-                    return Err("Doors support open/close only".into());
-                }
-                if kind == ObjectKind::Door && name == Animation::Open && object.lock == Some(true)
-                {
-                    return Err("Door is locked".into());
-                }
-            }
-            let total = match command.op {
-                Op::PcGiveGold { amount, .. } => object.gold.map(|old| (old, amount)),
-                Op::PcGiveXp { amount, .. } => object.xp.map(|old| (old, amount)),
-                _ => None,
-            };
-            if total.is_some_and(|(old, n)| old.checked_add(n as i32).is_none()) {
-                return Err("Grant would overflow the reported total".into());
-            }
-            if let Op::NpcAttack { victim, .. } = &command.op {
-                let (kind, object) = find_target(&s, area, victim)?;
-                if victim == target || kind != ObjectKind::Creature {
-                    return Err("Victim must be another creature in this area".into());
-                }
-                if object.dead {
-                    return Err(CommandError::new(ErrorCode::Dead, "Victim is dead"));
-                }
-            }
+            return Ok(id);
         }
+        validate_against_reports(&s, &command, players)?;
         if s.queue.len() >= MAX_QUEUE {
             return Err("Too many commands are waiting for the game".into());
         }
@@ -3030,36 +2653,7 @@ impl LiveStore {
             return Err("At most 16 skill requests may await rolls".into());
         }
         if command.id.is_empty() {
-            if s.prefix.is_empty() {
-                let mut bytes = [0; 8];
-                getrandom::fill(&mut bytes).map_err(|e| format!("Command id randomness: {e}"))?;
-                s.prefix = format!("{:016x}", u64::from_ne_bytes(bytes));
-            }
-            let mut attempts = 0;
-            loop {
-                attempts += 1;
-                if attempts > 1024 {
-                    return Err(CommandError::new(
-                        ErrorCode::RateLimited,
-                        "Command ID clock bucket is full; retry with a fresh timestamp",
-                    ));
-                }
-                s.next += 1;
-                let counter = crate::command_counter(
-                    now_ms.max(s.history.boundary.clock),
-                    (s.next % 1024) as u16,
-                )
-                .ok_or("Command clock exceeds ID range")?;
-                command.id = format!("local.{}.{}", &s.prefix[..8], counter);
-                if !s.accepted.contains_key(&command.id)
-                    && !s
-                        .command_ids
-                        .as_ref()
-                        .is_some_and(|j| j.contains_boot(&s.boot, &command.id))
-                {
-                    break;
-                }
-            }
+            assign_command_id(&mut s, &mut command, now_ms)?;
         }
         s.history.check(&identity_boot, &command.id, now_ms)?;
         let id = command.id.clone();
@@ -3106,24 +2700,7 @@ impl LiveStore {
         );
         refresh_identities(&mut s, now_ms);
         s.history.check(&crate::command_history::boot_key(&s.boot), &id, now_ms)?;
-        let audit = match &command.op {
-            Op::RunScript { script, .. } => {
-                Some(format!("Live: run_script {id} on {}: {script}", command.area))
-            }
-            Op::RunChunk { code, .. } => Some(format!(
-                "Live: run_chunk {id} on {}: {}",
-                command.area,
-                code.chars().take(120).collect::<String>().escape_debug()
-            )),
-            _ => None,
-        };
-        if let Some(message) = audit {
-            log::info!("{message}");
-            s.logs.push_back(message);
-            while s.logs.len() > MAX_QUEUE {
-                s.logs.pop_front();
-            }
-        }
+        audit(&mut s, &id, &command);
         let drafted = assistant::stage(&mut s, &command, scope, now_ms)?;
         // A caller may reuse an ID after switching endpoint. Its old endpoint
         // cancellation must not be returned as this newly queued operation.
@@ -3382,6 +2959,466 @@ fn command_fingerprint(command: &Command) -> [u8; 32] {
     let value = canonical(serde_json::to_value(command).expect("command serializes"));
     let bytes = serde_json::to_vec(&value).expect("canonical command serializes");
     ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref().try_into().unwrap()
+}
+
+/// A fresh `local.` id for a command sent without one: the store prefix plus a clock
+/// counter that is neither accepted nor reserved in this boot.
+fn assign_command_id(
+    s: &mut State,
+    command: &mut Command,
+    now_ms: u64,
+) -> Result<(), CommandError> {
+    if s.prefix.is_empty() {
+        let mut bytes = [0; 8];
+        getrandom::fill(&mut bytes).map_err(|e| format!("Command id randomness: {e}"))?;
+        s.prefix = format!("{:016x}", u64::from_ne_bytes(bytes));
+    }
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        if attempts > 1024 {
+            return Err(CommandError::new(
+                ErrorCode::RateLimited,
+                "Command ID clock bucket is full; retry with a fresh timestamp",
+            ));
+        }
+        s.next += 1;
+        let counter =
+            crate::command_counter(now_ms.max(s.history.boundary.clock), (s.next % 1024) as u16)
+                .ok_or("Command clock exceeds ID range")?;
+        command.id = format!("local.{}.{}", &s.prefix[..8], counter);
+        if !s.accepted.contains_key(&command.id)
+            && !s.command_ids.as_ref().is_some_and(|j| j.contains_boot(&s.boot, &command.id))
+        {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Script and chunk commands are written to the service log and the Live log.
+fn audit(s: &mut State, id: &str, command: &Command) {
+    let audit = match &command.op {
+        Op::RunScript { script, .. } => {
+            Some(format!("Live: run_script {id} on {}: {script}", command.area))
+        }
+        Op::RunChunk { code, .. } => Some(format!(
+            "Live: run_chunk {id} on {}: {}",
+            command.area,
+            code.chars().take(120).collect::<String>().escape_debug()
+        )),
+        _ => None,
+    };
+    if let Some(message) = audit {
+        log::info!("{message}");
+        s.logs.push_back(message);
+        while s.logs.len() > MAX_QUEUE {
+            s.logs.pop_front();
+        }
+    }
+}
+
+/// A command id already accepted or reserved: the same operation gets its id back (an
+/// idempotent retry), anything else is refused. `None` means the id is new. `durable`
+/// also consults the command journal, which a reservation has already checked.
+fn known_command(
+    s: &mut State,
+    command: &Command,
+    scope: &crate::access::Scope,
+    durable: bool,
+    identity_boot: &str,
+    now_ms: u64,
+) -> Result<Option<String>, CommandError> {
+    if let Some(previous) = s.accepted.get(&command.id) {
+        if !scope.unrestricted() && s.owners.get(&command.id) != Some(&scope.name) {
+            return Err(CommandError::new(
+                ErrorCode::Forbidden,
+                "Command id belongs to another client",
+            ));
+        }
+        return if previous == &command_fingerprint(command) {
+            Ok(Some(command.id.clone()))
+        } else {
+            Err("Command id already belongs to a different operation".into())
+        };
+    }
+    if durable {
+        let previous = s.history.get(identity_boot, &command.id).cloned().or_else(|| {
+            s.command_ids.as_ref().and_then(|j| j.entry(&s.boot, &command.id)).cloned()
+        });
+        if let Some(previous) = previous {
+            if previous.fingerprint.is_none() {
+                return Err(crate::command_history::expired());
+            }
+            if !scope.unrestricted() && previous.owner != scope.name {
+                return Err(CommandError::new(
+                    ErrorCode::Forbidden,
+                    "Command id belongs to another client",
+                ));
+            }
+            if previous.fingerprint != Some(command_fingerprint(command)) {
+                return Err(CommandError::new(
+                    ErrorCode::Invalid,
+                    "Command id already belongs to a different operation",
+                ));
+            }
+            let mut previous = previous;
+            previous.outcome.get_or_insert_with(|| {
+                failure(
+                    &command.id,
+                    ErrorCode::Unknown,
+                    "unknown: durable reservation has no result; command will not be retried",
+                )
+            });
+            s.accepted.insert(command.id.clone(), command_fingerprint(command));
+            s.owners.insert(command.id.clone(), previous.owner.clone());
+            s.history.insert(identity_boot.to_owned(), command.id.clone(), previous);
+            refresh_identities(s, now_ms);
+            s.history.check(&crate::command_history::boot_key(&s.boot), &command.id, now_ms)?;
+            return Ok(Some(command.id.clone()));
+        }
+    }
+    Ok(None)
+}
+
+/// Checks a command against the latest reports: its area, target, recipient and the
+/// per-operation rules the game would otherwise refuse after a round trip.
+fn validate_against_reports(
+    s: &State,
+    command: &Command,
+    players: bool,
+) -> Result<(), CommandError> {
+    let teleport = matches!(command.op, Op::Teleport { .. } | Op::PcTeleport { .. });
+    // Teleport's area is the destination. Keep the original optional value
+    // in the accepted command so retries remain stable after a cross-area move.
+    let control_area = AreaLive::default();
+    let area = if matches!(command.op, Op::WatchAreas { .. }) {
+        &control_area // observation control must bootstrap an unreported area
+    } else if teleport || matches!(command.op, Op::ReplyToPlayer { .. }) {
+        s.areas
+            .values()
+            .find(|a| command.target().is_some_and(|id| a.find(id).is_some()))
+            .ok_or_else(|| {
+                CommandError::new(ErrorCode::NotFound, "Target is not in the latest reports")
+            })?
+    } else {
+        s.areas
+            .get(&command.area)
+            .ok_or_else(|| CommandError::new(ErrorCode::NotFound, "No report for this area"))?
+    };
+    if teleport {
+        let destination =
+            if command.area.is_empty() { Some(area) } else { s.areas.get(&command.area) };
+        let (x, y) = match command.op {
+            Op::Teleport { x, y, .. } | Op::PcTeleport { x, y, .. } => (x, y),
+            _ => unreachable!(),
+        };
+        if x < 0.0
+            || y < 0.0
+            || destination.and_then(|a| a.size).is_some_and(|[w, h]| x >= w as f32 || y >= h as f32)
+        {
+            return Err("xy must be inside destination area bounds".into());
+        }
+        // Unreported destination areas are resolved and bounded by the game.
+    }
+    let recipient = match &command.op {
+        Op::UseItem { recipient, .. } => recipient.as_deref(),
+        Op::TransferItem { recipient, .. } => Some(recipient.as_str()),
+        _ => None,
+    };
+    if let Some(recipient) = recipient {
+        let (kind, object) = find_target(s, area, recipient)?;
+        if kind != ObjectKind::Creature {
+            return Err("Recipient must be a creature".into());
+        }
+        if (object.pc || object.dm || object.possessed) && !players {
+            return Err(CommandError::new(
+                ErrorCode::Disabled,
+                "Player recipient requires both permissions",
+            ));
+        }
+        if object.dead {
+            return Err(CommandError::new(ErrorCode::Dead, "Recipient is dead"));
+        }
+    }
+    // A creature in module limbo has no area row; the game validates its identity/type.
+    if let Some(target) = command.target().filter(|_| !matches!(command.op, Op::Unlimbo { .. })) {
+        let (kind, object) = find_target(s, area, target)?;
+        if teleport && (object.pc || object.dm || object.possessed) && !players {
+            return Err(CommandError::new(
+                ErrorCode::Disabled,
+                "Player teleport requires both player permissions",
+            ));
+        }
+        if command.op.is_player() && kind != ObjectKind::Creature {
+            return Err("Target must be a creature".into());
+        }
+        if (object.pc || object.dm || object.possessed)
+            && !players
+            && matches!(
+                command.op,
+                Op::GiveItem { .. }
+                    | Op::EquipItem { .. }
+                    | Op::UnequipItem { .. }
+                    | Op::DropItem { .. }
+                    | Op::UseItem { .. }
+                    | Op::TransferItem { .. }
+                    | Op::PlayCreatureAnimation { .. }
+                    | Op::TakeGold { .. }
+                    | Op::SetXp { .. }
+                    | Op::TakeXp { .. }
+                    | Op::RemoveLevel { .. }
+                    | Op::GetFactionReputation { .. }
+                    | Op::SetFactionReputation { .. }
+            )
+        {
+            return Err(CommandError::new(
+                ErrorCode::Disabled,
+                "Player operations require both player permissions",
+            ));
+        }
+        if object.dead
+            && matches!(
+                command.op,
+                Op::Teleport { .. }
+                    | Op::GiveItem { .. }
+                    | Op::EquipItem { .. }
+                    | Op::UnequipItem { .. }
+                    | Op::DropItem { .. }
+                    | Op::UseItem { .. }
+                    | Op::TransferItem { .. }
+                    | Op::PlayCreatureAnimation { .. }
+                    | Op::TakeGold { .. }
+                    | Op::SetXp { .. }
+                    | Op::TakeXp { .. }
+                    | Op::RemoveLevel { .. }
+                    | Op::GiveLevel { .. }
+                    | Op::GiveAlignment { .. }
+                    | Op::SetStat { .. }
+                    | Op::GetFactionReputation { .. }
+                    | Op::SetFactionReputation { .. }
+                    | Op::SetLootable { .. }
+                    | Op::Kill { .. }
+                    | Op::Heal { .. }
+                    | Op::ForceRest { .. }
+                    | Op::Limbo { .. }
+                    | Op::Patrol { .. }
+                    | Op::NpcMove { .. }
+                    | Op::NpcAttack { .. }
+                    | Op::NpcSay { .. }
+                    | Op::StopCombat { .. }
+                    | Op::SetFaction { .. }
+                    | Op::Freeze { .. }
+                    | Op::Unfreeze { .. }
+                    | Op::RunScript { .. }
+                    | Op::RunChunk { .. }
+            )
+            || object.dead
+                && command.op.is_player()
+                && !matches!(
+                    command.op,
+                    Op::PcRaise { .. }
+                        | Op::ReplyToPlayer { .. }
+                        | Op::PcMessage { .. }
+                        | Op::PcJournal { .. }
+                        | Op::PcTakeItem { .. }
+                        | Op::PcBoot { .. }
+                        | Op::Fade { .. }
+                        | Op::PlaySound { .. }
+                )
+        {
+            return Err(CommandError::new(ErrorCode::Dead, "Target is dead"));
+        }
+        let player_stop = matches!(command.op, Op::StopCombat { target: Some(_), .. })
+            && object.pc
+            && !object.dm
+            && !object.possessed;
+        if player_stop && !players {
+            return Err(CommandError::new(
+                ErrorCode::Disabled,
+                "Player stop requires both player permissions",
+            ));
+        }
+        if (object.pc || object.dm || object.possessed)
+            && !matches!(command.op, Op::GetVariable { .. } | Op::DumpLocals { .. })
+            && !matches!(command.op, Op::RunScript { .. } | Op::RunChunk { .. })
+            && !(players
+                && (command.op.is_player()
+                    || player_stop
+                    || matches!(
+                        command.op,
+                        Op::Teleport { .. }
+                            | Op::NpcMove { .. }
+                            | Op::NpcAttack { .. }
+                            | Op::ReplaceObjectAnimation { .. }
+                            | Op::SetAppearance { .. }
+                            | Op::ApplyVfx { .. }
+                            | Op::ClearVfx { .. }
+                            | Op::ViewInventory { .. }
+                            | Op::TakeItem { .. }
+                            | Op::SetVariable { .. }
+                            | Op::Freeze { .. }
+                            | Op::Unfreeze { .. }
+                            | Op::Kill { .. }
+                            | Op::GiveItem { .. }
+                            | Op::EquipItem { .. }
+                            | Op::UnequipItem { .. }
+                            | Op::DropItem { .. }
+                            | Op::UseItem { .. }
+                            | Op::TransferItem { .. }
+                            | Op::PlayCreatureAnimation { .. }
+                            | Op::TakeGold { .. }
+                            | Op::SetXp { .. }
+                            | Op::TakeXp { .. }
+                            | Op::RemoveLevel { .. }
+                            | Op::GetFactionReputation { .. }
+                            | Op::SetFactionReputation { .. }
+                            | Op::Heal { .. }
+                            | Op::SetInvulnerable { .. }
+                            | Op::SetImmortal { .. }
+                            | Op::SetAi { .. }
+                            | Op::ForceRest { .. }
+                    )))
+        {
+            return Err(CommandError::new(
+                ErrorCode::Protected,
+                "Target is a player, DM or DM-possessed creature",
+            ));
+        }
+        match &command.op {
+            Op::Destroy { .. } if kind == ObjectKind::Encounter => {
+                return Err(CommandError::new(
+                    ErrorCode::Disabled,
+                    "Native encounter destruction is unavailable; object would remain active",
+                ));
+            }
+            Op::GetFactionReputation { .. }
+            | Op::SetFactionReputation { .. }
+            | Op::GiveItem { .. }
+            | Op::EquipItem { .. }
+            | Op::UnequipItem { .. }
+            | Op::DropItem { .. }
+            | Op::UseItem { .. }
+            | Op::TransferItem { .. }
+            | Op::PlayCreatureAnimation { .. }
+            | Op::Patrol { .. }
+            | Op::StopPatrol { .. }
+            | Op::SetLootable { .. }
+            | Op::Kill { .. }
+            | Op::TakeGold { .. }
+            | Op::SetXp { .. }
+            | Op::TakeXp { .. }
+            | Op::RemoveLevel { .. }
+            | Op::Heal { .. }
+            | Op::SetInvulnerable { .. }
+            | Op::SetImmortal { .. }
+            | Op::SetAi { .. }
+            | Op::ForceRest { .. }
+            | Op::Limbo { .. }
+            | Op::NpcMove { .. }
+            | Op::NpcAttack { .. }
+            | Op::StopCombat { .. }
+            | Op::SetFaction { .. }
+            | Op::Freeze { .. }
+            | Op::Unfreeze { .. }
+            | Op::PcHeal { .. }
+            | Op::PcRaise { .. }
+            | Op::PcTeleport { .. }
+            | Op::PcGiveGold { .. }
+            | Op::PcGiveXp { .. }
+            | Op::PcGiveItem { .. }
+                if kind != ObjectKind::Creature =>
+            {
+                return Err("Target must be a creature".into());
+            }
+            Op::ViewInventory { .. }
+            | Op::TakeItem { .. }
+            | Op::NpcSay { .. }
+            | Op::SetAppearance { .. }
+                if !matches!(kind, ObjectKind::Creature | ObjectKind::Placeable) =>
+            {
+                return Err("Target must be a creature or placeable".into());
+            }
+            Op::DisableTrap { .. }
+            | Op::SpawnTrapOnObject { .. }
+            | Op::SetState { .. }
+            | Op::SetFacing { .. }
+            | Op::SetVisualTransform { .. }
+            | Op::SetPosition { .. }
+            | Op::PlayAnimation { .. }
+            | Op::SetUseable { .. }
+                if !matches!(kind, ObjectKind::Door | ObjectKind::Placeable) =>
+            {
+                return Err("Target must be a door or placeable".into());
+            }
+            _ => {}
+        }
+        if matches!(
+            command.op,
+            Op::ReplyToPlayer { .. }
+                | Op::PcMessage { .. }
+                | Op::PcJournal { .. }
+                | Op::PcTakeItem { .. }
+                | Op::PcBoot { .. }
+                | Op::Fade { .. }
+                | Op::PlaySound { .. }
+        ) && (!object.pc || object.dm || object.possessed)
+        {
+            return Err(CommandError::new(
+                ErrorCode::Protected,
+                "Target must be a PC, not an NPC or DM",
+            ));
+        }
+        if matches!(command.op, Op::SkillCheck { .. })
+            && (!object.pc || object.dm || object.possessed)
+        {
+            return Err(CommandError::new(
+                ErrorCode::Protected,
+                "Skill checks target a player, not an NPC or DM",
+            ));
+        }
+        if object.pc && matches!(command.op, Op::NpcAttack { faction: Some(_), .. }) {
+            return Err("Fighting faction cannot change a PC".into());
+        }
+        if matches!(command.op, Op::SetStatic { .. }) && kind != ObjectKind::Placeable {
+            return Err("Target must be a placeable".into());
+        }
+        if matches!(command.op, Op::PcRaise { .. }) && !object.dead {
+            return Err("Target is already alive".into());
+        }
+        if matches!(command.op, Op::SetFacing { .. }) && kind == ObjectKind::Door {
+            return Err(CommandError::new(
+                ErrorCode::Disabled,
+                "Native door facing is unsupported; use visual rotation",
+            ));
+        }
+        if let Op::PlayAnimation { name, .. } = command.op {
+            if kind == ObjectKind::Door && !matches!(name, Animation::Open | Animation::Close) {
+                return Err("Doors support open/close only".into());
+            }
+            if kind == ObjectKind::Door && name == Animation::Open && object.lock == Some(true) {
+                return Err("Door is locked".into());
+            }
+        }
+        let total = match command.op {
+            Op::PcGiveGold { amount, .. } => object.gold.map(|old| (old, amount)),
+            Op::PcGiveXp { amount, .. } => object.xp.map(|old| (old, amount)),
+            _ => None,
+        };
+        if total.is_some_and(|(old, n)| old.checked_add(n as i32).is_none()) {
+            return Err("Grant would overflow the reported total".into());
+        }
+        if let Op::NpcAttack { victim, .. } = &command.op {
+            let (kind, object) = find_target(s, area, victim)?;
+            if victim == target || kind != ObjectKind::Creature {
+                return Err("Victim must be another creature in this area".into());
+            }
+            if object.dead {
+                return Err(CommandError::new(ErrorCode::Dead, "Victim is dead"));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn find_target<'a>(
