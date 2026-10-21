@@ -106,12 +106,16 @@ pub(crate) fn ui(
             let d=rows[0];
             actions.push((d.command.id.clone(),Some(state.editing.get(&d.command.id).cloned().unwrap_or_else(||d.text().into()))));
         }
+        let names: std::collections::HashMap<String, String> = rows
+            .iter()
+            .filter_map(|d| Some((d.client.clone(), app.live_backend().actor_name(&d.client)?)))
+            .collect();
         egui::ScrollArea::vertical().id_salt(("llm-drafts",area,targets)).max_height(220.).show(ui,|ui| {
             for d in rows {
                 ui.push_id(&d.command.id,|ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.strong(if d.name.is_empty(){d.target().unwrap_or("Conversation")}else{&d.name});
-                        ui.weak(format!("by LLM · {}",d.client));
+                        ui.weak(format!("by LLM · {}",names.get(&d.client).map_or(d.client.as_str(),String::as_str)));
                         if area.is_none() {ui.small(&d.area);}
                     });
                     if let Some(n)=d.reply_to {ui.small(format!("Conversation context: event {n}"));}
